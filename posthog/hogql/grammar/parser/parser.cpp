@@ -9,52 +9,48 @@
 #include "HogQLParserBaseVisitor.h"
 
 #include "string.h"
+#include "error.h"
 
 #define VISIT(RULE) virtual any visit##RULE(HogQLParser::RULE##Context* ctx) override
-#define VISIT_UNSUPPORTED(RULE)                                             \
-  VISIT(RULE) {                                                             \
-    PyErr_SetString(PyExc_NotImplementedError, "Unsupported rule: " #RULE); \
-    return NULL;                                                            \
-  }
-#define GET_STATE(MODULE) static_cast<parser_state*>(PyModule_GetState(MODULE))
+#define VISIT_UNSUPPORTED(RULE) VISIT(RULE) { throw HogQLNotImplementedError("Unsupported rule: " #RULE); }
 
 using namespace std;
+
+// PYTHON UTILS (`X_` stands for "extension")
+
+// Extend `list` with `extension`, in-place.
+void X_PyList_Extend(PyObject* list, PyObject* extension) {
+  Py_ssize_t list_size = PyList_Size(list);
+  Py_ssize_t extension_size = PyList_Size(extension);
+  PyList_SetSlice(list, list_size, list_size + extension_size, extension);
+}
 
 // MODULE STATE
 
 typedef struct {
   PyObject* ast_module;
+  PyObject* errors_module;
 } parser_state;
+
+parser_state* get_module_state(PyObject* module) {
+  return static_cast<parser_state*>(PyModule_GetState(module));
+}
 
 // PARSING AND AST CONVERSION
 
-/// Builds an AST node of the specified type. Decrements the refcount for kwargs. Return value: New reference.
-PyObject* build_ast_node(parser_state* state, const char* type_name, PyObject* kwargs) {
-  // Check that kwargs are a dict
-  if (!kwargs) {
-    PyErr_SetString(PyExc_RuntimeError, "build_ast_node kwargs cannot be NULL");
-    return NULL;
-  }
-  if (!PyDict_Check(kwargs)) {
-    Py_DECREF(kwargs);
-    PyErr_SetString(PyExc_RuntimeError, "build_ast_node kwargs must be a dict");
-    return NULL;
-  }
-  PyObject* node_type = PyObject_GetAttrString(state->ast_module, type_name);
-  PyObject* args = PyTuple_New(0);
-  PyObject* result = PyObject_Call(node_type, args, kwargs);
-  Py_DECREF(kwargs);
-  Py_DECREF(args);
-  Py_DECREF(node_type);
-  return result;
-}
+// Conventions:
+// 1. If any child rule results in an AST node, so must the parent rule - once in Python land, always in Python land.
+//    E.g. it doesn't make sense to create a vector of PyObjects*, that should just be a Python list (a new PyObject*).
+// 2. Stay out of Python land as long as possible. E.g. avoid using PyObjects* for ints or strings.
+// 3. REMEMBER TO Py_DECREF AND Py_INCREF. Otherwise there will be memory leaks or segfaults.
+// 4. For Py_None, Py_True, and Py_False, just wrap them in Py_NewRef().
+// 5. In Py_BuildValue tend towards use of `N` (which does not increment the refcount) over `O` (which does).
+//    That's because we mostly use new values and not borrowed ones - but this is not a hard rule.
+// 6. Use the `auto` type for HogQLParser:: and HogQLLexer:: values. Otherwise it's clearer for the type to be explicit.
 
-PyObject* get_ast_enum_val(parser_state* state, const char* enum_name, const char* enum_val) {
-  PyObject* enum_type = PyObject_GetAttrString(state->ast_module, enum_name);
-  PyObject* result = PyObject_GetAttrString(enum_type, enum_val);
-  Py_DECREF(enum_type);
-  return result;
-}
+// To understand how Py_BuildValue, PyArg_ParseTuple, and PyArg_ParseTupleAndKeywords formats work,
+// (for instance, what does `s`, `s#`, `i` or `N` mean) read this:
+// https://docs.python.org/3/c-api/arg.html
 
 PyObject* vector_to_list_string(const vector<string>& items) {
   PyObject* list = PyList_New(items.size());
@@ -76,99 +72,231 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
  private:
   parser_state* state;
 
+  const vector<string> RESERVED_KEYWORDS = {"select", "from", "where", "as"};
+
+  /// Build an AST node of the specified type. Return value: New reference.
+  template <typename... Args>
+  PyObject* build_ast_node(const char* type_name, const char* kwargs_format, Args... kwargs_items) {
+    PyObject* node_type = PyObject_GetAttrString(state->ast_module, type_name);
+    if (!node_type) {
+      string err = "AST node type \"";
+      err.append(type_name);
+      err.append("\" does not exist");
+      throw HogQLParsingError(err);
+    }
+    PyObject* args = PyTuple_New(0);
+    PyObject* kwargs = Py_BuildValue(kwargs_format, kwargs_items...);
+    PyObject* result = PyObject_Call(node_type, args, kwargs);
+    Py_DECREF(kwargs);
+    Py_DECREF(args);
+    Py_DECREF(node_type);
+    return result;
+  }
+
+  /// Return the specified member of the specified enum. Return value: New reference.
+  PyObject* get_ast_enum_member(const char* enum_name, const char* enum_member) {
+    PyObject* enum_type = PyObject_GetAttrString(state->ast_module, enum_name);
+    PyObject* result = PyObject_GetAttrString(enum_type, enum_member);
+    Py_DECREF(enum_type);
+    return result;
+  }
+
+  /// Return the specified member of the specified enum. Return value: New reference.
+  bool is_ast_node_instance(PyObject* obj, const char* type_name) {
+    PyObject* node_type = PyObject_GetAttrString(state->ast_module, type_name);
+    bool result = PyObject_IsInstance(obj, node_type);
+    Py_DECREF(node_type);
+    return result;
+  }
+
  public:
   HogQLParseTreeConverter(parser_state* state) : state(state) {}
 
+  // This is the only method that should be called from outside the class.
+  // Convert the parse tree to an AST node result. If an error has occurred in conversion, handle it gracefully.
+  PyObject* visitAsPyObjectFinal(antlr4::tree::ParseTree* tree) {
+  try {
+    return visitAsPyObject(tree);
+  } catch (const bad_any_cast& e) {
+    PyErr_SetString(PyExc_RuntimeError, "Parsing failed due to bad type casting");
+    return NULL;
+  } catch (const HogQLSyntaxError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");
+    PyErr_SetString(error_type, e.what());
+    Py_DECREF(error_type);
+    return NULL;
+  } catch (const HogQLNotImplementedError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "NotImplementedException");
+    PyErr_SetString(error_type, e.what());
+    Py_DECREF(error_type);
+    return NULL;
+  } catch (const HogQLParsingError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingException");
+    PyErr_SetString(error_type, e.what());
+    Py_DECREF(error_type);
+    return NULL;
+  }
+  }
+
+  PyObject* visitAsPyObject(antlr4::tree::ParseTree* tree) {
+    any result = visit(tree);
+    PyObject* cast_result = any_cast<PyObject*>(result);
+    if (!cast_result) {
+      throw runtime_error("Rule resulted in a null PyObject pointer. A Python exception must be set at this point.");
+    }
+    return cast_result;
+  }
+
+  PyObject* visitAsPyObjectOrNone(antlr4::tree::ParseTree* tree) {
+    if (tree == NULL) {
+      Py_RETURN_NONE;
+    }
+    return visitAsPyObject(tree);
+  }
+
+  PyObject* visitAsPyObjectOrEmptyList(antlr4::tree::ParseTree* tree) {
+    if (tree == NULL) {
+      return PyList_New(0);
+    }
+    return visitAsPyObject(tree);
+  }
+
+  string visitAsString(antlr4::tree::ParseTree* tree) {
+    any result = visit(tree);
+    return any_cast<string>(result);
+  }
+
+  // T has to be used in place of antlr4::tree::ParseTree* here, because there's no conversion from the child class
+  // to its parent within vectors
+  template <typename T>
+  PyObject* visitPyListOfObjects(vector<T> tree) {
+    PyObject* list = PyList_New(tree.size());
+    for (size_t i = 0; i < tree.size(); i++) {
+      PyList_SET_ITEM(list, i, visitAsPyObject(tree[i]));
+    }
+    return list;
+  }
+
   VISIT(Select) {
-    auto selectUnionStmt = ctx->selectUnionStmt();
-    if (selectUnionStmt) {
-      return visit(selectUnionStmt);
+    auto select_union_stmt_ctx = ctx->selectUnionStmt();
+    if (select_union_stmt_ctx) {
+      return visit(select_union_stmt_ctx);
     }
     return visit(ctx->selectStmt());
   }
 
-  // VISIT(SelectUnionStmt) {
-  //     select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
-  //         visit(select) for select in ctx->selectStmtWithParens()
-  //     ]
-  //     flattened_queries: List[ast.SelectQuery] = []
-  //     for query in select_queries:
-  //         if (isinstance(query, ast.SelectQuery)) {
-  //             flattened_queries.append(query)
-  //         } else if (isinstance(query, ast.SelectUnionQuery)) {
-  //             flattened_queries.extend(query.select_queries)
-  //         } else {
-  //             raise Exception(f"Unexpected query node type {type(query).__name__}")
-  //     if (len(flattened_queries) == 1) {
-  //         return flattened_queries[0]
-  //     return ast.SelectUnionQuery(select_queries=flattened_queries)
-
   VISIT(SelectUnionStmt) {
     vector<PyObject*> select_queries;
-    for (auto select : ctx->selectStmtWithParens()) {
-      select_queries.push_back(any_cast<PyObject*>(visit(select)));
+    auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
+    select_queries.reserve(select_stmt_with_parens_ctxs.size());
+    for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
+      select_queries.push_back(visitAsPyObject(select_stmt_with_parens_ctx));
     }
+    PyObject* flattened_queries = PyList_New(0);
+    for (auto query : select_queries) {
+      if (is_ast_node_instance(query, "SelectQuery")) {
+        PyList_Append(flattened_queries, query);
+      } else if (is_ast_node_instance(query, "SelectUnionQuery")) {
+        // Extend flattened_queries with sub_select_queries
+        PyObject* sub_select_queries = PyObject_GetAttrString(query, "select_queries");
+        X_PyList_Extend(flattened_queries, sub_select_queries);
+        Py_DECREF(sub_select_queries);
+      } else {
+        Py_DECREF(flattened_queries);
+        string err = "Unexpected query node type: ";
+        err.append(Py_TYPE(query)->tp_name);
+        throw HogQLParsingError(err);
+      }
+    }
+    return build_ast_node("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
   }
 
   VISIT(SelectStmtWithParens) {
-    auto selectStmt = ctx->selectStmt();
-    if (selectStmt) {
-      return visit(selectStmt);
+    auto select_stmt_ctx = ctx->selectStmt();
+    if (select_stmt_ctx) {
+      return visit(select_stmt_ctx);
     }
     return visit(ctx->selectUnionStmt());
   }
 
-  // VISIT(SelectStmt) {
-  //     select_query = ast.SelectQuery(
-  //         ctes=visit(ctx->withClause()) if ctx->withClause() else None,
-  //         select=visit(ctx->columnExprList()) if ctx->columnExprList() else [],
-  //         distinct=True if ctx->DISTINCT() else None,
-  //         select_from=visit(ctx->fromClause()) if ctx->fromClause() else None,
-  //         where=visit(ctx->whereClause()) if ctx->whereClause() else None,
-  //         prewhere=visit(ctx->prewhereClause()) if ctx->prewhereClause() else None,
-  //         having=visit(ctx->havingClause()) if ctx->havingClause() else None,
-  //         group_by=visit(ctx->groupByClause()) if ctx->groupByClause() else None,
-  //         order_by=visit(ctx->orderByClause()) if ctx->orderByClause() else None,
-  //     )
+  VISIT(SelectStmt) {
+    PyObject* select_query = build_ast_node(
+        "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", visitAsPyObjectOrNone(ctx->withClause()),
+        "select", visitAsPyObjectOrEmptyList(ctx->columnExprList()), "distinct",
+        Py_NewRef(ctx->DISTINCT() ? Py_True : Py_False), "select_from", visitAsPyObjectOrNone(ctx->fromClause()), "where",
+        visitAsPyObjectOrNone(ctx->whereClause()), "prewhere", visitAsPyObjectOrNone(ctx->prewhereClause()), "having",
+        visitAsPyObjectOrNone(ctx->havingClause()), "group_by", visitAsPyObjectOrNone(ctx->groupByClause()), "order_by",
+        visitAsPyObjectOrNone(ctx->orderByClause())
+    );
 
-  //     if (window_clause := ctx->windowClause()) {
-  //         select_query.window_exprs = {}
-  //         for index, window_expr in enumerate(window_clause.windowExpr()):
-  //             name = visit(window_clause.identifier()[index])
-  //             select_query.window_exprs[name] = visit(window_expr)
+    auto window_clause_ctx = ctx->windowClause();
+    if (window_clause_ctx) {
+      auto window_expr_ctxs = window_clause_ctx->windowExpr();
+      auto identifier_ctxs = window_clause_ctx->identifier();
+      PyObject* window_exprs = PyDict_New();
+      PyObject_SetAttrString(select_query, "window_exprs", window_exprs);
+      for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
+        PyDict_SetItemString(window_exprs, visitAsString(identifier_ctxs[i]).c_str(), visitAsPyObject(window_expr_ctxs[i]));
+      }
+    }
 
-  //     if (limit_and_offset_clause := ctx->limitAndOffsetClause()) {
-  //         select_query.limit = visit(limit_and_offset_clause.columnExpr(0))
-  //         if (offset := limit_and_offset_clause.columnExpr(1)) {
-  //             select_query.offset = visit(offset)
-  //         if (limit_by_exprs := limit_and_offset_clause.columnExprList()) {
-  //             select_query.limit_by = visit(limit_by_exprs)
-  //         if (limit_and_offset_clause.WITH() and limit_and_offset_clause.TIES()) {
-  //             select_query.limit_with_ties = True
-  //     } else if ((offset_only_clause ) {= ctx->offsetOnlyClause()) {
-  //         select_query.offset = visit(offset_only_clause.columnExpr())
+    auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
+    if (limit_and_offset_clause_ctx) {
+      PyObject_SetAttrString(select_query, "limit", visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0)));
+      auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
+      if (offset_ctx) {
+        PyObject_SetAttrString(select_query, "offset", visitAsPyObject(offset_ctx));
+      }
+      auto limit_by_exprs_ctx = limit_and_offset_clause_ctx->columnExprList();
+      if (limit_by_exprs_ctx) {
+        PyObject_SetAttrString(select_query, "limit_by", visitAsPyObject(limit_by_exprs_ctx));
+      }
+      if (limit_and_offset_clause_ctx->WITH() && limit_and_offset_clause_ctx->TIES()) {
+        PyObject_SetAttrString(select_query, "limit_with_ties", Py_NewRef(Py_True));
+      }
+    } else {
+      auto offset_only_clause_ctx = ctx->offsetOnlyClause();
+      if (offset_only_clause_ctx) {
+        PyObject_SetAttrString(select_query, "offset", visitAsPyObject(offset_only_clause_ctx->columnExpr()));
+      }
+    }
 
-  //     if (ctx->arrayJoinClause()) {
-  //         array_join_clause = ctx->arrayJoinClause()
-  //         if (select_query.select_from is None) {
-  //             raise HogQLException("Using ARRAY JOIN without a FROM clause is not permitted")
-  //         if (array_join_clause.LEFT()) {
-  //             select_query.array_join_op = "LEFT ARRAY JOIN"
-  //         } else if (array_join_clause.INNER()) {
-  //             select_query.array_join_op = "INNER ARRAY JOIN"
-  //         } else {
-  //             select_query.array_join_op = "ARRAY JOIN"
-  //         select_query.array_join_list = visit(array_join_clause.columnExprList())
-  //         for expr in select_query.array_join_list:
-  //             if (not isinstance(expr, ast.Alias)) {
-  //                 raise HogQLException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+    auto array_join_clause_ctx = ctx->arrayJoinClause();
+    if (array_join_clause_ctx) {
+      if (Py_IsNone(PyObject_GetAttrString(select_query, "select_from"))) {
+        Py_DECREF(select_query);
+        throw HogQLSyntaxError("Using ARRAY JOIN without a FROM clause is not permitted");
+      }
+      PyObject_SetAttrString(
+          select_query, "array_join_op",
+          PyUnicode_FromString(
+              array_join_clause_ctx->LEFT()    ? "LEFT ARRAY JOIN"
+              : array_join_clause_ctx->INNER() ? "INNER ARRAY JOIN"
+                                               : "ARRAY JOIN"
+          )
+      );
 
-  //     if (ctx->topClause()) {
-  //         raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
-  //     if (ctx->settingsClause()) {
-  //         raise NotImplementedException(f"Unsupported: SelectStmt.settingsClause()")
+      PyObject* array_join_list = visitAsPyObject(array_join_clause_ctx->columnExprList());
+      for (size_t i = 0; i < PyList_Size(array_join_list); i++) {
+        PyObject* expr = PyList_GET_ITEM(array_join_list, i);
+        if (!is_ast_node_instance(expr, "Alias")) {
+          Py_DECREF(array_join_list);
+          Py_DECREF(select_query);
+          throw HogQLSyntaxError("ARRAY JOIN must be used with an alias");
+        }
+      }
+      PyObject_SetAttrString(select_query, "array_join_list", array_join_list);
+    }
 
-  //     return select_query
+    if (ctx->topClause()) {
+      throw HogQLNotImplementedError("Unsupported: SelectStmt.topClause()");
+    }
+    if (ctx->settingsClause()) {
+      throw HogQLNotImplementedError("Unsupported: SelectStmt.settingsClause()");
+    }
+
+    return select_query;
+  }
 
   VISIT(WithClause) { return visit(ctx->withExprList()); }
 
@@ -192,157 +320,187 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  // VISIT(LimitAndOffsetClauseClause) {
-  //     raise Exception(f"Parsed as part of SelectStmt, can't parse directly")
+  VISIT_UNSUPPORTED(LimitAndOffsetClause)
 
   VISIT_UNSUPPORTED(SettingsClause)
 
-  // VISIT(JoinExprOp) {
-  //     join1: ast.JoinExpr = visit(ctx->joinExpr(0))
-  //     join2: ast.JoinExpr = visit(ctx->joinExpr(1))
+  VISIT(JoinExprOp) {
+    PyObject* join1 = visitAsPyObject(ctx->joinExpr(0));
+    PyObject* join2 = visitAsPyObject(ctx->joinExpr(1));
 
-  //     if (ctx->joinOp()) {
-  //         join2.join_type = f"{visit(ctx->joinOp())} JOIN"
-  //     } else {
-  //         join2.join_type = "JOIN"
-  //     join2.constraint = visit(ctx->joinConstraintClause())
+    auto join_op_ctx = ctx->joinOp();
+    if (join_op_ctx) {
+      string join_op = visitAsString(join_op_ctx);
+      join_op.append(" JOIN");
+      PyObject_SetAttrString(join1, "join_type", PyUnicode_FromStringAndSize(join_op.c_str(), join_op.size()));
+    } else {
+      PyObject_SetAttrString(join1, "join_type", PyUnicode_FromString("JOIN"));
+    }
+    PyObject_SetAttrString(join2, "constraint", visitAsPyObject(ctx->joinConstraintClause()));
 
-  //     last_join = join1
-  //     while last_join.next_join is not None:
-  //         last_join = last_join.next_join
-  //     last_join.next_join = join2
+    PyObject* last_join = join1;
+    PyObject* next_join = PyObject_GetAttrString(last_join, "next_join");
+    while (!Py_IsNone(next_join)) {
+      last_join = next_join;
+      next_join = PyObject_GetAttrString(last_join, "next_join");
+    }
+    PyObject_SetAttrString(last_join, "next_join", join2);
 
-  //     return join1
+    return join1;
+  }
 
-  // VISIT(JoinExprTable) {
-  //     sample = None
-  //     if (ctx->sampleClause()) {
-  //         sample = visit(ctx->sampleClause())
-  //     table = visit(ctx->tableExpr())
-  //     table_final = True if ctx->FINAL() else None
-  //     if (isinstance(table, ast.JoinExpr)) {
-  //         # visitTableExprAlias returns a JoinExpr to pass the alias
-  //         # visitTableExprFunction returns a JoinExpr to pass the args
-  //         table.table_final = table_final
-  //         table.sample = sample
-  //         return table
-  //     return ast.JoinExpr(table=table, table_final=table_final, sample=sample)
+  VISIT(JoinExprTable) {
+    PyObject* sample = visitAsPyObjectOrNone(ctx->sampleClause());
+    PyObject* table = visitAsPyObject(ctx->tableExpr());
+    PyObject* table_final = Py_NewRef(ctx->FINAL() ? Py_True : Py_None);
+    if (is_ast_node_instance(table, "JoinExpr")) {
+      // visitTableExprAlias returns a JoinExpr to pass the alias
+      // visitTableExprFunction returns a JoinExpr to pass the args
+      PyObject_SetAttrString(table, "table_final", table_final);
+      PyObject_SetAttrString(table, "sample", sample);
+      return table;
+    }
+    return build_ast_node("JoinExpr", "{s:N,s:N,s:N}", "table", table, "table_final", table_final, "sample", sample);
+  }
 
   VISIT(JoinExprParens) { return visit(ctx->joinExpr()); }
 
-  // VISIT(JoinExprCrossOp) {
-  //     join1: ast.JoinExpr = visit(ctx->joinExpr(0))
-  //     join2: ast.JoinExpr = visit(ctx->joinExpr(1))
-  //     join2.join_type = "CROSS JOIN"
-  //     last_join = join1
-  //     while last_join.next_join is not None:
-  //         last_join = last_join.next_join
-  //     last_join.next_join = join2
-  //     return join1
-  // }
+  VISIT(JoinExprCrossOp) {
+    PyObject* join1 = visitAsPyObject(ctx->joinExpr(0));
+    PyObject* join2 = visitAsPyObject(ctx->joinExpr(1));
+    PyObject_SetAttrString(join1, "join_type", PyUnicode_FromString("CROSS JOIN"));
 
-  // VISIT(JoinOpInner) {
-  //     tokens = []
-  //     if (ctx->ALL()) {
-  //         tokens.append("ALL")
-  //     if (ctx->ANY()) {
-  //         tokens.append("ANY")
-  //     if (ctx->ASOF()) {
-  //         tokens.append("ASOF")
-  //     tokens.append("INNER")
-  //     return " ".join(tokens)
-  // }
+    PyObject* last_join = join1;
+    PyObject* next_join = PyObject_GetAttrString(last_join, "next_join");
+    while (!Py_IsNone(next_join)) {
+      last_join = next_join;
+      next_join = PyObject_GetAttrString(last_join, "next_join");
+    }
+    PyObject_SetAttrString(last_join, "next_join", join2);
 
-  // VISIT(JoinOpLeftRight) {
-  //     tokens = []
-  //     if (ctx->LEFT()) {
-  //         tokens.append("LEFT")
-  //     if (ctx->RIGHT()) {
-  //         tokens.append("RIGHT")
-  //     if (ctx->OUTER()) {
-  //         tokens.append("OUTER")
-  //     if (ctx->SEMI()) {
-  //         tokens.append("SEMI")
-  //     if (ctx->ALL()) {
-  //         tokens.append("ALL")
-  //     if (ctx->ANTI()) {
-  //         tokens.append("ANTI")
-  //     if (ctx->ANY()) {
-  //         tokens.append("ANY")
-  //     if (ctx->ASOF()) {
-  //         tokens.append("ASOF")
-  //     return " ".join(tokens)
-  // }
+    return join1;
+  }
 
-  // VISIT(JoinOpFull) {
-  //     tokens = []
-  //     if (ctx->LEFT()) {
-  //         tokens.append("FULL")
-  //     if (ctx->OUTER()) {
-  //         tokens.append("OUTER")
-  //     if (ctx->ALL()) {
-  //         tokens.append("ALL")
-  //     if (ctx->ANY()) {
-  //         tokens.append("ANY")
-  //     return " ".join(tokens)
-  // }
+  VISIT(JoinOpInner) {
+    vector<string> tokens;
+    if (ctx->ALL()) {
+      tokens.push_back("ALL");
+    }
+    if (ctx->ANY()) {
+      tokens.push_back("ANY");
+    }
+    if (ctx->ASOF()) {
+      tokens.push_back("ASOF");
+    }
+    tokens.push_back("INNER");
+    return boost::algorithm::join(tokens, " ");
+  }
+
+  VISIT(JoinOpLeftRight) {
+    vector<string> tokens;
+    if (ctx->LEFT()) {
+      tokens.push_back("LEFT");
+    }
+    if (ctx->RIGHT()) {
+      tokens.push_back("RIGHT");
+    }
+    if (ctx->OUTER()) {
+      tokens.push_back("OUTER");
+    }
+    if (ctx->SEMI()) {
+      tokens.push_back("SEMI");
+    }
+    if (ctx->ALL()) {
+      tokens.push_back("ALL");
+    }
+    if (ctx->ANTI()) {
+      tokens.push_back("ANTI");
+    }
+    if (ctx->ANY()) {
+      tokens.push_back("ANY");
+    }
+    if (ctx->ASOF()) {
+      tokens.push_back("ASOF");
+    }
+    return boost::algorithm::join(tokens, " ");
+  }
+
+  VISIT(JoinOpFull) {
+    vector<string> tokens;
+    if (ctx->FULL()) {
+      tokens.push_back("FULL");
+    }
+    if (ctx->OUTER()) {
+      tokens.push_back("OUTER");
+    }
+    if (ctx->ALL()) {
+      tokens.push_back("ALL");
+    }
+    if (ctx->ANY()) {
+      tokens.push_back("ANY");
+    }
+    return boost::algorithm::join(tokens, " ");
+  }
 
   VISIT_UNSUPPORTED(JoinOpCross)
 
-  // VISIT(JoinConstraintClause) {
-  //     if (ctx->USING()) {
-  //         raise NotImplementedException(f"Unsupported: JOIN ... USING")
-  //     column_expr_list = visit(ctx->columnExprList())
-  //     if (len(column_expr_list) != 1) {
-  //         raise NotImplementedException(f"Unsupported: JOIN ... ON with multiple expressions")
-  //     return ast.JoinConstraint(expr=column_expr_list[0])
-  // }
+  VISIT(JoinConstraintClause) {
+    if (ctx->USING()) {
+      throw HogQLNotImplementedError("Unsupported: JOIN ... USING");
+    }
+    PyObject* column_expr_list = visitAsPyObject(ctx->columnExprList());
+    if (PyList_Size(column_expr_list) != 1) {
+      Py_DECREF(column_expr_list);
+      throw HogQLNotImplementedError("Unsupported: JOIN ... ON with multiple expressions");
+    }
+    return build_ast_node("JoinConstraint", "{s:N}", "expr", PyList_GET_ITEM(column_expr_list, 0));
+  }
 
-  // VISIT(SampleClause) {
-  //     ratio_expressions = ctx->ratioExpr()
+  VISIT(SampleClause) {
+    PyObject* sample_ratio_expr = visitAsPyObject(ctx->ratioExpr(0));
+    PyObject* offset_ratio_expr = ctx->OFFSET() ? visitAsPyObjectOrNone(ctx->ratioExpr(1)) : Py_NewRef(Py_None);
+    return build_ast_node(
+        "SampleExpr", "{s:N,s:N}", "sample_value", sample_ratio_expr, "offset_value", offset_ratio_expr
+    );
+  }
 
-  //     sample_ratio_expr = visit(ratio_expressions[0])
-  //     offset_ratio_expr = visit(ratio_expressions[1]) if len(ratio_expressions) > 1 and ctx->OFFSET() else None
+  VISIT(OrderExprList) { return visitPyListOfObjects(ctx->orderExpr()); }
 
-  //     return ast.SampleExpr(sample_value=sample_ratio_expr, offset_value=offset_ratio_expr)
-  // }
+  VISIT(OrderExpr) {
+    const char* order = ctx->DESC() || ctx->DESCENDING() ? "DESC" : "ASC";
+    return build_ast_node("OrderExpr", "{s:N,s:s}", "expr", visitAsPyObject(ctx->columnExpr()), "order", order);
+  }
 
-  // VISIT(OrderExprList) {
-  //     return [visit(expr) for expr in ctx->orderExpr()]
-  // }
+  VISIT(RatioExpr) {
+    auto number_literal_ctxs = ctx->numberLiteral();
 
-  // VISIT(OrderExpr) {
-  //     order = "DESC" if ctx->DESC() or ctx->DESCENDING() else "ASC"
-  //     return ast.OrderExpr(expr=visit(ctx->columnExpr()), order=cast(Literal["ASC", "DESC"], order))
-  // }
+    auto left_ctx = number_literal_ctxs[0];
+    auto right_ctx = ctx->SLASH() && number_literal_ctxs.size() > 1 ? number_literal_ctxs[1] : NULL;
 
-  // VISIT(RatioExpr) {
-  //     number_literals = ctx->numberLiteral()
-
-  //     left = number_literals[0]
-  //     right = number_literals[1] if ctx->SLASH() and len(number_literals) > 1 else None
-
-  //     return ast.RatioExpr(
-  //         left=visitNumberLiteral(left), right=visitNumberLiteral(right) if right else None
-  //     )
-  // }
+    return build_ast_node(
+        "RatioExpr", "{s:N,s:N}", "left", visitAsPyObject(left_ctx), "right", visitAsPyObjectOrNone(right_ctx)
+    );
+  }
 
   VISIT_UNSUPPORTED(SettingExprList)
 
   VISIT_UNSUPPORTED(SettingExpr)
 
-  // VISIT(WindowExpr) {
-  //     frame = ctx->winFrameClause()
-  //     visited_frame = visit(frame) if frame else None
-  //     expr = ast.WindowExpr(
-  //         partition_by=visit(ctx->winPartitionByClause()) if ctx->winPartitionByClause() else None,
-  //         order_by=visit(ctx->winOrderByClause()) if ctx->winOrderByClause() else None,
-  //         frame_method="RANGE" if frame and frame.RANGE() else "ROWS" if frame and frame.ROWS() else None,
-  //         frame_start=visited_frame[0] if isinstance(visited_frame, tuple) else visited_frame,
-  //         frame_end=visited_frame[1] if isinstance(visited_frame, tuple) else None,
-  //     )
-  //     return expr
-  // }
+  VISIT(WindowExpr) {
+    auto frame_ctx = ctx->winFrameClause();
+    PyObject* frame = visitAsPyObjectOrNone(frame_ctx);
+    PyObject* partition_by = visitAsPyObjectOrNone(ctx->winPartitionByClause());
+    PyObject* order_by = visitAsPyObjectOrNone(ctx->winOrderByClause());
+    PyObject* frame_method = frame_ctx && frame_ctx->RANGE()  ? PyUnicode_FromString("RANGE")
+                             : frame_ctx && frame_ctx->ROWS() ? PyUnicode_FromString("ROWS")
+                                                              : Py_NewRef(Py_None);
+    PyObject* frame_start = PyTuple_Check(frame) ? PyTuple_GetItem(frame, 0) : frame;
+    PyObject* frame_end = PyTuple_Check(frame) ? PyTuple_GetItem(frame, 1) : Py_NewRef(Py_None);
+    return build_ast_node(
+        "WindowExpr", "{s:N,s:N,s:N,s:N,s:N}", "partition_by", partition_by, "order_by", order_by, "frame_method",
+        frame_method, "frame_start", frame_start, "frame_end", frame_end
+    );
+  }
 
   VISIT(WinPartitionByClause) { return visit(ctx->columnExprList()); }
 
@@ -352,22 +510,26 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(FrameStart) { return visit(ctx->winFrameBound()); }
 
-  // VISIT(FrameBetween) {
-  //     return (visit(ctx->winFrameBound(0)), visit(ctx->winFrameBound(1)))
-  // }
+  VISIT(FrameBetween) {
+    return Py_BuildValue("OO", visitAsPyObject(ctx->winFrameBound(0)), visitAsPyObject(ctx->winFrameBound(1)));
+  }
 
-  // VISIT(WinFrameBound) {
-  //     if (ctx->PRECEDING()) {
-  //         return ast.WindowFrameExpr(
-  //             frame_type="PRECEDING",
-  //             frame_value=visit(ctx->numberLiteral()).value if ctx->numberLiteral() else None,
-  //         )
-  //     if (ctx->FOLLOWING()) {
-  //         return ast.WindowFrameExpr(
-  //             frame_type="FOLLOWING",
-  //             frame_value=visit(ctx->numberLiteral()).value if ctx->numberLiteral() else None,
-  //         )
-  //     return ast.WindowFrameExpr(frame_type="CURRENT ROW")
+  VISIT(WinFrameBound) {
+    if (ctx->PRECEDING() || ctx->FOLLOWING()) {
+      PyObject* number;
+      if (ctx->numberLiteral()) {
+        number = PyObject_GetAttrString(visitAsPyObject(ctx->numberLiteral()), "value");
+      } else {
+        number = Py_NewRef(Py_None);
+      }
+      return build_ast_node(
+          "WindowFrameExpr", "{s:s,s:N}", "frame_type", ctx->PRECEDING() ? "PRECEDING" : "FOLLOWING", "frame_value",
+          number
+      );
+    } else {
+      return build_ast_node("WindowFrameExpr", "{s:s}", "frame_type", "CURRENT ROW");
+    }
+  }
 
   VISIT(Expr) { return visit(ctx->columnExpr()); }
 
@@ -381,200 +543,236 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(ColumnTypeExprParam)
 
-  // VISIT(ColumnExprList) {
-  //     return [visit(c) for c in ctx->columnExpr()]
-  // }
+  VISIT(ColumnExprList) { return visitPyListOfObjects(ctx->columnExpr()); }
 
   VISIT(ColumnExprTernaryOp) {
     return build_ast_node(
-        state, "Call",
-        Py_BuildValue("{s:s, s:[O,O,O]}", "name", "if", "args", any_cast<PyObject*>(visit(ctx->columnExpr(0))),
-                      any_cast<PyObject*>(visit(ctx->columnExpr(1))), any_cast<PyObject*>(visit(ctx->columnExpr(2)))));
+        "Call", "{s:s, s:[O,O,O]}", "name", "if", "args", visitAsPyObject(ctx->columnExpr(0)),
+        visitAsPyObject(ctx->columnExpr(1)), visitAsPyObject(ctx->columnExpr(2))
+    );
   }
 
-  // VISIT(ColumnExprAlias) {
-  //     if (ctx->alias()) {
-  //         alias = visit(ctx->alias())
-  //     } else if (ctx->identifier()) {
-  //         alias = visit(ctx->identifier())
-  //     } else if (ctx->STRING_LITERAL()) {
-  //         alias = parse_string_literal(ctx->STRING_LITERAL())
-  //     } else {
-  //         raise NotImplementedException(f"Must specify an alias")
-  //     expr = visit(ctx->columnExpr())
+  VISIT(ColumnExprAlias) {
+    string alias;
+    if (ctx->alias()) {
+      alias = visitAsString(ctx->alias());
+    } else if (ctx->identifier()) {
+      alias = visitAsString(ctx->identifier());
+    } else if (ctx->STRING_LITERAL()) {
+      alias = parse_string_literal(ctx->STRING_LITERAL());
+    } else {
+      throw HogQLParsingError("A ColumnExprAlias must have the alias in some form");
+    }
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
 
-  //     if (alias in RESERVED_KEYWORDS) {
-  //         raise HogQLException(f"Alias '{alias}' is a reserved keyword")
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
+      Py_DECREF(expr);
+      throw HogQLSyntaxError("Alias is a reserved keyword");
+    }
 
-  //     return ast.Alias(expr=expr, alias=alias)
-  // }
+    return build_ast_node("Alias", "{s:N,s:s#}", "expr", expr, "alias", alias.c_str(), alias.size());
+  }
 
   VISIT_UNSUPPORTED(ColumnExprExtract)
 
-  // VISIT(ColumnExprNegate) {
-  //     return ast.ArithmeticOperation(
-  //         op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=0), right=visit(ctx->columnExpr())
-  //     )
-  // }
+  VISIT(ColumnExprNegate) {
+    return build_ast_node(
+        "ArithmeticOperation", "{s:N,s:N,s:N}", "left", build_ast_node("Constant", "{s:i}", "value", 0), "right",
+        visitAsPyObject(ctx->columnExpr()), "op", get_ast_enum_member("ArithmeticOperationOp", "Sub")
+    );
+  }
 
   VISIT(ColumnExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
-  // VISIT(ColumnExprArray) {
-  //     return ast.Array(exprs=visit(ctx->columnExprList()) if ctx->columnExprList() else [])
-  // }
+  VISIT(ColumnExprArray) {
+    auto column_expr_list_ctx = ctx->columnExprList();
+    PyObject* exprs = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    return build_ast_node("Array", "{s:N}", "exprs", exprs);
+  }
 
   VISIT_UNSUPPORTED(ColumnExprSubstring)
 
   VISIT_UNSUPPORTED(ColumnExprCast)
 
-  // VISIT(ColumnExprPrecedence1) {
-  //     if (ctx->SLASH()) {
-  //         op = ast.ArithmeticOperationOp.Div
-  //     } else if (ctx->ASTERISK()) {
-  //         op = ast.ArithmeticOperationOp.Mult
-  //     } else if (ctx->PERCENT()) {
-  //         op = ast.ArithmeticOperationOp.Mod
-  //     } else {
-  //         raise NotImplementedException(f"Unsupported ColumnExprPrecedence1: {ctx->operator.text}")
-  //     left = visit(ctx->left)
-  //     right = visit(ctx->right)
-  //     return ast.ArithmeticOperation(left=left, right=right, op=op)
-  // }
+  VISIT(ColumnExprPrecedence1) {
+    PyObject* op;
+    if (ctx->SLASH()) {
+      op = get_ast_enum_member("ArithmeticOperationOp", "Div");
+    } else if (ctx->ASTERISK()) {
+      op = get_ast_enum_member("ArithmeticOperationOp", "Mult");
+    } else if (ctx->PERCENT()) {
+      op = get_ast_enum_member("ArithmeticOperationOp", "Mod");
+    } else {
+      throw HogQLParsingError("Unsupported value of rule ColumnExprPrecedence1");
+    }
+    PyObject* left = visitAsPyObject(ctx->left);
+    PyObject* right = visitAsPyObject(ctx->right);
+    return build_ast_node("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
+  }
 
-  // VISIT(ColumnExprPrecedence2) {
-  //     left = visit(ctx->left)
-  //     right = visit(ctx->right)
+  VISIT(ColumnExprPrecedence2) {
+    PyObject* left = visitAsPyObject(ctx->left);
+    PyObject* right = visitAsPyObject(ctx->right);
 
-  //     if (ctx->PLUS()) {
-  //         return ast.ArithmeticOperation(left=left, right=right, op=ast.ArithmeticOperationOp.Add)
-  //     } else if (ctx->DASH()) {
-  //         return ast.ArithmeticOperation(left=left, right=right, op=ast.ArithmeticOperationOp.Sub)
-  //     } else if (ctx->CONCAT()) {
-  //         args = []
-  //         if (isinstance(left, ast.Call) and left.name == "concat") {
-  //             args.extend(left.args)
-  //         } else {
-  //             args.append(left)
+    if (ctx->PLUS()) {
+      return build_ast_node(
+          "ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op",
+          get_ast_enum_member("ArithmeticOperationOp", "Add")
+      );
+    } else if (ctx->DASH()) {
+      return build_ast_node(
+          "ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op",
+          get_ast_enum_member("ArithmeticOperationOp", "Sub")
+      );
+    } else if (ctx->CONCAT()) {
+      PyObject* args;
+      if (is_ast_node_instance(left, "Call") &&
+          PyObject_RichCompareBool(PyObject_GetAttrString(left, "name"), PyUnicode_FromString("concat"), Py_EQ)) {
+        args = PyObject_GetAttrString(left, "args");
+      } else {
+        args = PyList_New(1);
+        PyList_SET_ITEM(args, 0, left);
+        Py_INCREF(left);  // PyList_SET_ITEM doesn't increment refcount, as opposed to PyList_Append
+      }
 
-  //         if (isinstance(right, ast.Call) and right.name == "concat") {
-  //             args.extend(right.args)
-  //         } else {
-  //             args.append(right)
-
-  //         return ast.Call(name="concat", args=args)
-  //     } else {
-  //         raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx->operator.text}")
-  // }
+      if (is_ast_node_instance(right, "Call") &&
+          PyObject_RichCompareBool(PyObject_GetAttrString(right, "name"), PyUnicode_FromString("concat"), Py_EQ)) {
+        PyObject* right_args = PyObject_GetAttrString(right, "args");
+        X_PyList_Extend(args, right_args);
+        Py_DECREF(right_args);
+      } else {
+        PyList_Append(args, right);
+      }
+      Py_DECREF(right);
+      Py_DECREF(left);
+      return build_ast_node("Call", "{s:s,s:N}", "name", "concat", "args", args);
+    } else {
+      Py_DECREF(right);
+      Py_DECREF(left);
+      throw HogQLParsingError("Unsupported value of rule ColumnExprPrecedence2");
+      return NULL;
+    }
+  }
 
   VISIT(ColumnExprPrecedence3) {
-    PyObject* left = any_cast<PyObject*>(visit(ctx->left));
-    PyObject* right = any_cast<PyObject*>(visit(ctx->right));
-
     PyObject* op = NULL;
     if (ctx->EQ_SINGLE() || ctx->EQ_DOUBLE()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "Eq");
+      op = get_ast_enum_member("CompareOperationOp", "Eq");
     } else if (ctx->NOT_EQ()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "NotEq");
+      op = get_ast_enum_member("CompareOperationOp", "NotEq");
     } else if (ctx->LT()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "Lt");
+      op = get_ast_enum_member("CompareOperationOp", "Lt");
     } else if (ctx->LT_EQ()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "LtEq");
+      op = get_ast_enum_member("CompareOperationOp", "LtEq");
     } else if (ctx->GT()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "Gt");
+      op = get_ast_enum_member("CompareOperationOp", "Gt");
     } else if (ctx->GT_EQ()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "GtEq");
+      op = get_ast_enum_member("CompareOperationOp", "GtEq");
     } else if (ctx->LIKE()) {
       if (ctx->NOT()) {
-        op = get_ast_enum_val(state, "CompareOperationOp", "NotLike");
+        op = get_ast_enum_member("CompareOperationOp", "NotLike");
       } else {
-        op = get_ast_enum_val(state, "CompareOperationOp", "Like");
+        op = get_ast_enum_member("CompareOperationOp", "Like");
       }
     } else if (ctx->ILIKE()) {
       if (ctx->NOT()) {
-        op = get_ast_enum_val(state, "CompareOperationOp", "NotILike");
+        op = get_ast_enum_member("CompareOperationOp", "NotILike");
       } else {
-        op = get_ast_enum_val(state, "CompareOperationOp", "NotILike");
+        op = get_ast_enum_member("CompareOperationOp", "ILike");
       }
     } else if (ctx->REGEX_SINGLE() or ctx->REGEX_DOUBLE()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "Regex");
+      op = get_ast_enum_member("CompareOperationOp", "Regex");
     } else if (ctx->NOT_REGEX()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "NotRegex");
+      op = get_ast_enum_member("CompareOperationOp", "NotRegex");
     } else if (ctx->IREGEX_SINGLE() or ctx->IREGEX_DOUBLE()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "IRegex");
+      op = get_ast_enum_member("CompareOperationOp", "IRegex");
     } else if (ctx->NOT_IREGEX()) {
-      op = get_ast_enum_val(state, "CompareOperationOp", "NotIRegex");
+      op = get_ast_enum_member("CompareOperationOp", "NotIRegex");
     } else if (ctx->IN()) {
       if (ctx->COHORT()) {
         if (ctx->NOT()) {
-          op = get_ast_enum_val(state, "CompareOperationOp", "NotInCohort");
+          op = get_ast_enum_member("CompareOperationOp", "NotInCohort");
         } else {
-          op = get_ast_enum_val(state, "CompareOperationOp", "InCohort");
+          op = get_ast_enum_member("CompareOperationOp", "InCohort");
         }
       } else {
         if (ctx->NOT()) {
-          op = get_ast_enum_val(state, "CompareOperationOp", "NotIn");
+          op = get_ast_enum_member("CompareOperationOp", "NotIn");
         } else {
-          op = get_ast_enum_val(state, "CompareOperationOp", "In");
+          op = get_ast_enum_member("CompareOperationOp", "In");
         }
       }
     } else {
-      PyErr_SetString(PyExc_NotImplementedError, "Unsupported value of rule ColumnExprPrecedence3");
+      throw HogQLParsingError("Unsupported value of rule ColumnExprPrecedence3");
     }
 
-    return build_ast_node(state, "CompareOperation",
-                          Py_BuildValue("{s:O, s:O, s:O}", "left", left, "right", right, "op", op));
+    PyObject* left = visitAsPyObject(ctx->left);
+    PyObject* right = visitAsPyObject(ctx->right);
+
+    return build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
-  // VISIT(ColumnExprInterval) {
-  //     if (ctx->interval().SECOND()) {
-  //         name = "toIntervalSecond"
-  //     } else if (ctx->interval().MINUTE()) {
-  //         name = "toIntervalMinute"
-  //     } else if (ctx->interval().HOUR()) {
-  //         name = "toIntervalHour"
-  //     } else if (ctx->interval().DAY()) {
-  //         name = "toIntervalDay"
-  //     } else if (ctx->interval().WEEK()) {
-  //         name = "toIntervalWeek"
-  //     } else if (ctx->interval().MONTH()) {
-  //         name = "toIntervalMonth"
-  //     } else if (ctx->interval().QUARTER()) {
-  //         name = "toIntervalQuarter"
-  //     } else if (ctx->interval().YEAR()) {
-  //         name = "toIntervalYear"
-  //     } else {
-  //         raise NotImplementedException(f"Unsupported interval type: {ctx->interval().getText()}")
+  VISIT(ColumnExprInterval) {
+    auto interval_ctx = ctx->interval();
+    const char* name;
+    if (interval_ctx->SECOND()) {
+      name = "toIntervalSecond";
+    } else if (interval_ctx->MINUTE()) {
+      name = "toIntervalMinute";
+    } else if (interval_ctx->HOUR()) {
+      name = "toIntervalHour";
+    } else if (interval_ctx->DAY()) {
+      name = "toIntervalDay";
+    } else if (interval_ctx->WEEK()) {
+      name = "toIntervalWeek";
+    } else if (interval_ctx->MONTH()) {
+      name = "toIntervalMonth";
+    } else if (interval_ctx->QUARTER()) {
+      name = "toIntervalQuarter";
+    } else if (interval_ctx->YEAR()) {
+      name = "toIntervalYear";
+    } else {
+      throw HogQLParsingError("Unsupported value of rule ColumnExprInterval");
+    }
 
-  //     return ast.Call(name=name, args=[visit(ctx->columnExpr())])
-  // }
+    PyObject* arg = visitAsPyObject(ctx->columnExpr());
+    return build_ast_node("Call", "{s:s,s:[N]}", "name", name, "args", arg);
+  }
 
   VISIT(ColumnExprIsNull) {
     return build_ast_node(
-        state, "CompareOperation",
-        Py_BuildValue("{s:O, s:O, s:O}", "left", any_cast<PyObject*>(visit(ctx->columnExpr())), "right",
-                      build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", Py_None)), "op",
-                      get_ast_enum_val(state, "CompareOperationOp", ctx->NOT() ? "NotEq" : "Eq")));
+        "CompareOperation", "{s:N,s:N,s:N}", "left", visitAsPyObject(ctx->columnExpr()), "right",
+        build_ast_node("Constant", "{s:O}", "value", Py_None), "op",
+        get_ast_enum_member("CompareOperationOp", ctx->NOT() ? "NotEq" : "Eq")
+
+    );
   }
 
   VISIT_UNSUPPORTED(ColumnExprTrim)
 
-  // VISIT(ColumnExprTuple) {
-  //     return ast.Tuple(exprs=visit(ctx->columnExprList()) if ctx->columnExprList() else [])
-  // }
+  VISIT(ColumnExprTuple) {
+    auto column_expr_list_ctx = ctx->columnExprList();
+    return build_ast_node("Tuple", "{s:N}", "exprs", visitAsPyObjectOrEmptyList(column_expr_list_ctx));
+  }
 
-  // VISIT(ColumnExprArrayAccess) {
-  //     object: ast.Expr = visit(ctx->columnExpr(0))
-  //     property: ast.Expr = visit(ctx->columnExpr(1))
-  //     if (isinstance(property, ast.Constant) and property.value == 0) {
-  //         raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
-  //     return ast.ArrayAccess(array=object, property=property)
-  // }
+  VISIT(ColumnExprArrayAccess) {
+    PyObject* object = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* property = visitAsPyObject(ctx->columnExpr(1));
+    if (is_ast_node_instance(property, "Constant") &&
+        PyObject_RichCompareBool(PyObject_GetAttrString(property, "value"), PyLong_FromLong(0), Py_EQ)) {
+      Py_DECREF(property);
+      Py_DECREF(object);
+          throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+    }
+    return build_ast_node("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
+  }
 
-  // VISIT(ColumnExprPropertyAccess) {
-  //     object = visit(ctx->columnExpr())
-  //     property = ast.Constant(value=visit(ctx->identifier()))
-  //     return ast.ArrayAccess(array=object, property=property)
-  // }
+  VISIT(ColumnExprPropertyAccess) {
+    PyObject* object = visitAsPyObject(ctx->columnExpr());
+    string identifier = visitAsString(ctx->identifier());
+    PyObject* property = build_ast_node("Constant", "{s:s#}", "value", identifier.c_str(), identifier.size());
+    return build_ast_node("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
+  }
 
   VISIT_UNSUPPORTED(ColumnExprBetween)
 
@@ -582,217 +780,264 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(ColumnExprTimestamp)
 
-  // VISIT(ColumnExprAnd) {
-  //     left = visit(ctx->columnExpr(0))
-  //     if (isinstance(left, ast.And)) {
-  //         left_array = left.exprs
-  //     } else {
-  //         left_array = [left]
+  VISIT(ColumnExprAnd) {
+    PyObject* left = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* right = visitAsPyObject(ctx->columnExpr(1));
+    PyObject* exprs;
+    if (is_ast_node_instance(left, "And")) {
+      exprs = PyObject_GetAttrString(left, "exprs");
+    } else {
+      exprs = PyList_New(1);
+      PyList_SET_ITEM(exprs, 0, left);
+      Py_INCREF(left);
+    }
+    if (is_ast_node_instance(right, "And")) {
+      PyObject* right_exprs = PyObject_GetAttrString(right, "exprs");
+      X_PyList_Extend(exprs, right_exprs);
+      Py_DECREF(right_exprs);
+    } else {
+      PyList_Append(exprs, right);
+    }
 
-  //     right = visit(ctx->columnExpr(1))
-  //     if (isinstance(right, ast.And)) {
-  //         right_array = right.exprs
-  //     } else {
-  //         right_array = [right]
+    return build_ast_node("And", "{s:N}", "exprs", exprs);
+  }
 
-  //     return ast.And(exprs=left_array + right_array)
-  // }
+  VISIT(ColumnExprOr) {
+    PyObject* left = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* right = visitAsPyObject(ctx->columnExpr(1));
+    PyObject* exprs;
+    if (is_ast_node_instance(left, "Or")) {
+      exprs = PyObject_GetAttrString(left, "exprs");
+    } else {
+      exprs = PyList_New(1);
+      PyList_SET_ITEM(exprs, 0, left);
+      Py_INCREF(left);
+    }
+    if (is_ast_node_instance(right, "Or")) {
+      PyObject* right_exprs = PyObject_GetAttrString(right, "exprs");
+      X_PyList_Extend(exprs, right_exprs);
+      Py_DECREF(right_exprs);
+    } else {
+      PyList_Append(exprs, right);
+    }
 
-  // VISIT(ColumnExprOr) {
-  //     left = visit(ctx->columnExpr(0))
-  //     if (isinstance(left, ast.Or)) {
-  //         left_array = left.exprs
-  //     } else {
-  //         left_array = [left]
+    return build_ast_node("Or", "{s:N}", "exprs", exprs);
+  }
 
-  //     right = visit(ctx->columnExpr(1))
-  //     if (isinstance(right, ast.Or)) {
-  //         right_array = right.exprs
-  //     } else {
-  //         right_array = [right]
+  VISIT(ColumnExprTupleAccess) {
+    PyObject* tuple = visitAsPyObject(ctx->columnExpr());
+    int index = stoi(ctx->DECIMAL_LITERAL()->getText());
+    if (index == 0) {
+      Py_DECREF(tuple);
+      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+    }
+    return build_ast_node("TupleAccess", "{s:N,s:i}", "tuple", tuple, "index", index);
+  }
 
-  //     return ast.Or(exprs=left_array + right_array)
-  // }
-
-  // VISIT(ColumnExprTupleAccess) {
-  //     tuple = visit(ctx->columnExpr())
-  //     index = int(ctx->DECIMAL_LITERAL().getText())
-  //     if (index == 0) {
-  //         raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
-  //     return ast.TupleAccess(tuple=tuple, index=index)
-  // }
-
-  // VISIT(ColumnExprCase) {
-  //     columns = [visit(column) for column in ctx->columnExpr()]
-  //     if (ctx->caseExpr) {
-  //         args = [columns[0], ast.Array(exprs=[]), ast.Array(exprs=[]), columns[-1]]
-  //         for index, column in enumerate(columns):
-  //             if (0 < index < len(columns) - 1) {
-  //                 args[((index - 1) % 2) + 1].exprs.append(column)
-  //         return ast.Call(name="transform", args=args)
-  //     } else if (len(columns) == 3) {
-  //         return ast.Call(name="if", args=columns)
-  //     } else {
-  //         return ast.Call(name="multiIf", args=columns)
-  // }
+  VISIT(ColumnExprCase) {
+    auto column_expr_ctx = ctx->columnExpr();
+    size_t columns_size = column_expr_ctx.size();
+    PyObject* columns = visitPyListOfObjects(column_expr_ctx);
+    if (ctx->caseExpr) {
+      PyObject* args = PyList_New(4);
+      PyObject* arg_0 = Py_NewRef(PyList_GetItem(columns, 0));
+      PyObject* arg_1 = build_ast_node("Array", "{s:[]}", "exprs");
+      PyObject* arg_2 = build_ast_node("Array", "{s:[]}", "exprs");
+      PyObject* arg_3 = Py_NewRef(PyList_GetItem(columns, columns_size - 1));
+      PyList_SET_ITEM(args, 0, arg_0);
+      PyList_SET_ITEM(args, 1, arg_1);
+      PyList_SET_ITEM(args, 2, arg_2);
+      PyList_SET_ITEM(args, 3, arg_3);
+      PyObject* expr_lists[2] = {PyObject_GetAttrString(arg_1, "exprs"), PyObject_GetAttrString(arg_2, "exprs")};
+      for (size_t index = 0; index < columns_size - 2; index++) {
+        PyList_Append(expr_lists[index % 2], PyList_GetItem(columns, index));
+      }
+      Py_DECREF(expr_lists[0]);
+      Py_DECREF(expr_lists[1]);
+      Py_DECREF(columns);
+      return build_ast_node("Call", "{s:s,s:N}", "name", "transform", "args", args);
+    } else {
+      return build_ast_node("Call", "{s:s,s:N}", "name", columns_size == 3 ? "if" : "multiIf", "args", columns);
+    }
+  }
 
   VISIT_UNSUPPORTED(ColumnExprDate)
 
-  VISIT(ColumnExprNot) {
-    return build_ast_node(state, "Not", Py_BuildValue("{s:O}", "expr", any_cast<PyObject*>((ctx->columnExpr()))));
+  VISIT(ColumnExprNot) { return build_ast_node("Not", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr())); }
+
+  VISIT(ColumnExprWinFunctionTarget) {
+    auto column_expr_list_ctx = ctx->columnExprList();
+    string name = visitAsString(ctx->identifier(0));
+    string over_identifier = visitAsString(ctx->identifier(1));
+    PyObject* args = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    return build_ast_node(
+        "WindowFunctionTarget", "{s:s#,s:N,s:s#}", "name", name.c_str(), name.size(), "args", args, "over_identifier",
+        over_identifier.c_str(), over_identifier.size()
+
+    );
   }
 
-  // VISIT(ColumnExprWinFunctionTarget) {
-  //     return ast.WindowFunction(
-  //         name=visit(ctx->identifier(0)),
-  //         args=visit(ctx->columnExprList()) if ctx->columnExprList() else [],
-  //         over_identifier=visit(ctx->identifier(1)),
-  //     )
-  // }
-
-  // VISIT(ColumnExprWinFunction) {
-  //     return ast.WindowFunction(
-  //         name=visit(ctx->identifier()),
-  //         args=visit(ctx->columnExprList()) if ctx->columnExprList() else [],
-  //         over_expr=visit(ctx->windowExpr()) if ctx->windowExpr() else None,
-  //     )
-  // }
+  VISIT(ColumnExprWinFunction) {
+    string identifier = visitAsString(ctx->identifier());
+    auto column_expr_list_ctx = ctx->columnExprList();
+    PyObject* args = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
+    PyObject* over_expr = visitAsPyObjectOrNone(ctx->windowExpr());
+    return build_ast_node(
+        "WindowFunction", "{s:s#,s:N,s:N}", "name", identifier.c_str(), identifier.size(), "args", args, "over_expr",
+        over_expr
+    );
+  }
 
   VISIT(ColumnExprIdentifier) { return visit(ctx->columnIdentifier()); }
 
-  // VISIT(ColumnExprFunction) {
-  //     name = visit(ctx->identifier())
-  //     column_expr_list = ctx->columnExprList()
-  //     parameters = visit(column_expr_list) if column_expr_list is not None else None
-  //     column_arg_list = ctx->columnArgList()
-  //     args = visit(column_arg_list) if column_arg_list is not None else []
-  //     distinct = True if ctx->DISTINCT() else False
-  //     return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
-  // }
+  VISIT(ColumnExprFunction) {
+    string name = visitAsString(ctx->identifier());
+    PyObject* parameters = visitAsPyObjectOrNone(ctx->columnExprList());
+    auto column_arg_list_ctx = ctx->columnArgList();
+    PyObject* args = visitAsPyObjectOrEmptyList(column_arg_list_ctx);
+    PyObject* distinct = ctx->DISTINCT() ? Py_True : Py_False;
+    return build_ast_node(
+        "Call", "{s:s#,s:N,s:N,s:O}", "name", name.c_str(), name.size(), "params", parameters, "args", args, "distinct",
+        distinct
+    );
+  }
 
-  // VISIT(ColumnExprAsterisk) {
-  //     if (ctx->tableIdentifier()) {
-  //         table = visit(ctx->tableIdentifier())
-  //         return ast.Field(chain=table + ["*"])
-  //     return ast.Field(chain=["*"])
-  // }
+  VISIT(ColumnExprAsterisk) {
+    auto table_identifier_ctx = ctx->tableIdentifier();
+    if (table_identifier_ctx) {
+      vector<string> table = any_cast<vector<string>>(visit(table_identifier_ctx));
+      table.push_back("*");
+      return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(table));
+    }
+    return build_ast_node("Field", "{s:[s]}", "chain", "*");
+  }
 
-  // VISIT(ColumnArgList) {
-  //     return [visit(arg) for arg in ctx->columnArgExpr()]
-  // }
+  VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
-  // VISIT(ColumnLambdaExpr) {
-  //     return ast.Lambda(
-  //         args=[visit(identifier) for identifier in ctx->identifier()], expr=visit(ctx->columnExpr())
-  //     )
-  // }
+  VISIT(ColumnLambdaExpr) {
+    PyObject* args = visitPyListOfObjects(ctx->identifier());
+    return build_ast_node("Lambda", "{s:N,s:N}", "args", args, "expr", visitAsPyObject(ctx->columnExpr()));
+  }
 
-  // VISIT(WithExprList) {
-  //     ctes: Dict[str, ast.CTE] = {}
-  //     for expr in ctx->withExpr():
-  //         cte = visit(expr)
-  //         ctes[cte.name] = cte
-  //     return ctes
-  // }
+  VISIT(WithExprList) {
+    PyObject* ctes = PyDict_New();
+    for (auto with_expr_ctx : ctx->withExpr()) {
+      PyObject* cte = visitAsPyObject(with_expr_ctx);
+      PyObject* name = PyObject_GetAttrString(cte, "name");
+      PyDict_SetItem(ctes, name, cte);
+      Py_DECREF(cte);
+    }
+    return ctes;
+  }
 
-  // VISIT(WithExprSubquery) {
-  //     subquery = visit(ctx->selectUnionStmt())
-  //     name = visit(ctx->identifier())
-  //     return ast.CTE(name=name, expr=subquery, cte_type="subquery")
-  // }
+  VISIT(WithExprSubquery) {
+    PyObject* subquery = visitAsPyObject(ctx->selectUnionStmt());
+    string name = visitAsString(ctx->identifier());
+    return build_ast_node(
+        "CTE", "{s:s#,s:N,s:s}", "name", name.c_str(), name.size(), "expr", subquery, "cte_type", "subquery"
+    );
+  }
 
-  // VISIT(WithExprColumn) {
-  //     expr = visit(ctx->columnExpr())
-  //     name = visit(ctx->identifier())
-  //     return ast.CTE(name=name, expr=expr, cte_type="column")
-  // }
+  VISIT(WithExprColumn) {
+     PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    string name = visitAsString(ctx->identifier());
+    return build_ast_node(
+        "CTE", "{s:s#,s:N,s:s}", "name", name.c_str(), name.size(), "expr", expr, "cte_type", "column"
+    );
+  }
 
   VISIT(ColumnIdentifier) {
-    auto placeholder = ctx->PLACEHOLDER();
-
-    if (placeholder) {
-      string placeholder_string = parse_string_literal(placeholder);
-      return build_ast_node(state, "Placeholder",
-                            Py_BuildValue("{s:s#}", "field", placeholder_string.c_str(), placeholder_string.size()));
+    auto placeholder_ctx = ctx->PLACEHOLDER();
+    if (placeholder_ctx) {
+      string placeholder = parse_string_literal(placeholder_ctx);
+      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.c_str(), placeholder.size());
     }
 
-    auto tableIdentifier = ctx->tableIdentifier();
-    auto nestedIdentifier = ctx->nestedIdentifier();
-    vector<string> table = tableIdentifier ? any_cast<vector<string>>(visit(tableIdentifier)) : vector<string>();
-    vector<string> nested = nestedIdentifier ? any_cast<vector<string>>(visit(nestedIdentifier)) : vector<string>();
+    auto table_identifier_ctx = ctx->tableIdentifier();
+    auto nested_identifier_ctx = ctx->nestedIdentifier();
+    vector<string> table =
+        table_identifier_ctx ? any_cast<vector<string>>(visit(table_identifier_ctx)) : vector<string>();
+    vector<string> nested =
+        nested_identifier_ctx ? any_cast<vector<string>>(visit(nested_identifier_ctx)) : vector<string>();
 
     if (table.size() == 0 && nested.size() > 0) {
       string text = ctx->getText();
       boost::algorithm::to_lower(text);
       if (!text.compare("true")) {
-        auto node = build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", Py_True));
-        assert(node);
-        return node;
+        return build_ast_node("Constant", "{s:O}", "value", Py_True);
       }
       if (!text.compare("false")) {
-        return build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", Py_False));
+        return build_ast_node("Constant", "{s:O}", "value", Py_False);
       }
-      return build_ast_node(state, "Field", Py_BuildValue("{s:O}", "chain", vector_to_list_string(nested)));
+      return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(nested));
     }
     vector<string> table_plus_nested = table;
     table_plus_nested.insert(table_plus_nested.end(), nested.begin(), nested.end());
-    return build_ast_node(state, "Field", Py_BuildValue("{s:O}", "chain", vector_to_list_string(table_plus_nested)));
+    return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(table_plus_nested));
   }
 
   VISIT(NestedIdentifier) {
     vector<string> result;
-    for (auto identifier : ctx->identifier()) {
-      result.push_back(any_cast<string>(visit(identifier)));
+    for (auto identifier_ctx : ctx->identifier()) {
+      result.push_back(visitAsString(identifier_ctx));
     }
     return result;
   }
 
-  // VISIT(TableExprIdentifier) {
-  //     chain = visit(ctx->tableIdentifier())
-  //     return ast.Field(chain=chain)
-  // }
+  VISIT(TableExprIdentifier) {
+    vector<string> chain = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
+    return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(chain));
+  }
 
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
-  // VISIT(TableExprPlaceholder) {
-  //     return ast.Placeholder(field=parse_string_literal(ctx->PLACEHOLDER()))
-  // }
+  VISIT(TableExprPlaceholder) {
+    string placeholder = parse_string_literal(ctx->PLACEHOLDER());
+    return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.c_str(), placeholder.size());
+  }
 
-  // VISIT(TableExprAlias) {
-  //     alias = visit(ctx->alias() or ctx->identifier())
-  //     if (alias in RESERVED_KEYWORDS) {
-  //         raise HogQLException(f"Alias '{alias}' is a reserved keyword")
-  //     table = visit(ctx->tableExpr())
-  //     if (isinstance(table, ast.JoinExpr)) {
-  //         table.alias = alias
-  //         return table
-  //     return ast.JoinExpr(table=table, alias=alias)
-  // }
+  VISIT(TableExprAlias) {
+    auto alias_ctx = ctx->alias();
+    string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
+      throw HogQLSyntaxError("Alias is a reserved keyword");
+    }
+    PyObject* table = visitAsPyObject(ctx->tableExpr());
+    PyObject* py_alias = PyUnicode_FromStringAndSize(alias.c_str(), alias.size());
+    if (is_ast_node_instance(table, "JoinExpr")) {
+      PyObject_SetAttrString(table, "alias", py_alias);
+      return table;
+    }
+    return build_ast_node("JoinExpr", "{s:N,s:N}", "table", table, "alias", py_alias);
+  }
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
 
-  // VISIT(TableFunctionExpr) {
-  //     name = visit(ctx->identifier())
-  //     args = visit(ctx->tableArgList()) if ctx->tableArgList() else []
-  //     return ast.JoinExpr(table=ast.Field(chain=[name]), table_args=args)
-  // }
+  VISIT(TableFunctionExpr) {
+    string name = visitAsString(ctx->identifier());
+    PyObject* table_args;
+    auto table_args_ctx = ctx->tableArgList();
+    if (table_args_ctx) {
+      table_args = visitAsPyObject(table_args_ctx);
+    } else {
+      table_args = Py_NewRef(Py_None);
+    }
+    return build_ast_node(
+        "JoinExpr", "{s:N,s:N}", "table", build_ast_node("Field", "{s:N}", "chain", vector_to_list_string({name})),
+        "table_args", table_args
+    );
+  }
 
   VISIT(TableIdentifier) {
-    auto text = any_cast<string>(visit(ctx->identifier()));
-    auto databaseIdentifier = ctx->databaseIdentifier();
-    if (databaseIdentifier) {
-      return vector<string>{any_cast<string>(visit(databaseIdentifier)), text};
+    string text = visitAsString(ctx->identifier());
+    auto database_identifier_ctx = ctx->databaseIdentifier();
+    if (database_identifier_ctx) {
+      return vector<string>{visitAsString(database_identifier_ctx), text};
     }
     return vector<string>{text};
   }
 
-  VISIT(TableArgList) {
-    vector<PyObject*> result;
-    for (auto arg : ctx->columnExpr()) {
-      result.push_back(any_cast<PyObject*>(visit(arg)));
-    }
-    return result;
-  }
+  VISIT(TableArgList) { return visitPyListOfObjects(ctx->columnExpr()); }
 
   VISIT(DatabaseIdentifier) { return visit(ctx->identifier()); }
 
@@ -807,26 +1052,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         !text.compare("inf") || !text.compare("nan")) {
       PyObject* pyText = PyUnicode_FromStringAndSize(text.c_str(), text.size());
       value = PyFloat_FromString(pyText);
-      result = build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", value));
+      result = build_ast_node("Constant", "{s:N}", "value", value);
       Py_DECREF(pyText);
     } else {
       value = PyLong_FromString(text.c_str(), NULL, 10);
-      result = build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", value));
+      result = build_ast_node("Constant", "{s:N}", "value", value);
     }
-
-    Py_DECREF(value);
 
     return result;
   }
 
   VISIT(Literal) {
     if (ctx->NULL_SQL()) {
-      return build_ast_node(state, "Constant", Py_BuildValue("{s:O}", "value", Py_None));
+      return build_ast_node("Constant", "{s:O}", "value", Py_None);
     }
-    auto string_literal = ctx->STRING_LITERAL();
-    if (string_literal) {
-      auto text = parse_string_literal(string_literal);
-      return build_ast_node(state, "Constant", Py_BuildValue("{s:s#}", "value", text.c_str(), text.size()));
+    auto string_literal_terminal = ctx->STRING_LITERAL();
+    if (string_literal_terminal) {
+      string text = parse_string_literal(string_literal_terminal);
+      return build_ast_node("Constant", "{s:s#}", "value", text.c_str(), text.size());
     }
     return visitChildren(ctx);
   }
@@ -843,7 +1086,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first = text[0];
       char last = text[text.size() - 1];
       if ((first == '`' && last == '`') || (first == '"' && last == '"')) {
-        return parse_string(text);
+        return parse_string(text);  // Quotes matching already guaranteed, so not catching error
       }
     }
     return text;
@@ -852,10 +1095,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(Identifier) {
     string text = ctx->getText();
     if (text.size() >= 2) {
-      char first = text[0];
-      char last = text[text.size() - 1];
-      if ((first == '`' && last == '`') || (first == '"' && last == '"')) {
-        return parse_string(text);
+      char first_char = text.front();
+      char last_char = text.back();
+      if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
+        return parse_string(text);  // Quotes matching already guaranteed, so not catching error
       }
     }
     return text;
@@ -865,71 +1108,103 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprNullish) {
     return build_ast_node(
-        state, "Call",
-        Py_BuildValue("{s:s, s:[O,O]}", "name", "ifNull", "args", any_cast<PyObject*>(visit(ctx->columnExpr(0))),
-                      any_cast<PyObject*>(visit(ctx->columnExpr(1)))));
+        "Call", "{s:s, s:[O,O]}", "name", "ifNull", "args", visitAsPyObject(ctx->columnExpr(0)),
+        visitAsPyObject(ctx->columnExpr(1))
+    );
   }
 };
 
 HogQLParser get_parser(const char* statement) {
-  auto inputStream = new antlr4::ANTLRInputStream(statement, strnlen(statement, 65536));
-  auto lexer = new HogQLLexer(inputStream);
+  auto input_stream = new antlr4::ANTLRInputStream(statement, strnlen(statement, 65536));
+  auto lexer = new HogQLLexer(input_stream);
   auto stream = new antlr4::CommonTokenStream(lexer);
   return HogQLParser(stream);
 }
 
-static PyObject* parse_expr(PyObject* self, PyObject* args) {
-  const char* statement;
-  if (!PyArg_ParseTuple(args, "s", &statement)) {
+static PyObject* parse_expr(PyObject* self, PyObject* args, PyObject* kwargs) {
+  const char* str;
+  int start;  // TODO: Use start
+
+  static char* kwlist[] = {"expr", "start", NULL};
+
+  // s = str, | = optionals start here, i = int
+  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|i", kwlist, &str, &start)) {
     return NULL;
   }
-  HogQLParser parser = get_parser(statement);
-  HogQLParser::ExprContext* parseTree = parser.expr();  // TODO: Handle syntax errors
-  HogQLParseTreeConverter converter = HogQLParseTreeConverter(GET_STATE(self));
-  any result = converter.visit(parseTree);
-  try {
-    return any_cast<PyObject*>(result);
-  } catch (const bad_any_cast& e) {
-    PyErr_SetString(PyExc_RuntimeError, "Parsing failed to result in a Python object");
+  HogQLParser parser = get_parser(str);
+  HogQLParser::ExprContext* parse_tree = parser.expr();
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+    return converter.visitAsPyObjectFinal(parse_tree);
+}
+
+static PyObject* parse_order_expr(PyObject* self, PyObject* args) {
+  const char* str;
+  if (!PyArg_ParseTuple(args, "s", &str)) {
     return NULL;
   }
+  HogQLParser parser = get_parser(str);
+  HogQLParser::OrderExprContext* parse_tree = parser.orderExpr(); 
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+    return converter.visitAsPyObjectFinal(parse_tree);
+}
+
+static PyObject* parse_select(PyObject* self, PyObject* args) {
+  const char* str;
+  if (!PyArg_ParseTuple(args, "s", &str)) {
+    return NULL;
+  }
+  HogQLParser parser = get_parser(str);
+  HogQLParser::SelectContext* parse_tree = parser.select();
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+    return converter.visitAsPyObjectFinal(parse_tree);
 }
 
 // MODULE SETUP
 
-static PyMethodDef parser_methods[] = {{.ml_name = "parse_expr",
-                                        .ml_meth = parse_expr,
-                                        .ml_flags = METH_VARARGS,
-                                        .ml_doc = "Parse the HogQL expression string into an AST"},
-                                       {.ml_name = "parse_select",
-                                        .ml_meth = parse_expr,  // TODO
-                                        .ml_flags = METH_VARARGS,
-                                        .ml_doc = "Parse the HogQL SELECT statement string into an AST"},
-                                       {NULL, NULL, 0, NULL}};
+static PyMethodDef parser_methods[] = {
+    {.ml_name = "parse_expr",
+     // The cast of the function is necessary since PyCFunction values only take two
+     // PyObject* parameters, and parse_expr() takes three.
+     .ml_meth = (PyCFunction)(void (*)(void))parse_expr,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse the HogQL expression string into an AST"},
+    {.ml_name = "parse_order_expr",
+     .ml_meth = parse_order_expr,
+     .ml_flags = METH_VARARGS,
+     .ml_doc = "Parse the ORDER BY clause string into an AST"},
+    {.ml_name = "parse_select",
+     .ml_meth = parse_select,
+     .ml_flags = METH_VARARGS,
+     .ml_doc = "Parse the HogQL SELECT statement string into an AST"},
+    {NULL, NULL, 0, NULL}};
 
 static int parser_modexec(PyObject* module) {
-  parser_state* state = GET_STATE(module);
+  parser_state* state = get_module_state(module);
   state->ast_module = PyImport_ImportModule("posthog.hogql.ast");
   if (!state->ast_module) {
+    return -1;
+  }
+  state->errors_module = PyImport_ImportModule("posthog.hogql.errors");
+  if (!state->errors_module) {
     return -1;
   }
   return 0;
 }
 
-static PyModuleDef_Slot parser_slots[] = {
-    // If Python were written in C++, then this would be typed better, but because it's in C, it expects a void pointer
-    // This is safe because Python knows what to do subsequently
+static PyModuleDef_Slot parser_slots[] = {  // If Python were written in C++, then this would be typed better, but
+                                            // because it's in C, it expects a void pointer
+                                            // This is safe because Python knows what to do subsequently
     {Py_mod_exec, (void*)parser_modexec},
     {0, NULL}};
 
 static int parser_traverse(PyObject* module, visitproc visit, void* arg) {
-  parser_state* state = GET_STATE(module);
+  parser_state* state = get_module_state(module);
   Py_VISIT(state->ast_module);
   return 0;
 }
 
 static int parser_clear(PyObject* module) {
-  parser_state* state = GET_STATE(module);
+  parser_state* state = get_module_state(module);
   Py_CLEAR(state->ast_module);
   return 0;
 }

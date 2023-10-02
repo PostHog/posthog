@@ -6,6 +6,7 @@ module = Extension(
     sources=[
         "parser.cpp",
         "string.cpp",
+        "error.cpp",
         "HogQLLexer.cpp",
         "HogQLParser.cpp",
         "HogQLParserBaseVisitor.cpp",

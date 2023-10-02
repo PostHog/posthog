@@ -12,6 +12,24 @@ from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
+from hogql_parser import (
+    parse_expr as _parse_expr_cpp,
+    parse_order_expr as _parse_order_expr_cpp,
+    parse_select as _parse_select_cpp,
+)
+
+RULE_TO_PARSE_FUNCTION = {
+    "python": {
+        "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
+        "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
+        "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
+    },
+    "cpp": {
+        "expr": lambda string, start: _parse_expr_cpp(string, start),
+        "order_expr": lambda string: _parse_order_expr_cpp(string),
+        "select": lambda string: _parse_select_cpp(string),
+    },
+}
 
 
 def parse_expr(
@@ -19,12 +37,13 @@ def parse_expr(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "python",
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure("parse_expr"):
-        parse_tree = get_parser(expr).expr()
-        node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    with timings.measure(f"parse_expr_{backend}"):
+        node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 return replace_placeholders(node, placeholders)
@@ -32,13 +51,16 @@ def parse_expr(
 
 
 def parse_order_expr(
-    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
+    order_expr: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "python",
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure("parse_order_expr"):
-        parse_tree = get_parser(order_expr).orderExpr()
-        node = HogQLParseTreeConverter().visit(parse_tree)
+    with timings.measure(f"parse_order_expr_{backend}"):
+        node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 return replace_placeholders(node, placeholders)
@@ -46,13 +68,16 @@ def parse_order_expr(
 
 
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, timings: Optional[HogQLTimings] = None
+    statement: str,
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    timings: Optional[HogQLTimings] = None,
+    *,
+    backend: Literal["python", "cpp"] = "python",
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure("parse_select"):
-        parse_tree = get_parser(statement).select()
-        node = HogQLParseTreeConverter().visit(parse_tree)
+    with timings.measure(f"parse_select_{backend}"):
+        node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -301,7 +326,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitJoinOpFull(self, ctx: HogQLParser.JoinOpFullContext):
         tokens = []
-        if ctx.LEFT():
+        if ctx.FULL():
             tokens.append("FULL")
         if ctx.OUTER():
             tokens.append("OUTER")
