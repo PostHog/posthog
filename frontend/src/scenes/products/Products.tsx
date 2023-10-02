@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { router } from 'kea-router'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -22,25 +23,42 @@ export const scene: SceneExport = {
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
+    productKey,
 }: {
     productUrl: string
     onboardingUrl: string
+    productKey: ProductKey
 }): JSX.Element {
+    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     return (
         <>
             <LemonButton type="secondary" status="muted" to={productUrl}>
                 Go to product
             </LemonButton>
-            <LemonButton type="tertiary" status="muted" to={onboardingUrl}>
+            <LemonButton
+                type="tertiary"
+                status="muted"
+                onClick={() => {
+                    reportOnboardingProductSelected(productKey)
+                    router.actions.push(onboardingUrl)
+                }}
+            >
                 Set up again
             </LemonButton>
         </>
     )
 }
 
-function OnboardingNotCompletedButton({ url }: { url: string }): JSX.Element {
+function OnboardingNotCompletedButton({ url, productKey }: { url: string; productKey: ProductKey }): JSX.Element {
+    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
     return (
-        <LemonButton type="primary" to={url}>
+        <LemonButton
+            type="primary"
+            onClick={() => {
+                reportOnboardingProductSelected(productKey)
+                router.actions.push(url)
+            }}
+        >
             Get started
         </LemonButton>
     )
@@ -69,9 +87,13 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
                     <OnboardingCompletedButton
                         productUrl={getProductUri(product.type as ProductKey)}
                         onboardingUrl={urls.onboarding(product.type)}
+                        productKey={product.type as ProductKey}
                     />
                 ) : (
-                    <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
+                    <OnboardingNotCompletedButton
+                        url={urls.onboarding(product.type)}
+                        productKey={product.type as ProductKey}
+                    />
                 )}
             </div>
         </LemonCard>
