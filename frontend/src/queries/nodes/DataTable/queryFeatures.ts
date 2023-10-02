@@ -1,4 +1,11 @@
-import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isWebTopClicksQuery,
+    isWebTopPagesQuery,
+    isWebTopSourcesQuery,
+} from '~/queries/utils'
 import { Node } from '~/queries/schema'
 
 export enum QueryFeature {
@@ -38,6 +45,11 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (isPersonsNode(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
+    }
+
+    if (isWebTopSourcesQuery(query) || isWebTopPagesQuery(query) || isWebTopClicksQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
     }
 
     return features

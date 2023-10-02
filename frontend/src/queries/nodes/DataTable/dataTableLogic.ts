@@ -138,9 +138,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     }))
                 }
 
-                return response && 'results' in response && Array.isArray(response.results)
-                    ? response.results.map((result: any) => ({ result })) ?? null
+                const results = !response
+                    ? null
+                    : 'results' in response && Array.isArray(response.results)
+                    ? response.results
+                    : 'result' in response && Array.isArray(response.result)
+                    ? response.result
                     : null
+
+                return results ? results.map((result: any) => ({ result })) ?? null : null
             },
         ],
         queryWithDefaults: [
