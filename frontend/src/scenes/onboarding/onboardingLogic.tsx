@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { combineUrl } from 'kea-router'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -29,6 +30,19 @@ const onboardingStepMap: OnboardingStepMap = {
 }
 
 export type AllOnboardingSteps = JSX.Element[]
+
+export const getProductUri = (productKey: ProductKey): string => {
+    switch (productKey) {
+        case 'product_analytics':
+            return combineUrl(urls.events(), { onboarding_completed: true }).url
+        case 'session_replay':
+            return urls.replay()
+        case 'feature_flags':
+            return urls.featureFlags()
+        default:
+            return urls.default()
+    }
+}
 
 export const onboardingLogic = kea<onboardingLogicType>({
     props: {} as OnboardingLogicProps,
@@ -81,16 +95,7 @@ export const onboardingLogic = kea<onboardingLogicType>({
             urls.default() as string,
             {
                 setProductKey: (_, { productKey }) => {
-                    switch (productKey) {
-                        case 'product_analytics':
-                            return urls.default()
-                        case 'session_replay':
-                            return urls.replay()
-                        case 'feature_flags':
-                            return urls.featureFlags()
-                        default:
-                            return urls.default()
-                    }
+                    return productKey ? getProductUri(productKey as ProductKey) : urls.default()
                 },
             },
         ],
@@ -146,7 +151,6 @@ export const onboardingLogic = kea<onboardingLogicType>({
         },
         completeOnboarding: ({ redirectUri }) => {
             if (values.productKey) {
-                // update the current team has_completed_onboarding_for field, only writing over the current product
                 actions.updateCurrentTeam({
                     has_completed_onboarding_for: {
                         ...values.currentTeam?.has_completed_onboarding_for,

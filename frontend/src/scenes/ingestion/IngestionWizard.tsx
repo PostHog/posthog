@@ -23,16 +23,25 @@ import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 import { SuperpowersPanel } from 'scenes/ingestion/panels/SuperpowersPanel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export function IngestionWizard(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (!platform) {
             reportIngestionLandingSeen()
         }
     }, [platform])
+
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] === 'test') {
+        router.actions.replace(urls.products())
+    }
 
     return (
         <IngestionContainer>

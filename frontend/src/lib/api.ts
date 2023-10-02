@@ -447,6 +447,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
     }
 
+    public surveysResponsesCount(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('surveys/responses_count')
+    }
+
     public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
@@ -711,8 +715,9 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    // not implemented
-                    return null
+                    return activityLogProps.id
+                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                        : new ApiRequest().notebooks().withAction('activity')
                 },
             }
 
@@ -1439,6 +1444,9 @@ const api = {
         },
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
+        },
+        async getResponsesCount(): Promise<{ [key: string]: number }> {
+            return await new ApiRequest().surveysResponsesCount().get()
         },
     },
 

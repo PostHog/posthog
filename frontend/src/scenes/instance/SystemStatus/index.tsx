@@ -5,7 +5,7 @@ import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { KafkaInspectorTab } from './KafkaInspectorTab'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -33,7 +34,11 @@ export function SystemStatus(): JSX.Element {
     let tabs = [
         {
             key: 'overview',
-            label: 'System overview',
+            label: (
+                <Tooltip title={<>System overview is cached for 60 seconds</>}>
+                    System overview <IconInfo />
+                </Tooltip>
+            ),
             content: <OverviewTab />,
         },
     ] as LemonTab<InstanceStatusTabName>[]

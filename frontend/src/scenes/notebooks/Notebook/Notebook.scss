@@ -125,8 +125,10 @@
         width: 0px;
         transition: width var(--notebook-popover-transition-properties);
 
-        .NotebookSidebar__padding {
-            height: 3.5rem;
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
+        .NotebookScene & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
         }
 
         .NotebookSidebar__content {
@@ -145,10 +147,19 @@
 
         &--showing {
             width: var(--notebook-sidebar-width);
+            margin-right: 1rem;
 
             .NotebookSidebar__content {
                 transform: translateX(0);
             }
+        }
+
+        .NotebookHistory {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: var(--notebook-sidebar-height);
+            overflow: hidden;
         }
     }
 

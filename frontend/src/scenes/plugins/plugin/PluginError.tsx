@@ -1,26 +1,28 @@
-import { Button, Popover, Tag } from 'antd'
-import { ClearOutlined } from '@ant-design/icons'
 import { PluginErrorType } from '~/types'
+import { Tag } from 'antd'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { dayjs } from 'lib/dayjs'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import { TZLabel } from '@posthog/apps-common'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 export function PluginError({ error, reset }: { error: PluginErrorType; reset?: () => void }): JSX.Element | null {
     if (!error) {
         return null
     }
     return (
-        <Popover
-            title={<div style={{ textAlign: 'center' }}>{dayjs(error.time).format('YYYY-MM-DD - HH:mm:ss')}</div>}
-            content={
+        <LemonDropdown
+            overlay={
                 <>
-                    {reset ? (
-                        <Button size="small" onClick={reset} style={{ float: 'right', marginLeft: 10 }}>
-                            <ClearOutlined /> Delete
-                        </Button>
-                    ) : null}
-                    <div>
-                        {error.name ? <strong>{error.name}: </strong> : ''}
-                        {error.message}
+                    <div className="flex items-center">
+                        <span className="grow mr-2">
+                            {error.name ? <strong>{error.name} </strong> : ''}
+                            <TZLabel time={error.time} />
+                        </span>
+                        {reset ? (
+                            <LemonButton size="small" type="secondary" onClick={reset} icon={<IconClose />}>
+                                Clear
+                            </LemonButton>
+                        ) : null}
                     </div>
                     {error.stack ? (
                         <CodeSnippet wrap style={{ fontSize: 10 }} language={Language.JavaScript}>
@@ -34,12 +36,12 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
                     ) : null}
                 </>
             }
-            trigger="click"
             placement="top"
+            showArrow
         >
             <Tag color="red" style={{ cursor: 'pointer' }}>
                 ERROR
             </Tag>
-        </Popover>
+        </LemonDropdown>
     )
 }

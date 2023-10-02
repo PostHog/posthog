@@ -145,6 +145,11 @@ const MOCK_SURVEY_RESULTS = {
     ],
 }
 
+const MOCK_RESPONSES_COUNT = {
+    '0187c279-bcae-0000-34f5-4f121921f005': 17,
+    '0187c279-bcae-0000-34f5-4f121921f006': 25,
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Surveys',
     parameters: {
@@ -164,6 +169,7 @@ const meta: Meta = {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
             },
             post: {
                 '/api/projects/:team_id/query/': (req) => {

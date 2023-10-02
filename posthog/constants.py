@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Literal
+
 from semantic_version import Version
 
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
@@ -12,7 +13,7 @@ class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
     PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
-    GOOGLE_LOGIN = "google_login"
+    SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"

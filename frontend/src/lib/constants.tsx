@@ -149,6 +149,7 @@ export const FEATURE_FLAGS = {
     SURVEYS: 'surveys', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
+    WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
@@ -167,6 +168,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
+    SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -175,7 +177,7 @@ export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
 export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
     [AvailableFeature.ZAPIER]: LicensePlan.Scale,
     [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
     [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
     [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,

@@ -894,7 +894,7 @@
         },
         "FunnelsFilter": {
             "additionalProperties": false,
-            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
+            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`",
             "properties": {
                 "bin_count": {
                     "$ref": "#/definitions/BinCountValue"
@@ -905,64 +905,20 @@
                 "breakdown_attribution_value": {
                     "type": "number"
                 },
-                "drop_off": {
-                    "type": "boolean"
-                },
-                "entrance_period_start": {
-                    "type": "string"
-                },
                 "exclusions": {
                     "items": {
                         "$ref": "#/definitions/FunnelExclusion"
                     },
                     "type": "array"
                 },
-                "funnel_advanced": {
-                    "type": "boolean"
-                },
                 "funnel_aggregate_by_hogql": {
                     "type": "string"
-                },
-                "funnel_correlation_person_converted": {
-                    "enum": ["true", "false"],
-                    "type": "string"
-                },
-                "funnel_correlation_person_entity": {
-                    "type": "object"
-                },
-                "funnel_custom_steps": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
                 },
                 "funnel_from_step": {
                     "type": "number"
                 },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
-                },
-                "funnel_step": {
-                    "type": "number"
-                },
-                "funnel_step_breakdown": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "funnel_step_reference": {
                     "$ref": "#/definitions/FunnelStepReference"
@@ -1472,7 +1428,7 @@
         },
         "PathsFilter": {
             "additionalProperties": false,
-            "description": "`PathsFilterType` minus everything inherited from `FilterType`",
+            "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "edge_limit": {
                     "type": "number"
@@ -1510,12 +1466,6 @@
                 "min_edge_weight": {
                     "type": "number"
                 },
-                "path_dropoff_key": {
-                    "type": "string"
-                },
-                "path_end_key": {
-                    "type": "string"
-                },
                 "path_groupings": {
                     "items": {
                         "type": "string"
@@ -1524,9 +1474,6 @@
                 },
                 "path_replacements": {
                     "type": "boolean"
-                },
-                "path_start_key": {
-                    "type": "string"
                 },
                 "path_type": {
                     "$ref": "#/definitions/PathType"
@@ -2051,7 +1998,7 @@
         },
         "StickinessFilter": {
             "additionalProperties": false,
-            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
+            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "compare": {
                     "type": "boolean"
@@ -2073,9 +2020,6 @@
                 },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
-                },
-                "stickiness_days": {
-                    "type": "number"
                 }
             },
             "type": "object"
