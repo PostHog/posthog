@@ -23,6 +23,7 @@ export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
     topic,
+    autoCommit,
     sessionTimeout,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
@@ -32,13 +33,13 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     topicCreationTimeoutMs,
     eachBatch,
-    autoCommit = true,
     cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
+    autoCommit: boolean
     sessionTimeout: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
@@ -48,7 +49,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-    autoCommit?: boolean
     cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
