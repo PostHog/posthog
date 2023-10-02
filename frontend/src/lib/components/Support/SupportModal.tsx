@@ -12,6 +12,7 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
 import { LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { userLogic } from 'scenes/userLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
     {
@@ -45,6 +46,8 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     const { sendSupportRequest, isSupportFormOpen, sendSupportLoggedOutRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
+    // the support model can be shown when logged out, file upload is not offered to anonymous users
+    const { user } = useValues(userLogic)
 
     if (!preflightLogic.values.preflight?.cloud) {
         if (isSupportFormOpen) {
@@ -124,7 +127,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                                 data-attr="support-form-content-input"
                                 {...props}
                             />
-                            {objectStorageAvailable && (
+                            {objectStorageAvailable && !!user && (
                                 <LemonFileInput
                                     accept="image/*"
                                     multiple={false}

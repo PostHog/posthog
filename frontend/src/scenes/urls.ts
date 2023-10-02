@@ -80,6 +80,7 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+    webAnalytics: (): string => `/web`,
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,

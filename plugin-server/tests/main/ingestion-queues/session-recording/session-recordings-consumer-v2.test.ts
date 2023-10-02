@@ -1,11 +1,11 @@
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka-acosom'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
-import { Hub, PluginsServerConfig } from '../../../../src/types'
+import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
@@ -60,7 +60,9 @@ describe('ingester', () => {
 
     let hub: Hub
     let closeHub: () => Promise<void>
+    let team: Team
     let teamToken = ''
+    let nextOffset: number
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -69,9 +71,20 @@ describe('ingester', () => {
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        const team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub)
         teamToken = team.api_token
         await deleteKeysWithPrefix(hub)
+
+        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
+        await ingester.start()
+        nextOffset = 1
+
+        // Our tests will use multiple partitions so we assign them to begin with
+        await ingester.onAssignPartitions([createTP(1), createTP(2)])
+        expect(ingester.partitionAssignments).toMatchObject({
+            '1': {},
+            '2': {},
+        })
     })
 
     afterEach(async () => {
@@ -86,11 +99,22 @@ describe('ingester', () => {
         jest.useRealTimers()
     })
 
-    // these tests assume that a flush won't run while they run
-    beforeEach(async () => {
-        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
-        await ingester.start()
-    })
+    const commitAllOffsets = async () => {
+        await ingester.commitAllOffsets(ingester.partitionAssignments, Object.values(ingester.sessions))
+    }
+
+    const createMessage = (session_id: string, partition = 1) => {
+        return createKafkaMessage(
+            teamToken,
+            {
+                partition,
+                offset: nextOffset++,
+            },
+            {
+                $session_id: session_id,
+            }
+        )
+    }
 
     it('creates a new session manager if needed', async () => {
         const event = createIncomingRecordingMessage()
@@ -211,126 +235,210 @@ describe('ingester', () => {
         })
     })
 
-    // NOTE: Committing happens by the parent
     describe('offset committing', () => {
-        const metadata = {
-            partition: 1,
-            topic: 'session_recording_events',
-        }
-        let _offset = 0
-        const offset = () => _offset++
-
-        const addMessage = (session_id: string) =>
-            createIncomingRecordingMessage({ session_id }, { ...metadata, offset: offset() })
-
-        beforeEach(() => {
-            _offset = 0
-        })
-
-        const tryToCommitLatestOffset = async () => {
-            await ingester.commitOffset(metadata.topic, metadata.partition, _offset)
-        }
-
         it('should commit offsets in simple cases', async () => {
-            await ingester.consume(addMessage('sid1'))
-            await ingester.consume(addMessage('sid1'))
-            expect(_offset).toBe(2)
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')])
+            expect(ingester.partitionAssignments[1]).toMatchObject({
+                lastMessageOffset: 2,
+                lastKnownCommit: 0,
+            })
+
+            await commitAllOffsets()
             // Doesn't flush if we have a blocking session
             expect(mockCommit).toHaveBeenCalledTimes(0)
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await commitAllOffsets()
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 3,
-            })
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    offset: 2 + 1,
+                    partition: 1,
+                })
+            )
         })
 
         it('should commit higher values but not lower', async () => {
-            // We need to simulate the paritition assignent logic here
-            ingester.partitionAssignments[1] = {}
-            await ingester.consume(addMessage('sid1'))
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([createMessage('sid1')])
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            expect(ingester.partitionAssignments[1].lastMessageOffset).toBe(1)
+            await commitAllOffsets()
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 2,
-            })
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: 2,
+                })
+            )
 
-            const olderOffsetSomehow = addMessage('sid1')
-            olderOffsetSomehow.metadata.offset = 1
-
-            await ingester.consume(olderOffsetSomehow)
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
-            await ingester.commitOffset(metadata.topic, metadata.partition, 1)
+            // Repeat commit doesn't do anything
+            await commitAllOffsets()
             expect(mockCommit).toHaveBeenCalledTimes(1)
 
-            await ingester.consume(addMessage('sid1'))
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([createMessage('sid1')])
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await commitAllOffsets()
 
             expect(mockCommit).toHaveBeenCalledTimes(2)
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 4,
-            })
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: 2 + 1,
+                })
+            )
         })
 
         it('should commit the lowest known offset if there is a blocking session', async () => {
-            await ingester.consume(addMessage('sid1')) // 1
-            await ingester.consume(addMessage('sid2')) // 2
-            await ingester.consume(addMessage('sid2')) // 3
-            await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions['1-sid2']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([
+                createMessage('sid1'),
+                createMessage('sid2'),
+                createMessage('sid2'),
+                createMessage('sid2'),
+            ])
+            await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
+            await commitAllOffsets()
+
+            expect(ingester.partitionAssignments[1]).toMatchObject({
+                lastMessageOffset: 4,
+                lastKnownCommit: 0,
+            })
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
 
-            // Simulating the next incoming message triggers a commit for sure
-            await tryToCommitLatestOffset()
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 5,
-            })
+            // Subsequent commit will commit the last known offset
+            await commitAllOffsets()
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: 4 + 1,
+                })
+            )
         })
 
         it('should commit one lower than the blocking session if that is the highest', async () => {
-            await ingester.consume(addMessage('sid1')) // 1
-            await ingester.consume(addMessage('sid2')) // 2
-            await ingester.consume(addMessage('sid2')) // 3
-            await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions['1-sid2']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([
+                createMessage('sid1'),
+                createMessage('sid2'),
+                createMessage('sid2'),
+                createMessage('sid2'),
+            ])
+            // Flush the second session so the first one is still blocking
+            await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
+            await commitAllOffsets()
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
-            await ingester.consume(addMessage('sid2')) // 5
-            await ingester.sessions['1-sid1']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
 
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 5, // Same as the blocking session and more than the highest commitable for sid1 (1)
-            })
+            // Add a new message and session and flush the old one
+            await ingester.handleEachBatch([createMessage('sid2')])
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await commitAllOffsets()
+
+            // We should commit the offset of the blocking session
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: ingester.sessions[`${team.id}-sid2`].getLowestOffset(),
+                })
+            )
         })
 
         it('should not be affected by other partitions ', async () => {
-            createIncomingRecordingMessage({ session_id: 'sid1' }, { ...metadata, partition: 2, offset: offset() })
-            await ingester.consume(addMessage('sid2')) // 2
-            await ingester.consume(addMessage('sid2')) // 3
-            await ingester.sessions['1-sid2']?.flush('buffer_age')
-            await tryToCommitLatestOffset()
+            await ingester.handleEachBatch([
+                createMessage('sid1', 1), // offset 1
+                createMessage('sid2', 2), // offset 2
+                createMessage('sid2', 2), // offset 3
+            ])
 
-            expect(mockCommit).toHaveBeenLastCalledWith({
-                ...metadata,
-                offset: 4,
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await ingester.handleEachBatch([createMessage('sid1', 1)]) // offset 4
+
+            // We should now have a blocking session on partition 1 and 2 with partition 1 being commitable
+            await commitAllOffsets()
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: 4,
+                })
+            )
+
+            mockCommit.mockReset()
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
+            await commitAllOffsets()
+            expect(mockCommit).toHaveBeenCalledTimes(2)
+            expect(mockCommit).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    partition: 1,
+                    offset: 5,
+                })
+            )
+            expect(mockCommit).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    partition: 2,
+                    offset: 4,
+                })
+            )
+        })
+    })
+
+    describe('watermarkers', () => {
+        const getSessionWaterMarks = (partition = 1) =>
+            ingester.sessionHighWaterMarker.getWaterMarks(createTP(partition))
+        const getPersistentWaterMarks = (partition = 1) =>
+            ingester.persistentHighWaterMarker.getWaterMarks(createTP(partition))
+
+        it('should update session watermarkers with flushing', async () => {
+            await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3')])
+            await expect(getSessionWaterMarks()).resolves.toEqual({})
+
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 1 })
+            await ingester.sessions[`${team.id}-sid3`].flush('buffer_age')
+            await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
+            await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 1, sid2: 2, sid3: 3 })
+        })
+
+        it('should update partition watermarkers when committing', async () => {
+            await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid1')])
+            await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
+            await commitAllOffsets()
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+
+            // sid1 should be watermarked up until the 3rd message as it HAS been processed
+            await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 3 })
+            // all replay events should be watermarked up until the 3rd message as they HAVE been processed
+            // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
+            await expect(getPersistentWaterMarks()).resolves.toEqual({
+                'session-recordings-blob': 1,
+                session_replay_events_ingester: 3,
             })
+        })
+
+        it('should drop events that are higher than the watermarks', async () => {
+            const events = [createMessage('sid1'), createMessage('sid2'), createMessage('sid2')]
+
+            await expect(getPersistentWaterMarks()).resolves.toEqual({})
+            await ingester.handleEachBatch([events[0], events[1]])
+            await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
+            await commitAllOffsets()
+            expect(mockCommit).not.toHaveBeenCalled()
+            await expect(getPersistentWaterMarks()).resolves.toEqual({
+                session_replay_events_ingester: 2,
+            })
+            await expect(getSessionWaterMarks()).resolves.toEqual({
+                sid2: 2, // only processed the second message so far
+            })
+
+            // Simulate a re-processing
+            await ingester.destroySessions(Object.entries(ingester.sessions))
+            await ingester.handleEachBatch(events)
+            expect(ingester.sessions[`${team.id}-sid2`].buffer.count).toBe(1)
+            expect(ingester.sessions[`${team.id}-sid1`].buffer.count).toBe(1)
         })
     })
 
@@ -339,7 +447,7 @@ describe('ingester', () => {
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
+            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
             await otherIngester.start()
         })
 
@@ -350,52 +458,8 @@ describe('ingester', () => {
          * It is really hard to actually do rebalance tests against kafka, so we instead simulate the various methods and ensure the correct logic occurs
          */
         it('rebalances new consumers', async () => {
-            const partitionMsgs1 = [
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 1,
-                    },
-                    {
-                        $session_id: 'session_id_1',
-                    }
-                ),
-
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 1,
-                        offset: 2,
-                    },
-                    {
-                        $session_id: 'session_id_2',
-                    }
-                ),
-            ]
-
-            const partitionMsgs2 = [
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 1,
-                    },
-                    {
-                        $session_id: 'session_id_3',
-                    }
-                ),
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 2,
-                    },
-                    {
-                        $session_id: 'session_id_4',
-                    }
-                ),
-            ]
+            const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+            const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
             await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
             await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
@@ -409,22 +473,14 @@ describe('ingester', () => {
                 otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
             ]
 
+            // Should immediately be removed from the tracked sessions
+            expect(
+                Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
+            ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
+
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
-            await otherIngester.handleEachBatch([
-                ...partitionMsgs2,
-                createKafkaMessage(
-                    teamToken,
-                    {
-                        partition: 2,
-                        offset: 3,
-                    },
-                    {
-                        $session_id: 'session_id_4',
-                    }
-                ),
-            ])
-
+            await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
             await Promise.all(rebalancePromises)
 
             // Should still have the partition 1 sessions that didnt move
@@ -436,6 +492,74 @@ describe('ingester', () => {
             expect(
                 Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['2:session_id_4:1'])
+        })
+
+        it("flushes and commits as it's revoked", async () => {
+            await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid3', 2)])
+
+            expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
+                expect.stringContaining(`${team.id}.sid1.`), // gz
+                expect.stringContaining(`${team.id}.sid1.`), // json
+                expect.stringContaining(`${team.id}.sid2.`), // gz
+                expect.stringContaining(`${team.id}.sid2.`), // json
+                expect.stringContaining(`${team.id}.sid3.`), // gz
+                expect.stringContaining(`${team.id}.sid3.`), // json
+            ])
+
+            const revokePromise = ingester.onRevokePartitions([createTP(1)])
+
+            expect(Object.keys(ingester.sessions)).toEqual([`${team.id}-sid3`])
+
+            await revokePromise
+
+            // Only files left on the system should be the sid3 ones
+            expect(readdirSync(config.SESSION_RECORDING_LOCAL_DIRECTORY + '/session-buffer-files')).toEqual([
+                expect.stringContaining(`${team.id}.sid3.`), // gz
+                expect.stringContaining(`${team.id}.sid3.`), // json
+            ])
+
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    offset: 2 + 1,
+                    partition: 1,
+                })
+            )
+        })
+    })
+
+    describe('stop()', () => {
+        const setup = async (): Promise<void> => {
+            const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
+            await ingester.onAssignPartitions([createTP(1)])
+            await ingester.handleEachBatch(partitionMsgs1)
+        }
+
+        // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
+        // It doesn't reliably work though as the onRevoke is called via the kafka lib ending up with dangling promises so rather it is here as a reminder
+        // demonstation for when we need it
+        it.skip('shuts down with error if redis forcefully shutdown', async () => {
+            await setup()
+
+            await ingester.redisPool.drain()
+            await ingester.redisPool.clear()
+
+            // revoke, realtime unsub, replay stop
+            await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'rejected' },
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+            ])
+        })
+        it('shuts down without error', async () => {
+            await setup()
+
+            // revoke, realtime unsub, replay stop
+            await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+                { status: 'fulfilled' },
+            ])
         })
     })
 })

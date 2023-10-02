@@ -4,12 +4,14 @@ from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
+from posthog.client import sync_execute
 from posthog.exceptions import generate_exception_response
 from posthog.models.feedback.survey import Survey
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, request
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework import status
@@ -23,6 +25,8 @@ from django.views.decorators.csrf import csrf_exempt
 from typing import Any
 
 from posthog.utils_cors import cors_response
+
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -134,11 +138,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data["targeting_flag_id"] = targeting_feature_flag.id
             validated_data.pop("targeting_flag_filters")
 
+        if "targeting_flag_filters" in validated_data:
+            validated_data.pop("targeting_flag_filters")
+
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
 
     def update(self, instance: Survey, validated_data):
-
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 instance.targeting_flag.delete()
@@ -170,7 +176,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters):
-        feature_flag_key = slugify(f"survey-targeting-{name}")
+        feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,
@@ -206,6 +212,24 @@ class SurveyViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             related_targeting_flag.delete()
 
         return super().destroy(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def responses_count(self, request: request.Request, **kwargs):
+        data = sync_execute(
+            f"""
+            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+            FROM events
+            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            GROUP BY survey_id
+        """,
+            {"team_id": self.team_id},
+        )
+
+        counts = {}
+        for survey_id, count in data:
+            counts[survey_id] = count
+
+        return Response(counts)
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):

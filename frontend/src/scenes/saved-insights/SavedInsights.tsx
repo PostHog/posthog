@@ -57,6 +57,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -396,7 +397,9 @@ export function SavedInsights(): JSX.Element {
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (
-                            <span className="row-description">{insight.description}</span>
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {insight.description}
+                            </LemonMarkdown>
                         )}
                     </>
                 )

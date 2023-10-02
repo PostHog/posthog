@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
+from prometheus_client import Counter
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
@@ -12,6 +13,14 @@ from posthog.celery import app
 from posthog.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
+
+SUBSCRIPTION_QUEUED = Counter(
+    "subscription_queued", "A subscription was queued for delivery", labelnames=["destination"]
+)
+SUBSCRIPTION_SUCCESS = Counter(
+    "subscription_send_success", "A subscription was sent successfully", labelnames=["destination"]
+)
+SUBSCRIPTION_FAILURE = Counter("subscription_send_failure", "A subscription failed to send", labelnames=["destination"])
 
 
 def _deliver_subscription_report(
@@ -34,6 +43,8 @@ def _deliver_subscription_report(
             return
 
     if subscription.target_type == "email":
+        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
+
         insights, assets = generate_assets(subscription)
 
         # Send emails
@@ -51,22 +62,26 @@ def _deliver_subscription_report(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
-                statsd.incr("subscription_email_send_success")
             except Exception as e:
+                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
                 logger.error(e)
                 capture_exception(e)
-                statsd.incr("subscription_email_send_failure")
+
+        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
 
     elif subscription.target_type == "slack":
+        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
+
         insights, assets = generate_assets(subscription)
         try:
             send_slack_subscription_report(
                 subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
             )
-            statsd.incr("subscription_slack_send_success")
+            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
         except Exception as e:
-            statsd.incr("subscription_slack_send_failure")
+            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
             logger.error(e)
+            capture_exception(e)
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 

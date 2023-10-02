@@ -3,17 +3,27 @@ import { useValues, useActions } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
-import { SortEndHandler, SortableContainer, SortableElement } from 'react-sortable-hoc'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { CSS } from '@dnd-kit/utilities'
 
 const MinimalAppView = ({ plugin, order }: { plugin: PluginTypeWithConfig; order: number }): JSX.Element => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: plugin.id })
+
     return (
         <div
-            className="flex gap-2 cursor-move border rounded p-2 items-center bg-light"
-            // eslint-disable-next-line react/forbid-dom-props
+            ref={setNodeRef}
+            className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
             style={{
-                zIndex: 999999,
+                position: 'relative',
+                transform: CSS.Transform.toString(transform),
+                transition,
+                zIndex: isDragging ? 999999 : undefined,
             }}
+            {...attributes}
+            {...listeners}
         >
             <LemonBadge.Number count={order + 1} maxDigits={3} />
             <PluginImage plugin={plugin} size="small" />
@@ -22,34 +32,32 @@ const MinimalAppView = ({ plugin, order }: { plugin: PluginTypeWithConfig; order
     )
 }
 
-const SortableAppView = SortableElement(MinimalAppView)
-
-const SortableAppList = SortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <span className="flex flex-col gap-2">{children}</span>
-})
-
 export function InstalledAppsReorderModal(): JSX.Element {
     const { reorderModalOpen, sortableEnabledPlugins, temporaryOrder, pluginConfigsLoading } = useValues(pluginsLogic)
     const { closeReorderModal, setTemporaryOrder, cancelRearranging, savePluginOrders } = useActions(pluginsLogic)
 
-    const onSortEnd: SortEndHandler = ({ oldIndex, newIndex }) => {
-        const cloned = [...sortableEnabledPlugins]
-        const [removed] = cloned.splice(oldIndex, 1)
-        cloned.splice(newIndex, 0, removed)
-
-        const newTemporaryOrder = cloned.reduce((acc, plugin, index) => {
-            return {
-                ...acc,
-                [plugin.id]: index + 1,
-            }
-        }, {})
-
-        setTemporaryOrder(newTemporaryOrder, removed.id)
-    }
-
     const onClose = (): void => {
         cancelRearranging()
         closeReorderModal()
+    }
+
+    const handleDragEnd = ({ active, over }: DragEndEvent): void => {
+        const itemIds = sortableEnabledPlugins.map((item) => item.id)
+
+        if (over && active.id !== over.id) {
+            const oldIndex = itemIds.indexOf(Number(active.id))
+            const newIndex = itemIds.indexOf(Number(over.id))
+            const newOrder = arrayMove(sortableEnabledPlugins, oldIndex, newIndex)
+
+            const newTemporaryOrder = newOrder.reduce((acc, plugin, index) => {
+                return {
+                    ...acc,
+                    [plugin.id]: index + 1,
+                }
+            }, {})
+
+            setTemporaryOrder(newTemporaryOrder, Number(active.id))
+        }
     }
 
     return (
@@ -79,12 +87,14 @@ export function InstalledAppsReorderModal(): JSX.Element {
                 </>
             }
         >
-            <div className="space-y-4">
-                <SortableAppList onSortEnd={onSortEnd} axis="y" lockAxis="y" lockToContainerEdges distance={5}>
-                    {sortableEnabledPlugins.map((plugin, index) => (
-                        <SortableAppView key={`item-${index}`} index={index} order={index} plugin={plugin} />
-                    ))}
-                </SortableAppList>
+            <div className="flex flex-col gap-2">
+                <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
+                    <SortableContext items={sortableEnabledPlugins} strategy={verticalListSortingStrategy}>
+                        {sortableEnabledPlugins.map((item, index) => (
+                            <MinimalAppView key={item.id} plugin={item} order={index} />
+                        ))}
+                    </SortableContext>
+                </DndContext>
             </div>
         </LemonModal>
     )

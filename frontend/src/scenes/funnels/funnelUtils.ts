@@ -1,6 +1,6 @@
 import { autoCaptureEventToDescription, clamp } from 'lib/utils'
 import {
-    FunnelStepRangeEntityFilter,
+    FunnelExclusion,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
@@ -225,9 +225,7 @@ export const isStepsEmpty = (filters: FunnelsFilterType): boolean =>
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
     typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
-export const deepCleanFunnelExclusionEvents = (
-    filters: FunnelsFilterType
-): FunnelStepRangeEntityFilter[] | undefined => {
+export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): FunnelExclusion[] | undefined => {
     if (!filters.exclusions) {
         return undefined
     }
@@ -255,9 +253,9 @@ export const getClampedStepRangeFilter = ({
     stepRange,
     filters,
 }: {
-    stepRange?: FunnelStepRangeEntityFilter
+    stepRange?: FunnelExclusion
     filters: FunnelsFilterType
-}): FunnelStepRangeEntityFilter => {
+}): FunnelExclusion => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
@@ -282,9 +280,9 @@ export const getClampedStepRangeFilterDataExploration = ({
     stepRange,
     query,
 }: {
-    stepRange?: FunnelStepRangeEntityFilter
+    stepRange?: FunnelExclusion
     query: FunnelsQuery
-}): FunnelStepRangeEntityFilter => {
+}): FunnelExclusion => {
     const maxStepIndex = Math.max(query.series.length || 0 - 1, 1)
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, query.funnelsFilter?.funnel_from_step])

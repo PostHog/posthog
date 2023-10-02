@@ -9,6 +9,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
+import clsx from 'clsx'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
     nextSessionRecording?: Partial<SessionRecordingType>
@@ -20,6 +22,10 @@ const PlayerFrameOverlayContent = ({
     currentPlayerState: SessionPlayerState
 }): JSX.Element | null => {
     let content = null
+    const pausedState =
+        currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
+    const isInExportContext = !!getCurrentExporterData()
+
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-bg-light rounded m-6 gap-2 max-w-120 shadow">
@@ -56,14 +62,20 @@ const PlayerFrameOverlayContent = ({
             <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
         )
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
+    if (pausedState) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     return content ? (
-        <div className="PlayerFrameOverlay__content" aria-busy={currentPlayerState === SessionPlayerState.BUFFER}>
+        <div
+            className={clsx(
+                'PlayerFrameOverlay__content',
+                pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
+            )}
+            aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
+        >
             {content}
         </div>
     ) : null
