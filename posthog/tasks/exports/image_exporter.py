@@ -143,8 +143,9 @@ def _screenshot_asset(
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
         with configure_scope() as scope:
+            scope.set_extra("url_to_render", url_to_render)
             if driver:
-                # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
+                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
                     all_logs = [x for x in driver.get_log("browser")]
                     scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
