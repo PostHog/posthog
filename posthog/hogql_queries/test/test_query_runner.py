@@ -82,6 +82,7 @@ class QueryRunnerTest(BaseTest):
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
@@ -95,6 +96,7 @@ class QueryRunnerTest(BaseTest):
         class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore
             pass
 
+        # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
