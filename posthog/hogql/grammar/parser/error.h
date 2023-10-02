@@ -6,8 +6,11 @@
 // The input does not conform to HogQL syntax.
 class HogQLSyntaxError : public std::runtime_error {
  public:
-  explicit HogQLSyntaxError(const std::string& message);
-  explicit HogQLSyntaxError(const char* message);
+  size_t start;
+  size_t end;
+
+  explicit HogQLSyntaxError(const std::string& message, size_t start, size_t end);
+  explicit HogQLSyntaxError(const char* message, size_t start, size_t end);
 };
 
 // This feature isn't implemented in HogQL (yet).

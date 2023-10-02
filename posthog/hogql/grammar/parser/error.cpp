@@ -2,8 +2,10 @@
 
 using namespace std;
 
-HogQLSyntaxError::HogQLSyntaxError(const string& message) : runtime_error(message) {}
-HogQLSyntaxError::HogQLSyntaxError(const char* message) : runtime_error(message) {}
+HogQLSyntaxError::HogQLSyntaxError(const string& message, size_t start, size_t end)
+    : runtime_error(message), start(start), end(end) {}
+HogQLSyntaxError::HogQLSyntaxError(const char* message, size_t start, size_t end)
+    : runtime_error(message), start(start), end(end) {}
 
 HogQLNotImplementedError::HogQLNotImplementedError(const string& message) : logic_error(message) {}
 HogQLNotImplementedError::HogQLNotImplementedError(const char* message) : logic_error(message) {}

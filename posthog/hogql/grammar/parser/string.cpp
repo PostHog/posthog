@@ -31,9 +31,10 @@ string parse_string(string text) {
     boost::replace_all(text, "{{", "{");
     boost::replace_all(text, "\\{", "{");
   } else {
-    throw HogQLSyntaxError("Invalid string literal, must start and end with the same quote type: " + text);
+    // FIXME: start=end=
+    throw HogQLSyntaxError("Invalid string literal, must start and end with the same quote type: " + text, 0, 0);
   }
-  // copied from clickhouse_driver/util/escape.py
+  // Copied from clickhouse_driver/util/escape.py
   boost::replace_all(text, "\\b", "\b");
   boost::replace_all(text, "\\f", "\f");
   boost::replace_all(text, "\\r", "\r");

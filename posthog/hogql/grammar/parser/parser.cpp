@@ -33,8 +33,9 @@ void X_PyList_Extend(PyObject* list, PyObject* extension) {
 
 // Conventions:
 // 1. If any child rule results in an AST node, so must the parent rule - once in Python land, always in Python land.
-//    E.g. it doesn't make sense to create a vector of PyObjects*, that should just be a Python list (a new PyObject*).
-// 2. Stay out of Python land as long as possible. E.g. avoid using PyObjects* for ints or strings.
+//    E.g. it doesn't make sense to create a vector<PyObject*>, that should just be a PyObject* (a Python list).
+// 2. Stay out of Python land as long as possible. E.g. avoid using PyObjects* for bools or strings.
+//    Do use Python for parsing numbers though - that way we don't need to consider integer overflow.
 // 3. REMEMBER TO Py_DECREF AND Py_INCREF. Otherwise there will be memory leaks or segfaults.
 // 4. For Py_None, Py_True, and Py_False, just wrap them in Py_NewRef().
 // 5. In Py_BuildValue tend towards use of `N` (which does not increment the refcount) over `O` (which does).
@@ -107,11 +108,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   PyObject* visitAsPyObjectFinal(antlr4::tree::ParseTree* tree) {
     try {
       return visitAsPyObject(tree);
-    } catch (const bad_any_cast& e) {
-      PyErr_SetString(PyExc_RuntimeError, "Parsing failed due to bad type casting");
-      return NULL;
     } catch (const HogQLSyntaxError& e) {
-      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");  // TODO: start=end=
       PyErr_SetString(error_type, e.what());
       Py_DECREF(error_type);
       return NULL;
@@ -125,12 +123,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       PyErr_SetString(error_type, e.what());
       Py_DECREF(error_type);
       return NULL;
+    } catch (const bad_any_cast& e) {
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingException");
+      PyErr_SetString(error_type, "Parsing failed due to bad type casting");
+      return NULL;
     }
   }
 
   PyObject* visitAsPyObject(antlr4::tree::ParseTree* tree) {
-    any result = visit(tree);
-    PyObject* cast_result = any_cast<PyObject*>(result);
+    PyObject* cast_result = any_cast<PyObject*>(visit(tree));
     if (!cast_result) {
       throw runtime_error("Rule resulted in a null PyObject pointer. A Python exception must be set at this point.");
     }
@@ -151,20 +152,27 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return visitAsPyObject(tree);
   }
 
-  string visitAsString(antlr4::tree::ParseTree* tree) {
-    any result = visit(tree);
-    return any_cast<string>(result);
-  }
-
   // T has to be used in place of antlr4::tree::ParseTree* here, because there's no conversion from the child class
   // to its parent within vectors
   template <typename T>
   PyObject* visitPyListOfObjects(vector<T> tree) {
-    PyObject* list = PyList_New(tree.size());
+    PyObject* result = PyList_New(tree.size());
     for (size_t i = 0; i < tree.size(); i++) {
-      PyList_SET_ITEM(list, i, visitAsPyObject(tree[i]));
+      PyList_SET_ITEM(result, i, visitAsPyObject(tree[i]));
     }
-    return list;
+    return result;
+  }
+
+  string visitAsString(antlr4::tree::ParseTree* tree) { return any_cast<string>(visit(tree)); }
+
+  template <typename T>
+  vector<string> visitAsVectorOfStrings(vector<T> tree) {
+    vector<string> result;
+    result.reserve(tree.size());
+    for (auto child : tree) {
+      result.push_back(visitAsString(child));
+    }
+    return result;
   }
 
   VISIT(Select) {
@@ -175,7 +183,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return visit(ctx->selectStmt());
   }
 
+  VISIT(SelectStmtWithParens) {
+    auto select_stmt_ctx = ctx->selectStmt();
+    if (select_stmt_ctx) {
+      return visit(select_stmt_ctx);
+    }
+    return visit(ctx->selectUnionStmt());
+  }
+
   VISIT(SelectUnionStmt) {
+    // Using a vector of PyObjects atypically here, because this is a precursor to flattened_queries
     vector<PyObject*> select_queries;
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
     select_queries.reserve(select_stmt_with_parens_ctxs.size());
@@ -196,22 +213,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw HogQLParsingError("Unexpected query node type: " + string(Py_TYPE(query)->tp_name));
       }
     }
-    return build_ast_node("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
-  }
-
-  VISIT(SelectStmtWithParens) {
-    auto select_stmt_ctx = ctx->selectStmt();
-    if (select_stmt_ctx) {
-      return visit(select_stmt_ctx);
+    if (PyList_Size(flattened_queries) == 1) {
+      PyObject* query = PyList_GET_ITEM(flattened_queries, 0);
+      Py_INCREF(query);
+      Py_DECREF(flattened_queries);
+      return query;
     }
-    return visit(ctx->selectUnionStmt());
+    return build_ast_node("SelectUnionQuery", "{s:N}", "select_queries", flattened_queries);
   }
 
   VISIT(SelectStmt) {
     PyObject* select_query = build_ast_node(
         "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", visitAsPyObjectOrNone(ctx->withClause()),
         "select", visitAsPyObjectOrEmptyList(ctx->columnExprList()), "distinct",
-        Py_NewRef(ctx->DISTINCT() ? Py_True : Py_False), "select_from", visitAsPyObjectOrNone(ctx->fromClause()),
+        Py_NewRef(ctx->DISTINCT() ? Py_True : Py_None), "select_from", visitAsPyObjectOrNone(ctx->fromClause()),
         "where", visitAsPyObjectOrNone(ctx->whereClause()), "prewhere", visitAsPyObjectOrNone(ctx->prewhereClause()),
         "having", visitAsPyObjectOrNone(ctx->havingClause()), "group_by", visitAsPyObjectOrNone(ctx->groupByClause()),
         "order_by", visitAsPyObjectOrNone(ctx->orderByClause())
@@ -255,7 +270,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (array_join_clause_ctx) {
       if (Py_IsNone(PyObject_GetAttrString(select_query, "select_from"))) {
         Py_DECREF(select_query);
-        throw HogQLSyntaxError("Using ARRAY JOIN without a FROM clause is not permitted");
+        throw HogQLSyntaxError("Using ARRAY JOIN without a FROM clause is not permitted", 0, 0); // FIXME: start=end=
       }
       PyObject_SetAttrString(
           select_query, "array_join_op",
@@ -272,7 +287,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         if (!is_ast_node_instance(expr, "Alias")) {
           Py_DECREF(array_join_list);
           Py_DECREF(select_query);
-          throw HogQLSyntaxError("ARRAY JOIN must be used with an alias");
+          throw HogQLSyntaxError("ARRAY JOIN arrays must have an alias", 0, 0); // FIXME: start=end=
         }
       }
       PyObject_SetAttrString(select_query, "array_join_list", array_join_list);
@@ -322,9 +337,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (join_op_ctx) {
       string join_op = visitAsString(join_op_ctx);
       join_op.append(" JOIN");
-      PyObject_SetAttrString(join1, "join_type", PyUnicode_FromStringAndSize(join_op.c_str(), join_op.size()));
+      PyObject_SetAttrString(join2, "join_type", PyUnicode_FromStringAndSize(join_op.c_str(), join_op.size()));
     } else {
-      PyObject_SetAttrString(join1, "join_type", PyUnicode_FromString("JOIN"));
+      PyObject_SetAttrString(join2, "join_type", PyUnicode_FromString("JOIN"));
     }
     PyObject_SetAttrString(join2, "constraint", visitAsPyObject(ctx->joinConstraintClause()));
 
@@ -358,7 +373,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(JoinExprCrossOp) {
     PyObject* join1 = visitAsPyObject(ctx->joinExpr(0));
     PyObject* join2 = visitAsPyObject(ctx->joinExpr(1));
-    PyObject_SetAttrString(join1, "join_type", PyUnicode_FromString("CROSS JOIN"));
+    PyObject_SetAttrString(join2, "join_type", PyUnicode_FromString("CROSS JOIN"));
 
     PyObject* last_join = join1;
     PyObject* next_join = PyObject_GetAttrString(last_join, "next_join");
@@ -557,7 +572,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
       Py_DECREF(expr);
-      throw HogQLSyntaxError("Alias is a reserved keyword");
+      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0); // FIXME: start=end=
     }
 
     return build_ast_node("Alias", "{s:N,s:s#}", "expr", expr, "alias", alias.c_str(), alias.size());
@@ -752,7 +767,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         PyObject_RichCompareBool(PyObject_GetAttrString(property, "value"), PyLong_FromLong(0), Py_EQ)) {
       Py_DECREF(property);
       Py_DECREF(object);
-      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0); // FIXME: start=end=
     }
     return build_ast_node("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
@@ -816,12 +831,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprTupleAccess) {
     PyObject* tuple = visitAsPyObject(ctx->columnExpr());
-    int index = stoi(ctx->DECIMAL_LITERAL()->getText());
-    if (index == 0) {
+    PyObject* index = PyLong_FromString(ctx->DECIMAL_LITERAL()->getText().c_str(), NULL, 10);
+    if (PyObject_RichCompareBool(index, PyLong_FromLong(0), Py_EQ)) {
+      Py_DECREF(index);
       Py_DECREF(tuple);
-      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]");
+      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0); // FIXME: start=end=
     }
-    return build_ast_node("TupleAccess", "{s:N,s:i}", "tuple", tuple, "index", index);
+    return build_ast_node("TupleAccess", "{s:N,s:N}", "tuple", tuple, "index", index);
   }
 
   VISIT(ColumnExprCase) {
@@ -839,8 +855,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       PyList_SET_ITEM(args, 2, arg_2);
       PyList_SET_ITEM(args, 3, arg_3);
       PyObject* expr_lists[2] = {PyObject_GetAttrString(arg_1, "exprs"), PyObject_GetAttrString(arg_2, "exprs")};
-      for (size_t index = 0; index < columns_size - 2; index++) {
-        PyList_Append(expr_lists[index % 2], PyList_GetItem(columns, index));
+      for (size_t index = 1; index < columns_size - 1; index++) {
+        PyList_Append(expr_lists[(index - 1) % 2], PyList_GetItem(columns, index));
       }
       Py_DECREF(expr_lists[0]);
       Py_DECREF(expr_lists[1]);
@@ -905,8 +921,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
   VISIT(ColumnLambdaExpr) {
-    PyObject* args = visitPyListOfObjects(ctx->identifier());
-    return build_ast_node("Lambda", "{s:N,s:N}", "args", args, "expr", visitAsPyObject(ctx->columnExpr()));
+    vector<string> args = visitAsVectorOfStrings(ctx->identifier());
+    return build_ast_node("Lambda", "{s:N,s:N}", "args", vector_to_list_string(args), "expr", visitAsPyObject(ctx->columnExpr()));
   }
 
   VISIT(WithExprList) {
@@ -966,13 +982,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return build_ast_node("Field", "{s:N}", "chain", vector_to_list_string(table_plus_nested));
   }
 
-  VISIT(NestedIdentifier) {
-    vector<string> result;
-    for (auto identifier_ctx : ctx->identifier()) {
-      result.push_back(visitAsString(identifier_ctx));
-    }
-    return result;
-  }
+  VISIT(NestedIdentifier) { return visitAsVectorOfStrings(ctx->identifier()); }
 
   VISIT(TableExprIdentifier) {
     vector<string> chain = any_cast<vector<string>>(visit(ctx->tableIdentifier()));
@@ -990,7 +1000,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto alias_ctx = ctx->alias();
     string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
     if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
-      throw HogQLSyntaxError("Alias is a reserved keyword");
+      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0); // FIXME: start=end=
     }
     PyObject* table = visitAsPyObject(ctx->tableExpr());
     PyObject* py_alias = PyUnicode_FromStringAndSize(alias.c_str(), alias.size());
@@ -1104,6 +1114,41 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 };
 
+class HogQLErrorListener : public antlr4::BaseErrorListener {
+ public:
+  string input;
+
+  HogQLErrorListener(string input) : input(input) {}
+
+  void syntaxError(
+      antlr4::Recognizer* recognizer,
+      antlr4::Token* offendingSymbol,
+      size_t line,
+      size_t charPositionInLine,
+      const string& msg,
+      exception_ptr e
+  ) override {
+    size_t start = getPosition(line, charPositionInLine);
+    if (start == string::npos) {
+      start = 0;
+    }
+    throw HogQLSyntaxError(msg, start, input.size());
+  }
+
+ private:
+  size_t getPosition(size_t line, size_t column) {
+    size_t linePosition = 0;
+    for (size_t i = 0; i < line - 1; i++) {
+      size_t increment = input.find("\n", linePosition) + 1;
+      if (increment == string::npos) {
+        return string::npos;
+      }
+      linePosition += increment;
+    }
+    return linePosition + column;
+  }
+};
+
 HogQLParser get_parser(const char* statement) {
   auto input_stream = new antlr4::ANTLRInputStream(statement, strnlen(statement, 65536));
   auto lexer = new HogQLLexer(input_stream);
@@ -1121,7 +1166,7 @@ parser_state* get_module_state(PyObject* module) {
 
 static PyObject* parse_expr(PyObject* self, PyObject* args, PyObject* kwargs) {
   const char* str;
-  int start;  // TODO: Use start
+  int start;  // TODO: Use and test start
 
   static char* kwlist[] = {"expr", "start", NULL};
 
@@ -1130,8 +1175,23 @@ static PyObject* parse_expr(PyObject* self, PyObject* args, PyObject* kwargs) {
     return NULL;
   }
   HogQLParser parser = get_parser(str);
-  HogQLParser::ExprContext* parse_tree = parser.expr();
-  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+  parser.removeErrorListeners();
+  parser.addErrorListener(new HogQLErrorListener(str));
+  parser_state* state = get_module_state(self);
+  HogQLParser::ExprContext* parse_tree;
+  try {
+    parse_tree = parser.expr();
+  } catch (const HogQLSyntaxError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");
+    string err_what = e.what();
+    PyObject* py_err = PyObject_CallObject(error_type, PyUnicode_FromStringAndSize(err_what.c_str(), err_what.size()));
+    PyObject_SetAttrString(py_err, "start", PyLong_FromLong(e.start));
+    PyObject_SetAttrString(py_err, "end", PyLong_FromLong(e.end));
+    PyErr_SetObject(error_type, py_err);
+    Py_DECREF(error_type);
+    return NULL;
+  }
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(state);
   return converter.visitAsPyObjectFinal(parse_tree);
 }
 
@@ -1141,8 +1201,23 @@ static PyObject* parse_order_expr(PyObject* self, PyObject* args) {
     return NULL;
   }
   HogQLParser parser = get_parser(str);
-  HogQLParser::OrderExprContext* parse_tree = parser.orderExpr();
-  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+  parser.removeErrorListeners();
+  parser.addErrorListener(new HogQLErrorListener(str));
+  parser_state* state = get_module_state(self);
+  HogQLParser::OrderExprContext* parse_tree;
+  try {
+    parse_tree = parser.orderExpr();
+  } catch (const HogQLSyntaxError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");
+    string err_what = e.what();
+    PyObject* py_err = PyObject_CallObject(error_type, PyUnicode_FromStringAndSize(err_what.c_str(), err_what.size()));
+    PyObject_SetAttrString(py_err, "start", PyLong_FromLong(e.start));
+    PyObject_SetAttrString(py_err, "end", PyLong_FromLong(e.end));
+    PyErr_SetObject(error_type, py_err);
+    Py_DECREF(error_type);
+    return NULL;
+  }
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(state);
   return converter.visitAsPyObjectFinal(parse_tree);
 }
 
@@ -1152,8 +1227,23 @@ static PyObject* parse_select(PyObject* self, PyObject* args) {
     return NULL;
   }
   HogQLParser parser = get_parser(str);
-  HogQLParser::SelectContext* parse_tree = parser.select();
-  HogQLParseTreeConverter converter = HogQLParseTreeConverter(get_module_state(self));
+  parser.removeErrorListeners();
+  parser.addErrorListener(new HogQLErrorListener(str));
+  parser_state* state = get_module_state(self);
+  HogQLParser::SelectContext* parse_tree;
+  try {
+    parse_tree = parser.select();
+  } catch (const HogQLSyntaxError& e) {
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxException");
+    string err_what = e.what();
+    PyObject* py_err = PyObject_CallObject(error_type, PyUnicode_FromStringAndSize(err_what.c_str(), err_what.size()));
+    PyObject_SetAttrString(py_err, "start", PyLong_FromLong(e.start));
+    PyObject_SetAttrString(py_err, "end", PyLong_FromLong(e.end));
+    PyErr_SetObject(error_type, py_err);
+    Py_DECREF(error_type);
+    return NULL;
+  }
+  HogQLParseTreeConverter converter = HogQLParseTreeConverter(state);
   return converter.visitAsPyObjectFinal(parse_tree);
 }
 
