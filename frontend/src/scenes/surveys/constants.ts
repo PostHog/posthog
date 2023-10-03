@@ -12,17 +12,17 @@ export const SurveyQuestionLabel = {
 }
 
 export const defaultSurveyAppearance = {
-    backgroundColor: 'white',
-    textColor: 'black',
+    backgroundColor: '#eeeded',
     submitButtonText: 'Submit',
-    submitButtonColor: '#2c2c2c',
-    ratingButtonColor: '#e0e2e8',
-    descriptionTextColor: '#4b4b52',
+    submitButtonColor: 'black',
+    ratingButtonColor: 'white',
+    ratingButtonActiveColor: 'black',
+    borderColor: '#c9c6c6',
+    placeholder: '',
     whiteLabel: false,
     displayThankYouMessage: true,
-    placeholder: '',
-    position: 'right',
     thankYouMessageHeader: 'Thank you for your feedback!',
+    position: 'right',
 }
 
 export const defaultSurveyFieldValues = {
