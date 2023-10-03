@@ -316,11 +316,38 @@ function safeString(payload: string[]) {
         .join(' ')
 }
 
+enum RRWebEventType {
+    DomContentLoaded = 0,
+    Load = 1,
+    FullSnapshot = 2,
+    IncrementalSnapshot = 3,
+    Meta = 4,
+    Custom = 5,
+    Plugin = 6,
+}
+
+enum RRWebEventSource {
+    Mutation = 0,
+    MouseMove = 1,
+    MouseInteraction = 2,
+    Scroll = 3,
+    ViewportResize = 4,
+    Input = 5,
+    TouchMove = 6,
+    MediaInteraction = 7,
+    StyleSheetRule = 8,
+    CanvasMutation = 9,
+    Font = 1,
+    Log = 1,
+    Drag = 1,
+    StyleDeclaration = 1,
+    Selection = 1,
+}
 export const gatherConsoleLogEvents = (team_id: number, session_id: string, events: RRWebEvent[]) => {
     const consoleLogEntries: ConsoleLogEntry[] = []
 
     events.forEach((event) => {
-        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+        if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = event.data.payload?.level
             const message = safeString(event.data.payload?.payload)
             consoleLogEntries.push({
@@ -369,19 +396,19 @@ export const createSessionReplayEvent = (
     let consoleErrorCount = 0
     let url: string | null = null
     events.forEach((event) => {
-        if (event.type === 3) {
+        if (event.type === RRWebEventType.IncrementalSnapshot) {
             mouseActivity += 1
-            if (event.data?.source === 2) {
+            if (event.data?.source === RRWebEventSource.MouseInteraction) {
                 clickCount += 1
             }
-            if (event.data?.source === 5) {
+            if (event.data?.source === RRWebEventSource.Input) {
                 keypressCount += 1
             }
         }
         if (url === null && !!event.data?.href?.trim().length) {
             url = event.data.href
         }
-        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+        if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = event.data.payload?.level
             if (level === 'log') {
                 consoleLogCount += 1
