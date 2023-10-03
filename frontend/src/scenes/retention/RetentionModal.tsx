@@ -110,7 +110,9 @@ export function RetentionModal(): JSX.Element | null {
                                                 ) : (
                                                     <LemonButton
                                                         size="small"
-                                                        to={urls.person(personAppearances.person.distinct_ids[0])}
+                                                        to={urls.personDistinctId(
+                                                            personAppearances.person.distinct_ids[0]
+                                                        )}
                                                         data-attr="retention-person-link"
                                                     >
                                                         {asDisplay(personAppearances.person)}
