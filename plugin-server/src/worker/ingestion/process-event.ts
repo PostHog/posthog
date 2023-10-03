@@ -300,7 +300,7 @@ type ConsoleLogEntry = {
 }
 
 function safeString(payload: string[]) {
-    // the individual strings are sometimes wrapped in quotes... we want ot strip those
+    // the individual strings are sometimes wrapped in quotes... we want to strip those
     return payload
         .map((item) => {
             let candidate = item
