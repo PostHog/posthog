@@ -117,6 +117,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             },
         },
     ]
+
     return (
         <>
             <div className="flex justify-between mb-4">
@@ -131,14 +132,16 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Type</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All types', value: 'all' },
-                            {
-                                label: FeatureFlagReleaseType.ReleaseToggle,
-                                value: FeatureFlagReleaseType.ReleaseToggle,
-                            },
-                            { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-                        ]}
+                        options={
+                            [
+                                { label: 'All types', value: 'all' },
+                                {
+                                    label: FeatureFlagReleaseType.ReleaseToggle,
+                                    value: FeatureFlagReleaseType.ReleaseToggle,
+                                },
+                                { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+                            ] as { label: string; value: string }[]
+                        }
                         onChange={(type) => {
                             if (type) {
                                 if (type === 'all') {
@@ -158,11 +161,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Match evaluation</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
-                            { label: 'Not matched', value: 'not matched' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
+                                { label: 'Not matched', value: 'not matched' },
+                            ] as { label: string; value: string }[]
+                        }
                         onChange={(reason) => {
                             if (reason) {
                                 if (reason === 'all') {
