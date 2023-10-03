@@ -5,7 +5,7 @@ import { InsightType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
-import { InputFocusOptions } from 'antd/lib/input/Input'
+import { InputFocusOptions, InputRef } from 'antd/lib/input/Input'
 
 interface RenameModalProps {
     typeKey: string
@@ -20,7 +20,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     const { name } = useValues(logic)
     const { setName } = useActions(logic)
 
-    const ref = useRef<Input | null>(null)
+    const ref = useRef<InputRef | null>(null)
     useSelectAllText(ref, { cursor: 'all' }, [modalVisible])
 
     const title = `Rename ${view === InsightType.FUNNELS ? 'funnel step' : 'graph series'}`
@@ -62,7 +62,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
 }
 
 function useSelectAllText(
-    ref: React.MutableRefObject<Input | null>,
+    ref: React.MutableRefObject<InputRef | null>,
     options: InputFocusOptions,
     dependencies: any[] = []
 ): void {

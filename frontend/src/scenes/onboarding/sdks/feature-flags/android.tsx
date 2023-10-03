@@ -2,7 +2,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
 import { SDKInstallAndroidInstructions } from '../sdk-install-instructions'
 
-export function FeatureFlagsAndroidInstructions(): React.ReactNode {
+export function FeatureFlagsAndroidInstructions(): JSX.Element {
     return (
         <>
             <SDKInstallAndroidInstructions />

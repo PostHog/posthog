@@ -142,7 +142,10 @@ export function ExperimentPreview({
                                     value={minimumDetectableChange}
                                     onChange={(value) => {
                                         setExperiment({
-                                            parameters: { ...experiment.parameters, minimum_detectable_effect: value },
+                                            parameters: {
+                                                ...experiment.parameters,
+                                                minimum_detectable_effect: value ?? undefined,
+                                            },
                                         })
                                     }}
                                 />
