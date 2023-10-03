@@ -28,8 +28,10 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
-def clean_entity_property(property: Dict):
+def clean_property(property: Dict):
     cleaned_property = {**property}
+
+    # set a default operator for properties that support it, but don't have an operator set
     if cleaned_property.get("operator", None) is None and cleaned_property.get("type", None) not in ("cohort", "hogql"):
         cleaned_property["operator"] = "exact"
 
@@ -42,8 +44,21 @@ def clean_entity_property(property: Dict):
 def clean_entity_properties(properties: List[Dict] | None):
     if properties is None:
         return None
+    else:
+        return list(map(clean_property, properties))
 
-    return list(map(clean_entity_property, properties))
+
+def clean_property_group_filter_value(value: Dict):
+    if value.get("type") in ("AND", "OR"):
+        value["values"] = map(clean_property_group_filter_value, value.get("values"))
+        return value
+    else:
+        return clean_property(value)
+
+
+def clean_properties(properties: Dict):
+    properties["values"] = map(clean_property_group_filter_value, properties.get("values"))
+    return properties
 
 
 def entity_to_node(entity: BackendEntity, include_properties: bool, include_math: bool) -> EventsNode | ActionsNode:
@@ -127,9 +142,9 @@ def _properties(filter: AnyInsightFilter):
         return {}
     elif isinstance(raw_properties, list):
         raw_properties = {"type": "AND", "values": [{"type": "AND", "values": raw_properties}]}
-        return {"properties": PropertyGroupFilter(**raw_properties)}
+        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
     else:
-        return {"properties": PropertyGroupFilter(**raw_properties)}
+        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
 
 
 def _breakdown_filter(filter: AnyInsightFilter):

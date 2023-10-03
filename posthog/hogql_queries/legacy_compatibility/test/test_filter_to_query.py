@@ -446,6 +446,7 @@ properties_9 = {
         {"type": "OR", "values": [{}]},
     ],
 }
+properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
 
 test_properties = [
     properties_0,
@@ -458,6 +459,7 @@ test_properties = [
     properties_7,
     properties_8,
     properties_9,
+    properties_10,
 ]
 
 
