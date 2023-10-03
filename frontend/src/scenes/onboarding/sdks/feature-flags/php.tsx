@@ -2,7 +2,7 @@ import { SDKKey } from '~/types'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKInstallPHPInstructions } from '../sdk-install-instructions'
 
-export function FeatureFlagsPHPInstructions(): JSX.Element {
+export function FeatureFlagsPHPInstructions(): React.ReactNode {
     return (
         <>
             <SDKInstallPHPInstructions />

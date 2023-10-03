@@ -98,7 +98,7 @@ export function LemonMenu({
     )
 
     const _onVisibilityChange = useCallback(
-        (visible) => {
+        (visible: boolean) => {
             onVisibilityChange?.(visible)
             if (visible && activeItemIndex && activeItemIndex > -1) {
                 // Scroll the active item into view once the menu is open (i.e. in the next tick)

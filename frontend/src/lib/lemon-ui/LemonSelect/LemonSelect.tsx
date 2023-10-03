@@ -93,7 +93,7 @@ export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T>
 
 export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
 
-export function LemonSelect<T>({
+export function LemonSelect<T extends string | null>({
     value = null,
     onChange,
     onSelect,
@@ -121,6 +121,8 @@ export function LemonSelect<T>({
 
     const activeLeaf = allLeafOptions.find((o) => o.value === value)
     const isClearButtonShown = allowClear && !!value
+
+    activeLeaf?.label
 
     return (
         <LemonMenu

@@ -3,7 +3,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
 import { NodeInstallSnippet, NodeSetupSnippet } from '../sdk-install-instructions'
 
-export function FeatureFlagsNextJSInstructions(): JSX.Element {
+export function FeatureFlagsNextJSInstructions(): React.ReactNode {
     return (
         <>
             <SDKInstallNextJSInstructions />

@@ -38,7 +38,7 @@ import {
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     nodeType: NotebookNodeType
-    children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    children?: ReactNode
 
     // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
     defaultTitle: string

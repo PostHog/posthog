@@ -2,7 +2,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
 import { SDKInstallReactInstructions } from '../sdk-install-instructions/react'
 
-export function FeatureFlagsReactInstructions(): JSX.Element {
+export function FeatureFlagsReactInstructions(): React.ReactNode {
     return (
         <>
             <SDKInstallReactInstructions />

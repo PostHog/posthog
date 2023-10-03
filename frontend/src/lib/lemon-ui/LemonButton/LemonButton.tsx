@@ -26,7 +26,7 @@ export interface LemonButtonPropsBase
         | 'role'
         | 'aria-haspopup'
     > {
-    children?: React.ReactNode
+    children?: React.ReactNode | undefined
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
     status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'

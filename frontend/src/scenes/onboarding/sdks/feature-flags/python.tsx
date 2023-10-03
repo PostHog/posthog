@@ -2,7 +2,7 @@ import { SDKKey } from '~/types'
 import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKInstallPythonInstructions } from '../sdk-install-instructions'
 
-export function FeatureFlagsPythonInstructions(): JSX.Element {
+const FeatureFlagsPythonInstructions = (): JSX.Element => {
     return (
         <>
             <SDKInstallPythonInstructions />
@@ -10,3 +10,5 @@ export function FeatureFlagsPythonInstructions(): JSX.Element {
         </>
     )
 }
+
+export default { FeatureFlagsPythonInstructions }
