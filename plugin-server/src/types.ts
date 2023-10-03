@@ -142,6 +142,7 @@ export interface PluginsServerConfig {
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
+    KAFKA_PRODUCER_ONLY_REQUIRE_ONE_ACK: boolean // sets request.required.acks rdkafka parameter to 1
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number

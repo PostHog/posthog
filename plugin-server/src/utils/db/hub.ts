@@ -102,7 +102,13 @@ export async function createHub(
 
     const kafka = createKafkaClient(serverConfig)
     const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
+    const producer = await createKafkaProducer(
+        {
+            ...kafkaConnectionConfig,
+            'linger.ms': 0,
+        },
+        { 'request.required.acks': serverConfig.KAFKA_PRODUCER_ONLY_REQUIRE_ONE_ACK ? 1 : -1 }
+    )
 
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
