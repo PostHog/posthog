@@ -306,7 +306,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 </div>
             )}
             {survey.questions.length > 1 && (
-                // <LemonTabs activeKey={''} tabs={survey.questions.map((q, idx) => ({ key: idx, label: truncate(q.question, 18)})) } />
                 <div className="mb-4 max-w-80">
                     <LemonSelect
                         dropdownMatchSelectWidth
