@@ -2,11 +2,10 @@ import { actions, connect, kea, listeners, path, reducers, selectors, sharedList
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import { NodeKind, QuerySchema } from '~/queries/schema'
-import { Layout } from 'react-grid-layout'
-enum GridItems {
-    overview = 'overview',
-    top_pages = 'top_pages',
-    top_sources = 'top_sources',
+
+interface Layout {
+    colSpan?: number
+    rowSpan?: number
 }
 export interface WebDashboardTile {
     query: QuerySchema
@@ -23,12 +22,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (): WebDashboardTile[] => [
                 {
                     layout: {
-                        i: GridItems.overview,
-                        x: 0,
-                        y: 0,
-                        w: 12,
-                        h: 1,
-                        static: true,
+                        colSpan: 12,
                     },
                     query: {
                         full: true,
@@ -41,12 +35,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 {
                     layout: {
-                        i: GridItems.top_pages,
-                        x: 0,
-                        y: 1,
-                        w: 6,
-                        h: 1,
-                        static: true,
+                        colSpan: 6,
                     },
                     query: {
                         full: true,
@@ -59,12 +48,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 {
                     layout: {
-                        i: GridItems.top_sources,
-                        x: 6,
-                        y: 1,
-                        w: 6,
-                        h: 1,
-                        static: true,
+                        colSpan: 6,
                     },
                     query: {
                         full: true,
@@ -77,8 +61,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
         ],
-        layouts: [(s) => [s.tiles], (tiles) => ({ sm: tiles.map((t) => t.layout) })],
-        gridRows: [() => [], () => 2],
     }),
     sharedListeners(() => ({})),
     listeners(() => ({})),

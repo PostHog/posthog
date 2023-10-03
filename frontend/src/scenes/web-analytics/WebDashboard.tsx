@@ -1,26 +1,21 @@
-import './WebDashboard.scss'
-import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import { Query } from '~/queries/Query/Query'
-import { Responsive, WidthProvider } from 'react-grid-layout'
 import { useValues } from 'kea'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-const ResponsiveGridLayout = WidthProvider(Responsive)
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { tiles, layouts, gridRows } = useValues(webAnalyticsLogic)
+    const { tiles } = useValues(webAnalyticsLogic)
     return (
-        <ResponsiveGridLayout
-            layouts={layouts}
-            cols={BREAKPOINT_COLUMN_COUNTS}
-            breakpoints={BREAKPOINTS}
-            rowHeight={500}
-            maxRows={gridRows}
-        >
-            {tiles.map(({ query, layout }) => (
-                <div key={layout.i} className="web-dashboard-items-wrapper">
+        <div className="grid grid-cols-12 gap-4">
+            {tiles.map(({ query, layout }, i) => (
+                <div
+                    key={i}
+                    className={`col-span-${layout.colSpan ?? 6} row-span-${
+                        layout.rowSpan ?? 1
+                    } min-h-100 flex flex-col`}
+                >
                     <Query query={query} readOnly={true} />
                 </div>
             ))}
-        </ResponsiveGridLayout>
+        </div>
     )
 }
