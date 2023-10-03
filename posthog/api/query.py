@@ -20,6 +20,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql import ast
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
@@ -215,11 +216,17 @@ def process_query(
         return _unwrap_pydantic_dict(events_response)
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.model_validate(query_json)
+        values = (
+            {key: ast.Constant(value=value) for key, value in hogql_query.values.items()}
+            if hogql_query.values
+            else None
+        )
         hogql_response = execute_hogql_query(
             query_type="HogQLQuery",
             query=hogql_query.query,
             team=team,
             filters=hogql_query.filters,
+            placeholders=values,
             default_limit=default_limit,
         )
         return _unwrap_pydantic_dict(hogql_response)
