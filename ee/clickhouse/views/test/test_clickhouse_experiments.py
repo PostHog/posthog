@@ -1505,7 +1505,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
 
-@flaky(max_runs=10, min_passes=1)
+# @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
@@ -2439,4 +2439,129 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
         # The variant has high probability of being better. (effectively Gamma(10,1))
         self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
+        self.assertFalse(response_data["significant"])
+
+    def test_experiment_flow_with_sum_count_per_property_value_results(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 10},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
+                    },
+                ],
+                "person4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "custom_exposure_filter": {
+                        "events": [
+                            {
+                                "id": "$pageview",  # exposure is total pageviews
+                                "order": 0,
+                            }
+                        ],
+                    }
+                },
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [{"order": 0, "id": "$pageview", "math": "sum", "math_property": "mathable"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 4.0, 5.0, 5.0])
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["data"], [0.0, 18.0, 18.0, 18.0, 20.5, 20.5])
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.9513, places=2)
         self.assertFalse(response_data["significant"])
