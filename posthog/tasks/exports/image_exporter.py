@@ -166,7 +166,7 @@ def _screenshot_asset(
 
 def export_image(exported_asset: ExportedAsset) -> None:
     with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
+        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
         scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
