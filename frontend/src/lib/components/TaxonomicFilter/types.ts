@@ -21,6 +21,7 @@ export interface TaxonomicFilterProps {
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
+    hogQLTable?: string
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
@@ -56,6 +57,7 @@ export interface TaxonomicFilterGroup {
     groupTypeIndex?: number
     getFullDetailUrl?: (instance: any) => string
     excludedProperties?: string[]
+    componentProps?: Record<string, any>
 }
 
 export enum TaxonomicFilterGroupType {

@@ -30,7 +30,8 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
                 }
             }}
             pageKey={`PersonPropertyFilters.${id}`}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]}
+            hogQLTable="persons"
             style={{ marginBottom: 0, marginTop: 0 }}
         />
     ) : (

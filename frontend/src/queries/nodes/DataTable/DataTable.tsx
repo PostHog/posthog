@@ -135,6 +135,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
     const groupTypes = isPersonsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const hogQLTable = isPersonsQuery(query.source) ? 'persons' : 'events'
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -171,6 +172,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             value={key}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
@@ -249,6 +251,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
@@ -280,6 +283,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
