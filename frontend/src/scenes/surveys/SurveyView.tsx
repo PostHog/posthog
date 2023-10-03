@@ -10,7 +10,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
-import { defaultSurveyAppearance, surveyEventName, surveyLogic } from './surveyLogic'
+import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
@@ -21,6 +21,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
+import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -326,7 +327,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                     },
                     series: [
                         {
-                            event: surveyEventName,
+                            event: SURVEY_EVENT_NAME,
                             kind: NodeKind.EventsNode,
                             custom_name: 'Promoters',
                             properties: [
@@ -339,7 +340,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                             ],
                         },
                         {
-                            event: surveyEventName,
+                            event: SURVEY_EVENT_NAME,
                             kind: NodeKind.EventsNode,
                             custom_name: 'Passives',
                             properties: [
@@ -352,7 +353,7 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                             ],
                         },
                         {
-                            event: surveyEventName,
+                            event: SURVEY_EVENT_NAME,
                             kind: NodeKind.EventsNode,
                             custom_name: 'Detractors',
                             properties: [

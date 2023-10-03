@@ -103,7 +103,6 @@ function redirectOnSelectItems(
     } else if (groupType === TaxonomicFilterGroupType.Plugins) {
         router.actions.push(
             combineUrl(urls.projectApps(), {
-                tab: (item as PluginSelectionType).tab,
                 name: (item as PluginSelectionType).name,
             }).url
         )

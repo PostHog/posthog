@@ -192,7 +192,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Annotations',
     },
-    [Scene.Plugins]: {
+    [Scene.Apps]: {
         projectBased: true,
         name: 'Apps',
     },
@@ -439,10 +439,10 @@ export const routes: Record<string, Scene> = {
     [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
-    [urls.projectApps()]: Scene.Plugins,
-    [urls.projectApp(':id')]: Scene.Plugins,
-    [urls.projectAppLogs(':id')]: Scene.Plugins,
-    [urls.projectAppSource(':id')]: Scene.Plugins,
+    [urls.projectApps()]: Scene.Apps,
+    [urls.projectApp(':id')]: Scene.Apps,
+    [urls.projectAppLogs(':id')]: Scene.Apps,
+    [urls.projectAppSource(':id')]: Scene.Apps,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,

@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta
-from dateutil.parser import isoparse
-from zoneinfo import ZoneInfo
 from typing import Any, List, Literal, Optional, Type
+from zoneinfo import ZoneInfo
+
+from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
-from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner
+
+from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner, RunnableQueryNode
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
-from posthog.types import InsightQueryNode
 
 
 class TestQuery(BaseModel):
@@ -17,7 +18,7 @@ class TestQuery(BaseModel):
 
 
 class QueryRunnerTest(BaseTest):
-    def setup_test_query_runner_class(self, query_class: Type[InsightQueryNode] = TestQuery):  # type: ignore
+    def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):  # type: ignore
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
@@ -81,12 +82,27 @@ class QueryRunnerTest(BaseTest):
 
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
+        # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_f0f2ce8b1f3d107b9671a178b25be2aa")
+        self.assertEqual(cache_key, "cache_33c9ea3098895d5a363a75feefafef06")
+
+    def test_cache_key_runner_subclass(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore
+            pass
+
+        # set the pk directly as it affects the hash in the _cache_key call
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
+
+        cache_key = runner._cache_key()
+        self.assertEqual(cache_key, "cache_d626615de8ad0df73c1d8610ca586597")
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -97,7 +113,7 @@ class QueryRunnerTest(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
 
         cache_key = runner._cache_key()
-        self.assertEqual(cache_key, "cache_0fa2172980705adb41741351f40189b7")
+        self.assertEqual(cache_key, "cache_aeb23ec9e8de56dd8499f99f2e976d5a")
 
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()

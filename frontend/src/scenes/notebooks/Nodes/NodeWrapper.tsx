@@ -181,25 +181,29 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                                     />
                                                 )}
 
-                                                {widgets.length > 0 ? (
-                                                    <LemonButton
-                                                        onClick={() =>
-                                                            setEditingNodeId(editingNodeId === nodeId ? null : nodeId)
-                                                        }
-                                                        size="small"
-                                                        icon={<IconFilter />}
-                                                        active={editingNodeId === nodeId}
-                                                    />
-                                                ) : null}
+                                                {isEditable ? (
+                                                    <>
+                                                        {widgets.length > 0 ? (
+                                                            <LemonButton
+                                                                onClick={() =>
+                                                                    setEditingNodeId(
+                                                                        editingNodeId === nodeId ? null : nodeId
+                                                                    )
+                                                                }
+                                                                size="small"
+                                                                icon={<IconFilter />}
+                                                                active={editingNodeId === nodeId}
+                                                            />
+                                                        ) : null}
 
-                                                {isEditable && (
-                                                    <LemonButton
-                                                        onClick={() => deleteNode()}
-                                                        size="small"
-                                                        status="danger"
-                                                        icon={<IconClose />}
-                                                    />
-                                                )}
+                                                        <LemonButton
+                                                            onClick={() => deleteNode()}
+                                                            size="small"
+                                                            status="danger"
+                                                            icon={<IconClose />}
+                                                        />
+                                                    </>
+                                                ) : null}
                                             </div>
                                         </div>
                                         <div
@@ -219,7 +223,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                 )}
                             </ErrorBoundary>
                         </div>
-                        {actions.length ? (
+                        {isEditable && actions.length ? (
                             <div className="NotebookNode__actions">
                                 {actions.map((x, i) => (
                                     <LemonButton

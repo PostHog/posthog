@@ -146,6 +146,7 @@ export const FEATURE_FLAGS = {
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SURVEYS: 'surveys', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
+    SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',

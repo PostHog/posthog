@@ -103,7 +103,7 @@ export const textContent = (node: any): string => {
     const customOrTitleSerializer: TextSerializer = (props): string => {
         // TipTap chooses whether to add a separator based on a couple of factors
         // but, we always want a separator since this text is for search purposes
-        const serializedText = props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+        const serializedText = props.node.type.spec.serializedText?.(props.node.attrs) || props.node.attrs?.title || ''
         if (serializedText.length > 0 && serializedText[serializedText.length - 1] !== '\n') {
             return serializedText + '\n'
         }

@@ -26,6 +26,8 @@ from typing import Any
 
 from posthog.utils_cors import cors_response
 
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+
 
 class SurveySerializer(serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
@@ -136,6 +138,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data["targeting_flag_id"] = targeting_feature_flag.id
             validated_data.pop("targeting_flag_filters")
 
+        if "targeting_flag_filters" in validated_data:
+            validated_data.pop("targeting_flag_filters")
+
         validated_data["created_by"] = self.context["request"].user
         return super().create(validated_data)
 
@@ -171,7 +176,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters):
-        feature_flag_key = slugify(f"survey-targeting-{name}")
+        feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,

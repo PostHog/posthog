@@ -95,6 +95,15 @@
                 },
                 {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebTopSourcesQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebTopClicksQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebTopPagesQuery"
                 }
             ]
         },
@@ -389,6 +398,15 @@
                         },
                         {
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebTopSourcesQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebTopClicksQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebTopPagesQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -2264,6 +2282,169 @@
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
+            "type": "object"
+        },
+        "WebAnalyticsFilters": {},
+        "WebTopClicksQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
+                "kind": {
+                    "const": "WebTopClicksQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebTopClicksQueryResponse"
+                }
+            },
+            "required": ["kind", "filters"],
+            "type": "object"
+        },
+        "WebTopClicksQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
+            "type": "object"
+        },
+        "WebTopPagesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
+                "kind": {
+                    "const": "WebTopPagesQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebTopPagesQueryResponse"
+                }
+            },
+            "required": ["kind", "filters"],
+            "type": "object"
+        },
+        "WebTopPagesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
+            "type": "object"
+        },
+        "WebTopSourcesQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
+                "kind": {
+                    "const": "WebTopSourcesQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebTopSourcesQueryResponse"
+                }
+            },
+            "required": ["kind", "filters"],
+            "type": "object"
+        },
+        "WebTopSourcesQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
                     "type": "array"
                 }
             },

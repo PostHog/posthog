@@ -2102,15 +2102,16 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
-    textColor?: string
     submitButtonText?: string
-    descriptionTextColor?: string
     ratingButtonColor?: string
-    ratingButtonHoverColor?: string
+    ratingButtonActiveColor?: string
+    borderColor?: string
+    placeholder?: string
     whiteLabel?: boolean
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    position?: string
 }
 
 export interface SurveyQuestionBase {
