@@ -320,6 +320,25 @@ insight_18 = {
     "shown_as": "Lifecycle",
 }
 
+insight_19 = {
+    "events": [
+        {
+            "id": "created change",
+            "math": "total",
+            "name": "created change",
+            "type": "events",
+            "order": 0,
+            "properties": [{"key": "id", "type": "cohort", "value": 2208, "operator": None}],
+            "custom_name": None,
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -340,6 +359,7 @@ test_insights = [
     insight_16,
     insight_17,
     insight_18,
+    insight_19,
 ]
 
 

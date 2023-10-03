@@ -32,6 +32,10 @@ def clean_entity_property(property: Dict):
     cleaned_property = {**property}
     if cleaned_property.get("operator", None) is None and cleaned_property.get("type", None) not in ("cohort", "hogql"):
         cleaned_property["operator"] = "exact"
+
+    # remove keys without concrete value
+    cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}
+
     return cleaned_property
 
 
