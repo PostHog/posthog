@@ -11,7 +11,7 @@ import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuer
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import ReactJson from 'react-json-view'
+import ReactJson from '@microlink/react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
