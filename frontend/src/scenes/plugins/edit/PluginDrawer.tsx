@@ -155,7 +155,7 @@ export function PluginDrawer(): JSX.Element {
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
-                                        className="plugins-popconfirm"
+                                        className="Plugins__Popconfirm"
                                     >
                                         <Button
                                             style={{ color: 'var(--danger)', padding: 4 }}
@@ -281,12 +281,12 @@ export function PluginDrawer(): JSX.Element {
                                             )
                                             .map((capability) => (
                                                 <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
-                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                    <Tag className="Plugin__CapabilitiesTag">{capability}</Tag>
                                                 </Tooltip>
                                             ))}
                                         {(editingPlugin.capabilities?.jobs || []).map((jobName) => (
                                             <Tooltip title="Custom job" key={jobName}>
-                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                                <Tag className="Plugin__CapabilitiesTag">{jobName}</Tag>
                                             </Tooltip>
                                         ))}
                                     </div>

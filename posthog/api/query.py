@@ -206,7 +206,15 @@ def process_query(
 
     tag_queries(query=query_json)
 
-    if query_kind == "LifecycleQuery" or query_kind == "TrendsQuery":
+    refreshable_queries = [
+        "LifecycleQuery",
+        "TrendsQuery",
+        "WebTopSourcesQuery",
+        "WebTopClicksQuery",
+        "WebTopPagesQuery",
+    ]
+
+    if query_kind in refreshable_queries:
         refresh_requested = refresh_requested_by_client(request) if request else False
         query_runner = get_query_runner(query_json, team)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))

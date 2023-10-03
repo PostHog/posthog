@@ -3,7 +3,7 @@ from datetime import datetime
 from freezegun import freeze_time
 
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models.utils import UUIDT
 from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events

@@ -104,7 +104,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
     ],
     [
         {
-            identifier: Scene.Plugins,
+            identifier: Scene.Apps,
             label: 'Apps',
             icon: <IconApps />,
         },

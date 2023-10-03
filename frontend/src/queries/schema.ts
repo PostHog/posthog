@@ -60,6 +60,11 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
 
+    // Web analytics queries
+    WebTopSourcesQuery = 'WebTopSourcesQuery',
+    WebTopPagesQuery = 'WebTopPagesQuery',
+    WebTopClicksQuery = 'WebTopClicksQuery',
+
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
@@ -80,6 +85,10 @@ export type AnyDataNode =
     | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
+    | TimeToSeeDataSessionsQuery
+    | WebTopSourcesQuery
+    | WebTopClicksQuery
+    | WebTopPagesQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -283,7 +292,16 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery | TimeToSeeDataSessionsQuery
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | PersonsQuery
+        | HogQLQuery
+        | TimeToSeeDataSessionsQuery
+        | WebTopSourcesQuery
+        | WebTopClicksQuery
+        | WebTopPagesQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -514,6 +532,45 @@ export interface PersonsQuery extends DataNode {
     limit?: number
     offset?: number
     response?: PersonsQueryResponse
+}
+
+export type WebAnalyticsFilters = any
+
+export interface WebAnalyticsQueryBase {
+    dateRange?: DateRange
+}
+
+export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopSourcesQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopSourcesQueryResponse
+}
+export interface WebTopSourcesQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopClicksQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopClicksQueryResponse
+}
+export interface WebTopClicksQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopPagesQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopPagesQueryResponse
+}
+export interface WebTopPagesQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
 }
 
 export type InsightQueryNode =

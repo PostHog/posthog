@@ -28,6 +28,9 @@ import {
     SavedInsightNode,
     PersonsQuery,
     HogQLMetadata,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -107,6 +110,18 @@ export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
 
 export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {
+    return node?.kind === NodeKind.WebTopSourcesQuery
+}
+
+export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
+    return node?.kind === NodeKind.WebTopClicksQuery
+}
+
+export function isWebTopPagesQuery(node?: Node | null): node is WebTopPagesQuery {
+    return node?.kind === NodeKind.WebTopPagesQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {

@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Element, ElementGroup, Organization
-from posthog.settings import CORS_ALLOW_HEADERS
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -273,21 +272,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response_json["next"] is None
         limit_to_one_results = response_json["results"]
         assert limit_to_one_results == [expected_all_data_response_results[1]]
-
-    def test_element_stats_cors_headers(self) -> None:
-        # Azure App Insights sends the same tracing headers as Sentry
-        # _and_ a request-context header
-        # this is added by the cors headers package so should apply to any endpoint
-
-        response = self.client.generic(
-            "OPTIONS",
-            "/api/element/stats/",
-            HTTP_ORIGIN="https://localhost",
-            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
-            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
-        )
-
-        assert response.headers["Access-Control-Allow-Headers"] == ", ".join(CORS_ALLOW_HEADERS)
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")

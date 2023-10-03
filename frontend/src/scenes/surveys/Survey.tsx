@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, defaultSurveyAppearance, defaultSurveyFieldValues, surveyLogic } from './surveyLogic'
+import { surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -31,6 +31,7 @@ import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { defaultSurveyFieldValues, defaultSurveyAppearance, SurveyQuestionLabel, NewSurvey } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -139,17 +140,26 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             )
                                         }}
                                         options={[
-                                            { label: 'Open text', value: SurveyQuestionType.Open },
-                                            { label: 'Link', value: SurveyQuestionType.Link },
-                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
+                                                value: SurveyQuestionType.Open,
+                                            },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Link],
+                                                value: SurveyQuestionType.Link,
+                                            },
+                                            {
+                                                label: SurveyQuestionLabel[SurveyQuestionType.Rating],
+                                                value: SurveyQuestionType.Rating,
+                                            },
                                             ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
                                                 ? [
                                                       {
-                                                          label: 'Single choice select',
+                                                          label: SurveyQuestionLabel[SurveyQuestionType.SingleChoice],
                                                           value: SurveyQuestionType.SingleChoice,
                                                       },
                                                       {
-                                                          label: 'Multiple choice select',
+                                                          label: SurveyQuestionLabel[SurveyQuestionType.MultipleChoice],
                                                           value: SurveyQuestionType.MultipleChoice,
                                                       },
                                                   ]

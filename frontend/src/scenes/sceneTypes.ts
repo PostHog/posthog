@@ -58,7 +58,7 @@ export enum Scene {
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
-    Plugins = 'Plugins',
+    Apps = 'Apps',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
