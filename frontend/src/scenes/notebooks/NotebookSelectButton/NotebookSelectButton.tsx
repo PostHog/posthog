@@ -104,7 +104,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     return (
         <div className="space-y-2 flex flex-col flex-1 h-full overflow-hidden">
-            <div className="border-b space-y-2 flex-0">
+            <div className="border-b space-y-2 flex-0 pb-2">
                 <LemonInput
                     type="search"
                     placeholder="Search notebooks..."

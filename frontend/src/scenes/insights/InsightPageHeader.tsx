@@ -42,7 +42,6 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NodeKind } from '~/queries/schema'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -259,10 +258,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <>
                                 <NotebookSelectButton
                                     resource={{
-                                        attrs: {
-                                            query: { kind: NodeKind.SavedInsightNode, shortId: insight.short_id },
-                                        },
                                         type: NotebookNodeType.Query,
+                                        attrs: { id: insight.short_id },
                                     }}
                                     type="secondary"
                                 />
