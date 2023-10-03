@@ -127,7 +127,7 @@ export function PersonScene(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
     }
 
-    const url = urls.personDistinctId(urlId || person.distinct_ids[0] || String(person.id))
+    const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
 
     return (
         <>

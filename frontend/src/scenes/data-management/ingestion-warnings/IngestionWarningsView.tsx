@@ -36,9 +36,13 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to merge already identified person{' '}
-                <Link to={urls.personDistinctId(details.sourcePersonDistinctId)}>{details.sourcePersonDistinctId}</Link>{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
                 into{' '}
-                <Link to={urls.personDistinctId(details.targetPersonDistinctId)}>{details.targetPersonDistinctId}</Link>{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
                 via an $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
@@ -52,8 +56,8 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to merge an illegal distinct_id{' '}
-                <Link to={urls.personDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
-                <Link to={urls.personDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
+                <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
+                <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
                 $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
@@ -117,8 +121,8 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Event ingestion has overflowed capacity for distinct_id{' '}
-                <Link to={urls.personDistinctId(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>. Events
-                will still be processed, but are likely to be delayed longer than usual.
+                <Link to={urls.personByDistinctId(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>.
+                Events will still be processed, but are likely to be delayed longer than usual.
             </>
         )
     },

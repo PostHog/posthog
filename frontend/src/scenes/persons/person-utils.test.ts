@@ -6,10 +6,10 @@ import { asLink, asDisplay } from './person-utils'
 describe('the person header', () => {
     describe('linking to a person', () => {
         const personLinksTestCases = [
-            { distinctIds: ['a uuid'], expectedLink: urls.personDistinctId('a uuid'), name: 'with one id' },
+            { distinctIds: ['a uuid'], expectedLink: urls.personByDistinctId('a uuid'), name: 'with one id' },
             {
                 distinctIds: ['the first uuid', 'a uuid'],
-                expectedLink: urls.personDistinctId('the first uuid'),
+                expectedLink: urls.personByDistinctId('the first uuid'),
                 name: 'with more than one id',
             },
             {
@@ -19,7 +19,7 @@ describe('the person header', () => {
             },
             {
                 distinctIds: ['a+dicey/@!'],
-                expectedLink: urls.personDistinctId('a+dicey/@!'),
+                expectedLink: urls.personByDistinctId('a+dicey/@!'),
                 name: 'with no ids',
             },
         ]

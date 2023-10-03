@@ -32,7 +32,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     }
 
     const display = asDisplay(person)
-    const url = urls.personDistinctId(person?.distinct_ids[0])
+    const url = urls.personByDistinctId(person?.distinct_ids[0])
 
     return (
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
@@ -54,7 +54,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                 <LemonButton
                     size="small"
                     icon={<IconOpenInNew />}
-                    to={urls.personDistinctId(person?.distinct_ids[0])}
+                    to={urls.personByDistinctId(person?.distinct_ids[0])}
                 />
             </div>
 
