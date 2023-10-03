@@ -173,16 +173,7 @@ export function Surveys(): JSX.Element {
                                     </span>
                                     <LemonSelect
                                         onChange={(user) => {
-                                            if (user) {
-                                                if (user === 'any') {
-                                                    if (filters) {
-                                                        const { created_by, ...restFilters } = filters
-                                                        setSurveysFilters(restFilters, true)
-                                                    }
-                                                } else {
-                                                    setSurveysFilters({ created_by: user })
-                                                }
-                                            }
+                                            setSurveysFilters({ created_by: user })
                                         }}
                                         options={uniqueCreators}
                                         value={filters.created_by}
