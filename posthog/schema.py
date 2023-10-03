@@ -468,6 +468,45 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class WebTopClicksQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class WebTopPagesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class WebTopSourcesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -652,6 +691,36 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
     teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+
+
+class WebTopClicksQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    response: Optional[WebTopClicksQueryResponse] = None
+
+
+class WebTopPagesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
+    response: Optional[WebTopPagesQueryResponse] = None
+
+
+class WebTopSourcesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
+    response: Optional[WebTopSourcesQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -982,9 +1051,16 @@ class DataTableNode(BaseModel):
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTimings: Optional[bool] = Field(default=None, description="Show a detailed query timing breakdown")
-    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
-        ..., description="Source of the events"
-    )
+    source: Union[
+        EventsNode,
+        EventsQuery,
+        PersonsNode,
+        HogQLQuery,
+        TimeToSeeDataSessionsQuery,
+        WebTopSourcesQuery,
+        WebTopClicksQuery,
+        WebTopPagesQuery,
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):
@@ -1253,7 +1329,18 @@ class Model(RootModel):
         LifecycleQuery,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],
+        Union[
+            EventsNode,
+            EventsQuery,
+            ActionsNode,
+            PersonsNode,
+            HogQLQuery,
+            HogQLMetadata,
+            TimeToSeeDataSessionsQuery,
+            WebTopSourcesQuery,
+            WebTopClicksQuery,
+            WebTopPagesQuery,
+        ],
     ]
 
 

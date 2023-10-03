@@ -2,7 +2,6 @@ import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { OnboardingStep } from './OnboardingStep'
 import { onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
 
 export const OnboardingOtherProductsStep = (): JSX.Element => {
     const { product, suggestedProducts } = useValues(onboardingLogic)
@@ -39,10 +38,7 @@ export const OnboardingOtherProductsStep = (): JSX.Element => {
                             </div>
                         </div>
                         <div className="justify-self-end min-w-30 flex justify-end">
-                            <LemonButton
-                                type="primary"
-                                onClick={() => completeOnboarding(urls.onboarding(suggestedProduct.type))}
-                            >
+                            <LemonButton type="primary" onClick={() => completeOnboarding(suggestedProduct.type)}>
                                 Get started
                             </LemonButton>
                         </div>

@@ -13,6 +13,8 @@ import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { appContextLogic } from './appContextLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -36,7 +38,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Plugins,
+    [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
 }
@@ -278,13 +280,28 @@ export const sceneLogic = kea<sceneLogicType>({
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
+                        !location.pathname.startsWith('/onboarding') &&
+                        !location.pathname.startsWith('/products') &&
                         !location.pathname.startsWith('/project/settings')
                     ) {
-                        console.warn('Ingestion tutorial not completed, redirecting to it')
-                        router.actions.replace(urls.ingestion())
-                        return
+                        if (
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] ===
+                                'test' &&
+                            !Object.keys(teamLogic.values.currentTeam.has_completed_onboarding_for || {}).length
+                        ) {
+                            console.warn('No onboarding completed, redirecting to products')
+                            router.actions.replace(urls.products())
+                            return
+                        } else if (
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !==
+                                'test' &&
+                            !teamLogic.values.currentTeam.completed_snippet_onboarding
+                        ) {
+                            console.warn('Ingestion tutorial not completed, redirecting to it')
+                            router.actions.replace(urls.ingestion())
+                            return
+                        }
                     }
                 }
             }

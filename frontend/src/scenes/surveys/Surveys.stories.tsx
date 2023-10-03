@@ -27,7 +27,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     linked_flag_id: null,
     targeting_flag: null,
     targeting_flag_filters: undefined,
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     start_date: null,
     end_date: null,
     archived: false,
@@ -47,7 +47,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         email: 'test2@posthog.com',
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     conditions: { url: 'posthog', selector: '' },
     linked_flag: {
         id: 7,
