@@ -19,10 +19,15 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                 .reverse()
                 .slice(1)
                 .map((element, index) => (
-                    <pre className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm" key={index}>
-                        {indent(elements.length - index - 2)}
-                        &lt;/{element.tag_name}&gt;
-                    </pre>
+                    <Fade key={`${element.tag_name}-closing-${index}`} visible={true}>
+                        <pre
+                            className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm"
+                            key={index}
+                        >
+                            {indent(elements.length - index - 2)}
+                            &lt;/{element.tag_name}&gt;
+                        </pre>
+                    </Fade>
                 ))}
         </>
     )
