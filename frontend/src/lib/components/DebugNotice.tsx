@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import React from 'react'
 
 export function DebugNotice(): JSX.Element | null {
     const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()
@@ -39,10 +40,10 @@ export function DebugNotice(): JSX.Element | null {
                     onClick={() => setNoticeHidden(true)}
                 />
             </div>
-            <div className="p-2 border-l-4 border-danger text-danger-dark  truncate">
+            <div className="p-2 border-l-4 border-danger text-danger-dark truncate">
                 Branch: <b>{debugInfo.branch}</b>
             </div>
-            <div className="p-2 border-l-4 border-warning text-warning-dark  truncate">
+            <div className="p-2 border-l-4 border-warning text-warning-dark truncate">
                 Revision: <b>{debugInfo.revision}</b>
             </div>
         </div>

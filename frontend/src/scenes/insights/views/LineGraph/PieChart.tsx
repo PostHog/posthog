@@ -21,7 +21,7 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -192,7 +192,7 @@ export function PieChart({
 
                                 highlightSeries(seriesData[0].dataIndex)
 
-                                ReactDOM.render(
+                                createRoot(tooltipEl).render(
                                     <InsightTooltip
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
@@ -238,8 +238,7 @@ export function PieChart({
                                                 : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
-                                    />,
-                                    tooltipEl
+                                    />
                                 )
                             }
 

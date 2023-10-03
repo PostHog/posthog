@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
@@ -29,13 +29,14 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
 
     const svgRef = useRef<SVGSVGElement>(null)
 
+    const svgRect = svgRef.current?.getBoundingClientRect()
+    const tooltipEl = ensureTooltipElement()
+
     useEffect(() => {
-        const svgRect = svgRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
         if (tooltipCoordinates) {
-            ReactDOM.render(
+            createRoot(tooltipEl).render(
                 <>
                     {currentTooltip && (
                         <InsightTooltip
@@ -65,33 +66,32 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
                         />
                     )}
-                </>,
-                tooltipEl,
-                () => {
-                    const tooltipRect = tooltipEl.getBoundingClientRect()
-                    // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-                    let xOffset: number
-                    if (
-                        svgRect &&
-                        tooltipRect &&
-                        tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX >
-                            svgRect.x + svgRect.width
-                    ) {
-                        xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
-                    } else {
-                        xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
-                    }
-                    tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-                    tooltipEl.style.top = `${
-                        window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX
-                    }px`
-                }
+                </>
             )
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
     }, [isTooltipShown, tooltipCoordinates, currentTooltip])
+
+    useEffect(() => {
+        if (tooltipCoordinates) {
+            const tooltipRect = tooltipEl.getBoundingClientRect()
+            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+            let xOffset: number
+            if (
+                svgRect &&
+                tooltipRect &&
+                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
+            ) {
+                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
+            } else {
+                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
+            }
+            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
+            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
+        }
+    }, [currentTooltip, tooltipEl])
 
     return svgRef
 }

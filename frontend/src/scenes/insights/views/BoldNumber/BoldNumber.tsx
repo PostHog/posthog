@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { useLayoutEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import Textfit from './Textfit'
 import clsx from 'clsx'
 
@@ -20,6 +20,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 import './BoldNumber.scss'
+import { useEffect } from 'react'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -37,14 +38,15 @@ function useBoldNumberTooltip({
 
     const divRef = useRef<HTMLDivElement>(null)
 
+    const divRect = divRef.current?.getBoundingClientRect()
+    const tooltipEl = ensureTooltipElement()
+
     useLayoutEffect(() => {
-        const divRect = divRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
         const seriesResult = insightData?.result?.[0]
 
-        ReactDOM.render(
+        createRoot(tooltipEl).render(
             <InsightTooltip
                 renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                 seriesData={[
@@ -61,19 +63,19 @@ function useBoldNumberTooltip({
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
                 groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
-            />,
-            tooltipEl,
-            () => {
-                const tooltipRect = tooltipEl.getBoundingClientRect()
-                if (divRect) {
-                    tooltipEl.style.top = `${
-                        window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-                    }px`
-                    tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
-                }
-            }
+            />
         )
     }, [isTooltipShown])
+
+    useEffect(() => {
+        const tooltipRect = tooltipEl.getBoundingClientRect()
+        if (divRect) {
+            tooltipEl.style.top = `${
+                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            }px`
+            tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
+        }
+    })
 
     return divRef
 }

@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -113,7 +113,8 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
-            ReactDOM.render(
+            // TODO: Shouldn't we unmount at some point??
+            createRoot(tooltipEl).render(
                 <>
                     {currentTooltip && (
                         <FunnelTooltip
@@ -124,8 +125,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             breakdownFilter={breakdown}
                         />
                     )}
-                </>,
-                tooltipEl
+                </>
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
             let xOffset: number
