@@ -1,7 +1,7 @@
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'

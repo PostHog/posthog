@@ -1,5 +1,5 @@
 import { captureException } from '@sentry/node'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'

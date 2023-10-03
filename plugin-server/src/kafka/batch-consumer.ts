@@ -1,4 +1,4 @@
-import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'

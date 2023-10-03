@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'

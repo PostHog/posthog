@@ -1,5 +1,5 @@
 import { EachBatchPayload } from 'kafkajs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
@@ -25,13 +25,13 @@ export const startAnalyticsEventsIngestionHistoricalConsumer = async ({
         Consumes analytics events from the Kafka topic `events_plugin_ingestion_historical`
         and processes them for ingestion into ClickHouse.
 
-        This is the historical events or "slow-lane" processing queue as it contains only 
+        This is the historical events or "slow-lane" processing queue as it contains only
         events that have timestamps in the past.
     */
     status.info('🔁', 'Starting analytics events historical consumer with rdkafka')
 
-    /* 
-        We don't want to move events to overflow from here, it's fine for the processing to 
+    /*
+        We don't want to move events to overflow from here, it's fine for the processing to
         take longer, but we want the locality constraints to be respected like normal ingestion.
     */
     const batchHandler = async (messages: Message[], queue: IngestionConsumer): Promise<void> => {
@@ -62,13 +62,13 @@ export const startLegacyAnalyticsEventsIngestionHistoricalConsumer = async ({
         Consumes analytics events from the Kafka topic `events_plugin_ingestion_historical`
         and processes them for ingestion into ClickHouse.
 
-        This is the historical events or "slow-lane" processing queue as it contains only 
+        This is the historical events or "slow-lane" processing queue as it contains only
         events that have timestamps in the past.
     */
     status.info('🔁', 'Starting analytics events historical consumer with kafkajs')
 
-    /* 
-        We don't want to move events to overflow from here, it's fine for the processing to 
+    /*
+        We don't want to move events to overflow from here, it's fine for the processing to
         take longer, but we want the locality constraints to be respected like normal ingestion.
     */
     const batchHandler = async (payload: EachBatchPayload, queue: KafkaJSIngestionConsumer): Promise<void> => {
