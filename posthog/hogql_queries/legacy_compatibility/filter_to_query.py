@@ -1,3 +1,4 @@
+from typing import List, Dict
 from posthog.models.entity.entity import Entity as BackendEntity
 from posthog.models.filters import AnyInsightFilter
 from posthog.models.filters.filter import Filter as LegacyFilter
@@ -27,16 +28,40 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
-def entity_to_node(entity: BackendEntity) -> EventsNode | ActionsNode:
+def clean_entity_property(property: Dict):
+    cleaned_property = {**property}
+    if cleaned_property.get("operator", None) is None and cleaned_property.get("type", None) not in ("cohort", "hogql"):
+        cleaned_property["operator"] = "exact"
+    return cleaned_property
+
+
+def clean_entity_properties(properties: List[Dict] | None):
+    if properties is None:
+        return None
+
+    return list(map(clean_entity_property, properties))
+
+
+def entity_to_node(entity: BackendEntity, include_properties: bool, include_math: bool) -> EventsNode | ActionsNode:
     shared = {
         "name": entity.name,
         "custom_name": entity.custom_name,
-        "properties": entity._data.get("properties", None),
-        "math": entity.math,
-        "math_property": entity.math_property,
-        "math_hogql": entity.math_hogql,
-        "math_group_type_index": entity.math_group_type_index,
     }
+
+    if include_properties:
+        shared = {
+            **shared,
+            "properties": clean_entity_properties(entity._data.get("properties", None)),
+        }
+
+    if include_math:
+        shared = {
+            **shared,
+            "math": entity.math,
+            "math_property": entity.math_property,
+            "math_hogql": entity.math_hogql,
+            "math_group_type_index": entity.math_group_type_index,
+        }
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
@@ -75,9 +100,13 @@ def _interval(filter: AnyInsightFilter):
 
 
 def _series(filter: AnyInsightFilter):
+    include_math = True
+    include_properties = True
     if filter.insight == "RETENTION" or filter.insight == "PATHS":
         return {}
-    return {"series": map(entity_to_node, filter.entities)}
+    elif filter.insight == "LIFECYCLE":
+        include_math = False
+    return {"series": map(lambda entity: entity_to_node(entity, include_properties, include_math), filter.entities)}
 
 
 def _sampling_factor(filter: AnyInsightFilter):

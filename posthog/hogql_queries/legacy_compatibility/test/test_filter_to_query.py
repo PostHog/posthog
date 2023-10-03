@@ -300,6 +300,26 @@ insight_17 = {
     "filter_test_accounts": True,
 }
 
+# real world regression tests
+
+insight_18 = {
+    "actions": [
+        {
+            "id": 2760,
+            "math": "total",
+            "name": "Pageviews",
+            "type": "actions",
+            "order": 0,
+            "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": None}],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsBar",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -319,6 +339,7 @@ test_insights = [
     insight_15,
     insight_16,
     insight_17,
+    insight_18,
 ]
 
 
