@@ -468,6 +468,19 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class WebOverviewStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    result: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class WebTopClicksQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -691,6 +704,16 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     kind: Literal["TimeToSeeDataSessionsQuery"] = "TimeToSeeDataSessionsQuery"
     response: Optional[TimeToSeeDataSessionsQueryResponse] = Field(default=None, description="Cached query response")
     teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
+
+
+class WebOverviewStatsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filters: Any
+    kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
+    response: Optional[WebOverviewStatsQueryResponse] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1060,6 +1083,7 @@ class DataTableNode(BaseModel):
         PersonsNode,
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
+        WebOverviewStatsQuery,
         WebTopSourcesQuery,
         WebTopClicksQuery,
         WebTopPagesQuery,
@@ -1340,6 +1364,7 @@ class Model(RootModel):
             HogQLQuery,
             HogQLMetadata,
             TimeToSeeDataSessionsQuery,
+            WebOverviewStatsQuery,
             WebTopSourcesQuery,
             WebTopClicksQuery,
             WebTopPagesQuery,
