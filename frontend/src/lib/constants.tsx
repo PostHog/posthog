@@ -169,6 +169,8 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
+    // owner: #team-monitoring
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search',
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

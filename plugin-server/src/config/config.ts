@@ -156,6 +156,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+        // by default a very restricted list of teams, so we can slowly load
+        MAX_TEAM_TO_ALLOW_SESSION_RECORDING_CONSOLE_LOGS_INGESTION: 2,
     }
 }
 

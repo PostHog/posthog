@@ -750,6 +750,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
+    console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
 }

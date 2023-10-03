@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
@@ -131,6 +131,17 @@ export const AdvancedSessionRecordingsFilters = ({
             <LemonLabel info="Show recordings that have captured console log messages">
                 Filter by console logs
             </LemonLabel>
+            <LemonInput
+                size={'small'}
+                fullWidth={true}
+                placeholder={'containing text'}
+                value={filters.console_search_query}
+                onChange={(s) => {
+                    setFilters({
+                        console_search_query: s,
+                    })
+                }}
+            />
             <ConsoleFilters
                 filters={filters}
                 setConsoleFilters={(x) =>

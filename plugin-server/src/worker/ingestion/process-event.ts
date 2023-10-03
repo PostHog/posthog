@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
+    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -284,6 +285,58 @@ export interface SummarizedSessionRecordingEvent {
     size: number
     event_count: number
     message_count: number
+}
+
+type ConsoleLogEntry = {
+    team_id: number
+    message: string
+    log_level: 'info' | 'warn' | 'error'
+    log_source: 'session_replay'
+    // the session_id
+    log_source_id: string
+    // TODO will we ever emit this?
+    instance_id: string
+    timestamp: ClickHouseTimestamp
+}
+
+function safeString(payload: string[]) {
+    // the individual strings are sometimes wrapped in quotes... we want ot strip those
+    return payload
+        .map((item) => {
+            let candidate = item
+            if (candidate.startsWith('"') || candidate.startsWith("'")) {
+                candidate = candidate.substring(1)
+            }
+
+            if (candidate.endsWith('"') || candidate.endsWith("'")) {
+                candidate = candidate.substring(0, candidate.length - 1)
+            }
+            return candidate
+        })
+        .join(' ')
+}
+
+export const gatherConsoleLogEvents = (team_id: number, session_id: string, events: RRWebEvent[]) => {
+    const consoleLogEntries: ConsoleLogEntry[] = []
+
+    events.forEach((event) => {
+        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+            const level = event.data.payload?.level
+            const message = safeString(event.data.payload?.payload)
+            consoleLogEntries.push({
+                team_id,
+                // TODO when is it not a single item array?
+                message: message,
+                log_level: level,
+                log_source: 'session_replay',
+                log_source_id: session_id,
+                instance_id: event.data.instanceId,
+                timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+            })
+        }
+    })
+
+    return consoleLogEntries
 }
 
 export const createSessionReplayEvent = (
