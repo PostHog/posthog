@@ -137,6 +137,7 @@ export function HTMLElementsDisplay({
                         {elementsToShowDepth ? (
                             <pre
                                 className="p-1 m-0 opacity-50 text-white text-sm cursor-pointer"
+                                data-attr="elements-display-show-more-of-chain"
                                 onClick={showAdditionalElements}
                             >
                                 {`Show ${Math.min(3, elementsToShowDepth)} more parent${
