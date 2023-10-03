@@ -169,8 +169,7 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
-    // owner: #team-monitoring
-    CONSOLE_RECORDING_SEARCH: 'console-recording-search',
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
