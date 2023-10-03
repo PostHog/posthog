@@ -249,6 +249,7 @@ export class IngestionConsumer {
             connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
             topic: this.topic,
             groupId: this.consumerGroupId,
+            autoCommit: true,
             sessionTimeout: 30000,
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,

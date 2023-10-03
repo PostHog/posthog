@@ -246,7 +246,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
-                                    push(urls.person(person.distinct_ids[0]))
+                                    push(urls.personByDistinctId(person.distinct_ids[0]))
                                 },
                             },
                         ],

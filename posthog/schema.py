@@ -882,6 +882,9 @@ class HogQLQuery(BaseModel):
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
+    values: Optional[Dict[str, Any]] = Field(
+        default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
 
 
 class PersonsNode(BaseModel):

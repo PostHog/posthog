@@ -144,6 +144,8 @@ export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Constant values that can be referenced with the {placeholder} syntax in the query */
+    values?: Record<string, any>
     response?: HogQLQueryResponse
 }
 

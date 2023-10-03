@@ -85,6 +85,7 @@ export const startSessionRecordingEventsConsumerV1 = async ({
         connectionConfig,
         groupId,
         topic: KAFKA_SESSION_RECORDING_EVENTS,
+        autoCommit: true,
         sessionTimeout,
         consumerMaxBytesPerPartition,
         consumerMaxBytes,

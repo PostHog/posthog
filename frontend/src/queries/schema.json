@@ -1201,6 +1201,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse",
                     "description": "Cached query response"
+                },
+                "values": {
+                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
