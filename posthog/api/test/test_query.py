@@ -540,4 +540,4 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        self.assertEqual(len(response.get("results", [])), 20)
+        self.assertEqual(response.get("results", [])[0][0], 20)
