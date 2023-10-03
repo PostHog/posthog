@@ -22,6 +22,8 @@ import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSess
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { pluralize } from 'lib/utils'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -31,6 +33,13 @@ export function SessionsRecordings(): JSX.Element {
     const { guardAvailableFeature } = useActions(sceneLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
+
+    const theAuthorizedUrlsLogic = authorizedUrlListLogic({
+        actionId: null,
+        type: AuthorizedUrlListType.RECORDING_DOMAINS,
+    })
+    const { suggestions, authorizedUrls } = useValues(theAuthorizedUrlsLogic)
+    const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)
@@ -133,6 +142,28 @@ export function SessionsRecordings(): JSX.Element {
                         Session recordings are currently disabled for this project.
                     </LemonBanner>
                 ) : null}
+
+                {!recordingsDisabled && mightBeRefusingRecordings ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            type: 'secondary',
+                            icon: <IconSettings />,
+                            onClick: () => openSessionRecordingSettingsDialog(),
+                            children: 'Configure',
+                        }}
+                    >
+                        You have authorized domains configured for session recordings. Only recordings from these
+                        domains will be allowed.
+                        <p>
+                            But you have {pluralize(suggestions.length, 'domain', 'domains', true)} that{' '}
+                            {pluralize(suggestions.length, 'is', 'are', false)} not authorized which{' '}
+                            {pluralize(suggestions.length, 'is', 'are', false)} trying to send recordings. You should
+                            review your configuration.
+                        </p>
+                    </LemonBanner>
+                ) : null}
+
                 {!tab ? (
                     <Spinner />
                 ) : tab === ReplayTabs.Recent ? (
