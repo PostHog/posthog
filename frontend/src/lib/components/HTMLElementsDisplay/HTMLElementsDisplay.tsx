@@ -134,7 +134,7 @@ export function HTMLElementsDisplay({
                                 className="p-1 m-0 opacity-50 text-white text-sm cursor-pointer"
                                 onClick={showAdditionalElements}
                             >
-                                {`Show ${elementsToShowDepth} hidden element${elementsToShowDepth > 1 ? 's' : null}`}
+                                {`Show ${elementsToShowDepth} hidden element${elementsToShowDepth > 1 ? 's' : ''}`}
                             </pre>
                         ) : null}
                         <Fade visible={true}>
