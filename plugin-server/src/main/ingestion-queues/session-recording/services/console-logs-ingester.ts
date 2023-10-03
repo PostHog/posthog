@@ -2,7 +2,7 @@ import { captureException } from '@sentry/node'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
 import { Counter } from 'prom-client'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
+import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
@@ -131,7 +131,7 @@ export class ConsoleLogsIngester {
             return consoleLogEvents.map((cle) =>
                 produce({
                     producer,
-                    topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                    topic: KAFKA_LOG_ENTRIES,
                     value: Buffer.from(JSON.stringify(cle)),
                     key: event.session_id,
                 })
