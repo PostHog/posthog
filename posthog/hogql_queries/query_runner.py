@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,10 +17,6 @@ from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
     TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
     LifecycleQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
@@ -64,10 +60,6 @@ class CachedQueryResponse(QueryResponse):
 
 RunnableQueryNode = Union[
     TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
     LifecycleQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
@@ -76,7 +68,7 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | BaseModel, team: Team, timings: Optional[HogQLTimings] = None
+    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -87,11 +79,11 @@ def get_query_runner(
     if kind == "LifecycleQuery":
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
-        return LifecycleQueryRunner(query=query, team=team, timings=timings)
+        return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "TrendsQuery":
         from .insights.trends_query_runner import TrendsQueryRunner
 
-        return TrendsQueryRunner(query=query, team=team, timings=timings)
+        return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
 
     if kind == "WebTopSourcesQuery":
         from .web_analytics.top_sources import WebTopSourcesQueryRunner
