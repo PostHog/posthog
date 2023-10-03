@@ -34,13 +34,7 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [
-            pluginsLogic,
-            ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins'],
-            // ['enabledPlugins'],
-            userLogic,
-            ['user'],
-        ],
+        values: [pluginsLogic, ['loading as pluginsLoading', 'enabledPlugins'], userLogic, ['user']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),

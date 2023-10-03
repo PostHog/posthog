@@ -101,6 +101,9 @@ class UsageReportCounters:
     event_explorer_api_bytes_read: int
     event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
+    # Surveys
+    survey_responses_count_in_period: int
+    survey_responses_count_in_month: int
 
 
 # Instance metadata to be included in oveall report
@@ -533,6 +536,28 @@ def get_teams_with_feature_flag_requests_count_in_period(
     return result
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_survey_responses_count_in_period(
+    begin: datetime,
+    end: datetime,
+) -> List[Tuple[int, int]]:
+
+    results = sync_execute(
+        """
+        SELECT team_id, COUNT() as count
+        FROM events
+        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 @app.task(ignore_result=True, max_retries=0)
 def capture_report(
     capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
@@ -556,6 +581,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.survey_responses_count_in_period > 0
     )
 
 
@@ -716,6 +742,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
+        teams_with_survey_responses_count_in_period=get_teams_with_survey_responses_count_in_period(
+            period_start, period_end
+        ),
+        teams_with_survey_responses_count_in_month=get_teams_with_survey_responses_count_in_period(
+            period_start.replace(day=1), period_end
+        ),
     )
 
 
@@ -784,6 +816,8 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+        survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+        survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
     )
 
 

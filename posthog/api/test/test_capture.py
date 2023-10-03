@@ -1143,10 +1143,7 @@ class TestCapture(BaseTest):
         for headers in [
             (
                 "sentry",
-                [
-                    "traceparent",
-                    "request-id",
-                ],
+                ["traceparent", "request-id", "Sentry-Trace", "Baggage"],
             ),
             (
                 "aws",
@@ -1171,8 +1168,8 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS=presented_headers,
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], expected_headers)
+        assert response.status_code == 200
+        assert response.headers["Access-Control-Allow-Headers"] == expected_headers
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:

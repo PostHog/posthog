@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -257,9 +257,6 @@ dependencies:
   react-shadow:
     specifier: ^18.4.2
     version: 18.6.2(prop-types@15.8.1)(react-dom@16.14.0)(react@16.14.0)
-  react-sortable-hoc:
-    specifier: ^1.11.0
-    version: 1.11.0(prop-types@15.8.1)(react-dom@16.14.0)(react@16.14.0)
   react-syntax-highlighter:
     specifier: ^15.5.0
     version: 15.5.0(react@16.14.0)
@@ -11505,6 +11502,7 @@ packages:
     resolution: {integrity: sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==}
     dependencies:
       loose-envify: 1.4.0
+    dev: true
 
   /ip6addr@0.2.5:
     resolution: {integrity: sha512-9RGGSB6Zc9Ox5DpDGFnJdIeF0AsqXzdH+FspCfPPaU/L/4tI6P+5lIoFUFm9JXs9IrJv1boqAaNCQmoDADTSKQ==}
@@ -13097,7 +13095,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -16215,20 +16213,6 @@ packages:
       react: 16.14.0
       react-dom: 16.14.0(react@16.14.0)
       react-use: 15.3.8(react-dom@16.14.0)(react@16.14.0)
-    dev: false
-
-  /react-sortable-hoc@1.11.0(prop-types@15.8.1)(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-v1CDCvdfoR3zLGNp6qsBa4J1BWMEVH25+UKxF/RvQRh+mrB+emqtVHMgZ+WreUiKJoEaiwYoScaueIKhMVBHUg==}
-    peerDependencies:
-      prop-types: ^15.5.7
-      react: ^0.14.0 || ^15.0.0 || ^16.0.0
-      react-dom: ^0.14.0 || ^15.0.0 || ^16.0.0
-    dependencies:
-      '@babel/runtime': 7.22.10
-      invariant: 2.2.4
-      prop-types: 15.8.1
-      react: 16.14.0
-      react-dom: 16.14.0(react@16.14.0)
     dev: false
 
   /react-style-singleton@2.2.1(@types/react@16.14.34)(react@16.14.0):

@@ -3,7 +3,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LemonInput } from '@posthog/lemon-ui'
 
 export function PluginsSearch(): JSX.Element {
-    const { searchTerm, rearranging } = useValues(pluginsLogic)
+    const { searchTerm } = useValues(pluginsLogic)
     const { setSearchTerm } = useActions(pluginsLogic)
     return (
         <LemonInput
@@ -13,7 +13,6 @@ export function PluginsSearch(): JSX.Element {
             autoFocus
             value={searchTerm || ''}
             onChange={setSearchTerm}
-            disabled={rearranging}
         />
     )
 }

@@ -295,6 +295,9 @@ class BatchExportTemporaryFile:
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
 
+    def __iter__(self):
+        yield from self._file
+
     @property
     def brotli_compressor(self):
         if self._brotli_compressor is None:
