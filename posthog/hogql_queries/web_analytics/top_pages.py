@@ -21,7 +21,7 @@ class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
             pathname_query = parse_select(PATHNAME_CTE, timings=self.timings)
         with self.timings.measure("top_pages_query"):
             top_sources_query = parse_select(
-                f"""
+                """
 SELECT
     pathname.pathname as pathname,
     pathname.total_pageviews as total_pageviews,
@@ -30,14 +30,14 @@ SELECT
     pathname.average_scroll_percentage as average_scroll_percentage,
     bounce_rate.bounce_rate as bounce_rate
 FROM
-    ({pathname_query}) AS pathname
+    {pathname_query} AS pathname
 LEFT OUTER JOIN
     (
         SELECT
             session.earliest_pathname,
             avg(session.is_bounce) as bounce_rate
         FROM
-            ({session_query}) AS session
+            {session_query} AS session
         GROUP BY
             session.earliest_pathname
     ) AS bounce_rate
