@@ -4,12 +4,12 @@ import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
-    commitOffsetsForMessages,
     consumeMessages,
     countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
+    storeOffsetsForMessages,
 } from './consumer'
 
 export interface BatchConsumer {
@@ -210,7 +210,7 @@ export const startBatchConsumer = async ({
                 messagesProcessed += messages.length
 
                 if (autoCommit) {
-                    commitOffsetsForMessages(messages, consumer)
+                    storeOffsetsForMessages(messages, consumer)
                 }
             }
         } catch (error) {
