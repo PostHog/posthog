@@ -75,6 +75,40 @@ RunnableQueryNode = Union[
 ]
 
 
+def get_query_runner(
+    query: Dict[str, Any] | BaseModel, team: Team, timings: Optional[HogQLTimings] = None
+) -> "QueryRunner":
+    kind = None
+    if isinstance(query, dict):
+        kind = query.get("kind", None)
+    elif hasattr(query, "kind"):
+        kind = query.kind
+
+    if kind == "LifecycleQuery":
+        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+
+        return LifecycleQueryRunner(query=query, team=team, timings=timings)
+    if kind == "TrendsQuery":
+        from .insights.trends_query_runner import TrendsQueryRunner
+
+        return TrendsQueryRunner(query=query, team=team, timings=timings)
+
+    if kind == "WebTopSourcesQuery":
+        from .web_analytics.top_sources import WebTopSourcesQueryRunner
+
+        return WebTopSourcesQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebTopClicksQuery":
+        from .web_analytics.top_clicks import WebTopClicksQueryRunner
+
+        return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebTopPagesQuery":
+        from .web_analytics.top_pages import WebTopPagesQueryRunner
+
+        return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
+
+    raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
+
+
 class QueryRunner(ABC):
     query: RunnableQueryNode
     query_type: Type[RunnableQueryNode]
@@ -124,7 +158,7 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def to_persons_query(self) -> str:
+    def to_persons_query(self) -> ast.SelectQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
