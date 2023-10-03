@@ -2094,7 +2094,7 @@ export interface Survey {
         selector: string
         is_headless?: boolean
         seenSurveyWaitPeriodInDays?: number
-        urlMatchType: SurveyUrlMatchType
+        urlMatchType?: SurveyUrlMatchType
     } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
