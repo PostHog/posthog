@@ -28,12 +28,20 @@ from posthog.schema import (
 from posthog.types import InsightQueryNode
 
 
+def is_property_with_operator(property: Dict):
+    return property.get("type") not in ("cohort", "hogql")
+
+
 def clean_property(property: Dict):
     cleaned_property = {**property}
 
     # set a default operator for properties that support it, but don't have an operator set
-    if cleaned_property.get("operator", None) is None and cleaned_property.get("type", None) not in ("cohort", "hogql"):
+    if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
         cleaned_property["operator"] = "exact"
+
+    # remove the operator for properties that don't support it, but have it set
+    if not is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is not None:
+        del cleaned_property["operator"]
 
     # remove keys without concrete value
     cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}

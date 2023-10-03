@@ -339,6 +339,25 @@ insight_19 = {
     "shown_as": "Lifecycle",
 }
 
+insight_20 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": "total",
+            "name": "$pageview",
+            "type": "events",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+    "properties": [{"key": "id", "type": "cohort", "value": 929, "operator": "exact"}],
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -360,6 +379,7 @@ test_insights = [
     insight_17,
     insight_18,
     insight_19,
+    insight_20,
 ]
 
 
