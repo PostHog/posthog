@@ -152,6 +152,7 @@ export function SessionsRecordings(): JSX.Element {
                             onClick: () => openSessionRecordingSettingsDialog(),
                             children: 'Configure',
                         }}
+                        dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
                     >
                         You have authorized domains configured for session recordings. Only recordings from these
                         domains will be allowed.
