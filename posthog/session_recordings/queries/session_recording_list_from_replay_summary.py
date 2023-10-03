@@ -57,9 +57,7 @@ def _get_filter_by_log_text_session_ids_clause(
 
     # we return this _even_ if there are no matching ids since if there are no matching ids
     # then no sessions can match...
-    return f'AND "{column_name}" in %(session_ids)s', {
-        "session_ids": (recording_filters.session_ids or []) + matching_session_ids
-    }
+    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": [x[0] for x in matching_session_ids]}
 
 
 def _get_filter_by_provided_session_ids_clause(
@@ -108,8 +106,9 @@ class LogQuery:
             AND timestamp >= %(clamped_to_storage_ttl)s
             AND timestamp <= now()
             {events_timestamp_clause}
-    WHERE 1=1 {console_log_clause}
-    AND message ilike %(console_search_query)s
+    WHERE 1=1
+    {console_log_clause}
+    AND position(%(console_search_query)s in message) > 0
     """
 
     @property
@@ -132,24 +131,31 @@ class LogQuery:
         return timestamp_clause, timestamp_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "log"]]) -> str:
-        filters = [f"console_{log}_count > 0" for log in console_logs_filter]
-        return f"AND ({' OR '.join(filters)})" if filters else ""
+    def _get_console_log_clause(
+        console_logs_filter: List[Literal["error", "warn", "log"]]
+    ) -> Tuple[str, Dict[str, Any]]:
+        return (
+            (f"AND level in %(console_logs_levels)s", {"console_logs_levels": console_logs_filter})
+            if console_logs_filter
+            else ("", {})
+        )
 
     def get_query(self):
-        # TODO if no self._filter.console_search_query then return "", {} or something?
+        if not self._filter.console_search_query:
+            return "", {}
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
-        console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
-        console_search_query = f"%{self._filter.console_search_query}%"
+        console_log_clause, console_log_params = self._get_console_log_clause(self._filter.console_logs_filter)
+
         return self._rawQuery.format(
             events_timestamp_clause=events_timestamp_clause,
             console_log_clause=console_log_clause,
         ), {
             "team_id": self._team_id,
             "clamped_to_storage_ttl": (datetime.now() - timedelta(days=self.ttl_days)),
-            "console_search_query": console_search_query,
+            "console_search_query": self._filter.console_search_query,
             **events_timestamp_params,
+            **console_log_params,
         }
 
 
@@ -383,7 +389,7 @@ class SessionIdEventsQuery(EventQuery):
 
         _, recording_start_time_params = _get_recording_start_time_clause(self._filter)
         provided_session_ids_clause, provided_session_ids_params = _get_filter_by_provided_session_ids_clause(
-            team=self._team, recording_filters=self._filter, column_name="$session_id"
+            recording_filters=self._filter, column_name="$session_id"
         )
 
         event_filters = self.build_event_filters
@@ -612,7 +618,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 console_log_clause=console_log_clause,
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
-                log_matching_session_ids_clause=(log_matching_session_ids_clause,),
+                log_matching_session_ids_clause=log_matching_session_ids_clause,
             ),
             {
                 **base_params,
