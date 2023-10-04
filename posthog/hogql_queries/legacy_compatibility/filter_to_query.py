@@ -274,7 +274,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 aggregation_axis_prefix=filter.aggregation_axis_prefix,
                 aggregation_axis_postfix=filter.aggregation_axis_postfix,
                 formula=filter.formula,
-                # shown_as=filter.shown_as,
+                shown_as=filter.shown_as,
                 display=clean_display(filter.display),
                 # show_values_on_series=filter.show_values_on_series,
                 # show_percent_stack_view=filter.show_percent_stack_view,
@@ -340,7 +340,7 @@ def _insight_filter(filter: AnyInsightFilter):
     elif filter.insight == "LIFECYCLE":
         return {
             "lifecycleFilter": LifecycleFilter(
-                # shown_as=filter.shown_as,
+                shown_as=filter.shown_as,
                 # toggledLifecycles=filter.toggledLifecycles,
                 # show_values_on_series=filter.show_values_on_series,
             )
@@ -349,7 +349,7 @@ def _insight_filter(filter: AnyInsightFilter):
         return {
             "stickinessFilter": StickinessFilter(
                 compare=filter.compare,
-                # shown_as=filter.shown_as,
+                shown_as=filter.shown_as,
                 # show_legend=filter.show_legend,
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
                 # show_values_on_series=filter.show_values_on_series,
