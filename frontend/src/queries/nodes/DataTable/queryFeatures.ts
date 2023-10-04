@@ -2,6 +2,7 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isWebOverviewStatsQuery,
     isWebTopClicksQuery,
     isWebTopPagesQuery,
     isWebTopSourcesQuery,
@@ -47,7 +48,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.personsSearch)
     }
 
-    if (isWebTopSourcesQuery(query) || isWebTopPagesQuery(query) || isWebTopClicksQuery(query)) {
+    if (
+        isWebOverviewStatsQuery(query) ||
+        isWebTopSourcesQuery(query) ||
+        isWebTopPagesQuery(query) ||
+        isWebTopClicksQuery(query)
+    ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
     }

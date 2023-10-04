@@ -88,7 +88,7 @@ export const urls = {
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    person: (id: string, encode: boolean = true): string =>
+    personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,

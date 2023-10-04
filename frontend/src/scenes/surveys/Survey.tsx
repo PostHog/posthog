@@ -7,6 +7,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonCollapse,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -23,15 +24,16 @@ import {
     SurveyType,
     LinkSurveyQuestion,
     RatingSurveyQuestion,
+    SurveyUrlMatchType,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { defaultSurveyFieldValues, defaultSurveyAppearance, SurveyQuestionLabel, NewSurvey } from './constants'
+import { defaultSurveyFieldValues, defaultSurveyAppearance, NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -60,7 +62,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag, urlMatchTypeValidationError } =
+        useValues(surveyLogic)
     const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
@@ -115,167 +118,225 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         />
                     </Field>
                     <LemonDivider />
+                    <div className="font-semibold">Questions</div>
                     {survey.questions.map(
                         (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
-                                <Field name="type" label="Question type" className="max-w-60">
-                                    <LemonSelect
-                                        onSelect={(newType) => {
-                                            const questionObj = survey.questions[0]
-                                            const isEditingQuestion =
-                                                defaultSurveyFieldValues[questionObj.type].questions[0].question !==
-                                                questionObj.question
-                                            const isEditingDescription =
-                                                defaultSurveyFieldValues[questionObj.type].questions[0].description !==
-                                                questionObj.description
-                                            const isEditingThankYouMessage =
-                                                defaultSurveyFieldValues[questionObj.type].appearance
-                                                    .thankYouMessageHeader !== survey.appearance.thankYouMessageHeader
-
-                                            setDefaultForQuestionType(
-                                                newType,
-                                                isEditingQuestion,
-                                                isEditingDescription,
-                                                isEditingThankYouMessage
-                                            )
-                                        }}
-                                        options={[
-                                            {
-                                                label: SurveyQuestionLabel[SurveyQuestionType.Open],
-                                                value: SurveyQuestionType.Open,
-                                            },
-                                            {
-                                                label: SurveyQuestionLabel[SurveyQuestionType.Link],
-                                                value: SurveyQuestionType.Link,
-                                            },
-                                            {
-                                                label: SurveyQuestionLabel[SurveyQuestionType.Rating],
-                                                value: SurveyQuestionType.Rating,
-                                            },
-                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_CHOICE]
-                                                ? [
-                                                      {
-                                                          label: SurveyQuestionLabel[SurveyQuestionType.SingleChoice],
-                                                          value: SurveyQuestionType.SingleChoice,
-                                                      },
-                                                      {
-                                                          label: SurveyQuestionLabel[SurveyQuestionType.MultipleChoice],
-                                                          value: SurveyQuestionType.MultipleChoice,
-                                                      },
-                                                  ]
-                                                : []),
-                                        ]}
-                                    />
-                                </Field>
-                                <Field name="question" label="Question">
-                                    <LemonInput value={question.question} />
-                                </Field>
-                                {question.type === SurveyQuestionType.Link && (
-                                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
-                                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
-                                    </Field>
-                                )}
-                                <Field name="description" label="Question description (optional)">
-                                    <LemonTextArea value={question.description || ''} minRows={2} />
-                                </Field>
-                                {question.type === SurveyQuestionType.Rating && (
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex flex-row gap-4">
-                                            <Field name="display" label="Display type" className="min-w-50">
-                                                <LemonSelect
-                                                    options={[
-                                                        { label: 'Number', value: 'number' },
-                                                        { label: 'Emoji', value: 'emoji' },
-                                                    ]}
-                                                />
-                                            </Field>
-                                            <Field name="scale" label="Scale" className="min-w-50">
-                                                <LemonSelect
-                                                    options={[
-                                                        ...(question.display === 'emoji'
-                                                            ? [{ label: '1 - 3', value: 3 }]
-                                                            : []),
-                                                        { label: '1 - 5', value: 5 },
-                                                        ...(question.display === 'number'
-                                                            ? [{ label: '1 - 10', value: 10 }]
-                                                            : []),
-                                                    ]}
-                                                />
-                                            </Field>
-                                        </div>
-                                        <div className="flex flex-row gap-4">
-                                            <Field
-                                                name="lowerBoundLabel"
-                                                label="Lower bound label"
-                                                className="min-w-150"
-                                            >
-                                                <LemonInput value={question.lowerBoundLabel || ''} />
-                                            </Field>
-                                            <Field
-                                                name="upperBoundLabel"
-                                                label="Upper bound label"
-                                                className="min-w-150"
-                                            >
-                                                <LemonInput value={question.upperBoundLabel || ''} />
-                                            </Field>
-                                        </div>
-                                    </div>
-                                )}
-                                {(question.type === SurveyQuestionType.SingleChoice ||
-                                    question.type === SurveyQuestionType.MultipleChoice) && (
-                                    <div className="flex flex-col gap-2">
-                                        <Field name="choices" label="Choices">
-                                            {({ value, onChange }) => (
-                                                <div className="flex flex-col gap-2">
-                                                    {(value || []).map((choice: string, index: number) => (
-                                                        <div className="flex flex-row gap-2" key={index}>
-                                                            <LemonInput
-                                                                value={choice}
-                                                                fullWidth
-                                                                onChange={(val) => {
-                                                                    const newChoices = [...value]
-                                                                    newChoices[index] = val
-                                                                    onChange(newChoices)
-                                                                }}
-                                                            />
-                                                            <LemonButton
-                                                                icon={<IconDelete />}
-                                                                size="small"
-                                                                status="muted"
-                                                                noPadding
-                                                                onClick={() => {
-                                                                    const newChoices = [...value]
-                                                                    newChoices.splice(index, 1)
-                                                                    onChange(newChoices)
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    ))}
-                                                    <div className="w-fit">
-                                                        {(value || []).length < 6 && (
-                                                            <LemonButton
-                                                                icon={<IconPlusMini />}
-                                                                type="secondary"
-                                                                fullWidth={false}
-                                                                onClick={() => {
-                                                                    if (!value) {
-                                                                        onChange([''])
-                                                                    } else {
-                                                                        onChange([...value, ''])
-                                                                    }
-                                                                }}
-                                                            >
-                                                                Add choice
-                                                            </LemonButton>
-                                                        )}
-                                                    </div>
+                                <LemonCollapse
+                                    defaultActiveKey="question"
+                                    panels={[
+                                        {
+                                            key: 'question',
+                                            header: (
+                                                <div className="flex flex-row w-full items-center justify-between">
+                                                    <b>{question.question}</b>
+                                                    {survey.questions.length > 1 && (
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            status="primary-alt"
+                                                            data-attr={`delete-survey-question-${index}`}
+                                                            onClick={() => {
+                                                                setSurveyValue(
+                                                                    'questions',
+                                                                    survey.questions.filter((_, i) => i !== index)
+                                                                )
+                                                            }}
+                                                            tooltipPlacement="topRight"
+                                                        />
+                                                    )}
                                                 </div>
-                                            )}
-                                        </Field>
-                                    </div>
-                                )}
+                                            ),
+                                            content: (
+                                                <>
+                                                    <Field name="type" label="Question type" className="max-w-60">
+                                                        <LemonSelect
+                                                            onSelect={(newType) => {
+                                                                const isEditingQuestion =
+                                                                    defaultSurveyFieldValues[question.type].questions[0]
+                                                                        .question !== question.question
+                                                                const isEditingDescription =
+                                                                    defaultSurveyFieldValues[question.type].questions[0]
+                                                                        .description !== question.description
+                                                                const isEditingThankYouMessage =
+                                                                    defaultSurveyFieldValues[question.type].appearance
+                                                                        .thankYouMessageHeader !==
+                                                                    survey.appearance.thankYouMessageHeader
+                                                                setDefaultForQuestionType(
+                                                                    index,
+                                                                    newType,
+                                                                    isEditingQuestion,
+                                                                    isEditingDescription,
+                                                                    isEditingThankYouMessage
+                                                                )
+                                                            }}
+                                                            options={[
+                                                                { label: 'Open text', value: SurveyQuestionType.Open },
+                                                                { label: 'Link', value: SurveyQuestionType.Link },
+                                                                { label: 'Rating', value: SurveyQuestionType.Rating },
+                                                                ...[
+                                                                    {
+                                                                        label: 'Single choice select',
+                                                                        value: SurveyQuestionType.SingleChoice,
+                                                                    },
+                                                                    {
+                                                                        label: 'Multiple choice select',
+                                                                        value: SurveyQuestionType.MultipleChoice,
+                                                                    },
+                                                                ],
+                                                            ]}
+                                                        />
+                                                    </Field>
+                                                    <Field name="question" label="Question">
+                                                        <LemonInput value={question.question} />
+                                                    </Field>
+                                                    {question.type === SurveyQuestionType.Link && (
+                                                        <Field
+                                                            name="link"
+                                                            label="Link"
+                                                            info="Make sure to include https:// in the url."
+                                                        >
+                                                            <LemonInput
+                                                                value={question.link || ''}
+                                                                placeholder="https://posthog.com"
+                                                            />
+                                                        </Field>
+                                                    )}
+                                                    <Field name="description" label="Question description (optional)">
+                                                        <LemonTextArea value={question.description || ''} minRows={2} />
+                                                    </Field>
+                                                    {question.type === SurveyQuestionType.Rating && (
+                                                        <div className="flex flex-col gap-2">
+                                                            <div className="flex flex-row gap-4">
+                                                                <Field
+                                                                    name="display"
+                                                                    label="Display type"
+                                                                    className="min-w-50"
+                                                                >
+                                                                    <LemonSelect
+                                                                        options={[
+                                                                            { label: 'Number', value: 'number' },
+                                                                            { label: 'Emoji', value: 'emoji' },
+                                                                        ]}
+                                                                    />
+                                                                </Field>
+                                                                <Field name="scale" label="Scale" className="min-w-50">
+                                                                    <LemonSelect
+                                                                        options={[
+                                                                            ...(question.display === 'emoji'
+                                                                                ? [{ label: '1 - 3', value: 3 }]
+                                                                                : []),
+                                                                            { label: '1 - 5', value: 5 },
+                                                                            ...(question.display === 'number'
+                                                                                ? [{ label: '1 - 10', value: 10 }]
+                                                                                : []),
+                                                                        ]}
+                                                                    />
+                                                                </Field>
+                                                            </div>
+                                                            <div className="flex flex-row gap-4">
+                                                                <Field
+                                                                    name="lowerBoundLabel"
+                                                                    label="Lower bound label"
+                                                                    className="min-w-150"
+                                                                >
+                                                                    <LemonInput
+                                                                        value={question.lowerBoundLabel || ''}
+                                                                    />
+                                                                </Field>
+                                                                <Field
+                                                                    name="upperBoundLabel"
+                                                                    label="Upper bound label"
+                                                                    className="min-w-150"
+                                                                >
+                                                                    <LemonInput
+                                                                        value={question.upperBoundLabel || ''}
+                                                                    />
+                                                                </Field>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {(question.type === SurveyQuestionType.SingleChoice ||
+                                                        question.type === SurveyQuestionType.MultipleChoice) && (
+                                                        <div className="flex flex-col gap-2">
+                                                            <Field name="choices" label="Choices">
+                                                                {({ value, onChange }) => (
+                                                                    <div className="flex flex-col gap-2">
+                                                                        {(value || []).map(
+                                                                            (choice: string, index: number) => (
+                                                                                <div
+                                                                                    className="flex flex-row gap-2"
+                                                                                    key={index}
+                                                                                >
+                                                                                    <LemonInput
+                                                                                        value={choice}
+                                                                                        fullWidth
+                                                                                        onChange={(val) => {
+                                                                                            const newChoices = [
+                                                                                                ...value,
+                                                                                            ]
+                                                                                            newChoices[index] = val
+                                                                                            onChange(newChoices)
+                                                                                        }}
+                                                                                    />
+                                                                                    <LemonButton
+                                                                                        icon={<IconDelete />}
+                                                                                        size="small"
+                                                                                        status="muted"
+                                                                                        noPadding
+                                                                                        onClick={() => {
+                                                                                            const newChoices = [
+                                                                                                ...value,
+                                                                                            ]
+                                                                                            newChoices.splice(index, 1)
+                                                                                            onChange(newChoices)
+                                                                                        }}
+                                                                                    />
+                                                                                </div>
+                                                                            )
+                                                                        )}
+                                                                        <div className="w-fit">
+                                                                            {(value || []).length < 6 && (
+                                                                                <LemonButton
+                                                                                    icon={<IconPlusMini />}
+                                                                                    type="secondary"
+                                                                                    fullWidth={false}
+                                                                                    onClick={() => {
+                                                                                        if (!value) {
+                                                                                            onChange([''])
+                                                                                        } else {
+                                                                                            onChange([...value, ''])
+                                                                                        }
+                                                                                    }}
+                                                                                >
+                                                                                    Add choice
+                                                                                </LemonButton>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </Field>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ),
+                                        },
+                                    ]}
+                                />
                             </Group>
                         )
+                    )}
+                    {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
+                        // TODO: Add pay gate mini here once billing is resolved for it
+                        <LemonButton
+                            type="secondary"
+                            className="w-max"
+                            icon={<IconPlus />}
+                            onClick={() => {
+                                setSurveyValue('questions', [...survey.questions, { ...defaultSurveyFieldValues.open }])
+                            }}
+                        >
+                            Add question
+                        </LemonButton>
                     )}
                     <LemonDivider />
                     <Field name="appearance" label="Thank you message (optional)">
@@ -346,12 +407,31 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="URL contains:">
-                                        <LemonInput
-                                            value={value?.url}
-                                            onChange={(urlVal) => onChange({ ...value, url: urlVal })}
-                                            placeholder="ex: https://app.posthog.com"
-                                        />
+                                    <PureField
+                                        label="URL targeting"
+                                        error={urlMatchTypeValidationError}
+                                        info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                    >
+                                        <div className="flex flex-row gap-2 items-center">
+                                            URL
+                                            <LemonSelect
+                                                value={value?.urlMatchType || SurveyUrlMatchType.Contains}
+                                                onChange={(matchTypeVal) => {
+                                                    onChange({ ...value, urlMatchType: matchTypeVal })
+                                                }}
+                                                data-attr="survey-url-matching-type"
+                                                options={Object.keys(SurveyUrlMatchTypeLabels).map((key) => ({
+                                                    label: SurveyUrlMatchTypeLabels[key],
+                                                    value: key,
+                                                }))}
+                                            />
+                                            <LemonInput
+                                                value={value?.url}
+                                                onChange={(urlVal) => onChange({ ...value, url: urlVal })}
+                                                placeholder="ex: https://app.posthog.com"
+                                                fullWidth
+                                            />
+                                        </div>
                                     </PureField>
                                     <PureField label="Selector matches:">
                                         <LemonInput
@@ -506,7 +586,13 @@ export function SurveyReleaseSummary({
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>URL contains:</span>{' '}
+                        <span>
+                            URL{' '}
+                            {SurveyUrlMatchTypeLabels[
+                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
+                            ].slice(2)}
+                            :
+                        </span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
                 </div>

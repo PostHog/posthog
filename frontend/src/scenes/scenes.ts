@@ -415,7 +415,7 @@ export const routes: Record<string, Scene> = {
     }, {} as Record<string, Scene>),
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
-    [urls.person('*', false)]: Scene.Person,
+    [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,

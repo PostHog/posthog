@@ -9,9 +9,11 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     BooleanDatabaseField,
     LazyTable,
+    LazyJoin,
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 
 PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -19,6 +21,11 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "properties": StringJSONDatabaseField(name="properties"),
     "is_identified": BooleanDatabaseField(name="is_identified"),
+    "pdi": LazyJoin(
+        from_field="id",
+        join_table=PersonsPDITable(),
+        join_function=persons_pdi_join,
+    ),
 }
 
 

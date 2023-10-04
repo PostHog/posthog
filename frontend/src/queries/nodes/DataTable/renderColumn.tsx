@@ -205,7 +205,7 @@ export function renderColumn(
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
-            <Link to={urls.person(personRecord.distinct_ids[0])}>
+            <Link to={urls.personByDistinctId(personRecord.distinct_ids[0])}>
                 <PersonDisplay noLink withIcon person={personRecord} noPopover />
             </Link>
         )

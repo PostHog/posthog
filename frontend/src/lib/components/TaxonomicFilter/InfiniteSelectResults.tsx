@@ -60,7 +60,11 @@ export function InfiniteSelectResults({
     const RenderComponent = activeTaxonomicGroup?.render
 
     const listComponent = RenderComponent ? (
-        <RenderComponent value={value} onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)} />
+        <RenderComponent
+            {...(activeTaxonomicGroup?.componentProps ?? {})}
+            value={value}
+            onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
+        />
     ) : (
         <InfiniteList />
     )

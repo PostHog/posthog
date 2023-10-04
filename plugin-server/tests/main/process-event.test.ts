@@ -21,18 +21,21 @@ import {
     PropertyDefinitionTypeEnum,
     RRWebEvent,
     Team,
+    TimestampFormat,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
-import { UUIDT } from '../../src/utils/utils'
+import { castTimestampToClickhouseFormat, UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import {
+    ConsoleLogEntry,
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
+    gatherConsoleLogEvents,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1479,6 +1482,34 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
             },
         ] as any[])
     }).toThrowError()
+})
+
+test('simple console log processing', () => {
+    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
+        {
+            timestamp: 1682449093469,
+            type: 6,
+            data: {
+                plugin: 'rrweb/console@1',
+                payload: {
+                    level: 'info',
+                    payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
+                },
+            },
+        },
+        null as unknown as RRWebEvent, // see https://posthog.sentry.io/issues/4525043303
+    ])
+    expect(consoleLogEntries).toEqual([
+        {
+            team_id: team.id,
+            log_level: 'info',
+            log_source: 'session_replay',
+            log_source_id: 'session_id',
+            instance_id: null,
+            timestamp: castTimestampToClickhouseFormat(DateTime.fromMillis(1682449093469), TimestampFormat.ClickHouse),
+            message: 'the message more strings',
+        } satisfies ConsoleLogEntry,
+    ])
 })
 
 test('performance event stored as performance_event', () => {

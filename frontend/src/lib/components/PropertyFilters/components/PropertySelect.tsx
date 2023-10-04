@@ -79,7 +79,7 @@ export function PropertySelect({
                 return true // set to avoid ant.d doing its own filtering
             }}
             onChange={(_: null, selection) => {
-                const { value: val, type } = selection as SelectionOptionType
+                const { value: val, type } = selection as unknown as SelectionOptionType
                 onChange(type, val.replace(/^(event_|person_|element_)/gi, ''))
             }}
             style={{ width: '100%' }}

@@ -1,12 +1,12 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
@@ -15,7 +15,15 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    PropertyFilterType,
+    PropertyOperator,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -151,10 +159,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>{capitalizeFirstLetter(survey.questions[0].type)}</span>
-                                                    <span className="card-secondary mt-4">Question</span>
+                                                    <span>
+                                                        {survey.questions.length > 1
+                                                            ? 'Multiple questions'
+                                                            : capitalizeFirstLetter(survey.questions[0].type)}
+                                                    </span>
+                                                    <span className="card-secondary mt-4">
+                                                        {pluralize(
+                                                            survey.questions.length,
+                                                            'Question',
+                                                            'Questions',
+                                                            false
+                                                        )}
+                                                    </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <span key={idx}>{q.question}</span>
+                                                        <li key={idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
@@ -269,7 +288,9 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyMetricsQueries,
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
+        currentQuestionIndexAndType,
     } = useValues(surveyLogic)
+    const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -284,20 +305,39 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     </div>
                 </div>
             )}
-            {survey.questions[0].type === SurveyQuestionType.Rating && (
-                <div className="mb-4">
-                    <Query query={surveyRatingQuery} />
-                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] && survey.questions[0].scale === 10 && (
-                        <>
-                            <LemonDivider className="my-4" />
-                            <h2>NPS Score</h2>
-                            <SurveyNPSResults survey={survey as Survey} />
-                        </>
-                    )}
+            {survey.questions.length > 1 && (
+                <div className="mb-4 max-w-80">
+                    <LemonSelect
+                        dropdownMatchSelectWidth
+                        fullWidth
+                        onChange={(idx) => {
+                            setCurrentQuestionIndexAndType(idx, survey.questions[idx].type)
+                        }}
+                        options={[
+                            ...survey.questions.map((q: SurveyQuestion, idx: number) => ({
+                                label: q.question,
+                                value: idx,
+                            })),
+                        ]}
+                        value={currentQuestionIndexAndType.idx}
+                    />
                 </div>
             )}
-            {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
-                survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating && (
+                <div className="mb-4">
+                    <Query query={surveyRatingQuery} />
+                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
+                        (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
+                            <>
+                                <LemonDivider className="my-4" />
+                                <h2>NPS Score</h2>
+                                <SurveyNPSResults survey={survey as Survey} />
+                            </>
+                        )}
+                </div>
+            )}
+            {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
+                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
                 <div className="mb-4">
                     <Query query={surveyMultipleChoiceQuery} />
                 </div>

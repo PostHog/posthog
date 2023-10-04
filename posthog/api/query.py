@@ -20,17 +20,14 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql import ast
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.web_analytics.top_clicks import WebTopClicksQueryRunner
-from posthog.hogql_queries.web_analytics.top_pages import WebTopPagesQueryRunner
-from posthog.hogql_queries.web_analytics.top_sources import WebTopSourcesQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
@@ -40,6 +37,15 @@ from posthog.queries.time_to_see_data.sessions import get_session_events, get_se
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
 from posthog.utils import refresh_requested_by_client
+
+QUERY_WITH_RUNNER = [
+    "LifecycleQuery",
+    "TrendsQuery",
+    "WebOverviewStatsQuery",
+    "WebTopSourcesQuery",
+    "WebTopClicksQuery",
+    "WebTopPagesQuery",
+]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -206,20 +212,29 @@ def process_query(
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
-
     tag_queries(query=query_json)
 
-    if query_kind == "EventsQuery":
+    if query_kind in QUERY_WITH_RUNNER:
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        query_runner = get_query_runner(query_json, team)
+        return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind == "EventsQuery":
         events_query = EventsQuery.model_validate(query_json)
         events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
         return _unwrap_pydantic_dict(events_response)
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.model_validate(query_json)
+        values = (
+            {key: ast.Constant(value=value) for key, value in hogql_query.values.items()}
+            if hogql_query.values
+            else None
+        )
         hogql_response = execute_hogql_query(
             query_type="HogQLQuery",
             query=hogql_query.query,
             team=team,
             filters=hogql_query.filters,
+            placeholders=values,
             default_limit=default_limit,
         )
         return _unwrap_pydantic_dict(hogql_response)
@@ -227,14 +242,6 @@ def process_query(
         metadata_query = HogQLMetadata.model_validate(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
-    elif query_kind == "LifecycleQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "TrendsQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        trends_query_runner = TrendsQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
@@ -253,18 +260,6 @@ def process_query(
         )
         serializer.is_valid(raise_exception=True)
         return get_session_events(serializer) or {}
-    elif query_kind == "WebTopSourcesQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_sources_query_runner = WebTopSourcesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_sources_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "WebTopClicksQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_clicks_query_runner = WebTopClicksQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_clicks_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "WebTopPagesQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_pages_query_runner = WebTopPagesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_pages_query_runner.run(refresh_requested=refresh_requested))
     else:
         if query_json.get("source"):
             return process_query(team, query_json["source"])

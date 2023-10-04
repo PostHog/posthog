@@ -19,7 +19,6 @@ export function initKeaTests(mountCommonLogic = true, teamForWindowContext: Team
         current_team: teamForWindowContext,
     } as unknown as AppContext
     posthog.init('no token', {
-        test: true,
         autocapture: false,
         disable_session_recording: true,
         advanced_disable_decide: true,

@@ -1,4 +1,4 @@
-import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
@@ -11,18 +11,24 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+export const SurveyUrlMatchTypeLabels = {
+    [SurveyUrlMatchType.Contains]: '∋ contains',
+    [SurveyUrlMatchType.Regex]: '∼ matches regex',
+    [SurveyUrlMatchType.Exact]: '= equals',
+}
+
 export const defaultSurveyAppearance = {
-    backgroundColor: 'white',
-    textColor: 'black',
+    backgroundColor: '#eeeded',
     submitButtonText: 'Submit',
-    submitButtonColor: '#2c2c2c',
-    ratingButtonColor: '#e0e2e8',
-    descriptionTextColor: '#4b4b52',
+    submitButtonColor: 'black',
+    ratingButtonColor: 'white',
+    ratingButtonActiveColor: 'black',
+    borderColor: '#c9c6c6',
+    placeholder: '',
     whiteLabel: false,
     displayThankYouMessage: true,
-    placeholder: '',
-    position: 'right',
     thankYouMessageHeader: 'Thank you for your feedback!',
+    position: 'right',
 }
 
 export const defaultSurveyFieldValues = {
