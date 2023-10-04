@@ -18,6 +18,7 @@ import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-ma
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
+import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { PartitionLocker } from './services/partition-locker'
 import { RealtimeManager } from './services/realtime-manager'
@@ -101,6 +102,7 @@ export class SessionRecordingIngesterV2 {
     persistentHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager
     replayEventsIngester: ReplayEventsIngester
+    consoleLogsIngester: ConsoleLogsIngester
     partitionLocker: PartitionLocker
     batchConsumer?: BatchConsumer
     partitionAssignments: Record<number, PartitionMetrics> = {}
@@ -137,6 +139,7 @@ export class SessionRecordingIngesterV2 {
 
         // NOTE: This is the only place where we need to use the shared server config
         this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.persistentHighWaterMarker)
+        this.consoleLogsIngester = new ConsoleLogsIngester(globalServerConfig, this.persistentHighWaterMarker)
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -407,6 +410,13 @@ export class SessionRecordingIngesterV2 {
                         await this.replayEventsIngester.consumeBatch(recordingMessages)
                     },
                 })
+
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
+                    func: async () => {
+                        await this.consoleLogsIngester.consumeBatch(recordingMessages)
+                    },
+                })
             },
         })
     }
@@ -435,6 +445,7 @@ export class SessionRecordingIngesterV2 {
         // Load teams into memory
         await this.teamsRefresher.refresh()
         await this.replayEventsIngester.start()
+        await this.consoleLogsIngester.start()
 
         if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             this.partitionLockInterval = setInterval(async () => {
@@ -520,6 +531,7 @@ export class SessionRecordingIngesterV2 {
         void this.scheduleWork(this.onRevokePartitions(this.assignedTopicPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
         void this.scheduleWork(this.replayEventsIngester.stop())
+        void this.scheduleWork(this.consoleLogsIngester.stop())
 
         const promiseResults = await Promise.allSettled(this.promises)
 
