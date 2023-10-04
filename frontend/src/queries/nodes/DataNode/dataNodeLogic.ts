@@ -442,12 +442,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return response && 'timings' in response ? response.timings : null
             },
         ],
-        responseHogQL: [
-            (s) => [s.response],
-            (response): string | null => {
-                return response && 'hogql' in response && typeof response.hogql === 'string' ? response.hogql : null
-            },
-        ],
     }),
     listeners(({ actions, values, cache }) => ({
         abortAnyRunningQuery: () => {
