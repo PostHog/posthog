@@ -9,7 +9,7 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { gatherConsoleLogEvents } from '../../../../worker/ingestion/process-event'
+import { ConsoleLogEntry, gatherConsoleLogEvents } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -128,7 +128,7 @@ export class ConsoleLogsIngester {
 
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
-            return consoleLogEvents.map((cle) =>
+            return consoleLogEvents.map((cle: ConsoleLogEntry) =>
                 produce({
                     producer,
                     topic: KAFKA_LOG_ENTRIES,
