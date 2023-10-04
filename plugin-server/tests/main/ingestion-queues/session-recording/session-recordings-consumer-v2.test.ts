@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -151,9 +152,12 @@ describe('ingester', () => {
     })
 
     it('destroys a session manager if finished', async () => {
-        const event = createIncomingRecordingMessage()
+        const sessionId = `destroys-a-session-manager-if-finished-${randomUUID()}`
+        const event = createIncomingRecordingMessage({
+            session_id: sessionId,
+        })
         await ingester.consume(event)
-        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        expect(ingester.sessions[`1-${sessionId}`]).toBeDefined()
         // Force the flush
         ingester.partitionAssignments[event.metadata.partition] = {
             lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
@@ -161,7 +165,9 @@ describe('ingester', () => {
 
         await ingester.flushAllReadySessions()
 
-        expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
+        await waitForExpect(() => {
+            expect(ingester.sessions[`1-${sessionId}`]).not.toBeDefined()
+        }, 10000)
     })
 
     describe('parsing the message', () => {
