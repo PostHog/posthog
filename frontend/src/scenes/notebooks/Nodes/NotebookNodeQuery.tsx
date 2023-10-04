@@ -77,7 +77,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind) {
             modifiedQuery.showHeader = true
-            modifiedQuery.showTable = true
         }
 
         return modifiedQuery
