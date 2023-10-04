@@ -21,6 +21,8 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    PersonPropertyFilter,
+    HogQLPropertyFilter,
 } from '~/types'
 
 /**
@@ -43,6 +45,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    PersonsQuery = 'PersonsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -74,13 +77,13 @@ export enum NodeKind {
 }
 
 export type AnyDataNode =
-    | EventsNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | ActionsNode
-    | PersonsNode
     | HogQLQuery
     | HogQLMetadata
-    | TimeToSeeDataSessionsQuery
     | WebOverviewStatsQuery
     | WebTopSourcesQuery
     | WebTopClicksQuery
@@ -293,6 +296,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | EventsNode
         | EventsQuery
         | PersonsNode
+        | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewStatsQuery
@@ -502,6 +506,30 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
+}
+
+export interface PersonsQueryResponse {
+    /** Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ] */
+    results: any[][] // typed as any[], not [str, ...any] because python
+    columns: any[]
+    types: string[]
+    hogql: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+}
+
+export interface PersonsQuery extends DataNode {
+    kind: NodeKind.PersonsQuery
+    select?: HogQLExpression[]
+    source?: InsightQueryNode
+    sourceDay?: string
+    sourceGroup?: string
+    search?: string
+    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    limit?: number
+    offset?: number
+    response?: PersonsQueryResponse
 }
 
 export type WebAnalyticsFilters = any
