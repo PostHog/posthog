@@ -177,6 +177,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           }
       ],
       "person_distinct_ids": [
@@ -197,7 +207,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -338,7 +349,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -360,7 +372,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -467,7 +480,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -495,6 +509,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           },
           {
               "key": "is_deleted",
@@ -545,7 +569,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -766,6 +791,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           }
       ],
       "person_distinct_ids": [
@@ -786,7 +821,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -927,7 +963,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -949,7 +986,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -1056,7 +1094,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -1084,6 +1123,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           },
           {
               "key": "is_deleted",
@@ -1134,7 +1183,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
