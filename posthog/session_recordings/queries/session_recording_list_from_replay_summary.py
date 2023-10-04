@@ -57,7 +57,8 @@ def _get_filter_by_log_text_session_ids_clause(
 
     # we return this _even_ if there are no matching ids since if there are no matching ids
     # then no sessions can match...
-    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": [x[0] for x in matching_session_ids]}
+    # sorted so that snapshots are consistent
+    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": sorted([x[0] for x in matching_session_ids])}
 
 
 def _get_filter_by_provided_session_ids_clause(
@@ -108,7 +109,7 @@ class LogQuery:
             {events_timestamp_clause}
     WHERE 1=1
     {console_log_clause}
-    AND position(%(console_search_query)s in message) > 0
+    AND positionCaseInsensitive(message, %(console_search_query)s) > 0
     """
 
     @property
