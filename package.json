@@ -81,6 +81,8 @@
         "@tiptap/extension-document": "^2.1.0-rc.12",
         "@tiptap/extension-floating-menu": "^2.1.0-rc.12",
         "@tiptap/extension-placeholder": "^2.1.0-rc.12",
+        "@tiptap/extension-task-item": "^2.1.11",
+        "@tiptap/extension-task-list": "^2.1.11",
         "@tiptap/pm": "^2.1.0-rc.12",
         "@tiptap/react": "^2.1.0-rc.12",
         "@tiptap/starter-kit": "^2.1.0-rc.12",

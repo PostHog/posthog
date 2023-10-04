@@ -8,6 +8,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -65,6 +67,7 @@ export function Editor({
             CustomDocument,
             StarterKit.configure({
                 document: false,
+                listItem: {},
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
@@ -82,6 +85,10 @@ export function Editor({
                         Tab: () => true,
                     }
                 },
+            }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
