@@ -35,6 +35,10 @@ def is_property_with_operator(property: Dict):
 def clean_property(property: Dict):
     cleaned_property = {**property}
 
+    # convert precalculated cohorts to cohorts
+    if cleaned_property.get("type") == "precalculated-cohort":
+        cleaned_property["type"] = "cohort"
+
     # set a default operator for properties that support it, but don't have an operator set
     if is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is None:
         cleaned_property["operator"] = "exact"

@@ -358,6 +358,27 @@ insight_20 = {
     "properties": [{"key": "id", "type": "cohort", "value": 929, "operator": "exact"}],
 }
 
+insight_21 = {
+    "actions": [
+        {
+            "id": 4317,
+            "math": "total",
+            "name": "Used newer version of the app",
+            "type": "actions",
+            "order": 0,
+            "properties": [],
+            "custom_name": None,
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+    "properties": [{"key": "id", "type": "precalculated-cohort", "value": 760, "operator": None}],
+    "funnel_window_days": 14,
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -380,6 +401,7 @@ test_insights = [
     insight_18,
     insight_19,
     insight_20,
+    insight_21,
 ]
 
 
