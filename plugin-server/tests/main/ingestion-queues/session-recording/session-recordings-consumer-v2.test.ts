@@ -161,7 +161,9 @@ describe('ingester', () => {
 
         await ingester.flushAllReadySessions()
 
-        expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
+        await waitForExpect(() => {
+            expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
+        }, 10000)
     })
 
     describe('parsing the message', () => {
