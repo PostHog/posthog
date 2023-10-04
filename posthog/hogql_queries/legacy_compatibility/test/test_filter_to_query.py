@@ -467,6 +467,18 @@ insight_27 = {
     "insight": "TRENDS",
 }
 
+insight_28 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "type": "events",
+        }
+    ],
+    "insight": "TRENDS",
+    "breakdown": [None],
+    "breakdown_type": "cohort",
+}
+
 
 test_insights = [
     insight_0,
@@ -497,6 +509,7 @@ test_insights = [
     insight_25,
     insight_26,
     insight_27,
+    insight_28,
 ]
 
 

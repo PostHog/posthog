@@ -185,31 +185,34 @@ def _properties(filter: AnyInsightFilter):
         return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
 
 
-def _breakdown_filter(filter: AnyInsightFilter):
-    if filter.insight != "TRENDS" and filter.insight != "FUNNELS":
+def _breakdown_filter(_filter: AnyInsightFilter):
+    if _filter.insight != "TRENDS" and _filter.insight != "FUNNELS":
         return {}
 
     # early return for broken breakdown filters
-    if filter.breakdown_type == "undefined" and not isinstance(filter.breakdown, str):
+    if _filter.breakdown_type == "undefined" and not isinstance(_filter.breakdown, str):
         return {}
 
     breakdownFilter = {
-        "breakdown_type": filter.breakdown_type,
-        "breakdown": filter.breakdown,
-        "breakdown_normalize_url": filter.breakdown_normalize_url,
-        "breakdown_group_type_index": filter.breakdown_group_type_index,
-        "breakdown_histogram_bin_count": filter.breakdown_histogram_bin_count if filter.insight == "TRENDS" else None,
+        "breakdown_type": _filter.breakdown_type,
+        "breakdown": _filter.breakdown,
+        "breakdown_normalize_url": _filter.breakdown_normalize_url,
+        "breakdown_group_type_index": _filter.breakdown_group_type_index,
+        "breakdown_histogram_bin_count": _filter.breakdown_histogram_bin_count if _filter.insight == "TRENDS" else None,
     }
 
-    if filter.breakdowns is not None:
-        if len(filter.breakdowns) == 1:
-            breakdownFilter["breakdown_type"] = filter.breakdowns[0].get("type", None)
-            breakdownFilter["breakdown"] = filter.breakdowns[0].get("property", None)
+    if _filter.breakdowns is not None:
+        if len(_filter.breakdowns) == 1:
+            breakdownFilter["breakdown_type"] = _filter.breakdowns[0].get("type", None)
+            breakdownFilter["breakdown"] = _filter.breakdowns[0].get("property", None)
         else:
             raise Exception("Could not convert multi-breakdown property `breakdowns` - found more than one breakdown")
 
     if breakdownFilter["breakdown"] is not None and breakdownFilter["breakdown_type"] is None:
         breakdownFilter["breakdown_type"] = "event"
+
+    if isinstance(breakdownFilter["breakdown"], list):
+        breakdownFilter["breakdown"] = list(filter(lambda x: x is not None, breakdownFilter["breakdown"]))
 
     return {"breakdown": BreakdownFilter(**breakdownFilter)}
 
