@@ -51,6 +51,7 @@ ON
     pathname.pathname = scroll_data.pathname
 ORDER BY
     total_pageviews DESC
+LIMIT 10
                 """,
                 timings=self.timings,
                 placeholders={
