@@ -321,7 +321,7 @@ function safeString(payload: (string | null)[]) {
     // the individual strings are sometimes wrapped in quotes... we want to strip those
     return payload
         .filter((item): item is string => !!item && typeof item === 'string')
-        .map((item) => sanitizeForUTF8(item.substring(0, 1999)))
+        .map((item) => sanitizeForUTF8(item.substring(0, 2999)))
         .join(' ')
 }
 
