@@ -510,6 +510,21 @@ insight_30 = {
     "breakdown_group_type_index": 0,
 }
 
+insight_31 = {
+    "actions": [
+        {"id": 11539, "name": "Entered Free Trial", "type": "actions", "order": 0},
+        {"id": 11538, "name": "Purchase", "type": "actions", "order": 1, "properties": {"plan": "premium"}},
+    ],
+    "insight": "FUNNELS",
+    "date_from": "all",
+}
+insight_32 = {
+    "events": [],
+    "actions": [{"id": 305, "name": "Pageviews", "type": "actions", "order": 0}],
+    "display": "ActionsLineGraph",
+    "insight": "FUNNELS",
+    "properties": {"$current_url__icontains": "signin"},
+}
 
 test_insights = [
     insight_0,
@@ -543,6 +558,8 @@ test_insights = [
     insight_28,
     insight_29,
     insight_30,
+    insight_31,
+    insight_32,
 ]
 
 

@@ -70,9 +70,30 @@ def clean_property(property: Dict):
     return cleaned_property
 
 
+# old style dict properties
+def is_old_style_properties(properties):
+    return isinstance(properties, Dict) and len(properties) == 1 and properties.get("type") not in ("AND", "OR")
+
+
+def transform_old_style_properties(properties):
+    key = list(properties.keys())[0]
+    value = list(properties.values())[0]
+    key_split = key.split("__")
+    return [
+        {
+            "key": key_split[0],
+            "value": value,
+            "operator": key_split[1] if len(key_split) > 1 else "exact",
+            "type": "event",
+        }
+    ]
+
+
 def clean_entity_properties(properties: List[Dict] | None):
     if properties is None:
         return None
+    elif is_old_style_properties(properties):
+        return transform_old_style_properties(properties)
     else:
         return list(map(clean_property, properties))
 
@@ -189,6 +210,10 @@ def _properties(filter: AnyInsightFilter):
     if raw_properties is None or len(raw_properties) == 0:
         return {}
     elif isinstance(raw_properties, list):
+        raw_properties = {"type": "AND", "values": [{"type": "AND", "values": raw_properties}]}
+        return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
+    elif is_old_style_properties(raw_properties):
+        raw_properties = transform_old_style_properties(raw_properties)
         raw_properties = {"type": "AND", "values": [{"type": "AND", "values": raw_properties}]}
         return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
     else:
