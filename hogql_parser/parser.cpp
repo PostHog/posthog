@@ -1,7 +1,6 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <boost/algorithm/string.hpp>
-#include <format>
 #include <string>
 
 #include "HogQLLexer.h"
@@ -271,7 +270,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (array_join_clause_ctx) {
       if (Py_IsNone(PyObject_GetAttrString(select_query, "select_from"))) {
         Py_DECREF(select_query);
-        throw HogQLSyntaxError("Using ARRAY JOIN without a FROM clause is not permitted", 0, 0); // FIXME: start=end=
+        throw HogQLSyntaxError("Using ARRAY JOIN without a FROM clause is not permitted", 0, 0);  // FIXME: start=end=
       }
       PyObject_SetAttrString(
           select_query, "array_join_op",
@@ -288,7 +287,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         if (!is_ast_node_instance(expr, "Alias")) {
           Py_DECREF(array_join_list);
           Py_DECREF(select_query);
-          throw HogQLSyntaxError("ARRAY JOIN arrays must have an alias", 0, 0); // FIXME: start=end=
+          throw HogQLSyntaxError("ARRAY JOIN arrays must have an alias", 0, 0);  // FIXME: start=end=
         }
       }
       PyObject_SetAttrString(select_query, "array_join_list", array_join_list);
@@ -573,7 +572,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
       Py_DECREF(expr);
-      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0); // FIXME: start=end=
+      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0);  // FIXME: start=end=
     }
 
     return build_ast_node("Alias", "{s:N,s:s#}", "expr", expr, "alias", alias.c_str(), alias.size());
@@ -768,7 +767,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         PyObject_RichCompareBool(PyObject_GetAttrString(property, "value"), PyLong_FromLong(0), Py_EQ)) {
       Py_DECREF(property);
       Py_DECREF(object);
-      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0); // FIXME: start=end=
+      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0);  // FIXME: start=end=
     }
     return build_ast_node("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
@@ -836,7 +835,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (PyObject_RichCompareBool(index, PyLong_FromLong(0), Py_EQ)) {
       Py_DECREF(index);
       Py_DECREF(tuple);
-      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0); // FIXME: start=end=
+      throw HogQLSyntaxError("SQL indexes start from one, not from zero. E.g: array[1]", 0, 0);  // FIXME: start=end=
     }
     return build_ast_node("TupleAccess", "{s:N,s:N}", "tuple", tuple, "index", index);
   }
@@ -923,7 +922,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnLambdaExpr) {
     vector<string> args = visitAsVectorOfStrings(ctx->identifier());
-    return build_ast_node("Lambda", "{s:N,s:N}", "args", X_PyList_FromStrings(args), "expr", visitAsPyObject(ctx->columnExpr()));
+    return build_ast_node(
+        "Lambda", "{s:N,s:N}", "args", X_PyList_FromStrings(args), "expr", visitAsPyObject(ctx->columnExpr())
+    );
   }
 
   VISIT(WithExprList) {
@@ -1001,7 +1002,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto alias_ctx = ctx->alias();
     string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
     if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), alias) != RESERVED_KEYWORDS.end()) {
-      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0); // FIXME: start=end=
+      throw HogQLSyntaxError("ALIAS is a reserved keyword", 0, 0);  // FIXME: start=end=
     }
     PyObject* table = visitAsPyObject(ctx->tableExpr());
     PyObject* py_alias = PyUnicode_FromStringAndSize(alias.c_str(), alias.size());
@@ -1298,8 +1299,14 @@ static int parser_clear(PyObject* module) {
 }
 
 static struct PyModuleDef parser = {
-    PyModuleDef_HEAD_INIT,       .m_name = "parser",      .m_doc = "HogQL parsing",      .m_size = sizeof(parser_state),
-    .m_methods = parser_methods, .m_slots = parser_slots, .m_traverse = parser_traverse, .m_clear = parser_clear,
+    .m_base = PyModuleDef_HEAD_INIT,
+    .m_name = "parser",
+    .m_doc = "HogQL parsing",
+    .m_size = sizeof(parser_state),
+    .m_methods = parser_methods,
+    .m_slots = parser_slots,
+    .m_traverse = parser_traverse,
+    .m_clear = parser_clear,
 };
 
 PyMODINIT_FUNC PyInit_hogql_parser(void) {

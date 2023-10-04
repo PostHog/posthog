@@ -248,7 +248,7 @@ gunicorn==20.1.0
     # via -r requirements.in
 h11==0.13.0
     # via wsproto
-hogql-parser @ file:///Users/twixes/Developer/posthog/hogql_parser
+./hogql_parser
     # via -r requirements.in
 idna==2.8
     # via

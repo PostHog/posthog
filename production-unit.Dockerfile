@@ -88,19 +88,27 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Compile and install Python dependencies.
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
-COPY requirements.txt ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "build-essential" \
-    "git" \
-    "libpq-dev" \
-    "libxmlsec1" \
-    "libxmlsec1-dev" \
-    "libffi-dev" \
-    "pkg-config" \
-    && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    "build-essential" "git" "libpq-dev" "libxmlsec1" "libxmlsec1-dev" "libboost-all-dev" "libffi-dev" "curl" "unzip" \
+    "cmake" "uuid-dev" "pkg-config" && \
+    rm -rf /var/lib/apt/lists/*
+RUN curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip && \
+    unzip antlr4-source.zip -d antlr4-source && \
+    cd antlr4-source && \
+    mkdir build && \
+    mkdir run && \
+    cd build && \
+    cmake .. && \
+    DESTDIR=../run make install && \
+    cd ../run/usr/local/include && \
+    cp -r antlr4-runtime /usr/local/include && \
+    cd ../lib && \
+    cp libantlr4-runtime.so libantlr4-runtime.so.* /usr/local/lib && \
+    ldconfig
+COPY requirements.txt ./
+COPY hogql_parser hogql_parser/
+RUN pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
