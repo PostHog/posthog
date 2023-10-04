@@ -426,6 +426,22 @@ insight_24 = {
     "date_from": "-90d",
 }
 
+insight_25 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": 2,
+            "properties": [{"key": "$host", "type": "event", "value": [None], "operator": "exact"}],
+            "math_property": None,
+        },
+    ],
+    "insight": "TRENDS",
+}
+
+
 test_insights = [
     insight_0,
     insight_1,
@@ -452,6 +468,7 @@ test_insights = [
     insight_22,
     insight_23,
     insight_24,
+    insight_25,
 ]
 
 

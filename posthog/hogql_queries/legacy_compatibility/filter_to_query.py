@@ -48,6 +48,10 @@ def clean_property(property: Dict):
     if not is_property_with_operator(cleaned_property) and cleaned_property.get("operator") is not None:
         del cleaned_property["operator"]
 
+    # remove none from values
+    if isinstance(cleaned_property.get("value"), List):
+        cleaned_property["value"] = list(filter(lambda x: x is not None, cleaned_property.get("value")))
+
     # remove keys without concrete value
     cleaned_property = {key: value for key, value in cleaned_property.items() if value is not None}
 
