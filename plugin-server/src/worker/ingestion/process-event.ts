@@ -302,13 +302,14 @@ export type ConsoleLogEntry = {
     // in practice console log timestamps are pretty precise: 2023-10-04 07:53:29.586
     // so, this is unlikely enough that we can avoid filling the DB with UUIDs only to avoid losing
     // a very, very small proportion of console logs.
-    instance_id: string
+    instance_id: string | null
     timestamp: ClickHouseTimestamp
 }
 
-function safeString(payload: string[]) {
+function safeString(payload: (string | null)[]) {
     // the individual strings are sometimes wrapped in quotes... we want to strip those
     return payload
+        .filter((item): item is string => !!item && typeof item === 'string')
         .map((item) => {
             let candidate = item
             if (candidate.startsWith('"') || candidate.startsWith("'")) {
@@ -368,7 +369,7 @@ export const gatherConsoleLogEvents = (
                 log_level: level,
                 log_source: 'session_replay',
                 log_source_id: session_id,
-                instance_id: event.data.instanceId,
+                instance_id: null,
                 timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
             })
         }
