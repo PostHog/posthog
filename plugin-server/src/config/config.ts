@@ -155,6 +155,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+        SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
     }
 }
 

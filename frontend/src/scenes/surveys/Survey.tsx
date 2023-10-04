@@ -24,6 +24,7 @@ import {
     SurveyType,
     LinkSurveyQuestion,
     RatingSurveyQuestion,
+    SurveyUrlMatchType,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -32,7 +33,7 @@ import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { defaultSurveyFieldValues, defaultSurveyAppearance, NewSurvey } from './constants'
+import { defaultSurveyFieldValues, defaultSurveyAppearance, NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -61,7 +62,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag, urlMatchTypeValidationError } =
+        useValues(surveyLogic)
     const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
@@ -405,12 +407,31 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="URL contains:">
-                                        <LemonInput
-                                            value={value?.url}
-                                            onChange={(urlVal) => onChange({ ...value, url: urlVal })}
-                                            placeholder="ex: https://app.posthog.com"
-                                        />
+                                    <PureField
+                                        label="URL targeting"
+                                        error={urlMatchTypeValidationError}
+                                        info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                    >
+                                        <div className="flex flex-row gap-2 items-center">
+                                            URL
+                                            <LemonSelect
+                                                value={value?.urlMatchType || SurveyUrlMatchType.Contains}
+                                                onChange={(matchTypeVal) => {
+                                                    onChange({ ...value, urlMatchType: matchTypeVal })
+                                                }}
+                                                data-attr="survey-url-matching-type"
+                                                options={Object.keys(SurveyUrlMatchTypeLabels).map((key) => ({
+                                                    label: SurveyUrlMatchTypeLabels[key],
+                                                    value: key,
+                                                }))}
+                                            />
+                                            <LemonInput
+                                                value={value?.url}
+                                                onChange={(urlVal) => onChange({ ...value, url: urlVal })}
+                                                placeholder="ex: https://app.posthog.com"
+                                                fullWidth
+                                            />
+                                        </div>
                                     </PureField>
                                     <PureField label="Selector matches:">
                                         <LemonInput
@@ -565,7 +586,13 @@ export function SurveyReleaseSummary({
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>URL contains:</span>{' '}
+                        <span>
+                            URL{' '}
+                            {SurveyUrlMatchTypeLabels[
+                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
+                            ].slice(2)}
+                            :
+                        </span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
                 </div>
