@@ -75,6 +75,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             modifiedQuery.embedded = true
         }
 
+        if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showHeader = true
+            modifiedQuery.showTable = true
+        }
+
         return modifiedQuery
     }, [query])
 
@@ -86,7 +91,18 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={props.attributes.nodeId} readOnly={true} />
+            <Query
+                query={modifiedQuery}
+                uniqueKey={props.attributes.nodeId}
+                setQuery={(t) => {
+                    props.updateAttributes({
+                        query: {
+                            ...props.attributes.query,
+                            source: (t as InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
+            />
         </div>
     )
 }

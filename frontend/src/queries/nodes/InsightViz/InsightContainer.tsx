@@ -34,6 +34,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import clsx from 'clsx'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -162,7 +163,7 @@ export function InsightContainer({
             return (
                 <>
                     {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
+                        <div className={clsx('flex items-center justify-between my-4 mx-0', embedded && 'px-4')}>
                             <h2 className="font-semibold text-lg m-0">Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
@@ -184,6 +185,7 @@ export function InsightContainer({
                         filterKey="trends_TRENDS"
                         canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
                         canCheckUncheckSeries={canEditInsight}
+                        embedded={embedded}
                     />
                 </>
             )

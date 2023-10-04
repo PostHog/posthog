@@ -6,6 +6,16 @@
 
 .NotebookNode.ph-query {
     .insights-graph-container {
+        .ant-card-head {
+            border-bottom: 1px solid var(--border);
+            padding-left: 1rem;
+            padding-right: 1rem;
+
+            .ant-card-head-title {
+                padding: 0;
+            }
+        }
+
         .ant-card-body {
             padding: 0;
         }
