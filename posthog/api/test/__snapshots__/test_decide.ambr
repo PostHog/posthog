@@ -356,8 +356,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.4
@@ -379,8 +379,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_flag_with_regular_cohorts
@@ -506,8 +506,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_flag_with_regular_cohorts.4
@@ -541,8 +541,8 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
-  WHERE "posthog_cohort"."id" = 2
-  LIMIT 21
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_flag_with_regular_cohorts.6
