@@ -164,7 +164,7 @@ def _breakdown_filter(filter: AnyInsightFilter):
         return {}
 
     # early return for broken breakdown filters
-    if filter.breakdown_type == "undefined":
+    if filter.breakdown_type == "undefined" and not isinstance(filter.breakdown, str):
         return {}
 
     breakdownFilter = {

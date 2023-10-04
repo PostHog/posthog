@@ -363,7 +363,7 @@ insight_21 = {
         {
             "id": 4317,
             "math": "total",
-            "name": "Used newer version of the app",
+            "name": "Some name",
             "type": "actions",
             "order": 0,
             "properties": [],
@@ -384,7 +384,7 @@ insight_22 = {
         {
             "id": "10184",
             "math": None,
-            "name": "More Passive Candidates button",
+            "name": "Some name",
             "type": "actions",
             "order": 0,
             "properties": [],
@@ -394,6 +394,17 @@ insight_22 = {
     "display": "ActionsLineGraph",
     "insight": "TRENDS",
     "interval": "day",
+    "breakdown_type": "undefined",
+}
+
+insight_23 = {
+    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+    "display": "ActionsLineGraph",
+    "insight": "TRENDS",
+    "interval": "day",
+    "shown_as": "Volume",
+    "breakdown": False,
+    "properties": [{"key": "$current_url", "type": "event", "value": "https://example.com/", "operator": "icontains"}],
     "breakdown_type": "undefined",
 }
 
@@ -421,6 +432,7 @@ test_insights = [
     insight_20,
     insight_21,
     insight_22,
+    insight_23,
 ]
 
 
