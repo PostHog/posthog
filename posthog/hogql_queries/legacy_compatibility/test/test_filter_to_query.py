@@ -408,6 +408,24 @@ insight_23 = {
     "breakdown_type": "undefined",
 }
 
+insight_24 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGrap[…]ccounts=false",
+    "insight": "TRENDS",
+    "interval": "day",
+    "date_from": "-90d",
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -433,6 +451,7 @@ test_insights = [
     insight_21,
     insight_22,
     insight_23,
+    insight_24,
 ]
 
 

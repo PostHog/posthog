@@ -8,6 +8,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter as LegacyS
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
+    ChartDisplayType,
     DateRange,
     EventsNode,
     FunnelExclusion,
@@ -71,6 +72,13 @@ def clean_property_group_filter_value(value: Dict):
 def clean_properties(properties: Dict):
     properties["values"] = map(clean_property_group_filter_value, properties.get("values"))
     return properties
+
+
+def clean_display(display: str):
+    if display not in ChartDisplayType.__members__:
+        return None
+    else:
+        return display
 
 
 def entity_to_node(entity: BackendEntity, include_properties: bool, include_math: bool) -> EventsNode | ActionsNode:
@@ -207,7 +215,7 @@ def _insight_filter(filter: AnyInsightFilter):
                 aggregation_axis_postfix=filter.aggregation_axis_postfix,
                 formula=filter.formula,
                 shown_as=filter.shown_as,
-                display=filter.display,
+                display=clean_display(filter.display),
                 # show_values_on_series=filter.show_values_on_series,
                 # show_percent_stack_view=filter.show_percent_stack_view,
             )
