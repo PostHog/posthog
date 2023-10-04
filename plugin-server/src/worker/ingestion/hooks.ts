@@ -382,16 +382,29 @@ export class HookCommander {
                 })
                 if (!request.ok) {
                     status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                    await this.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                            category: 'webhook',
+                            failures: 1,
+                        },
+                        {
+                            error: `Request failed with HTTP status ${request.status}`,
+                            event,
+                        }
+                    )
+                } else {
+                    await this.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                        category: 'webhook',
+                        successes: 1,
+                    })
                 }
             })
             this.statsd?.increment('webhook_firings', {
                 team_id: event.teamId.toString(),
-            })
-            await this.appMetrics.queueMetric({
-                teamId: event.teamId,
-                pluginConfigId: -2, // -2 is hardcoded to mean webhooks
-                category: 'webhook',
-                successes: 1,
             })
         } catch (error) {
             await this.appMetrics.queueError(
@@ -451,14 +464,27 @@ export class HookCommander {
             }
             if (!request.ok) {
                 status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
+                await this.appMetrics.queueError(
+                    {
+                        teamId: event.teamId,
+                        pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                        category: 'webhook',
+                        failures: 1,
+                    },
+                    {
+                        error: `Request failed with HTTP status ${request.status}`,
+                        event,
+                    }
+                )
+            } else {
+                await this.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                    category: 'webhook',
+                    successes: 1,
+                })
             }
             this.statsd?.increment('rest_hook_firings')
-            await this.appMetrics.queueMetric({
-                teamId: event.teamId,
-                pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-                category: 'webhook',
-                successes: 1,
-            })
         } catch (error) {
             await this.appMetrics.queueError(
                 {
