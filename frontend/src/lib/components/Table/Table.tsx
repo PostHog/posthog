@@ -30,6 +30,7 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
         title: normalizeColumnTitle('Created by'),
         render: function Render(_: any, item: any) {
             return (
+                // eslint-disable-next-line react/forbid-elements
                 <Row align="middle" wrap={false}>
                     {item.created_by && (
                         <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />

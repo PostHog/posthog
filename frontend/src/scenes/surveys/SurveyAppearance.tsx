@@ -280,11 +280,13 @@ function BaseAppearance({
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
+                        {/* eslint-disable-next-line react/forbid-elements */}
                         <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
                             {appearance.submitButtonText}
                         </Button>
                     </div>
                     {!appearance.whiteLabel && (
+                        // eslint-disable-next-line react/forbid-elements
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </a>
@@ -452,11 +454,13 @@ function SurveyRatingAppearance({
                     </div>
                     <div className="bottom-section">
                         <div className="buttons">
+                            {/* eslint-disable-next-line react/forbid-elements */}
                             <Button appearance={appearance} onSubmit={onSubmit}>
                                 {appearance.submitButtonText}
                             </Button>
                         </div>
                         {!appearance.whiteLabel && (
+                            // eslint-disable-next-line react/forbid-elements
                             <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                                 Survey by {posthogLogoSVG}
                             </a>
@@ -521,11 +525,13 @@ function SurveyMultipleChoiceAppearance({
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
+                        {/* eslint-disable-next-line react/forbid-elements */}
                         <Button appearance={appearance} onSubmit={onSubmit}>
                             {appearance.submitButtonText}
                         </Button>
                     </div>
                     {!appearance.whiteLabel && (
+                        // eslint-disable-next-line react/forbid-elements
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </a>
@@ -571,10 +577,12 @@ function SurveyThankYou({
                 </div>
                 <h3 className="thank-you-message-header">{appearance?.thankYouMessageHeader || 'Thank you!'}</h3>
                 <div className="thank-you-message-body">{appearance?.thankYouMessageDescription || ''}</div>
+                {/* eslint-disable-next-line react/forbid-elements */}
                 <Button appearance={appearance} onSubmit={() => setShowThankYou(false)}>
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
+                    // eslint-disable-next-line react/forbid-elements
                     <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                         Survey by {posthogLogoSVG}
                     </a>
