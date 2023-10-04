@@ -174,11 +174,7 @@ function ConsoleFilters({
 
                     <Tooltip
                         placement="bottom"
-                        title={
-                            <>
-                                Filter recordings by console logs. Only matches recordings since October 4th.
-                            </>
-                        }
+                        title={<>Filter recordings by console logs. Only matches recordings since October 4th.</>}
                     >
                         <LemonTag type={'highlight'}>Beta</LemonTag>
                     </Tooltip>
