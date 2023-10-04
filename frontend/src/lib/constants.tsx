@@ -157,7 +157,6 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
-    SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
@@ -169,6 +168,8 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
+    SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

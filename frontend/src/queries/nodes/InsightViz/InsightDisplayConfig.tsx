@@ -1,4 +1,4 @@
-import { PropsWithChildren, ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -157,6 +157,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 }
 
-function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
+    return <span className="space-x-2 flex items-center text-sm">{children}</span>
 }

@@ -97,6 +97,9 @@
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebOverviewStatsQuery"
+                },
+                {
                     "$ref": "#/definitions/WebTopSourcesQuery"
                 },
                 {
@@ -398,6 +401,9 @@
                         },
                         {
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebOverviewStatsQuery"
                         },
                         {
                             "$ref": "#/definitions/WebTopSourcesQuery"
@@ -1089,6 +1095,7 @@
             "additionalProperties": false,
             "properties": {
                 "expr": {
+                    "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
                 },
                 "filters": {
@@ -1103,6 +1110,11 @@
                     "description": "Cached query response"
                 },
                 "select": {
+                    "description": "Full select query to validate (use `select` or `expr`, but not both)",
+                    "type": "string"
+                },
+                "table": {
+                    "description": "Table to validate the expression against",
                     "type": "string"
                 }
             },
@@ -1201,6 +1213,10 @@
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse",
                     "description": "Cached query response"
+                },
+                "values": {
+                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
@@ -2289,6 +2305,60 @@
             "type": "object"
         },
         "WebAnalyticsFilters": {},
+        "WebOverviewStatsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "$ref": "#/definitions/WebAnalyticsFilters"
+                },
+                "kind": {
+                    "const": "WebOverviewStatsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebOverviewStatsQueryResponse"
+                }
+            },
+            "required": ["kind", "filters"],
+            "type": "object"
+        },
+        "WebOverviewStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "result": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["result"],
+            "type": "object"
+        },
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {

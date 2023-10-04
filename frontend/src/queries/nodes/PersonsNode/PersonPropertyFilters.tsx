@@ -18,6 +18,7 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
             onChange={(value: AnyPropertyFilter[]) => setQuery?.({ ...query, properties: value })}
             pageKey={`PersonPropertyFilters.${id}`}
             taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+            hogQLTable="persons"
             style={{ marginBottom: 0, marginTop: 0 }}
         />
     ) : (

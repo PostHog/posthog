@@ -14,10 +14,12 @@ import {
 } from '~/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -33,6 +35,7 @@ export const AdvancedSessionRecordingsFilters = ({
     showPropertyFilters?: boolean
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+
     const hasGroupFilters = (currentTeam?.test_account_filters || [])
         .map((x) => x.type)
         .includes(PropertyFilterType.Group)
@@ -131,6 +134,19 @@ export const AdvancedSessionRecordingsFilters = ({
             <LemonLabel info="Show recordings that have captured console log messages">
                 Filter by console logs
             </LemonLabel>
+            <FlaggedFeature flag={FEATURE_FLAGS.CONSOLE_RECORDING_SEARCH}>
+                <LemonInput
+                    size={'small'}
+                    fullWidth={true}
+                    placeholder={'containing text'}
+                    value={filters.console_search_query}
+                    onChange={(s) => {
+                        setFilters({
+                            console_search_query: s,
+                        })
+                    }}
+                />
+            </FlaggedFeature>
             <ConsoleFilters
                 filters={filters}
                 setConsoleFilters={(x) =>

@@ -58,6 +58,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
 
     // Web analytics queries
+    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
     WebTopSourcesQuery = 'WebTopSourcesQuery',
     WebTopPagesQuery = 'WebTopPagesQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
@@ -80,6 +81,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
+    | WebOverviewStatsQuery
     | WebTopSourcesQuery
     | WebTopClicksQuery
     | WebTopPagesQuery
@@ -144,6 +146,8 @@ export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Constant values that can be referenced with the {placeholder} syntax in the query */
+    values?: Record<string, any>
     response?: HogQLQueryResponse
 }
 
@@ -166,8 +170,12 @@ export interface HogQLMetadataResponse {
 
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
-    expr?: string
+    /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
+    /** HogQL expression to validate (use `select` or `expr`, but not both) */
+    expr?: string
+    /** Table to validate the expression against */
+    table?: string
     filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
@@ -291,6 +299,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | PersonsNode
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
+        | WebOverviewStatsQuery
         | WebTopSourcesQuery
         | WebTopClicksQuery
         | WebTopPagesQuery
@@ -505,6 +514,17 @@ export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
 }
 
+export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewStatsQuery
+    filters: WebAnalyticsFilters
+    response?: WebOverviewStatsQueryResponse
+}
+
+export interface WebOverviewStatsQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
 export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopSourcesQuery
     filters: WebAnalyticsFilters
