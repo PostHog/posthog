@@ -497,6 +497,19 @@ insight_29 = {
     "insight": "TRENDS",
 }
 
+insight_30 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "name": "$pageview",
+        }
+    ],
+    "insight": "TRENDS",
+    "breakdown": "$geoip_country_code",
+    "breakdown_type": "events",
+    "breakdown_group_type_index": 0,
+}
+
 
 test_insights = [
     insight_0,
@@ -529,6 +542,7 @@ test_insights = [
     insight_27,
     insight_28,
     insight_29,
+    insight_30,
 ]
 
 

@@ -211,6 +211,10 @@ def _breakdown_filter(_filter: AnyInsightFilter):
         "breakdown_histogram_bin_count": _filter.breakdown_histogram_bin_count if _filter.insight == "TRENDS" else None,
     }
 
+    # fix breakdown typo
+    if breakdownFilter["breakdown_type"] == "events":
+        breakdownFilter["breakdown_type"] = "event"
+
     if _filter.breakdowns is not None:
         if len(_filter.breakdowns) == 1:
             breakdownFilter["breakdown_type"] = _filter.breakdowns[0].get("type", None)
