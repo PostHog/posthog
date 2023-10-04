@@ -176,8 +176,7 @@ function ConsoleFilters({
                         placement="bottom"
                         title={
                             <>
-                                Find recordings that have captured console log messages containing this text. Only
-                                matches recordings from after the feature was enabled.
+                                Filter recordings by console logs. Only matches recordings since October 4th.
                             </>
                         }
                     >
