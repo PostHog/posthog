@@ -198,7 +198,7 @@ export function InsightContainer({
                 <div className="mb-4">
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.
+                        set of results.{' '}
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
                     </LemonBanner>
                 </div>
