@@ -1515,8 +1515,8 @@ test.each([
     },
     {
         // let's not accept arbitrary length content
-        payload: [new Array(2001).join('a')],
-        expectedMessage: new Array(2000).join('a'),
+        payload: [new Array(3001).join('a')],
+        expectedMessage: new Array(3000).join('a'),
     },
 ])('simple console log processing', ({ payload, expectedMessage }) => {
     const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
