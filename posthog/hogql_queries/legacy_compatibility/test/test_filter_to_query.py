@@ -479,6 +479,24 @@ insight_28 = {
     "breakdown_type": "cohort",
 }
 
+insight_29 = {
+    "events": [
+        "{EXAMPLE_VARIABLE}",
+        {
+            "id": "$pageview",
+            "math": "dau",
+            "name": "$pageview",
+            "type": "events",
+            "order": 1,
+            "properties": [
+                {"key": "$current_url", "type": "event", "value": "posthog.com/signup$", "operator": "regex"}
+            ],
+            "custom_name": "Views on signup page",
+        },
+    ],
+    "insight": "TRENDS",
+}
+
 
 test_insights = [
     insight_0,
@@ -510,6 +528,7 @@ test_insights = [
     insight_26,
     insight_27,
     insight_28,
+    insight_29,
 ]
 
 

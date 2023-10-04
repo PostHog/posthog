@@ -151,12 +151,18 @@ def _interval(filter: AnyInsightFilter):
 
 
 def _series(filter: AnyInsightFilter):
-    include_math = True
-    include_properties = True
     if filter.insight == "RETENTION" or filter.insight == "PATHS":
         return {}
-    elif filter.insight == "LIFECYCLE":
+
+    # remove templates gone wrong
+    if filter._data.get("events") is not None:
+        filter._data["events"] = [event for event in filter._data.get("events") if not (isinstance(event, str))]
+
+    include_math = True
+    include_properties = True
+    if filter.insight == "LIFECYCLE":
         include_math = False
+
     return {
         "series": [
             entity_to_node(entity, include_properties, include_math)
