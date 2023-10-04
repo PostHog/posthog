@@ -359,7 +359,9 @@ export const gatherConsoleLogEvents = (
     const consoleLogEntries: ConsoleLogEntry[] = []
 
     events.forEach((event) => {
-        if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
+        // it should be unnecessary to check for truthiness of event here,
+        // but we've seen null in production so 🤷
+        if (!!event && event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = event.data.payload?.level
             const message = safeString(event.data.payload?.payload)
             consoleLogEntries.push({
