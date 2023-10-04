@@ -36,7 +36,7 @@ import { PersonDashboard } from './PersonDashboard'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export const scene: SceneExport = {
-    component: Person,
+    component: PersonScene,
     logic: personsLogic,
     paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
         syncWithUrl: true,
@@ -106,7 +106,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
-export function Person(): JSX.Element | null {
+export function PersonScene(): JSX.Element | null {
     const {
         showCustomerSuccessDashboards,
         person,
@@ -127,7 +127,7 @@ export function Person(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
     }
 
-    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
+    const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
 
     return (
         <>

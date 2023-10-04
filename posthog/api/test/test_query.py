@@ -522,3 +522,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ["sign out", "4", "test_val3"],
                 ],
             )
+
+    def test_full_hogql_query_values(self):
+        random_uuid = str(UUIDT())
+        with freeze_time("2020-01-10 12:00:00"):
+            for _ in range(20):
+                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": "select count() from events where distinct_id = {random_uuid}",
+                    "values": {"random_uuid": random_uuid},
+                },
+            )
+
+        self.assertEqual(response.get("results", [])[0][0], 20)

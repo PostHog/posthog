@@ -29,6 +29,7 @@ import {
     WebTopSourcesQuery,
     WebTopClicksQuery,
     WebTopPagesQuery,
+    WebOverviewStatsQuery,
     HogQLMetadata,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -104,6 +105,10 @@ export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
 
 export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverviewStatsQuery {
+    return node?.kind === NodeKind.WebOverviewStatsQuery
 }
 
 export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {

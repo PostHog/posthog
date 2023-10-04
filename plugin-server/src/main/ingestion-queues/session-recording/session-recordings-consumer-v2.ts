@@ -451,6 +451,7 @@ export class SessionRecordingIngesterV2 {
             connectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            autoCommit: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
@@ -464,7 +465,6 @@ export class SessionRecordingIngesterV2 {
             fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
             batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
             },

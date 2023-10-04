@@ -94,13 +94,13 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     Component,
     heightEstimate: 300,
     minHeight: 100,
-    href: (attrs) => urls.person(attrs.id),
+    href: (attrs) => urls.personByDistinctId(attrs.id),
     resizeable: true,
     attributes: {
         id: {},
     },
     pasteOptions: {
-        find: urls.person('(.+)', false),
+        find: urls.personByDistinctId('(.+)', false),
         getAttributes: async (match) => {
             return { id: match[1] }
         },
