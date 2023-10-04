@@ -23,7 +23,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { pluralize } from 'lib/utils'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -154,14 +153,8 @@ export function SessionsRecordings(): JSX.Element {
                         }}
                         dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}
                     >
-                        You have authorized domains configured for session recordings. Only recordings from these
-                        domains will be allowed.
-                        <p>
-                            But you have {pluralize(suggestions.length, 'domain', 'domains', true)} that{' '}
-                            {pluralize(suggestions.length, 'is', 'are', false)} not authorized which{' '}
-                            {pluralize(suggestions.length, 'is', 'are', false)} trying to send recordings. You should
-                            review your configuration.
-                        </p>
+                        You have unauthorized domains trying to send recordings. To accept recordings from these
+                        domains, please check your config.
                     </LemonBanner>
                 ) : null}
 

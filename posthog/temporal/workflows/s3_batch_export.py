@@ -230,11 +230,6 @@ class S3MultiPartUpload:
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
-        if exc_value is None:
-            # Succesfully completed the upload
-            await self.complete()
-            return True
-
         if exc_type == asyncio.CancelledError:
             # Ensure we clean-up the cancelled upload.
             await self.abort()
@@ -444,6 +439,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     last_uploaded_part_timestamp = result["inserted_at"]
                     activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
+
+            await s3_upload.complete()
 
 
 @workflow.defn(name="s3-export")
