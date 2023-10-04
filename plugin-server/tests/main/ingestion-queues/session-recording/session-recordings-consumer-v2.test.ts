@@ -415,6 +415,7 @@ describe('ingester', () => {
             // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
             await expect(getPersistentWaterMarks()).resolves.toEqual({
                 'session-recordings-blob': 1,
+                session_replay_console_logs_events_ingester: 3,
                 session_replay_events_ingester: 3,
             })
         })
@@ -428,6 +429,7 @@ describe('ingester', () => {
             await commitAllOffsets()
             expect(mockCommit).not.toHaveBeenCalled()
             await expect(getPersistentWaterMarks()).resolves.toEqual({
+                session_replay_console_logs_events_ingester: 2,
                 session_replay_events_ingester: 2,
             })
             await expect(getSessionWaterMarks()).resolves.toEqual({
@@ -554,8 +556,9 @@ describe('ingester', () => {
         it('shuts down without error', async () => {
             await setup()
 
-            // revoke, realtime unsub, replay stop
+            // revoke, realtime unsub, replay stop, console ingestion stop
             await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'fulfilled' },
                 { status: 'fulfilled' },
                 { status: 'fulfilled' },
                 { status: 'fulfilled' },
