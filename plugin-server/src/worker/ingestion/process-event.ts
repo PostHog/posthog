@@ -287,7 +287,7 @@ export interface SummarizedSessionRecordingEvent {
     message_count: number
 }
 
-type ConsoleLogEntry = {
+export type ConsoleLogEntry = {
     team_id: number
     message: string
     log_level: 'info' | 'warn' | 'error'
@@ -350,7 +350,11 @@ enum RRWebEventSource {
     StyleDeclaration = 1,
     Selection = 1,
 }
-export const gatherConsoleLogEvents = (team_id: number, session_id: string, events: RRWebEvent[]) => {
+export const gatherConsoleLogEvents = (
+    team_id: number,
+    session_id: string,
+    events: RRWebEvent[]
+): ConsoleLogEntry[] => {
     const consoleLogEntries: ConsoleLogEntry[] = []
 
     events.forEach((event) => {

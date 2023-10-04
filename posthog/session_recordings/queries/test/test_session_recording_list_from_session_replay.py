@@ -2056,6 +2056,21 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         filter = SessionRecordingsFilter(
             team=self.team,
+            # match is case-insensitive
+            data={"console_logs": ["warn", "error"], "console_search_query": "MESSAGE 5"},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_warns_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
             # message 5 does not match log level "log
             data={"console_logs": ["log"], "console_search_query": "message 5"},
         )
