@@ -45,7 +45,15 @@ describe('Event Pipeline integration test', () => {
         actionManager = new ActionManager(hub.db.postgres)
         await actionManager.prepare()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
-        hookCannon = new HookCommander(hub.db.postgres, hub.teamManager, hub.organizationManager)
+        hookCannon = new HookCommander(
+            hub.db.postgres,
+            hub.teamManager,
+            hub.organizationManager,
+            new Set(hub.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
+            hub.appMetrics,
+            undefined,
+            hub.EXTERNAL_REQUEST_TIMEOUT_MS
+        )
 
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'createPerson')
