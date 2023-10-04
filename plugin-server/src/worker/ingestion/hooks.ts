@@ -406,7 +406,7 @@ export class HookCommander {
                     event,
                 }
             )
-            throw error
+            status.warn('⚠️', `Failed to post webhook for team ${event.teamId} got ${error}`)
         } finally {
             clearTimeout(timeout)
         }
@@ -472,7 +472,7 @@ export class HookCommander {
                     event,
                 }
             )
-            throw error
+            status.warn('⚠️', `Failed to post resthook for team ${event.teamId} got ${error}`)
         } finally {
             clearTimeout(timeout)
         }
