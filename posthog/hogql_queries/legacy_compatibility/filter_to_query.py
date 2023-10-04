@@ -36,6 +36,10 @@ def is_property_with_operator(property: Dict):
 def clean_property(property: Dict):
     cleaned_property = {**property}
 
+    # fix type typo
+    if cleaned_property.get("type") == "events":
+        cleaned_property["type"] = "event"
+
     # convert precalculated cohorts to cohorts
     if cleaned_property.get("type") == "precalculated-cohort":
         cleaned_property["type"] = "cohort"

@@ -441,6 +441,17 @@ insight_25 = {
     "insight": "TRENDS",
 }
 
+insight_26 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "name": "$pageview",
+            "type": "events",
+        },
+    ],
+    "insight": "TRENDS",
+}
+
 
 test_insights = [
     insight_0,
@@ -469,6 +480,7 @@ test_insights = [
     insight_23,
     insight_24,
     insight_25,
+    insight_26,
 ]
 
 
