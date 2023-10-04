@@ -215,7 +215,7 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
                 queue.pluginsServer.organizationManager,
-                new Set(queue.pluginsServer.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
+                new Set(),
                 queue.pluginsServer.appMetrics,
                 undefined,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
