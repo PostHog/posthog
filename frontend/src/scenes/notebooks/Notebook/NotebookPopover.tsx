@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
+import { NotebookSyncInfo } from './NotebookMeta'
 import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
@@ -48,8 +48,6 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         tooltip="Go to Notebook"
                         tooltipPlacement="left"
                     />
-
-                    <NotebookExpandButton status="primary-alt" size="small" />
 
                     <LemonButton
                         size="small"
