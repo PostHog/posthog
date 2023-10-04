@@ -617,6 +617,7 @@ properties_9 = {
 }
 properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
 properties_11 = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
+properties_12 = [{"key": "userId", "type": "event", "values": ["63ffaeae99ac3c4240976d60"], "operator": "exact"}]
 
 test_properties = [
     properties_0,
@@ -631,6 +632,7 @@ test_properties = [
     properties_9,
     properties_10,
     properties_11,
+    properties_12,
 ]
 
 

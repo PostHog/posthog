@@ -40,6 +40,10 @@ def clean_property(property: Dict):
     if cleaned_property.get("type") == "events":
         cleaned_property["type"] = "event"
 
+    # fix value key typo
+    if cleaned_property.get("values") is not None and cleaned_property.get("value") is None:
+        cleaned_property["value"] = cleaned_property.pop("values")
+
     # convert precalculated cohorts to cohorts
     if cleaned_property.get("type") == "precalculated-cohort":
         cleaned_property["type"] = "cohort"
