@@ -176,7 +176,7 @@ export function ExperimentResult(): JSX.Element {
                             kind: NodeKind.InsightVizNode,
                             source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
                             showTable: true,
-                            showHeader: false,
+                            showDateFilter: false,
                             showLastComputation: true,
                             showLastComputationRefresh: false,
                         }}

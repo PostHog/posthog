@@ -1298,6 +1298,9 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showDateFilter": {
+                    "type": "boolean"
+                },
                 "showFilters": {
                     "type": "boolean"
                 },
@@ -1922,6 +1925,9 @@
                     "type": "boolean"
                 },
                 "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showDateFilter": {
                     "type": "boolean"
                 },
                 "showDateRange": {

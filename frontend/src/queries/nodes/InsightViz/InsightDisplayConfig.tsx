@@ -24,7 +24,11 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 
-export function InsightDisplayConfig(): JSX.Element {
+interface InsightDisplayConfigProps {
+    disableDateFilter: boolean
+}
+
+export function InsightDisplayConfig({ disableDateFilter }: InsightDisplayConfigProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
@@ -86,7 +90,7 @@ export function InsightDisplayConfig(): JSX.Element {
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
-                {showDateRange && (
+                {showDateRange && !disableDateFilter && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={disableDateRange} />
                     </ConfigFilter>

@@ -369,6 +369,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show a button to configure the table's columns if possible"
     )
     showCorrelationTable: Optional[bool] = None
+    showDateFilter: Optional[bool] = None
     showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
     showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: Optional[bool] = Field(
@@ -1339,6 +1340,7 @@ class InsightVizNode(BaseModel):
     )
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
+    showDateFilter: Optional[bool] = None
     showFilters: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None

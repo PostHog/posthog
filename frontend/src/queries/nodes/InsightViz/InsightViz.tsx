@@ -57,8 +57,9 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const isFunnels = isFunnelsQuery(query.source)
 
     const showIfFull = !!query.full
-    const disableHeader = !(query.showHeader ?? showIfFull)
     const disableTable = !(query.showTable ?? showIfFull)
+    const disableHeader = !(query.showHeader ?? showIfFull)
+    const disableDateFilter = !(query.showDateFilter ?? !disableHeader)
     const disableCorrelationTable = !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
@@ -84,8 +85,9 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                                 <InsightContainer
                                     insightMode={insightMode}
                                     context={context}
-                                    disableHeader={disableHeader}
                                     disableTable={disableTable}
+                                    disableHeader={disableHeader}
+                                    disableDateFilter={disableDateFilter}
                                     disableCorrelationTable={disableCorrelationTable}
                                     disableLastComputation={disableLastComputation}
                                     disableLastComputationRefresh={disableLastComputationRefresh}

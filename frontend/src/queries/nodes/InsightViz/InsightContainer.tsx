@@ -46,8 +46,9 @@ const VIEW_MAP = {
 }
 
 export function InsightContainer({
-    disableHeader,
     disableTable,
+    disableHeader,
+    disableDateFilter,
     disableCorrelationTable,
     disableLastComputation,
     disableLastComputationRefresh,
@@ -55,8 +56,9 @@ export function InsightContainer({
     context,
     embedded,
 }: {
-    disableHeader?: boolean
     disableTable?: boolean
+    disableHeader?: boolean
+    disableDateFilter?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
@@ -207,7 +209,7 @@ export function InsightContainer({
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
-                title={disableHeader ? null : <InsightDisplayConfig />}
+                title={disableHeader ? null : <InsightDisplayConfig disableDateFilter={!!disableDateFilter} />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
                 bordered={!embedded}
