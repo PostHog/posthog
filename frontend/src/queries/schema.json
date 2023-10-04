@@ -1095,6 +1095,7 @@
             "additionalProperties": false,
             "properties": {
                 "expr": {
+                    "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
                 },
                 "filters": {
@@ -1109,6 +1110,11 @@
                     "description": "Cached query response"
                 },
                 "select": {
+                    "description": "Full select query to validate (use `select` or `expr`, but not both)",
+                    "type": "string"
+                },
+                "table": {
+                    "description": "Table to validate the expression against",
                     "type": "string"
                 }
             },

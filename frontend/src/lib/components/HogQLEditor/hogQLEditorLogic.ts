@@ -9,6 +9,7 @@ import React from 'react'
 export interface HogQLEditorLogicProps {
     key: string
     value: string | undefined
+    hogQLTable?: string
     onChange: (value: string) => void
     textareaRef?: React.MutableRefObject<HTMLTextAreaElement | null>
 }
@@ -32,6 +33,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                     const response = await query<HogQLMetadata>({
                         kind: NodeKind.HogQLMetadata,
                         expr: values.localValue,
+                        table: props.hogQLTable || 'events',
                     })
                     breakpoint()
                     if (response && Array.isArray(response.errors) && response.errors.length > 0) {
