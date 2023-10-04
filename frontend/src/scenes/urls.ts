@@ -90,6 +90,8 @@ export const urls = {
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
+    personByUUID: (uuid: string, encode: boolean = true): string =>
+        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.

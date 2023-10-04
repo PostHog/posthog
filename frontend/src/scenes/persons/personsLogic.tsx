@@ -22,6 +22,8 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { asDisplay } from './person-utils'
+import { query } from '~/queries/query'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -48,6 +50,7 @@ export const personsLogic = kea<personsLogicType>({
         setPerson: (person: PersonType | null) => ({ person }),
         setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
+        loadPersonUUID: (uuid: string) => ({ uuid }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
         setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
@@ -288,6 +291,27 @@ export const personsLogic = kea<personsLogicType>({
                     }
                     return person
                 },
+                loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
+                    const response = await query<HogQLQuery>({
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select id, groupArray(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
+                        values: { id: uuid },
+                    })
+                    const row = response?.results?.[0]
+                    if (row) {
+                        const person: PersonType = {
+                            id: row[0],
+                            uuid: row[0],
+                            distinct_ids: row[1],
+                            properties: JSON.parse(row[2] || '{}'),
+                            is_identified: !!row[3],
+                            created_at: row[4],
+                        }
+                        actions.reportPersonDetailViewed(person)
+                        return person
+                    }
+                    return null
+                },
             },
         ],
         cohorts: [
@@ -343,6 +367,28 @@ export const personsLogic = kea<personsLogicType>({
 
                     if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
                         actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
+                    }
+                }
+            }
+        },
+        '/persons/*': ({ _: rawPersonUUID }, { sessionRecordingId }, { activeTab }) => {
+            if (props.syncWithUrl) {
+                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                } else if (activeTab && values.activeTab !== activeTab) {
+                    actions.navigateToTab(activeTab as PersonsTabType)
+                }
+
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                }
+
+                if (rawPersonUUID) {
+                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
+                    const decodedPersonDistinctId = decodeURIComponent(rawPersonUUID)
+
+                    if (!values.person || values.person.id != decodedPersonDistinctId) {
+                        actions.loadPersonUUID(decodedPersonDistinctId) // underscore contains the wildcard
                     }
                 }
             }
