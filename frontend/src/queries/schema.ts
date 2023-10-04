@@ -82,6 +82,7 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
+    | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
     | WebOverviewStatsQuery

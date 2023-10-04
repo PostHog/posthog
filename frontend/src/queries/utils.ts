@@ -300,6 +300,19 @@ export function taxonomicEventFilterToHogQL(
     return null
 }
 
+export function taxonomicPersonFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||

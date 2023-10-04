@@ -22,6 +22,7 @@ from posthog.schema import (
     WebTopClicksQuery,
     WebTopPagesQuery,
     WebOverviewStatsQuery,
+    PersonsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -48,6 +49,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None
+    # hogql: Optional[str] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -86,6 +88,10 @@ def get_query_runner(
         from .insights.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "PersonsQuery":
+        from .persons_query_runner import PersonsQueryRunner
+
+        return PersonsQueryRunner(query=cast(PersonsQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "WebOverviewStatsQuery":
         from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 

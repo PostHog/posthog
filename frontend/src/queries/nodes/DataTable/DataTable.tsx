@@ -6,6 +6,7 @@ import {
     EventsQuery,
     HogQLQuery,
     PersonsNode,
+    PersonsQuery,
     QueryContext,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
@@ -28,7 +29,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, taxonomicEventFilterToHogQL } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQlAggregation,
+    isHogQLQuery,
+    isPersonsQuery,
+    taxonomicEventFilterToHogQL,
+    taxonomicPersonFilterToHogQL,
+} from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -61,6 +69,7 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
+const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
 
 let uniqueNode = 0
 
@@ -121,8 +130,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
 
-    const groupTypes = eventGroupTypes
-    const hogQLTable = 'events'
+    const groupTypes = isPersonsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const hogQLTable = isPersonsQuery(query.source) ? 'persons' : 'events'
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -165,7 +174,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicEventFilterToHogQL(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
@@ -179,7 +190,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                             ...source,
                                             select: source.select
                                                 .map((s, i) => (i === index ? hogQl : s))
-                                                .filter((c) => (isAggregation ? c !== '*' : true)),
+                                                .filter((c) =>
+                                                    isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                                ),
                                             orderBy:
                                                 isOrderBy || isDescOrderBy
                                                     ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
@@ -241,7 +254,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicEventFilterToHogQL(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -253,8 +268,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...(source.select || []).slice(0, index),
                                                 hogQl,
                                                 ...(source.select || []).slice(index),
-                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
-                                        } as EventsQuery,
+                                            ].filter((c) =>
+                                                isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                            ),
+                                        } as EventsQuery | PersonsQuery,
                                     })
                                 }
                             }}
@@ -269,7 +286,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicEventFilterToHogQL(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -281,8 +300,10 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                 ...(source.select || []).slice(0, index + 1),
                                                 hogQl,
                                                 ...(source.select || []).slice(index + 1),
-                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
-                                        } as EventsQuery,
+                                            ].filter((c) =>
+                                                isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                            ),
+                                        } as EventsQuery | PersonsQuery,
                                     })
                                 }
                             }}
@@ -342,7 +363,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
