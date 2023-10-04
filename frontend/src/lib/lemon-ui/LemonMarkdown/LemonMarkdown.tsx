@@ -15,6 +15,7 @@ export interface LemonMarkdownProps {
 export function LemonMarkdown({ children, lowKeyHeadings = false, className }: LemonMarkdownProps): JSX.Element {
     return (
         <div className={clsx('LemonMarkdown', className)}>
+            {/* eslint-disable-next-line react/forbid-elements */}
             <ReactMarkdown
                 renderers={{
                     link: ({ href, children }) => (

@@ -5,7 +5,7 @@ import {
     preselect,
     parsedSelectorToSelectorString,
 } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { elementsExample } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
+import { EXAMPLE_ELEMENTS } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
 import { elementsChain } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 
 const elements = [
@@ -382,7 +382,7 @@ describe('can preselect selectors for editing', () => {
     test('fixing the storybook example', () => {
         const selector = 'div div.SideBar .LemonButton__content span.text-default'
 
-        expect(preselect(elementsChain(elementsExample), selector)).toEqual({
+        expect(preselect(elementsChain(EXAMPLE_ELEMENTS), selector)).toEqual({
             '0': {
                 tag: 'div',
             },
