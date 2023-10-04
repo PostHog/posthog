@@ -452,6 +452,21 @@ insight_26 = {
     "insight": "TRENDS",
 }
 
+insight_27 = {
+    "actions": [
+        {
+            "id": None,
+            "math": None,
+            "name": None,
+            "type": "actions",
+            "order": None,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "insight": "TRENDS",
+}
+
 
 test_insights = [
     insight_0,
@@ -481,6 +496,7 @@ test_insights = [
     insight_24,
     insight_25,
     insight_26,
+    insight_27,
 ]
 
 
