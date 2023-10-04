@@ -379,6 +379,24 @@ insight_21 = {
     "funnel_window_days": 14,
 }
 
+insight_22 = {
+    "actions": [
+        {
+            "id": "10184",
+            "math": None,
+            "name": "More Passive Candidates button",
+            "type": "actions",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "TRENDS",
+    "interval": "day",
+    "breakdown_type": "undefined",
+}
+
 test_insights = [
     insight_0,
     insight_1,
@@ -402,6 +420,7 @@ test_insights = [
     insight_19,
     insight_20,
     insight_21,
+    insight_22,
 ]
 
 

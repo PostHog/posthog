@@ -163,6 +163,10 @@ def _breakdown_filter(filter: AnyInsightFilter):
     if filter.insight != "TRENDS" and filter.insight != "FUNNELS":
         return {}
 
+    # early return for broken breakdown filters
+    if filter.breakdown_type == "undefined":
+        return {}
+
     breakdownFilter = {
         "breakdown_type": filter.breakdown_type,
         "breakdown": filter.breakdown,
