@@ -35,8 +35,9 @@ interface ViewLinkFormProps {
 }
 
 export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Element {
-    const { viewOptions, toJoinKeyOptions, selectedView, selectedTable, fromJoinKeyOptions } = useValues(viewLinkLogic)
-    const { selectView, toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { viewOptions, toJoinKeyOptions, selectedView, selectedTableName, fromJoinKeyOptions } =
+        useValues(viewLinkLogic)
+    const { selectView, toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
     const { tableOptions } = useValues(databaseSceneLogic)
 
     return (
@@ -47,16 +48,14 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
                         <span className="l4">Table</span>
                         {tableSelectable ? (
                             <LemonSelect
-                                value={selectedTable}
+                                value={selectedTableName}
                                 fullWidth
                                 options={tableOptions}
-                                onSelect={selectTable}
+                                onSelect={selectTableName}
                                 placeholder="Select a table"
                             />
-                        ) : selectedTable ? (
-                            selectedTable.name
                         ) : (
-                            ''
+                            selectedTableName ?? ''
                         )}
                     </div>
                     <div className="w-50">
