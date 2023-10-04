@@ -4,6 +4,7 @@ import { QueryContext, DataTableNode } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery, trimQuotes } from '~/queries/utils'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -13,6 +14,7 @@ export interface ColumnMeta {
 export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
     let width: number | undefined
     let title: JSX.Element | string | undefined
+    const queryFeatures = getQueryFeatures(query.source)
 
     if (isHogQLQuery(query.source)) {
         title = key
@@ -27,8 +29,6 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = 'Event'
     } else if (key === 'person') {
         title = 'Person'
-    } else if (key === 'url') {
-        title = 'URL / Screen'
     } else if (key.startsWith('properties.')) {
         title = <PropertyKeyInfo value={trimQuotes(key.substring(11))} type={PropertyFilterType.Event} disableIcon />
     } else if (key.startsWith('context.columns.')) {
@@ -41,7 +41,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         title = <PropertyKeyInfo value={trimQuotes(key.substring(18))} type={PropertyFilterType.Event} disableIcon />
     } else {
-        title = isEventsQuery(query.source) ? extractExpressionComment(key) : key
+        title = queryFeatures.has(QueryFeature.selectAndOrderByColumns) ? extractExpressionComment(key) : key
     }
 
     if (isEventsQuery(query.source) && !query.allowSorting) {

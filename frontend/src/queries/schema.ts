@@ -170,8 +170,12 @@ export interface HogQLMetadataResponse {
 
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
-    expr?: string
+    /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
+    /** HogQL expression to validate (use `select` or `expr`, but not both) */
+    expr?: string
+    /** Table to validate the expression against */
+    table?: string
     filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }

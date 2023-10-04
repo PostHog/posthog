@@ -38,6 +38,7 @@ export function TaxonomicPropertyFilter({
     orFiltering,
     addText = 'Add filter',
     hasRowOperator,
+    hogQLTable,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -98,6 +99,7 @@ export function TaxonomicPropertyFilter({
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
+            hogQLTable={hogQLTable}
             eventNames={eventNames}
         />
     )

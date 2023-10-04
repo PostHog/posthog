@@ -28,7 +28,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isEventsQuery, isHogQlAggregation, isHogQLQuery, taxonomicEventFilterToHogQL } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -55,7 +55,7 @@ interface DataTableProps {
     cachedResults?: AnyResponseType
 }
 
-const groupTypes = [
+const eventGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
@@ -121,6 +121,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
 
+    const groupTypes = eventGroupTypes
+    const hogQLTable = 'events'
+
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
@@ -144,7 +147,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             },
             sorter: undefined, // using custom sorting code
             more:
-                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) ? (
+                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -156,11 +159,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
@@ -183,7 +188,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         <LemonDivider />
                         {canSort ? (
@@ -230,12 +234,14 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -252,17 +258,18 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -279,7 +286,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>
