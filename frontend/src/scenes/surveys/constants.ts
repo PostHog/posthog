@@ -1,4 +1,4 @@
-import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
@@ -9,6 +9,12 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.Link]: 'Link',
     [SurveyQuestionType.SingleChoice]: 'Single choice select',
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
+}
+
+export const SurveyUrlMatchTypeLabels = {
+    [SurveyUrlMatchType.Contains]: '∋ contains',
+    [SurveyUrlMatchType.Regex]: '∼ matches regex',
+    [SurveyUrlMatchType.Exact]: '= equals',
 }
 
 export const defaultSurveyAppearance = {

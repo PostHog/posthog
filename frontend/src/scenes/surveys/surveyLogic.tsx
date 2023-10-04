@@ -15,6 +15,7 @@ import {
     SurveyQuestionBase,
     SurveyQuestionType,
     SurveyType,
+    SurveyUrlMatchType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema'
@@ -379,6 +380,19 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!survey.targeting_flag || !!survey.targeting_flag_filters
             },
         ],
+        urlMatchTypeValidationError: [
+            (s) => [s.survey],
+            (survey): string | null => {
+                if (survey.conditions?.urlMatchType === SurveyUrlMatchType.Regex && survey.conditions.url) {
+                    try {
+                        new RegExp(survey.conditions.url)
+                    } catch (e: any) {
+                        return e.message
+                    }
+                }
+                return null
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -397,6 +411,8 @@ export const surveyLogic = kea<surveyLogicType>([
                           }
                         : {}),
                 })),
+                // controlled using a PureField in the form
+                urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: async (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload

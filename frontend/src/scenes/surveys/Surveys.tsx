@@ -234,7 +234,7 @@ export function Surveys(): JSX.Element {
                                 {
                                     title: 'Question type',
                                     render: function RenderResponses(_, survey) {
-                                        return survey.questions.length === 1
+                                        return survey.questions?.length === 1
                                             ? SurveyQuestionLabel[survey.questions[0].type]
                                             : 'Multiple'
                                     },
