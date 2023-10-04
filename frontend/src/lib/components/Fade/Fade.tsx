@@ -30,6 +30,7 @@ export function Fade({
     return shouldRender ? (
         <div
             className={`fade-component-container${className ? ` ${className}` : ''}`}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ animation: `${visible ? 'fadeComponentFadeIn' : 'fadeComponentFadeOut'} 0.3s`, ...style }}
             onAnimationEnd={onAnimationEnd}
             {...props}
