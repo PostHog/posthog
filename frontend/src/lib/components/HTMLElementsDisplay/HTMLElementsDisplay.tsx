@@ -19,7 +19,13 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                 .reverse()
                 .slice(1)
                 .map((element, index) => (
-                    <Fade key={`${element.tag_name}-closing-${index}`} visible={true}>
+                    <Fade
+                        key={`${element.tag_name}-closing-${index}`}
+                        visible={true}
+                        style={{
+                            position: 'static',
+                        }}
+                    >
                         <pre
                             className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm"
                             key={index}
@@ -52,7 +58,13 @@ function Tags({
                 const reverseIndex = elements.length - 1 - index
 
                 return (
-                    <Fade key={`${element.tag_name}-${reverseIndex}`} visible={true}>
+                    <Fade
+                        key={`${element.tag_name}-${reverseIndex}`}
+                        visible={true}
+                        style={{
+                            position: 'static',
+                        }}
+                    >
                         <SelectableElement
                             key={`${element.tag_name}-${index}`}
                             element={element}
@@ -145,7 +157,7 @@ export function HTMLElementsDisplay({
                                 } (${elementsToShowDepth} hidden)`}
                             </pre>
                         ) : null}
-                        <Fade visible={true}>
+                        <Fade visible={true} style={{ position: 'static' }}>
                             <Tags
                                 elements={parsedElements}
                                 highlight={highlight}
