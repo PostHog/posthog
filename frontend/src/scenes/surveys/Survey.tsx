@@ -67,7 +67,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag, urlMatchTypeValidationError } =
+        useValues(surveyLogic)
     const { loadSurvey, editingSurvey, setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
@@ -353,7 +354,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="URL targeting">
+                                    <PureField
+                                        label="URL targeting"
+                                        error={urlMatchTypeValidationError}
+                                        info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                    >
                                         <div className="flex flex-row gap-2 items-center">
                                             URL
                                             <LemonSelect
@@ -530,7 +535,10 @@ export function SurveyReleaseSummary({
                     <div className="flex-row">
                         <span>
                             URL{' '}
-                            {SurveyUrlMatchTypeLabels[survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains]}:
+                            {SurveyUrlMatchTypeLabels[
+                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
+                            ].slice(2)}
+                            :
                         </span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>

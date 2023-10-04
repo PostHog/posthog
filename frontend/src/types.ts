@@ -2108,7 +2108,7 @@ export interface Survey {
 
 export enum SurveyUrlMatchType {
     Exact = 'exact',
-    Contains = 'contains',
+    Contains = 'icontains',
     Regex = 'regex',
 }
 
