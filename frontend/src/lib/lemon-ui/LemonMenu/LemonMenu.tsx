@@ -98,7 +98,7 @@ export function LemonMenu({
     )
 
     const _onVisibilityChange = useCallback(
-        (visible) => {
+        (visible: boolean) => {
             onVisibilityChange?.(visible)
             if (visible && activeItemIndex && activeItemIndex > -1) {
                 // Scroll the active item into view once the menu is open (i.e. in the next tick)
@@ -243,28 +243,28 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
             { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
             ref
         ): JSX.Element => {
-            const Label = typeof label === 'function' ? label : null
-            const button = Label ? (
-                <Label key="x" />
-            ) : (
-                <LemonButton
-                    ref={ref}
-                    tooltipPlacement={tooltipPlacement}
-                    status="stealth"
-                    fullWidth
-                    role="menuitem"
-                    size={size}
-                    {...buttonProps}
-                >
-                    {label}
-                    {keyboardShortcut && (
-                        <div className="-mr-0.5 inline-flex grow justify-end">
-                            {/* Show the keyboard shortcut on the right */}
-                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
-                        </div>
-                    )}
-                </LemonButton>
-            )
+            const button =
+                typeof label === 'function' ? (
+                    <label key="x" />
+                ) : (
+                    <LemonButton
+                        ref={ref}
+                        tooltipPlacement={tooltipPlacement}
+                        status="stealth"
+                        fullWidth
+                        role="menuitem"
+                        size={size}
+                        {...buttonProps}
+                    >
+                        {label}
+                        {keyboardShortcut && (
+                            <div className="-mr-0.5 inline-flex grow justify-end">
+                                {/* Show the keyboard shortcut on the right */}
+                                <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                            </div>
+                        )}
+                    </LemonButton>
+                )
 
             return items ? (
                 <LemonMenu
