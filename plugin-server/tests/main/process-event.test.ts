@@ -1497,6 +1497,7 @@ test('simple console log processing', () => {
                 },
             },
         },
+        null as unknown as RRWebEvent, // see https://posthog.sentry.io/issues/4525043303
     ])
     expect(consoleLogEntries).toEqual([
         {
