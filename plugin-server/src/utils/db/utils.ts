@@ -6,6 +6,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { BasePerson, Person, RawPerson, TimestampFormat } from '../../types'
+import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
@@ -35,7 +36,7 @@ export function timeoutGuard(
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        console.log(`⌛⌛⌛ ${message}`, ctx)
+        status.warn('⌛', message, ctx)
         Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
     }, timeout)
 }

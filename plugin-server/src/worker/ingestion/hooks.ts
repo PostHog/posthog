@@ -359,8 +359,9 @@ export class HookCommander {
         end()
 
         const timeout = setTimeout(() => {
-            console.log(
-                `⌛⌛⌛ Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
+            status.warn(
+                '⌛',
+                `Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, 5000)
         const relevantFetch =
@@ -404,8 +405,9 @@ export class HookCommander {
         }
 
         const timeout = setTimeout(() => {
-            console.log(
-                `⌛⌛⌛ Posting RestHook slow. Timeout warning after 5 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
+            status.warn(
+                '⌛',
+                `Posting RestHook slow. Timeout warning after 5 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
             )
         }, 5000)
         const relevantFetch =
