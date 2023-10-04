@@ -92,7 +92,7 @@ module.exports = {
             },
         ],
         'react/forbid-elements': [
-            2,
+            1,
             {
                 forbid: [
                     {
@@ -140,6 +140,13 @@ module.exports = {
                         element: 'a',
                         message: 'use <Link> instead',
                     },
+                ],
+            },
+        ],
+        'react/forbid-elements': [
+            2,
+            {
+                forbid: [
                     {
                         element: 'Layout',
                         message: 'use utility classes instead',

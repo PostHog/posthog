@@ -198,13 +198,12 @@ export function InsightContainer({
                 <div className="mb-4">
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results. {/* eslint-disable-next-line react/forbid-elements */}
+                        set of results.
                         <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
                     </LemonBanner>
                 </div>
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
-            {/* eslint-disable-next-line react/forbid-elements */}
             <Card
                 title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
                 data-attr="insights-graph"
@@ -251,11 +250,8 @@ export function InsightContainer({
                     {BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : supportsDisplay && showLegend ? (
-                        // eslint-disable-next-line react/forbid-elements
                         <Row className="insights-graph-container-row" wrap={false}>
-                            {/* eslint-disable-next-line react/forbid-elements */}
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                            {/* eslint-disable-next-line react/forbid-elements */}
                             <Col className="insights-graph-container-row-right">
                                 <InsightLegend />
                             </Col>
