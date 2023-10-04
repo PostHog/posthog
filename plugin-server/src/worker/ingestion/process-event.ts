@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
@@ -362,18 +363,23 @@ export const gatherConsoleLogEvents = (
         // it should be unnecessary to check for truthiness of event here,
         // but we've seen null in production so 🤷
         if (!!event && event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
-            const level = event.data.payload?.level
-            const message = safeString(event.data.payload?.payload)
-            consoleLogEntries.push({
-                team_id,
-                // TODO when is it not a single item array?
-                message: message,
-                log_level: level,
-                log_source: 'session_replay',
-                log_source_id: session_id,
-                instance_id: null,
-                timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
-            })
+            try {
+                const level = event.data.payload?.level
+                const message = safeString(event.data.payload?.payload)
+                consoleLogEntries.push({
+                    team_id,
+                    // TODO when is it not a single item array?
+                    message: message,
+                    log_level: level,
+                    log_source: 'session_replay',
+                    log_source_id: session_id,
+                    instance_id: null,
+                    timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                })
+            } catch (e) {
+                // if we can't process a console log, we don't want to lose the whole shebang
+                captureException(e, { extra: { messagePayload: event.data.payload?.payload }, tags: { session_id } })
+            }
         }
     })
 
