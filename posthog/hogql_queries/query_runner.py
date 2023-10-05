@@ -63,6 +63,7 @@ class CachedQueryResponse(QueryResponse):
 
 RunnableQueryNode = Union[
     TrendsQuery,
+    PersonsQuery,
     LifecycleQuery,
     WebOverviewStatsQuery,
     WebTopSourcesQuery,
