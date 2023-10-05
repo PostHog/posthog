@@ -98,7 +98,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                     deleteCohort()
                                                 }}
                                             >
-                                                Delete
+                                                Delete cohort
                                             </LemonButton>
                                         </>
                                     }

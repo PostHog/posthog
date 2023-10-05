@@ -68,7 +68,7 @@ describe('Cohorts', () => {
 
         // delete cohort
         cy.get('[data-attr="more-button"]').click()
-        cy.get('.Popover__content').contains('Delete').click()
+        cy.get('.Popover__content').contains('Delete cohort').click()
         cy.clickNavMenu('cohorts')
         cy.get('tbody').should('not.have.text', 'Test Cohort (dynamic copy) (static copy)')
     })
