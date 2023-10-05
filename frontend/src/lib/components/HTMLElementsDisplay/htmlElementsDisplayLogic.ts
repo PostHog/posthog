@@ -30,7 +30,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     actions({
         setParsedSelectors: (selectors: Record<number, ParsedCSSSelector>) => ({ selectors }),
         setElements: (providedElements: ElementType[]) => ({ providedElements }),
-        showAdditionalElements: () => ({}),
+        showAdditionalElements: true,
     }),
     reducers(({ props }) => ({
         elements: [
@@ -59,7 +59,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         ],
         parsedElements: [
             (s) => [s.elements, s.visibleElements],
-            (elements: ElementType[], visibleElements: number) => {
+            (elements, visibleElements) => {
                 return elements.slice(Math.max(elements.length - visibleElements, 0))
             },
         ],
