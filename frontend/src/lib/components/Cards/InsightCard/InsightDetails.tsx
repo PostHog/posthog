@@ -330,22 +330,29 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                 <div>
                     <h5>Created by</h5>
                     <section>
-                        <ProfilePicture name={created_by?.first_name} email={created_by?.email} showName size="md" />{' '}
-                        <TZLabel time={created_at} />
-                    </section>
-                </div>
-                <div>
-                    <h5>Last modified by</h5>
-                    <section>
                         <ProfilePicture
-                            name={insight.last_modified_by?.first_name}
-                            email={insight.last_modified_by?.email}
+                            name={created_by?.first_name || 'PostHog via feature flag'}
+                            email={created_by?.email}
                             showName
                             size="md"
                         />{' '}
-                        <TZLabel time={insight.last_modified_at} />
+                        <TZLabel time={created_at} />
                     </section>
                 </div>
+                {insight.last_modified_by && (
+                    <div>
+                        <h5>Last modified by</h5>
+                        <section>
+                            <ProfilePicture
+                                name={insight.last_modified_by?.first_name}
+                                email={insight.last_modified_by?.email}
+                                showName
+                                size="md"
+                            />{' '}
+                            <TZLabel time={insight.last_modified_at} />
+                        </section>
+                    </div>
+                )}
             </div>
         </div>
     )
