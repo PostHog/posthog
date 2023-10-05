@@ -70,6 +70,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
@@ -84,10 +85,7 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        launchSurvey: true,
-        stopSurvey: true,
         archiveSurvey: true,
-        resumeSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
     }),
     loaders(({ props, actions }) => ({
@@ -99,12 +97,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         actions.reportSurveyViewed(survey)
                         return survey
                     } catch (error: any) {
-                        if (error.status === 404) {
-                            lemonToast.error(`Survey not found`)
-                        } else {
-                            lemonToast.error(`Failed to load survey ${props.id}: ${error.detail}`)
-                        }
-                        return null
+                        actions.setSurveyMissing()
+                        throw error
                     }
                 }
                 return { ...NEW_SURVEY }
@@ -157,7 +151,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: ({ survey }) => {
-            actions.setCurrentQuestionIndexAndType(0, survey?.questions[0].type || SurveyQuestionType.Open)
+            actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
         },
     })),
     reducers({
@@ -167,8 +161,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
+        surveyMissing: [
+            false,
+            {
+                setSurveyMissing: () => true,
+            },
+        ],
         survey: [
-            null as NewSurvey | Survey | null,
+            { ...NEW_SURVEY } as NewSurvey | Survey,
             {
                 setDefaultForQuestionType: (
                     state,

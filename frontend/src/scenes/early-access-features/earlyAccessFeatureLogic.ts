@@ -38,6 +38,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         actions: [earlyAccessFeaturesLogic, ['loadEarlyAccessFeatures', 'loadEarlyAccessFeaturesSuccess']],
     })),
     actions({
+        setEarlyAccessFeatureMissing: true,
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
@@ -45,45 +46,38 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
-    loaders(({ props }) => ({
-        earlyAccessFeature: [
-            null as EarlyAccessFeatureType | null,
-            {
-                loadEarlyAccessFeature: async () => {
-                    if (props.id && props.id !== 'new') {
-                        try {
-                            const response = await api.earlyAccessFeatures.get(props.id)
-                            return response
-                        } catch (error: any) {
-                            if (error.status === 404) {
-                                lemonToast.error(`Early access feature not found`)
-                            } else {
-                                lemonToast.error(`Failed to load early access feature ${props.id}: ${error.detail}`)
-                            }
-                            return null
-                        }
+    loaders(({ props, actions }) => ({
+        earlyAccessFeature: {
+            loadEarlyAccessFeature: async () => {
+                if (props.id && props.id !== 'new') {
+                    try {
+                        const response = await api.earlyAccessFeatures.get(props.id)
+                        return response
+                    } catch (error: any) {
+                        actions.setEarlyAccessFeatureMissing()
+                        throw error
                     }
-                    return NEW_EARLY_ACCESS_FEATURE
-                },
-                saveEarlyAccessFeature: async (
-                    updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
-                ) => {
-                    let result: EarlyAccessFeatureType
-                    if (props.id === 'new') {
-                        result = await api.earlyAccessFeatures.create(
-                            updatedEarlyAccessFeature as NewEarlyAccessFeatureType
-                        )
-                        router.actions.replace(urls.earlyAccessFeature(result.id))
-                    } else {
-                        result = await api.earlyAccessFeatures.update(
-                            props.id,
-                            updatedEarlyAccessFeature as EarlyAccessFeatureType
-                        )
-                    }
-                    return result
-                },
+                }
+                return NEW_EARLY_ACCESS_FEATURE
             },
-        ],
+            saveEarlyAccessFeature: async (
+                updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
+            ) => {
+                let result: EarlyAccessFeatureType
+                if (props.id === 'new') {
+                    result = await api.earlyAccessFeatures.create(
+                        updatedEarlyAccessFeature as NewEarlyAccessFeatureType
+                    )
+                    router.actions.replace(urls.earlyAccessFeature(result.id))
+                } else {
+                    result = await api.earlyAccessFeatures.update(
+                        props.id,
+                        updatedEarlyAccessFeature as EarlyAccessFeatureType
+                    )
+                }
+                return result
+            },
+        },
     })),
     forms(({ actions }) => ({
         earlyAccessFeature: {
@@ -97,6 +91,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
     })),
     reducers({
+        earlyAccessFeatureMissing: [
+            false,
+            {
+                setEarlyAccessFeatureMissing: () => true,
+            },
+        ],
         isEditingFeature: [
             false,
             {

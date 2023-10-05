@@ -47,10 +47,10 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { isEditingSurvey, survey, surveyLoading } = useValues(surveyLogic)
+    const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
     const showSurveyForm = id === 'new' || isEditingSurvey
 
-    if (!survey && !surveyLoading && id !== 'new') {
+    if (surveyMissing) {
         return <NotFound object="survey" />
     }
 

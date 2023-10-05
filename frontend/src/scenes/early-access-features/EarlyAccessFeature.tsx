@@ -41,14 +41,19 @@ export const scene: SceneExport = {
 }
 
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
-    const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
-        useValues(earlyAccessFeatureLogic)
+    const {
+        earlyAccessFeature,
+        earlyAccessFeatureLoading,
+        isEarlyAccessFeatureSubmitting,
+        isEditingFeature,
+        earlyAccessFeatureMissing,
+    } = useValues(earlyAccessFeatureLogic)
     const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
-    if (!earlyAccessFeature && !isNewEarlyAccessFeature && !earlyAccessFeatureLoading) {
+    if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
     }
 
