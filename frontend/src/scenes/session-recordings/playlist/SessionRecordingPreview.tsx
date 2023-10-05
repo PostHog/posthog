@@ -6,7 +6,6 @@ import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -228,8 +227,6 @@ export function SessionRecordingPreview({
 
                     <FirstURL startUrl={recording.start_url} />
                 </div>
-
-                <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
             </div>
         </DraggableToNotebook>
     )

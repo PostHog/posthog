@@ -5,9 +5,9 @@
     display: flex;
     flex-direction: column-reverse;
     align-items: flex-start;
-    gap: 1rem;
     overflow: hidden;
-    padding-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
@@ -32,7 +32,7 @@
         flex-direction: row;
         justify-content: flex-start;
         // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-        height: calc(100vh - 14rem);
+        height: calc(100vh - 15rem);
         min-height: 41rem;
 
         .SessionRecordingsPlaylist__left-column {
@@ -48,14 +48,6 @@
             height: 100%;
         }
     }
-}
-
-.SessionRecordingsPlaylist__lists {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-    gap: 0.5rem;
 }
 
 .SessionRecordingPreview {

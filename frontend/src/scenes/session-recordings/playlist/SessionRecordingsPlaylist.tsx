@@ -143,149 +143,145 @@ function RecordingsLists({
     const nodeLogic = useNotebookNode()
 
     return (
-        <div className="SessionRecordingsPlaylist__lists">
-            <div className={clsx('flex flex-col w-full bg-bg-light border rounded overflow-hidden')}>
-                {!nodeLogic ? (
-                    <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
-                        <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
-                            <span className="px-2 py-1 flex flex-1 gap-2">
-                                <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                    Recordings
-                                </span>
-                                <Tooltip
-                                    placement="bottom"
-                                    title={
-                                        <>
-                                            Showing {recordings.length} results.
-                                            <br />
-                                            Scrolling to the bottom or the top of the list will load older or newer
-                                            recordings respectively.
-                                        </>
-                                    }
-                                >
-                                    <span>
-                                        <CounterBadge>{Math.min(999, recordings.length)}+</CounterBadge>
-                                    </span>
-                                </Tooltip>
+        <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r')}>
+            {!nodeLogic ? (
+                <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
+                    <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
+                        <span className="px-2 py-1 flex flex-1 gap-2">
+                            <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
+                                Recordings
                             </span>
-                            <LemonButton
-                                tooltip="Filter recordings"
-                                size="small"
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type="tertiary"
-                                active={showFilters}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Showing {recordings.length} results.
+                                        <br />
+                                        Scrolling to the bottom or the top of the list will load older or newer
+                                        recordings respectively.
+                                    </>
                                 }
-                                onClick={() => setShowFilters(!showFilters)}
                             >
-                                Filter
-                            </LemonButton>
-                            <LemonButton
-                                tooltip="Playlist settings"
-                                size="small"
-                                status={showSettings ? 'primary' : 'primary-alt'}
-                                type="tertiary"
-                                active={showSettings}
-                                icon={<IconSettings />}
-                                onClick={() => setShowSettings(!showSettings)}
-                            />
-                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                        </div>
-                    </DraggableToNotebook>
+                                <span>
+                                    <CounterBadge>{Math.min(999, recordings.length)}+</CounterBadge>
+                                </span>
+                            </Tooltip>
+                        </span>
+                        <LemonButton
+                            tooltip="Filter recordings"
+                            size="small"
+                            status={showFilters ? 'primary' : 'primary-alt'}
+                            type="tertiary"
+                            active={showFilters}
+                            icon={
+                                <IconWithCount count={totalFiltersCount}>
+                                    <IconFilter />
+                                </IconWithCount>
+                            }
+                            onClick={() => setShowFilters(!showFilters)}
+                        >
+                            Filter
+                        </LemonButton>
+                        <LemonButton
+                            tooltip="Playlist settings"
+                            size="small"
+                            status={showSettings ? 'primary' : 'primary-alt'}
+                            type="tertiary"
+                            active={showSettings}
+                            icon={<IconSettings />}
+                            onClick={() => setShowSettings(!showSettings)}
+                        />
+                        <LemonTableLoader loading={sessionRecordingsResponseLoading} />
+                    </div>
+                </DraggableToNotebook>
+            ) : null}
+
+            <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
+                {showFilters ? (
+                    <div className="bg-side border-b">
+                        <SessionRecordingsFilters
+                            filters={filters}
+                            setFilters={setFilters}
+                            showPropertyFilters={!personUUID}
+                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                            hasAdvancedFilters={hasAdvancedFilters}
+                            showAdvancedFilters={showAdvancedFilters}
+                            setShowAdvancedFilters={setShowAdvancedFilters}
+                        />
+                    </div>
+                ) : showSettings ? (
+                    <SessionRecordingsPlaylistSettings />
                 ) : null}
 
-                <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
-                    {showFilters ? (
-                        <div className="bg-side border-b">
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                hasAdvancedFilters={hasAdvancedFilters}
-                                showAdvancedFilters={showAdvancedFilters}
-                                setShowAdvancedFilters={setShowAdvancedFilters}
-                            />
-                        </div>
-                    ) : showSettings ? (
-                        <SessionRecordingsPlaylistSettings />
-                    ) : null}
+                {recordings?.length ? (
+                    <ul>
+                        {recordings.map((rec, i) => (
+                            <Fragment key={rec.id}>
+                                {i > 0 && <div className="border-t" />}
+                                <SessionRecordingPreview
+                                    recording={rec}
+                                    recordingProperties={recordingPropertiesById[rec.id]}
+                                    recordingPropertiesLoading={
+                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
+                                    }
+                                    onClick={() => onRecordingClick(rec)}
+                                    onPropertyClick={onPropertyClick}
+                                    isActive={activeSessionRecording?.id === rec.id}
+                                />
+                            </Fragment>
+                        ))}
 
-                    {recordings?.length ? (
-                        <ul>
-                            {recordings.map((rec, i) => (
-                                <Fragment key={rec.id}>
-                                    {i > 0 && <div className="border-t" />}
-                                    <SessionRecordingPreview
-                                        recording={rec}
-                                        recordingProperties={recordingPropertiesById[rec.id]}
-                                        recordingPropertiesLoading={
-                                            !recordingPropertiesById[rec.id] && recordingPropertiesLoading
-                                        }
-                                        onClick={() => onRecordingClick(rec)}
-                                        onPropertyClick={onPropertyClick}
-                                        isActive={activeSessionRecording?.id === rec.id}
-                                    />
-                                </Fragment>
-                            ))}
-
-                            <LemonDivider />
-                            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                                {sessionRecordingsResponseLoading ? (
-                                    <>
-                                        <Spinner textColored /> Loading older recordings
-                                    </>
-                                ) : hasNext ? (
-                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
-                                        Load more
-                                    </LemonButton>
-                                ) : (
-                                    'No more results'
-                                )}
-                            </div>
-                        </ul>
-                    ) : sessionRecordingsResponseLoading ? (
-                        <>
-                            {range(RECORDINGS_LIMIT).map((i) => (
-                                <SessionRecordingPreviewSkeleton key={i} />
-                            ))}
-                        </>
-                    ) : (
-                        <div className="p-3 text-sm text-muted-alt">
-                            {sessionRecordingsAPIErrored ? (
-                                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
-                            ) : unusableEventsInFilter.length ? (
-                                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                        <LemonDivider />
+                        <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                            {sessionRecordingsResponseLoading ? (
+                                <>
+                                    <Spinner textColored /> Loading older recordings
+                                </>
+                            ) : hasNext ? (
+                                <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                    Load more
+                                </LemonButton>
                             ) : (
-                                <div className={'flex flex-col items-center space-y-2'}>
-                                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
-                                        <>
-                                            <span>No matching recordings found</span>
-                                            <LemonButton
-                                                type={'secondary'}
-                                                data-attr={
-                                                    'expand-replay-listing-from-default-seven-days-to-twenty-one'
-                                                }
-                                                onClick={() => {
-                                                    setFilters({
-                                                        date_from: '-30d',
-                                                    })
-                                                }}
-                                            >
-                                                Search over the last 30 days
-                                            </LemonButton>
-                                        </>
-                                    ) : (
-                                        <SessionRecordingsPlaylistTroubleshooting />
-                                    )}
-                                </div>
+                                'No more results'
                             )}
                         </div>
-                    )}
-                </div>
+                    </ul>
+                ) : sessionRecordingsResponseLoading ? (
+                    <>
+                        {range(RECORDINGS_LIMIT).map((i) => (
+                            <SessionRecordingPreviewSkeleton key={i} />
+                        ))}
+                    </>
+                ) : (
+                    <div className="p-3 text-sm text-muted-alt">
+                        {sessionRecordingsAPIErrored ? (
+                            <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                        ) : unusableEventsInFilter.length ? (
+                            <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+                        ) : (
+                            <div className={'flex flex-col items-center space-y-2'}>
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
+                                    <>
+                                        <span>No matching recordings found</span>
+                                        <LemonButton
+                                            type={'secondary'}
+                                            data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                            onClick={() => {
+                                                setFilters({
+                                                    date_from: '-30d',
+                                                })
+                                            }}
+                                        >
+                                            Search over the last 30 days
+                                        </LemonButton>
+                                    </>
+                                ) : (
+                                    <SessionRecordingsPlaylistTroubleshooting />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -324,6 +320,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                                 sessionRecordingId={activeSessionRecording?.id}
                                 matchingEventsMatchType={matchingEventsMatchType}
                                 nextSessionRecording={nextSessionRecording}
+                                noBorder
                             />
                         ) : (
                             <div className="mt-20">
