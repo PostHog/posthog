@@ -163,15 +163,15 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     })),
     selectors(() => ({
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists, s.searchQuery, (_, props) => props.playlistShortId],
-            (playlists, currentPlaylists, searchQuery, playlistShortId) => {
+            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
+            (playlists, currentPlaylists, searchQuery) => {
                 const otherPlaylists = searchQuery
                     ? playlists
                     : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
 
                 const selectedPlaylists = !searchQuery ? currentPlaylists : []
 
-                let results: {
+                const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
@@ -185,12 +185,13 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                     })),
                 ]
 
-                // If props.playlistShortId exists put it at the beginning of the list
-                if (playlistShortId) {
-                    results = results.sort((a, b) =>
-                        a.playlist.short_id == playlistShortId ? -1 : b.playlist.short_id == playlistShortId ? 1 : 0
-                    )
-                }
+                // TODO: Do we care about this...
+                // // If props.playlistShortId exists put it at the beginning of the list
+                // if (playlistShortId) {
+                //     results = results.sort((a, b) =>
+                //         a.playlist.short_id == playlistShortId ? -1 : b.playlist.short_id == playlistShortId ? 1 : 0
+                //     )
+                // }
 
                 return results
             },

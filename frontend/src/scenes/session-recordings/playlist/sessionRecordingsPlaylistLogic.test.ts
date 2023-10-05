@@ -150,14 +150,11 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             describe('core assumptions', () => {
-                it('loads recent recordings and pinned recordings after mounting', async () => {
+                it('loads recent recordings after mounting', async () => {
                     await expectLogic(logic)
-                        .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess', 'loadPinnedRecordingsSuccess'])
+                        .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
                         .toMatchValues({
                             sessionRecordings: listOfSessionRecordings,
-                            pinnedRecordingsResponse: {
-                                results: ['Pinned recordings'],
-                            },
                         })
                 })
             })

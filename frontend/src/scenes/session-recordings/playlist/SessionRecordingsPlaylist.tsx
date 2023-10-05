@@ -5,7 +5,7 @@ import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
-    SessionRecordingListLogicProps,
+    SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 import './SessionRecordingsPlaylist.scss'
@@ -275,8 +275,8 @@ function RecordingsLists(): JSX.Element {
     )
 }
 
-export function SessionRecordingsPlaylist(props: SessionRecordingListLogicProps): JSX.Element {
-    const logicProps: SessionRecordingListLogicProps = {
+export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+    const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
     }

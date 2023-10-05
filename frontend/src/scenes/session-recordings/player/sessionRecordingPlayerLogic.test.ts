@@ -146,12 +146,12 @@ describe('sessionRecordingPlayerLogic', () => {
     describe('delete session recording', () => {
         it('on playlist page', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsPlaylistLogic({ playlistShortId: 'playlist_id' })
+            const listLogic = sessionRecordingsPlaylistLogic({})
             listLogic.mount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                playlistShortId: 'playlist_id',
+                playlistLogic: listLogic,
             })
             logic.mount()
             jest.spyOn(api, 'delete')

@@ -82,7 +82,6 @@ export interface SessionRecordingLogicProps {
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
-    playlistShortId?: string
     matchingEventsMatchType?: MatchingEventsMatchType
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean

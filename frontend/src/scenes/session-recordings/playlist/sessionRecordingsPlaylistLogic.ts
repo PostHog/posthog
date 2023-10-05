@@ -158,7 +158,7 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
-export interface SessionRecordingListLogicProps {
+export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
     filters?: RecordingFilters
@@ -170,9 +170,9 @@ export interface SessionRecordingListLogicProps {
 
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
-    props({} as SessionRecordingListLogicProps),
+    props({} as SessionRecordingPlaylistLogicProps),
     key(
-        (props: SessionRecordingListLogicProps) =>
+        (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect({
@@ -444,7 +444,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
-        logicProps: [() => [(_, props) => props], (props) => props],
+        logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
         shouldShowEmptyState: [
             (s) => [
                 s.sessionRecordings,
