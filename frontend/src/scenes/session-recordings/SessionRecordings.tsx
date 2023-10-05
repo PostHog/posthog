@@ -3,7 +3,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
 import { AvailableFeature, ReplayTabs } from '~/types'
@@ -23,6 +22,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

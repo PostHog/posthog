@@ -1288,12 +1288,12 @@ const api = {
 
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingsResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
-                .withQueryString(params)
+                .withQueryString(toParams(params))
                 .get()
         },
 

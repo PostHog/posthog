@@ -23,7 +23,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
@@ -34,6 +33,7 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { SessionRecordingsPlaylistV2 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -235,7 +235,7 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                <SessionRecordingsPlaylistV2 personUUID={person.uuid} updateSearchParams />
                             </>
                         ),
                     },

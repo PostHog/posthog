@@ -1,6 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, ReplayTabs } from '~/types'
-import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import {
+    Breadcrumb,
+    RecordingFilters,
+    SessionRecordingPlaylistType,
+    ReplayTabs,
+    SessionRecordingsResponse,
+} from '~/types'
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
 import { beforeUnload, router } from 'kea-router'
@@ -14,12 +19,16 @@ import {
 } from 'scenes/session-recordings/playlist/playlistUtils'
 import { loaders } from 'kea-loaders'
 
+import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
+import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsListLogic'
+import api from 'lib/api'
+
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
 }
 
-export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
+export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylistSceneLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistSceneLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect({
@@ -31,6 +40,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             silent,
         }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
+        loadPinnedRecordings: true,
     }),
     loaders(({ values, props }) => ({
         playlist: [
@@ -59,6 +69,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         })
                     }
                     return null
+                },
+            },
+        ],
+
+        pinnedRecordings: [
+            null as SessionRecordingsResponse | null,
+            {
+                loadPinnedRecordings: async (_, breakpoint) => {
+                    if (!props.shortId) {
+                        return null
+                    }
+
+                    await breakpoint(100)
+                    const response = await api.recordings.listPlaylistRecordings(props.shortId, {
+                        limit: PINNED_RECORDINGS_LIMIT,
+                    })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -124,5 +152,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
     afterMount(({ actions }) => {
         actions.getPlaylist()
+        actions.loadPinnedRecordings()
     }),
 ])

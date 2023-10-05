@@ -1,10 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { useMocks } from '~/mocks/jest'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 
-describe('sessionRecordingsPlaylistLogic', () => {
-    let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
+describe('sessionRecordingsPlaylistSceneLogic', () => {
+    let logic: ReturnType<typeof sessionRecordingsPlaylistSceneLogic.build>
     const mockPlaylist = {
         id: 'abc',
         short_id: 'short_abc',
@@ -41,7 +41,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     beforeEach(() => {
-        logic = sessionRecordingsPlaylistLogic({ shortId: mockPlaylist.short_id })
+        logic = sessionRecordingsPlaylistSceneLogic({ shortId: mockPlaylist.short_id })
         logic.mount()
     })
 

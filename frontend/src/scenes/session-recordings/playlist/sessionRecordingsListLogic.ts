@@ -159,12 +159,12 @@ export const defaultPageviewPropertyEntityFilter = (
 
 export interface SessionRecordingListLogicProps {
     logicKey?: string
-    playlistShortId?: string
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
     autoPlay?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    pinnedRecordings?: SessionRecordingType[]
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
@@ -172,9 +172,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     props({} as SessionRecordingListLogicProps),
     key(
         (props: SessionRecordingListLogicProps) =>
-            `${props.logicKey}-${props.playlistShortId}-${props.personUUID}-${
-                props.updateSearchParams ? '-with-search' : ''
-            }`
+            `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
     connect({
         actions: [
@@ -209,6 +207,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.filters, oldProps.filters)) {
             props.filters ? actions.setFilters(props.filters) : actions.resetFilters()
+        }
+
+        // If the defined list changes, we need to call the loader to either load the new items or change the list
+        if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
+            actions.loadPinnedRecordings()
         }
     }),
 
@@ -273,23 +276,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 },
             },
         ],
-        pinnedRecordingsResponse: [
-            null as SessionRecordingsResponse | null,
+
+        pinnedRecordings: [
+            [] as SessionRecordingType[],
             {
                 loadPinnedRecordings: async (_, breakpoint) => {
-                    if (!props.playlistShortId) {
-                        return null
-                    }
-
-                    const paramsDict = {
-                        limit: PINNED_RECORDINGS_LIMIT,
-                    }
-
-                    const params = toParams(paramsDict)
                     await breakpoint(100)
-                    const response = await api.recordings.listPlaylistRecordings(props.playlistShortId, params)
-                    breakpoint()
-                    return response
+                    const fromProps = props.pinnedRecordings ?? []
+                    // TODO: React to props changing and order appropriately
+                    // TODO: Check for pinnedRecordings being IDs and fetch them, returnig the merged list
+
+                    return fromProps
                 },
             },
         ],
@@ -393,16 +390,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 loadPrev: () => false,
             },
         ],
-        pinnedRecordingsAPIErrored: [
-            false,
-            {
-                loadPinnedRecordingsFailure: () => true,
-                loadPinnedRecordingsSuccess: () => false,
-                setFilters: () => false,
-                loadNext: () => false,
-                loadPrev: () => false,
-            },
-        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -462,7 +449,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 s.customFilters,
                 s.sessionRecordingsResponseLoading,
                 s.sessionRecordingsAPIErrored,
-                s.pinnedRecordingsAPIErrored,
                 (_, props) => props.personUUID,
             ],
             (
@@ -470,12 +456,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 customFilters,
                 sessionRecordingsResponseLoading,
                 sessionRecordingsAPIErrored,
-                pinnedRecordingsAPIErrored,
                 personUUID
             ): boolean => {
                 return (
                     !sessionRecordingsAPIErrored &&
-                    !pinnedRecordingsAPIErrored &&
                     !sessionRecordingsResponseLoading &&
                     sessionRecordings.length === 0 &&
                     !customFilters &&
@@ -588,10 +572,24 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return addedAdvancedFilters(filters, defaultFilters)
             },
         ],
-        visibleRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings],
-            (sessionRecordings, hideViewedRecordings) => {
-                return hideViewedRecordings ? sessionRecordings.filter((r) => !r.viewed) : sessionRecordings
+        recordings: [
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings],
+            (sessionRecordings, hideViewedRecordings, pinnedRecordings): SessionRecordingType[] => {
+                const allRecordings = [...pinnedRecordings].concat(
+                    sessionRecordings.filter((rec) => {
+                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                            return false
+                        }
+
+                        if (hideViewedRecordings && rec.viewed) {
+                            return false
+                        }
+
+                        return true
+                    })
+                )
+
+                return allRecordings
             },
         ],
     }),

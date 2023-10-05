@@ -14,7 +14,7 @@ import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/sess
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
@@ -155,14 +155,9 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
 
         updateRecordingsPinnedCounts: ({ diffCount, playlistShortId }) => {
             actions.addDiffToRecordingMetaPinnedCount(diffCount)
-
             // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            if (!!playlistShortId && sessionRecordingsListLogic.isMounted({ playlistShortId })) {
-                // On playlist page
-                sessionRecordingsListLogic({ playlistShortId }).actions.loadAllRecordings()
-            } else {
-                // In any other context (recent recordings, single modal, single recording page)
-                sessionRecordingsListLogic.findMounted({ updateSearchParams: true })?.actions?.loadAllRecordings()
+            if (!!playlistShortId && sessionRecordingsPlaylistSceneLogic.isMounted({ shortId: playlistShortId })) {
+                sessionRecordingsPlaylistSceneLogic({ shortId: playlistShortId }).actions.loadPinnedRecordings()
             }
         },
     })),
