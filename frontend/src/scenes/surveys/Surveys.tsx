@@ -94,6 +94,20 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
+                caption={
+                    <>
+                        Check out our
+                        <Link
+                            data-attr="survey-help"
+                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                            target="_blank"
+                        >
+                            {' '}
+                            surveys docs
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
             />
             <LemonTabs
                 activeKey={tab}
@@ -234,7 +248,7 @@ export function Surveys(): JSX.Element {
                                 {
                                     title: 'Question type',
                                     render: function RenderResponses(_, survey) {
-                                        return survey.questions.length === 1
+                                        return survey.questions?.length === 1
                                             ? SurveyQuestionLabel[survey.questions[0].type]
                                             : 'Multiple'
                                     },

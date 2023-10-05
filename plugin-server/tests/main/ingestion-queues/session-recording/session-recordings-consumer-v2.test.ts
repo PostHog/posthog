@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -151,9 +152,12 @@ describe('ingester', () => {
     })
 
     it('destroys a session manager if finished', async () => {
-        const event = createIncomingRecordingMessage()
+        const sessionId = `destroys-a-session-manager-if-finished-${randomUUID()}`
+        const event = createIncomingRecordingMessage({
+            session_id: sessionId,
+        })
         await ingester.consume(event)
-        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        expect(ingester.sessions[`1-${sessionId}`]).toBeDefined()
         // Force the flush
         ingester.partitionAssignments[event.metadata.partition] = {
             lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
@@ -161,7 +165,9 @@ describe('ingester', () => {
 
         await ingester.flushAllReadySessions()
 
-        expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
+        await waitForExpect(() => {
+            expect(ingester.sessions[`1-${sessionId}`]).not.toBeDefined()
+        }, 10000)
     })
 
     describe('parsing the message', () => {
@@ -415,6 +421,7 @@ describe('ingester', () => {
             // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
             await expect(getPersistentWaterMarks()).resolves.toEqual({
                 'session-recordings-blob': 1,
+                session_replay_console_logs_events_ingester: 3,
                 session_replay_events_ingester: 3,
             })
         })
@@ -428,6 +435,7 @@ describe('ingester', () => {
             await commitAllOffsets()
             expect(mockCommit).not.toHaveBeenCalled()
             await expect(getPersistentWaterMarks()).resolves.toEqual({
+                session_replay_console_logs_events_ingester: 2,
                 session_replay_events_ingester: 2,
             })
             await expect(getSessionWaterMarks()).resolves.toEqual({
@@ -554,8 +562,9 @@ describe('ingester', () => {
         it('shuts down without error', async () => {
             await setup()
 
-            // revoke, realtime unsub, replay stop
+            // revoke, realtime unsub, replay stop, console ingestion stop
             await expect(ingester.stop()).resolves.toMatchObject([
+                { status: 'fulfilled' },
                 { status: 'fulfilled' },
                 { status: 'fulfilled' },
                 { status: 'fulfilled' },

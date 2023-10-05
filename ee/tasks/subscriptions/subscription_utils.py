@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import List, Tuple, Union
 from django.conf import settings
 import structlog
-from celery import group
+from celery import chain
 from prometheus_client import Histogram
 
 from posthog.models.dashboard_tile import get_tiles_ordered_by_position
@@ -45,8 +45,9 @@ def generate_assets(
         ExportedAsset.objects.bulk_create(assets)
 
         # Wait for all assets to be exported
-        tasks = [exporter.export_asset.s(asset.id) for asset in assets]
-        parallel_job = group(tasks).apply_async()
+        tasks = [exporter.export_asset.si(asset.id) for asset in assets]
+        # run them one after the other so we don't exhaust celery workers
+        parallel_job = chain(*tasks).apply_async()
 
         wait_for_parallel_celery_group(
             parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)

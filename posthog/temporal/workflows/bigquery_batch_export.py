@@ -47,6 +47,7 @@ def create_table_in_bigquery(
     """Create a table in BigQuery."""
     fully_qualified_name = f"{project_id}.{dataset_id}.{table_id}"
     table = bigquery.Table(fully_qualified_name, schema=table_schema)
+    table.time_partitioning = bigquery.TimePartitioning(type_=bigquery.TimePartitioningType.DAY, field="timestamp")
     table = bigquery_client.create_table(table, exists_ok=exists_ok)
 
     return table

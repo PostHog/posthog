@@ -15,6 +15,7 @@ import {
     SurveyQuestionBase,
     SurveyQuestionType,
     SurveyType,
+    SurveyUrlMatchType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema'
@@ -359,7 +360,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
                 const singleChoiceQuery = `select count(), properties.${surveyResponseProperty} as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
-                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, ${surveyResponseProperty})) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
+                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '${surveyResponseProperty}')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -377,6 +378,19 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey): boolean => {
                 return !!survey.targeting_flag || !!survey.targeting_flag_filters
+            },
+        ],
+        urlMatchTypeValidationError: [
+            (s) => [s.survey],
+            (survey): string | null => {
+                if (survey.conditions?.urlMatchType === SurveyUrlMatchType.Regex && survey.conditions.url) {
+                    try {
+                        new RegExp(survey.conditions.url)
+                    } catch (e: any) {
+                        return e.message
+                    }
+                }
+                return null
             },
         ],
     }),
@@ -397,6 +411,8 @@ export const surveyLogic = kea<surveyLogicType>([
                           }
                         : {}),
                 })),
+                // controlled using a PureField in the form
+                urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: async (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload

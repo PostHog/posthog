@@ -283,6 +283,15 @@ class FeatureFlag(models.Model):
 
         return list(cohort_ids)
 
+    @property
+    def uses_cohorts(self) -> bool:
+        for condition in self.conditions:
+            props = condition.get("properties", [])
+            for prop in props:
+                if prop.get("type") == "cohort":
+                    return True
+        return False
+
     def __str__(self):
         return f"{self.key} ({self.pk})"
 
