@@ -48,10 +48,10 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
         )
 
     def to_printed_clickhouse(self, context):
-        return "log_entries"
+        return "console_logs_log_entries"
 
     def to_printed_hogql(self):
-        return "log_entries"
+        return "console_logs_log_entries"
 
 
 class BatchExportLogEntriesTable(LazyTable):
@@ -71,7 +71,7 @@ class BatchExportLogEntriesTable(LazyTable):
         )
 
     def to_printed_clickhouse(self, context):
-        return "log_entries"
+        return "batch_export_log_entries"
 
     def to_printed_hogql(self):
-        return "log_entries"
+        return "batch_export_log_entries"
