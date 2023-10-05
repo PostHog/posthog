@@ -1310,11 +1310,41 @@ class PersonsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
+    fixedProperties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
     kind: Literal["PersonsQuery"] = "PersonsQuery"
     limit: Optional[float] = None
     offset: Optional[float] = None
-    properties: Optional[List[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
     response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None

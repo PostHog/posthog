@@ -25,7 +25,11 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
             pageKey={`PersonPropertyFilters.${id}`}
             taxonomicGroupTypes={
                 isPersonsQuery(query)
-                    ? [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    ? [
+                          TaxonomicFilterGroupType.PersonProperties,
+                          TaxonomicFilterGroupType.Cohorts,
+                          TaxonomicFilterGroupType.HogQLExpression,
+                      ]
                     : [TaxonomicFilterGroupType.PersonProperties]
             }
             hogQLTable="persons"

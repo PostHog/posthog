@@ -21,8 +21,6 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
-    PersonPropertyFilter,
-    HogQLPropertyFilter,
 } from '~/types'
 
 /**
@@ -530,8 +528,8 @@ export interface PersonsQuery extends DataNode {
     sourceDay?: string
     sourceGroup?: string
     search?: string
-    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
-    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    properties?: AnyPropertyFilter[]
+    fixedProperties?: AnyPropertyFilter[]
     limit?: number
     offset?: number
     response?: PersonsQueryResponse

@@ -1649,14 +1649,7 @@
             "properties": {
                 "fixedProperties": {
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -1672,14 +1665,7 @@
                 },
                 "properties": {
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PersonPropertyFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/HogQLPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
                 },

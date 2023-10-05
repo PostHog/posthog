@@ -231,14 +231,9 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
-        if scope == "person":
-            raise NotImplementedException(
-                f"property_to_expr for scope {scope} not implemented for type '{property.type}'"
-            )
-
         cohort = Cohort.objects.get(team=team, id=property.value)
         return ast.CompareOperation(
-            left=ast.Field(chain=["person_id"]),
+            left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=ast.CompareOperationOp.InCohort,
             right=ast.Constant(value=cohort.pk),
         )
