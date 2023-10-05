@@ -46,6 +46,8 @@ setup(
     maintainer="PostHog Inc.",
     maintainer_email="hey@posthog.com",
     description="HogQL parser for internal PostHog use",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
     ext_modules=[module],
     python_requires=">=3.10",
     classifiers=[

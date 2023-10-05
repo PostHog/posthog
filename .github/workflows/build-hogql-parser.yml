@@ -33,6 +33,10 @@ jobs:
 
             - uses: actions/setup-python@v3
 
+            - name: Build sdist
+              if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
+              run: python -m build hogql_parser --sdist
+
             - name: Install cibuildwheel
               run: python -m pip install cibuildwheel==2.16.*
 
@@ -53,20 +57,11 @@ jobs:
             id-token: write
         runs-on: ubuntu-22.04
         steps:
-            - uses: actions/checkout@v4
-
-            - uses: actions/setup-python@v3
-
-            - name: Build sdist
-              run: cd hogql_parser && python setup.py sdist
-
             - name: Fetch wheels
               uses: actions/download-artifact@v3
               with:
                   name: artifact
-                  path: hogql_parser/dist/
+                  path: dist/
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@release/v1
-              with:
-                  packages-dir: hogql_parser/dist/
