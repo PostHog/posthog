@@ -53,7 +53,15 @@ jobs:
             id-token: write
         runs-on: ubuntu-22.04
         steps:
-            - uses: actions/download-artifact@v3
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v3
+
+            - name: Build sdist
+              run: cd hogql_parser && python setup.py sdist
+
+            - name: Fetch wheels
+              uses: actions/download-artifact@v3
               with:
                   name: artifact
                   path: dist

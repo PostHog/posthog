@@ -3,3 +3,4 @@ build/
 *.egg-info
 *.so
 wheelhouse/
+dist/
