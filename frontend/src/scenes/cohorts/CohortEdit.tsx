@@ -30,8 +30,16 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query, duplicatedStaticCohortLoading } = useValues(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort, duplicateToDynamicCohort } =
+        useActions(logic)
+    const {
+        cohort,
+        cohortLoading,
+        cohortMissing,
+        query,
+        duplicatedStaticCohortLoading,
+        duplicatedDynamicCohortLoading,
+    } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
@@ -72,6 +80,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {!isNewCohort && !cohort.is_static && (
                                 <>
                                     <LemonDivider vertical />
+                                    <LemonButton
+                                        onClick={duplicateToDynamicCohort}
+                                        type="secondary"
+                                        disabledReason={
+                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
+                                        }
+                                        loading={duplicatedDynamicCohortLoading}
+                                    >
+                                        Duplicate as dynamic cohort
+                                    </LemonButton>
                                     <LemonButton
                                         onClick={duplicateToStaticCohort}
                                         type="secondary"
