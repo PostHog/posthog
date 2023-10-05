@@ -152,7 +152,7 @@ export function HTMLElementsDisplay({
                                 onClick={showAdditionalElements}
                             >
                                 {`Show ${Math.min(3, elementsToShowDepth)} more parent${
-                                    elementsToShowDepth > 1 && 's'
+                                    elementsToShowDepth > 1 ? 's' : ''
                                 } (${elementsToShowDepth} hidden)`}
                             </pre>
                         ) : null}
