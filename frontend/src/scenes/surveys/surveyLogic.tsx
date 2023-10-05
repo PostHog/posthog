@@ -165,7 +165,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     state,
                     { idx, type, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
                 ) => {
-                    // debugger
                     const question = isEditingQuestion
                         ? state.questions[idx].question
                         : defaultSurveyFieldValues[type].questions[0].question
