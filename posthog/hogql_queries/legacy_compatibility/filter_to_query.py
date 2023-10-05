@@ -311,8 +311,8 @@ def _insight_filter(filter: Dict):
                 formula=filter.get("formula"),
                 shown_as=filter.get("shown_as"),
                 display=clean_display(filter.get("display")),
-                # show_values_on_series=filter.get('show_values_on_series'),
-                # show_percent_stack_view=filter.get('show_percent_stack_view'),
+                show_values_on_series=filter.get("show_values_on_series"),
+                show_percent_stack_view=filter.get("show_percent_stack_view"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
@@ -324,7 +324,7 @@ def _insight_filter(filter: Dict):
                 funnel_to_step=filter.get("funnel_to_step"),
                 funnel_window_interval_unit=filter.get("funnel_window_interval_unit"),
                 funnel_window_interval=filter.get("funnel_window_interval"),
-                # funnel_step_reference=filter.get('funnel_step_reference'),
+                funnel_step_reference=filter.get("funnel_step_reference"),
                 breakdown_attribution_type=filter.get("breakdown_attribution_type"),
                 breakdown_attribution_value=filter.get("breakdown_attribution_value"),
                 bin_count=filter.get("bin_count"),
@@ -345,7 +345,7 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "retentionFilter": RetentionFilter(
                 retention_type=filter.get("retention_type"),
-                # retention_reference=filter.get('retention_reference'),
+                retention_reference=filter.get("retention_reference"),
                 total_intervals=filter.get("total_intervals"),
                 returning_entity=to_base_entity_dict(filter.get("returning_entity"))
                 if filter.get("returning_entity") is not None
@@ -381,7 +381,7 @@ def _insight_filter(filter: Dict):
             "lifecycleFilter": LifecycleFilter(
                 shown_as=filter.get("shown_as"),
                 # toggledLifecycles=filter.get('toggledLifecycles'),
-                # show_values_on_series=filter.get('show_values_on_series'),
+                show_values_on_series=filter.get("show_values_on_series"),
             )
         }
     elif _insight_type(filter) == "STICKINESS":
@@ -391,7 +391,7 @@ def _insight_filter(filter: Dict):
                 shown_as=filter.get("shown_as"),
                 # show_legend=filter.get('show_legend'),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
-                # show_values_on_series=filter.get('show_values_on_series'),
+                show_values_on_series=filter.get("show_values_on_series"),
             )
         }
     else:
