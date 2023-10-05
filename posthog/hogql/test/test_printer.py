@@ -3,6 +3,7 @@ from typing import Literal, Optional, Dict
 from django.test import override_settings
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField
@@ -815,4 +816,40 @@ class TestPrinter(BaseTest):
             f"isNotNull(session_replay_events.click_count) "
             # ...
             f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
+        )
+
+    def test_print_global_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
+
+    def test_print_query_level_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        printed = print_ast(query, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1",
+        )
+
+    def test_print_both_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1",
         )
