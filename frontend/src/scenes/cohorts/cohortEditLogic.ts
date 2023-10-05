@@ -168,7 +168,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                           kind: NodeKind.DataTableNode,
                           source: {
                               kind: NodeKind.PersonsQuery,
-                              fixedProperties: [{ key: 'id', type: PropertyFilterType.Cohort, value: props.id }],
+                              fixedProperties: [
+                                  { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
+                              ],
                           },
                           full: true,
                       }

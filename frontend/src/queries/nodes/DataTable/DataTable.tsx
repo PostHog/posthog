@@ -185,6 +185,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
@@ -192,7 +193,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         ...query,
                                         source: {
                                             ...source,
-                                            select: source.select
+                                            select: columns
                                                 .map((s, i) => (i === index ? hogQl : s))
                                                 .filter((c) =>
                                                     isAggregation ? c !== '*' && c !== 'person.$delete' : true
@@ -412,6 +413,14 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
+    if (showOpenEditorButton && !isReadOnly) {
+        if (inlineEditorButtonOnRow === 1) {
+            firstRowRight.push(<OpenEditorButton query={query} />)
+        } else if (inlineEditorButtonOnRow === 2) {
+            secondRowRight.push(<OpenEditorButton query={query} />)
+        }
+    }
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -424,9 +433,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
                         </div>
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
@@ -435,9 +441,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {secondRowLeft}
                             {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {secondRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
