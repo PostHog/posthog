@@ -270,7 +270,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
                             {
-                                toastId: `cohort-duplicated-${values.cohort.id}`,
+                                toastId: `cohort-duplicated-${cohort.id}`,
                                 button: {
                                     label: 'View cohort',
                                     action: () => {

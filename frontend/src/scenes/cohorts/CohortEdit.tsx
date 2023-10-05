@@ -26,6 +26,7 @@ import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -57,42 +58,51 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     Cancel
                                 </LemonButton>
                             ) : (
-                                <LemonButton
-                                    data-attr="delete-cohort"
-                                    status="danger"
-                                    type="secondary"
-                                    onClick={() => {
-                                        deleteCohort()
-                                    }}
-                                    disabled={cohortLoading}
-                                >
-                                    Delete
-                                </LemonButton>
-                            )}
-                            {!isNewCohort && !cohort.is_static && (
-                                <>
-                                    <LemonDivider vertical />
-                                    <LemonButton
-                                        onClick={() => duplicateCohort(false)}
-                                        type="secondary"
-                                        disabledReason={
-                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
-                                        }
-                                        loading={duplicatedCohortLoading}
-                                    >
-                                        Duplicate as dynamic cohort
-                                    </LemonButton>
-                                    <LemonButton
-                                        onClick={() => duplicateCohort(true)}
-                                        type="secondary"
-                                        disabledReason={
-                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
-                                        }
-                                        loading={duplicatedCohortLoading}
-                                    >
-                                        Duplicate as static cohort
-                                    </LemonButton>
-                                </>
+                                <More
+                                    overlay={
+                                        <>
+                                            {!cohort.is_static && (
+                                                <>
+                                                    <LemonButton
+                                                        onClick={() => duplicateCohort(false)}
+                                                        fullWidth
+                                                        disabledReason={
+                                                            cohort.is_calculating
+                                                                ? 'Cohort is still calculating'
+                                                                : undefined
+                                                        }
+                                                        loading={duplicatedCohortLoading}
+                                                    >
+                                                        Duplicate as dynamic cohort
+                                                    </LemonButton>
+                                                    <LemonButton
+                                                        onClick={() => duplicateCohort(true)}
+                                                        fullWidth
+                                                        disabledReason={
+                                                            cohort.is_calculating
+                                                                ? 'Cohort is still calculating'
+                                                                : undefined
+                                                        }
+                                                        loading={duplicatedCohortLoading}
+                                                    >
+                                                        Duplicate as static cohort
+                                                    </LemonButton>
+                                                    <LemonDivider vertical />
+                                                </>
+                                            )}
+                                            <LemonButton
+                                                data-attr="delete-cohort"
+                                                fullWidth
+                                                status="danger"
+                                                onClick={() => {
+                                                    deleteCohort()
+                                                }}
+                                            >
+                                                Delete
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
                             )}
                             <LemonButton
                                 type="primary"
