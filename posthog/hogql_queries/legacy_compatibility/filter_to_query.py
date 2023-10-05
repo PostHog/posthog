@@ -1,10 +1,6 @@
+import json
 from typing import List, Dict
 from posthog.models.entity.entity import Entity as BackendEntity
-from posthog.models.filters import AnyInsightFilter
-from posthog.models.filters.filter import Filter as LegacyFilter
-from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter
-from posthog.models.filters.retention_filter import RetentionFilter as LegacyRetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter as LegacyStickinessFilter
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -145,13 +141,13 @@ def entity_to_node(entity: BackendEntity, include_properties: bool, include_math
         return EventsNode(event=entity.id, **shared)
 
 
-def to_base_entity_dict(entity: BackendEntity):
+def to_base_entity_dict(entity: Dict):
     return {
-        "type": entity.type,
-        "id": entity.id,
-        "name": entity.name,
-        "custom_name": entity.custom_name,
-        "order": entity.order,
+        "type": entity.get("type"),
+        "id": entity.get("id"),
+        "name": entity.get("name"),
+        "custom_name": entity.get("custom_name"),
+        "order": entity.get("order"),
     }
 
 
@@ -165,48 +161,78 @@ insight_to_query_type = {
 }
 
 
-def _date_range(filter: AnyInsightFilter):
-    return {"dateRange": DateRange(**filter.date_to_dict())}
+def _date_range(filter: Dict):
+    date_range = DateRange(date_from=filter.get("date_from"), date_to=filter.get("date_to"))
 
-
-def _interval(filter: AnyInsightFilter):
-    if filter.insight == "RETENTION" or filter.insight == "PATHS":
+    if len(date_range.model_dump(exclude_defaults=True)) == 0:
         return {}
-    return {"interval": filter.interval}
+
+    return {"dateRange": date_range}
 
 
-def _series(filter: AnyInsightFilter):
-    if filter.insight == "RETENTION" or filter.insight == "PATHS":
+def _interval(filter: Dict):
+    if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
+        return {}
+    return {"interval": filter.get("interval")}
+
+
+def _series(filter: Dict):
+    if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
     # remove templates gone wrong
-    if filter._data.get("events") is not None:
-        filter._data["events"] = [event for event in filter._data.get("events") if not (isinstance(event, str))]
+    if filter.get("events") is not None:
+        filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
 
     include_math = True
     include_properties = True
-    if filter.insight == "LIFECYCLE":
+    if _insight_type(filter) == "LIFECYCLE":
         include_math = False
 
     return {
         "series": [
             entity_to_node(entity, include_properties, include_math)
-            for entity in filter.entities
+            for entity in _entities(filter)
             if entity.id is not None
         ]
     }
 
 
-def _sampling_factor(filter: AnyInsightFilter):
-    return {"samplingFactor": filter.sampling_factor}
+def _entities(filter: Dict):
+    processed_entities: List[BackendEntity] = []
+
+    # add actions
+    actions = filter.get("actions", [])
+    if isinstance(actions, str):
+        actions = json.loads(actions)
+    processed_entities.extend([BackendEntity({**entity, "type": "actions"}) for entity in actions])
+
+    # add events
+    events = filter.get("events", [])
+    if isinstance(events, str):
+        events = json.loads(events)
+    processed_entities.extend([BackendEntity({**entity, "type": "events"}) for entity in events])
+
+    # order by order
+    processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+
+    # set sequential index values on entities
+    for index, entity in enumerate(processed_entities):
+        entity.index = index
+
+    return processed_entities
 
 
-def _filter_test_accounts(filter: AnyInsightFilter):
-    return {"filterTestAccounts": filter.filter_test_accounts}
+def _sampling_factor(filter: Dict):
+    return {"samplingFactor": filter.get("sampling_factor")}
 
 
-def _properties(filter: AnyInsightFilter):
-    raw_properties = filter._data.get("properties", None)
+def _filter_test_accounts(filter: Dict):
+    return {"filterTestAccounts": filter.get("filter_test_accounts")}
+
+
+def _properties(filter: Dict):
+    raw_properties = filter.get("properties", None)
     if raw_properties is None or len(raw_properties) == 0:
         return {}
     elif isinstance(raw_properties, list):
@@ -220,30 +246,32 @@ def _properties(filter: AnyInsightFilter):
         return {"properties": PropertyGroupFilter(**clean_properties(raw_properties))}
 
 
-def _breakdown_filter(_filter: AnyInsightFilter):
-    if _filter.insight != "TRENDS" and _filter.insight != "FUNNELS":
+def _breakdown_filter(_filter: Dict):
+    if _insight_type(_filter) != "TRENDS" and _insight_type(_filter) != "FUNNELS":
         return {}
 
     # early return for broken breakdown filters
-    if _filter.breakdown_type == "undefined" and not isinstance(_filter.breakdown, str):
+    if _filter.get("breakdown_type") == "undefined" and not isinstance(_filter.get("breakdown"), str):
         return {}
 
     breakdownFilter = {
-        "breakdown_type": _filter.breakdown_type,
-        "breakdown": _filter.breakdown,
-        "breakdown_normalize_url": _filter.breakdown_normalize_url,
-        "breakdown_group_type_index": _filter.breakdown_group_type_index,
-        "breakdown_histogram_bin_count": _filter.breakdown_histogram_bin_count if _filter.insight == "TRENDS" else None,
+        "breakdown_type": _filter.get("breakdown_type"),
+        "breakdown": _filter.get("breakdown"),
+        "breakdown_normalize_url": _filter.get("breakdown_normalize_url"),
+        "breakdown_group_type_index": _filter.get("breakdown_group_type_index"),
+        "breakdown_histogram_bin_count": _filter.get("breakdown_histogram_bin_count")
+        if _insight_type(_filter) == "TRENDS"
+        else None,
     }
 
     # fix breakdown typo
     if breakdownFilter["breakdown_type"] == "events":
         breakdownFilter["breakdown_type"] = "event"
 
-    if _filter.breakdowns is not None:
-        if len(_filter.breakdowns) == 1:
-            breakdownFilter["breakdown_type"] = _filter.breakdowns[0].get("type", None)
-            breakdownFilter["breakdown"] = _filter.breakdowns[0].get("property", None)
+    if _filter.get("breakdowns") is not None:
+        if len(_filter.get("breakdowns")) == 1:
+            breakdownFilter["breakdown_type"] = _filter.get("breakdowns")[0].get("type", None)
+            breakdownFilter["breakdown"] = _filter.get("breakdowns")[0].get("property", None)
         else:
             raise Exception("Could not convert multi-breakdown property `breakdowns` - found more than one breakdown")
 
@@ -253,130 +281,130 @@ def _breakdown_filter(_filter: AnyInsightFilter):
     if isinstance(breakdownFilter["breakdown"], list):
         breakdownFilter["breakdown"] = list(filter(lambda x: x is not None, breakdownFilter["breakdown"]))
 
+    if len(BreakdownFilter(**breakdownFilter).model_dump(exclude_defaults=True)) == 0:
+        return {}
+
     return {"breakdown": BreakdownFilter(**breakdownFilter)}
 
 
-def _group_aggregation_filter(filter: AnyInsightFilter):
-    if isinstance(filter, LegacyStickinessFilter):
+def _group_aggregation_filter(filter: Dict):
+    if _insight_type(filter) == "STICKINESS":
         return {}
-    return {"aggregation_group_type_index": filter.aggregation_group_type_index}
+    return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
 
-def _insight_filter(filter: AnyInsightFilter):
-    if filter.insight == "TRENDS" and isinstance(filter, LegacyFilter):
-        return {
+def _insight_filter(filter: Dict):
+    if _insight_type(filter) == "TRENDS":
+        insight_filter = {
             "trendsFilter": TrendsFilter(
-                smoothing_intervals=filter.smoothing_intervals,
-                # show_legend=filter.show_legend,
-                # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.hidden_legend_keys),
-                compare=filter.compare,
-                aggregation_axis_format=filter.aggregation_axis_format,
-                aggregation_axis_prefix=filter.aggregation_axis_prefix,
-                aggregation_axis_postfix=filter.aggregation_axis_postfix,
-                formula=filter.formula,
-                shown_as=filter.shown_as,
-                display=clean_display(filter.display),
-                # show_values_on_series=filter.show_values_on_series,
-                # show_percent_stack_view=filter.show_percent_stack_view,
+                smoothing_intervals=filter.get("smoothing_intervals"),
+                # show_legend=filter.get('show_legend'),
+                # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
+                compare=filter.get("compare"),
+                aggregation_axis_format=filter.get("aggregation_axis_format"),
+                aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
+                aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
+                formula=filter.get("formula"),
+                shown_as=filter.get("shown_as"),
+                display=clean_display(filter.get("display")),
+                # show_values_on_series=filter.get('show_values_on_series'),
+                # show_percent_stack_view=filter.get('show_percent_stack_view'),
             )
         }
-    elif filter.insight == "FUNNELS" and isinstance(filter, LegacyFilter):
-        return {
+    elif _insight_type(filter) == "FUNNELS":
+        insight_filter = {
             "funnelsFilter": FunnelsFilter(
-                funnel_viz_type=filter.funnel_viz_type,
-                funnel_order_type=filter.funnel_order_type,
-                funnel_from_step=filter.funnel_from_step,
-                funnel_to_step=filter.funnel_to_step,
-                funnel_window_interval_unit=filter.funnel_window_interval_unit,
-                funnel_window_interval=filter.funnel_window_interval,
-                # funnel_step_reference=filter.funnel_step_reference,
-                breakdown_attribution_type=filter.breakdown_attribution_type,
-                breakdown_attribution_value=filter.breakdown_attribution_value,
-                bin_count=filter.bin_count,
+                funnel_viz_type=filter.get("funnel_viz_type"),
+                funnel_order_type=filter.get("funnel_order_type"),
+                funnel_from_step=filter.get("funnel_from_step"),
+                funnel_to_step=filter.get("funnel_to_step"),
+                funnel_window_interval_unit=filter.get("funnel_window_interval_unit"),
+                funnel_window_interval=filter.get("funnel_window_interval"),
+                # funnel_step_reference=filter.get('funnel_step_reference'),
+                breakdown_attribution_type=filter.get("breakdown_attribution_type"),
+                breakdown_attribution_value=filter.get("breakdown_attribution_value"),
+                bin_count=filter.get("bin_count"),
                 exclusions=[
                     FunnelExclusion(
                         **to_base_entity_dict(entity),
-                        funnel_from_step=entity.funnel_from_step,
-                        funnel_to_step=entity.funnel_to_step,
+                        funnel_from_step=entity.get("funnel_from_step"),
+                        funnel_to_step=entity.get("funnel_to_step"),
                     )
-                    for entity in filter.exclusions
+                    for entity in filter.get("exclusions", [])
                 ],
-                layout=filter.layout,
-                # hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
-                funnel_aggregate_by_hogql=filter.funnel_aggregate_by_hogql,
+                layout=filter.get("layout"),
+                # hidden_legend_breakdowns: cleanHiddenLegendSeries(filter.get('hidden_legend_keys')),
+                funnel_aggregate_by_hogql=filter.get("funnel_aggregate_by_hogql"),
             ),
         }
-    elif filter.insight == "RETENTION" and isinstance(filter, LegacyRetentionFilter):
-        return {
+    elif _insight_type(filter) == "RETENTION":
+        insight_filter = {
             "retentionFilter": RetentionFilter(
-                retention_type=filter.retention_type,
-                # retention_reference=filter.retention_reference,
-                total_intervals=filter.total_intervals,
-                returning_entity=to_base_entity_dict(filter.returning_entity),
-                target_entity=to_base_entity_dict(filter.target_entity),
-                period=filter.period,
+                retention_type=filter.get("retention_type"),
+                # retention_reference=filter.get('retention_reference'),
+                total_intervals=filter.get("total_intervals"),
+                returning_entity=to_base_entity_dict(filter.get("returning_entity"))
+                if filter.get("returning_entity") is not None
+                else None,
+                target_entity=to_base_entity_dict(filter.get("target_entity"))
+                if filter.get("target_entity") is not None
+                else None,
+                period=filter.get("period"),
             )
         }
-    elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):
-        return {
+    elif _insight_type(filter) == "PATHS":
+        insight_filter = {
             "pathsFilter": PathsFilter(
-                # path_type=filter.path_type, # legacy
-                paths_hogql_expression=filter.paths_hogql_expression,
-                include_event_types=filter._data.get("include_event_types"),
-                start_point=filter.start_point,
-                end_point=filter.end_point,
-                path_groupings=filter.path_groupings,
-                exclude_events=filter.exclude_events,
-                step_limit=filter.step_limit,
-                path_replacements=filter.path_replacements,
-                local_path_cleaning_filters=filter.local_path_cleaning_filters,
-                edge_limit=filter.edge_limit,
-                min_edge_weight=filter.min_edge_weight,
-                max_edge_weight=filter.max_edge_weight,
-                funnel_paths=filter.funnel_paths,
-                funnel_filter=filter._data.get("funnel_filter"),
+                # path_type=filter.get('path_type'), # legacy
+                paths_hogql_expression=filter.get("paths_hogql_expression"),
+                include_event_types=filter.get("include_event_types"),
+                start_point=filter.get("start_point"),
+                end_point=filter.get("end_point"),
+                path_groupings=filter.get("path_groupings"),
+                exclude_events=filter.get("exclude_events"),
+                step_limit=filter.get("step_limit"),
+                path_replacements=filter.get("path_replacements"),
+                local_path_cleaning_filters=filter.get("local_path_cleaning_filters"),
+                edge_limit=filter.get("edge_limit"),
+                min_edge_weight=filter.get("min_edge_weight"),
+                max_edge_weight=filter.get("max_edge_weight"),
+                funnel_paths=filter.get("funnel_paths"),
+                funnel_filter=filter.get("funnel_filter"),
             )
         }
-    elif filter.insight == "LIFECYCLE":
-        return {
+    elif _insight_type(filter) == "LIFECYCLE":
+        insight_filter = {
             "lifecycleFilter": LifecycleFilter(
-                shown_as=filter.shown_as,
-                # toggledLifecycles=filter.toggledLifecycles,
-                # show_values_on_series=filter.show_values_on_series,
+                shown_as=filter.get("shown_as"),
+                # toggledLifecycles=filter.get('toggledLifecycles'),
+                # show_values_on_series=filter.get('show_values_on_series'),
             )
         }
-    elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
-        return {
+    elif _insight_type(filter) == "STICKINESS":
+        insight_filter = {
             "stickinessFilter": StickinessFilter(
-                compare=filter.compare,
-                shown_as=filter.shown_as,
-                # show_legend=filter.show_legend,
-                # hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-                # show_values_on_series=filter.show_values_on_series,
+                compare=filter.get("compare"),
+                shown_as=filter.get("shown_as"),
+                # show_legend=filter.get('show_legend'),
+                # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
+                # show_values_on_series=filter.get('show_values_on_series'),
             )
         }
     else:
-        raise Exception(f"Invalid insight type {filter.insight}.")
+        raise Exception(f"Invalid insight type {filter.get('insight')}.")
+
+    if len(list(insight_filter.values())[0].model_dump(exclude_defaults=True)) == 0:
+        return {}
+
+    return insight_filter
 
 
-def filter_to_query(filter: AnyInsightFilter) -> InsightQueryNode:
-    if (filter.insight == "TRENDS" or filter.insight == "FUNNELS" or filter.insight == "LIFECYCLE") and isinstance(
-        filter, LegacyFilter
-    ):
-        matching_filter_type = True
-    elif filter.insight == "RETENTION" and isinstance(filter, LegacyRetentionFilter):
-        matching_filter_type = True
-    elif filter.insight == "PATHS" and isinstance(filter, LegacyPathFilter):
-        matching_filter_type = True
-    elif filter.insight == "STICKINESS" and isinstance(filter, LegacyStickinessFilter):
-        matching_filter_type = True
-    else:
-        matching_filter_type = False
+def _insight_type(filter: Dict) -> str:
+    return filter.get("insight", "TRENDS")
 
-    if not matching_filter_type:
-        raise Exception(f"Filter type {type(filter)} does not match insight type {filter.insight}")
 
-    Query = insight_to_query_type[filter.insight]
+def filter_to_query(filter: Dict) -> InsightQueryNode:
+    Query = insight_to_query_type[_insight_type(filter)]
 
     data = {
         **_date_range(filter),
