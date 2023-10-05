@@ -17,6 +17,7 @@ jobs:
         name: Build wheels on ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         strategy:
+            fail-fast: false
             matrix:
                 os: [ubuntu-22.04, macos-12]
 
