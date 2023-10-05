@@ -94,9 +94,18 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    const survey = await api.surveys.get(props.id)
-                    actions.reportSurveyViewed(survey)
-                    return survey
+                    try {
+                        const survey = await api.surveys.get(props.id)
+                        actions.reportSurveyViewed(survey)
+                        return survey
+                    } catch (error: any) {
+                        if (error.status === 404) {
+                            lemonToast.error(`Survey not found`)
+                        } else {
+                            lemonToast.error(`Failed to load survey ${props.id}: ${error.detail}`)
+                        }
+                        return null
+                    }
                 }
                 return { ...NEW_SURVEY }
             },
@@ -148,7 +157,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.updateSurvey({ archived: true })
         },
         loadSurveySuccess: ({ survey }) => {
-            actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
+            actions.setCurrentQuestionIndexAndType(0, survey?.questions[0].type || SurveyQuestionType.Open)
         },
     })),
     reducers({
@@ -159,7 +168,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         survey: [
-            { ...NEW_SURVEY } as NewSurvey | Survey,
+            null as NewSurvey | Survey | null,
             {
                 setDefaultForQuestionType: (
                     state,

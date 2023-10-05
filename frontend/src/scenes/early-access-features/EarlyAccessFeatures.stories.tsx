@@ -147,3 +147,11 @@ export function NewFeatureFlag(): JSX.Element {
     }, [])
     return <App />
 }
+
+export function NotFoundEarlyAccess(): JSX.Element {
+    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
+    useEffect(() => {
+        router.actions.push(urls.earlyAccessFeature('abcdefghq123'))
+    }, [])
+    return <App />
+}

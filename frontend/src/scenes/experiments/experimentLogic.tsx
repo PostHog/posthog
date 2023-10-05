@@ -532,33 +532,36 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
     loaders(({ actions, props, values }) => ({
-        experiment: {
-            loadExperiment: async () => {
-                if (props.experimentId && props.experimentId !== 'new') {
-                    try {
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
-                        )
-                        return response as Experiment
-                    } catch (error: any) {
-                        if (error.status === 404) {
-                            throw error
-                        } else {
-                            lemonToast.error(`Failed to load experiment ${props.experimentId}`)
-                            throw new Error(`Failed to load experiment ${props.experimentId}`)
+        experiment: [
+            null as Experiment | null,
+            {
+                loadExperiment: async () => {
+                    if (props.experimentId && props.experimentId !== 'new') {
+                        try {
+                            const response = await api.get(
+                                `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
+                            )
+                            return response as Experiment
+                        } catch (error: any) {
+                            if (error.status === 404) {
+                                lemonToast.error(`Experiment not found`)
+                            } else {
+                                lemonToast.error(`Failed to load experiment ${props.experimentId}: ${error.detail}`)
+                            }
+                            return null
                         }
                     }
-                }
-                return NEW_EXPERIMENT
+                    return NEW_EXPERIMENT
+                },
+                updateExperiment: async (update: Partial<Experiment>) => {
+                    const response: Experiment = await api.update(
+                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                        update
+                    )
+                    return response
+                },
             },
-            updateExperiment: async (update: Partial<Experiment>) => {
-                const response: Experiment = await api.update(
-                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                    update
-                )
-                return response
-            },
-        },
+        ],
         experimentResults: [
             null as ExperimentResults['result'] | null,
             {

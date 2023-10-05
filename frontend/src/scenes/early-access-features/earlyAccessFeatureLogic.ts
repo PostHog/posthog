@@ -46,32 +46,44 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
     loaders(({ props }) => ({
-        earlyAccessFeature: {
-            loadEarlyAccessFeature: async () => {
-                if (props.id && props.id !== 'new') {
-                    const response = await api.earlyAccessFeatures.get(props.id)
-                    return response
-                }
-                return NEW_EARLY_ACCESS_FEATURE
+        earlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                loadEarlyAccessFeature: async () => {
+                    if (props.id && props.id !== 'new') {
+                        try {
+                            const response = await api.earlyAccessFeatures.get(props.id)
+                            return response
+                        } catch (error: any) {
+                            if (error.status === 404) {
+                                lemonToast.error(`Early access feature not found`)
+                            } else {
+                                lemonToast.error(`Failed to load early access feature ${props.id}: ${error.detail}`)
+                            }
+                            return null
+                        }
+                    }
+                    return NEW_EARLY_ACCESS_FEATURE
+                },
+                saveEarlyAccessFeature: async (
+                    updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
+                ) => {
+                    let result: EarlyAccessFeatureType
+                    if (props.id === 'new') {
+                        result = await api.earlyAccessFeatures.create(
+                            updatedEarlyAccessFeature as NewEarlyAccessFeatureType
+                        )
+                        router.actions.replace(urls.earlyAccessFeature(result.id))
+                    } else {
+                        result = await api.earlyAccessFeatures.update(
+                            props.id,
+                            updatedEarlyAccessFeature as EarlyAccessFeatureType
+                        )
+                    }
+                    return result
+                },
             },
-            saveEarlyAccessFeature: async (
-                updatedEarlyAccessFeature: Partial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
-            ) => {
-                let result: EarlyAccessFeatureType
-                if (props.id === 'new') {
-                    result = await api.earlyAccessFeatures.create(
-                        updatedEarlyAccessFeature as NewEarlyAccessFeatureType
-                    )
-                    router.actions.replace(urls.earlyAccessFeature(result.id))
-                } else {
-                    result = await api.earlyAccessFeatures.update(
-                        props.id,
-                        updatedEarlyAccessFeature as EarlyAccessFeatureType
-                    )
-                }
-                return result
-            },
-        },
+        ],
     })),
     forms(({ actions }) => ({
         earlyAccessFeature: {
