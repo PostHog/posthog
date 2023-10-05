@@ -1,0 +1,36 @@
+name: Build hogql_parser
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - hogql_parser/**
+            - .github/workflows/build-hogql-parser.yml
+    pull_request:
+        paths:
+            - hogql_parser/**
+            - .github/workflows/build-hogql-parser.yml
+
+jobs:
+    build_wheels:
+        name: Build wheels on ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                os: [ubuntu-22.04, macos-12]
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v3
+
+            - name: Install cibuildwheel
+              run: python -m pip install cibuildwheel==2.16.*
+
+            - name: Build wheels
+              run: cd hogql_parser && python -m cibuildwheel --output-dir wheelhouse
+
+            - uses: actions/upload-artifact@v3
+              with:
+                  path: hogql_parser/wheelhouse/*.whl

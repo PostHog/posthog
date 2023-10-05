@@ -1,0 +1,30 @@
+[tool.cibuildwheel]
+build = ["cp3*-macosx_x86_64", "cp3*-macosx_arm64","cp3*-manylinux_x86_64","cp3*-manylinux_aarch64"]
+build-frontend = "build"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+before-all = [
+    "brew install boost antlr",
+]
+
+[tool.cibuildwheel.linux]
+before-all = [
+    "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
+    "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
+    "unzip antlr4-source.zip -d antlr4-source",
+    "cd antlr4-source",
+    "mkdir build",
+    "mkdir run",
+    "cd build",
+    "cmake ..",
+    "DESTDIR=../run make install",
+    "cd ../run/usr/local/include",
+    "cp -r antlr4-runtime /usr/local/include",
+    "cd ../lib64",
+    "cp libantlr4-runtime.so libantlr4-runtime.so.* /usr/local/lib",
+    "ldconfig",
+]
+archs = ["auto", "aarch64"]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
