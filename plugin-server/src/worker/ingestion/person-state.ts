@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -214,11 +213,11 @@ export class PersonState {
     }
 
     private async updatePersonProperties(person: Person): Promise<Person> {
-        const update: Partial<Person> = {}
-        const updatedProperties = this.applyEventPropertyUpdates(person.properties || {})
+        person.properties ||= {}
 
-        if (!equal(person.properties, updatedProperties)) {
-            update.properties = updatedProperties
+        const update: Partial<Person> = {}
+        if (this.applyEventPropertyUpdates(person.properties)) {
+            update.properties = person.properties
         }
         if (this.updateIsIdentified && !person.is_identified) {
             update.is_identified = true
@@ -231,9 +230,11 @@ export class PersonState {
         return person
     }
 
-    private applyEventPropertyUpdates(personProperties: Properties): Properties {
-        const updatedProperties = { ...personProperties }
-
+    /**
+     * @param personProperties Properties of the person to be updated, these are updated in place.
+     * @returns true if the properties were changed, false if they were not
+     */
+    private applyEventPropertyUpdates(personProperties: Properties): boolean {
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProps = this.eventProperties['$unset']
@@ -241,23 +242,27 @@ export class PersonState {
             ? unsetProps
             : Object.keys(unsetProps || {}) || []
 
-        // Figure out which properties we are actually setting
+        let updated = false
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (typeof personProperties[key] === 'undefined') {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
             }
         })
         Object.entries(properties).map(([key, value]) => {
             if (personProperties[key] !== value) {
-                updatedProperties[key] = value
+                updated = true
+                personProperties[key] = value
+            }
+        })
+        unsetProperties.forEach((propertyKey) => {
+            if (propertyKey in personProperties) {
+                updated = true
+                delete personProperties[propertyKey]
             }
         })
 
-        unsetProperties.forEach((propertyKey) => {
-            delete updatedProperties[propertyKey]
-        })
-
-        return updatedProperties
+        return updated
     }
 
     // Alias & merge
@@ -439,8 +444,8 @@ export class PersonState {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        properties = this.applyEventPropertyUpdates(properties)
+        const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        this.applyEventPropertyUpdates(properties)
 
         if (this.poEEmbraceJoin) {
             // Optimize merging persons to keep using the person id that has longer history,
