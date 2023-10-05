@@ -173,6 +173,10 @@ def _date_range(filter: Dict):
 def _interval(filter: Dict):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
+
+    if filter.get("interval") == "minute":
+        return {"interval": "hour"}
+
     return {"interval": filter.get("interval")}
 
 

@@ -497,6 +497,23 @@ insight_31 = {
     "insight": "STICKINESS",
     "entity_type": "events",
 }
+insight_32 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": "dau",
+            "name": "$pageview",
+            "type": "events",
+            "order": None,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "insight": "STICKINESS",
+    "interval": "minute",
+    "shown_as": "Stickiness",
+    "date_from": "dStart",
+}
 
 
 test_insights = [
@@ -532,6 +549,7 @@ test_insights = [
     insight_29,
     insight_30,
     insight_31,
+    insight_32,
 ]
 
 
