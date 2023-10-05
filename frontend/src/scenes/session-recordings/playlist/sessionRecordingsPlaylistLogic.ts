@@ -444,6 +444,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        logicProps: [() => [(_, props) => props], (props) => props],
         shouldShowEmptyState: [
             (s) => [
                 s.sessionRecordings,

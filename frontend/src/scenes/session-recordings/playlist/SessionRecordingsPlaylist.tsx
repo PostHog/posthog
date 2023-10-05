@@ -1,6 +1,6 @@
 import React, { Fragment, useEffect, useRef } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
+import { SessionRecordingType, ReplayTabs } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
@@ -57,28 +57,7 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
     )
 }
 
-export type SessionRecordingsPlaylistProps = SessionRecordingListLogicProps & {
-    personUUID?: string
-    filters?: RecordingFilters
-    updateSearchParams?: boolean
-    onFiltersChange?: (filters: RecordingFilters) => void
-    autoPlay?: boolean
-}
-
-function RecordingsLists({
-    personUUID,
-    filters: defaultFilters,
-    updateSearchParams,
-    ...props
-}: SessionRecordingsPlaylistProps): JSX.Element {
-    const logicProps: SessionRecordingListLogicProps = {
-        ...props,
-        personUUID,
-        filters: defaultFilters,
-        updateSearchParams,
-    }
-    const logic = sessionRecordingsPlaylistLogic(logicProps)
-
+function RecordingsLists(): JSX.Element {
     const {
         filters,
         hasNext,
@@ -92,7 +71,8 @@ function RecordingsLists({
         unusableEventsInFilter,
         showAdvancedFilters,
         hasAdvancedFilters,
-    } = useValues(logic)
+        logicProps,
+    } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
         setFilters,
@@ -101,7 +81,7 @@ function RecordingsLists({
         setShowSettings,
         resetFilters,
         setShowAdvancedFilters,
-    } = useActions(logic)
+    } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
@@ -210,7 +190,7 @@ function RecordingsLists({
                         <SessionRecordingsFilters
                             filters={filters}
                             setFilters={setFilters}
-                            showPropertyFilters={!personUUID}
+                            showPropertyFilters={!logicProps.personUUID}
                             onReset={totalFiltersCount ? () => resetFilters() : undefined}
                             hasAdvancedFilters={hasAdvancedFilters}
                             showAdvancedFilters={showAdvancedFilters}
@@ -295,7 +275,7 @@ function RecordingsLists({
     )
 }
 
-export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {
+export function SessionRecordingsPlaylist(props: SessionRecordingListLogicProps): JSX.Element {
     const logicProps: SessionRecordingListLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -322,7 +302,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     })}
                 >
                     <div className={clsx('SessionRecordingsPlaylist__list space-y-4')}>
-                        <RecordingsLists {...props} />
+                        <RecordingsLists />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecording?.id ? (
