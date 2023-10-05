@@ -198,7 +198,7 @@ export class EventsProcessor {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
             Sentry.captureException(error, { tags: { team_id: teamId } })
-            status.warn('⚠️', 'Failed to get process elements', {
+            status.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,
                 properties,
