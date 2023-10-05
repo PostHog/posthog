@@ -18,6 +18,11 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FunctionCallTable,
 )
+from posthog.hogql.database.schema.LogEntries import (
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+    BatchExportLogEntriesTable,
+)
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -45,6 +50,9 @@ class Database(BaseModel):
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
+    log_entries: LogEntriesTable = LogEntriesTable()
+    console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
+    batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -67,6 +75,7 @@ class Database(BaseModel):
         "session_replay_events",
         "cohortpeople",
         "person_static_cohort",
+        "log_entries",
     ]
 
     _timezone: Optional[str]
