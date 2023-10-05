@@ -405,7 +405,7 @@ export type TrendsFilter = Omit<
 >
 
 export interface TrendsQueryResponse extends QueryResponse {
-    result: Record<string, any>[]
+    results: Record<string, any>[]
 }
 
 export interface TrendsQuery extends InsightsQueryBase {
@@ -489,7 +489,7 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 } // using everything except what it inherits from FilterType
 
 export interface QueryResponse {
-    result: unknown
+    results: unknown
     timings?: QueryTiming[]
     is_cached?: boolean
     last_refresh?: string
@@ -497,7 +497,7 @@ export interface QueryResponse {
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {
-    result: Record<string, any>[]
+    results: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {
@@ -549,7 +549,7 @@ export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
 }
 
 export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -559,7 +559,7 @@ export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     response?: WebTopSourcesQueryResponse
 }
 export interface WebTopSourcesQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -570,7 +570,7 @@ export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -581,7 +581,7 @@ export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
     response?: WebTopPagesQueryResponse
 }
 export interface WebTopPagesQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }

@@ -45,7 +45,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     model_config = ConfigDict(
         extra="forbid",
     )
-    result: DataT
+    results: DataT
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None

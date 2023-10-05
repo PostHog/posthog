@@ -683,7 +683,7 @@ class _Printer(Visitor):
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.insert(1, self._get_week_start_day().clickhouse_mode)
+                    args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
