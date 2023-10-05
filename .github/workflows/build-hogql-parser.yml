@@ -31,6 +31,8 @@ jobs:
 
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir wheelhouse
+              env:
+                  MACOSX_DEPLOYMENT_TARGET: '12'
 
             - uses: actions/upload-artifact@v3
               with:
