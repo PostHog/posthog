@@ -67,9 +67,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
-                            filterTestAccounts: false,
-                            interval: 'day',
                             kind: NodeKind.TrendsQuery,
+                            dateRange: {
+                                date_from: '-7d',
+                                date_to: '-1d',
+                            },
+                            interval: 'day',
                             series: [
                                 {
                                     event: '$pageview',
@@ -82,6 +85,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 compare: true,
                                 display: ChartDisplayType.ActionsLineGraph,
                             },
+                            filterTestAccounts: true,
                         },
                     },
                 },
@@ -92,27 +96,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: {
+                            kind: NodeKind.TrendsQuery,
                             breakdown: {
                                 breakdown: '$geoip_country_code',
                                 breakdown_type: 'person',
                             },
                             dateRange: {
                                 date_from: '-7d',
-                                date_to: null,
                             },
-                            filterTestAccounts: true,
-                            kind: NodeKind.TrendsQuery,
                             series: [
                                 {
                                     event: '$pageview',
                                     kind: NodeKind.EventsNode,
                                     math: BaseMathType.UniqueUsers,
-                                    name: '$pageview',
                                 },
                             ],
                             trendsFilter: {
                                 display: ChartDisplayType.WorldMap,
                             },
+                            filterTestAccounts: true,
                         },
                     },
                 },
