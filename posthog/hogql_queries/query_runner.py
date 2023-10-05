@@ -50,6 +50,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None
     hogql: Optional[str] = None
+    hasMore: Optional[bool] = None
 
 
 class CachedQueryResponse(QueryResponse):

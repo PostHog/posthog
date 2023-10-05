@@ -461,6 +461,7 @@ class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -474,6 +475,7 @@ class WebOverviewStatsQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -488,6 +490,7 @@ class WebTopClicksQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -502,6 +505,7 @@ class WebTopPagesQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -516,6 +520,7 @@ class WebTopSourcesQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[List] = None
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -671,6 +676,7 @@ class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None

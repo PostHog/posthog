@@ -489,12 +489,13 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 } // using everything except what it inherits from FilterType
 
 export interface QueryResponse {
-    results: unknown
+    results: unknown[]
     timings?: QueryTiming[]
     hogql?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
+    hasMore?: boolean
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {
