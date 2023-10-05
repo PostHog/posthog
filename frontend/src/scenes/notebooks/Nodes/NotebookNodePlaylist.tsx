@@ -15,6 +15,8 @@ import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } f
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, nodeId } = props.attributes
@@ -36,10 +38,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     )
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, insertReplayCommentByTimestamp } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
+        useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
+    const { setSelectedRecordingId } = useActions(logic)
 
     useEffect(() => {
         setActions(
@@ -69,8 +73,23 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         )
     }, [activeSessionRecording])
 
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ sessionRecordingId, time }) => {
+                // IDEA: We could add the desired start time here as a param, which is picked up by the player...
+                setSelectedRecordingId(sessionRecordingId)
+                scrollIntoView()
+
+                setTimeout(() => {
+                    // NOTE: This is a hack but we need a delay to give time for the player to mount
+                    sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(time)
+                }, 100)
+            },
+        })
+    }, [])
+
     if (!expanded) {
-        return <div className="p-4">20+ recordings </div>
+        return <div className="p-4">{summarizePlaylistFilters(filters, {})} </div>
     }
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
