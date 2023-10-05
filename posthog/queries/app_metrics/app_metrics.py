@@ -13,7 +13,6 @@ from posthog.models.app_metrics.sql import (
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
 from posthog.queries.util import format_ch_timestamp, get_time_in_seconds_for_period
 from posthog.utils import relative_date_parse
 
@@ -35,10 +34,21 @@ class TeamPluginsDeliveryRateQuery:
 class AppMetricsQuery:
     QUERY = QUERY_APP_METRICS_TIME_SERIES
 
-    def __init__(self, team: Team, plugin_config_id: int, filter: AppMetricsRequestSerializer):
+    def __init__(
+        self,
+        team: Team,
+        plugin_config_id: int,
+        category: str,
+        date_from: str,
+        date_to: str | None = None,
+        job_id: str | None = None,
+    ):
         self.team = team
         self.plugin_config_id = plugin_config_id
-        self.filter = filter
+        self.category = category
+        self.date_from_provided = date_from
+        self.date_to_provided = date_to
+        self.job_id = job_id
 
     def run(self):
         query, params = self.query()
@@ -59,17 +69,16 @@ class AppMetricsQuery:
         }
 
     def query(self):
-        job_id = self.filter.validated_data.get("job_id")
         query = self.QUERY.format(
-            job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
+            job_id_clause="AND job_id = %(job_id)s" if self.job_id is not None else "",
             interval_function=self.interval_function,
         )
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
-            "job_id": job_id,
+            "category": self.category,
+            "job_id": self.job_id,
             "date_from": format_ch_timestamp(self.date_from),
             "date_to": format_ch_timestamp(self.date_to),
             "timezone": self.team.timezone,
@@ -79,13 +88,11 @@ class AppMetricsQuery:
 
     @property
     def date_from(self):
-        return relative_date_parse(
-            self.filter.validated_data.get("date_from"), self.team.timezone_info, always_truncate=True
-        )
+        return relative_date_parse(self.date_from_provided, self.team.timezone_info, always_truncate=True)
 
     @property
     def date_to(self):
-        date_to_string = self.filter.validated_data.get("date_to")
+        date_to_string = self.date_to_provided
         return (
             relative_date_parse(date_to_string, self.team.timezone_info, always_truncate=True)
             if date_to_string is not None
@@ -121,25 +128,27 @@ class AppMetricsErrorsQuery(AppMetricsQuery):
 class AppMetricsErrorDetailsQuery:
     QUERY = QUERY_APP_METRICS_ERROR_DETAILS
 
-    def __init__(self, team: Team, plugin_config_id: int, filter: AppMetricsErrorsRequestSerializer):
+    def __init__(self, team: Team, plugin_config_id: int, category: str, error_type: str, job_id: str | None = None):
         self.team = team
         self.plugin_config_id = plugin_config_id
-        self.filter = filter
+        self.job_id = job_id
+        self.category = category
+        self.error_type = error_type
 
     def run(self):
         query, params = self.query()
         return list(map(self._parse_row, sync_execute(query, params)))
 
     def query(self):
-        job_id = self.filter.validated_data.get("job_id")
+        job_id = self.job_id
         query = self.QUERY.format(job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "")
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
+            "category": self.category,
             "job_id": job_id,
-            "error_type": self.filter.validated_data.get("error_type"),
+            "error_type": self.error_type,
         }
 
     def _parse_row(self, row):

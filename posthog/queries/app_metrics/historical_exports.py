@@ -74,8 +74,9 @@ def historical_export_metrics(team: Team, plugin_config_id: int, job_id: str):
 
     filter = AppMetricsRequestSerializer(data=filter_data)
     filter.is_valid(raise_exception=True)
-    metric_results = AppMetricsQuery(team, plugin_config_id, filter).run()
-    errors = AppMetricsErrorsQuery(team, plugin_config_id, filter).run()
+    job_id = filter.validated_data.get("job_id")
+    metric_results = AppMetricsQuery(team, plugin_config_id, filter, job_id).run()
+    errors = AppMetricsErrorsQuery(team, plugin_config_id, filter, job_id).run()
 
     return {"summary": export_summary, "metrics": metric_results, "errors": errors}
 

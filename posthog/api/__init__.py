@@ -128,6 +128,7 @@ app_metrics_router.register(
     "historical_exports",
     ["team_id", "plugin_config_id"],
 )
+webhooks_metrics_router = projects_router.register("webhooks", app_metrics.WebhooksViewSet, "webhooks", ["team_id"])
 
 batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]

@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
 
+class WebhooksMetricsRequestSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        default="-30d",
+        help_text="What date to filter the results from. Can either be a date `2021-01-01`, or a relative date, like `-7d` for last seven days, `-1m` for last month, `mStart` for start of the month or `yStart` for the start of the year.",
+    )
+    ch_id = serializers.IntegerField(help_text="What ClickHouse plugin_config_id to filter the results to.")
+
+
 class AppMetricsRequestSerializer(serializers.Serializer):
     category = serializers.ChoiceField(
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
