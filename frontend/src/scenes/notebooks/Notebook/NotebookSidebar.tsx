@@ -35,29 +35,29 @@ const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.E
     const { updateAttributes, selectNode } = useActions(logic)
 
     return (
-        <div className="NotebookNodeSettings__widgets space-y-2 w-full">
-            {widgets.map(({ key, label, Component }) => (
+        <div className="NotebookNodeSettings__widgets space-y-2 w-full flex flex-col">
+            {widgets.map(({ key, label, scrollable, Component }, index) => (
                 <LemonWidget
                     key={key}
                     title={label ?? `Editing '${nodeAttributes.title}'`}
-                    collapsible={false}
+                    scrollable={scrollable}
                     actions={
-                        <>
-                            <LemonButton
-                                icon={<IconEyeVisible />}
-                                size="small"
-                                status="primary"
-                                onClick={() => selectNode()}
-                            />
-                            <LemonButton size="small" status="primary" onClick={() => setEditingNodeId(null)}>
-                                Done
-                            </LemonButton>
-                        </>
+                        index === 0 ? (
+                            <>
+                                <LemonButton
+                                    icon={<IconEyeVisible />}
+                                    size="small"
+                                    status="primary"
+                                    onClick={() => selectNode()}
+                                />
+                                <LemonButton size="small" status="primary" onClick={() => setEditingNodeId(null)}>
+                                    Done
+                                </LemonButton>
+                            </>
+                        ) : null
                     }
                 >
-                    <div className="NotebookNodeSettings__widgets__content">
-                        <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
-                    </div>
+                    <Component attributes={nodeAttributes} updateAttributes={updateAttributes} />
                 </LemonWidget>
             ))}
         </div>

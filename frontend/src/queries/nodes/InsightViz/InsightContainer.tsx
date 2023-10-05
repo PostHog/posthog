@@ -34,6 +34,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -46,6 +47,7 @@ const VIEW_MAP = {
 
 export function InsightContainer({
     disableHeader,
+    showingResults,
     disableTable,
     disableCorrelationTable,
     disableLastComputation,
@@ -55,6 +57,7 @@ export function InsightContainer({
     embedded,
 }: {
     disableHeader?: boolean
+    showingResults?: boolean
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
@@ -204,60 +207,62 @@ export function InsightContainer({
                 </div>
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
-            <Card
-                title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
-                data-attr="insights-graph"
-                className="insights-graph-container"
-                bordered={!embedded}
-            >
+            <Card data-attr="insights-graph" className="insights-graph-container" bordered={!embedded}>
                 <div>
-                    {isFunnels && (
-                        <div className="overflow-hidden">
-                            {/* negative margin-top so that the border is only visible when the rows wrap */}
-                            <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
-                                {(!disableLastComputation || !!samplingFactor) && (
-                                    <div className="flex grow items-center insights-graph-header border-t">
+                    {disableHeader ? null : <InsightDisplayConfig />}
+                    {!disableHeader && showingResults ? <LemonDivider className=" my-0" /> : null}
+
+                    {showingResults && (
+                        <div>
+                            {isFunnels && (
+                                <div className="overflow-hidden">
+                                    {/* negative margin-top so that the border is only visible when the rows wrap */}
+                                    <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
+                                        {(!disableLastComputation || !!samplingFactor) && (
+                                            <div className="flex grow items-center insights-graph-header border-t">
+                                                <InsightResultMetadata
+                                                    disableLastComputation={disableLastComputation}
+                                                    disableLastComputationRefresh={disableLastComputationRefresh}
+                                                />
+                                            </div>
+                                        )}
+                                        <div
+                                            className={`flex insights-graph-header ${
+                                                disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
+                                            }`}
+                                        >
+                                            <FunnelCanvasLabel />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
+                                <div className="flex items-center justify-between insights-graph-header">
+                                    <div className="flex items-center">
                                         <InsightResultMetadata
                                             disableLastComputation={disableLastComputation}
                                             disableLastComputationRefresh={disableLastComputationRefresh}
                                         />
                                     </div>
-                                )}
-                                <div
-                                    className={`flex insights-graph-header ${
-                                        disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
-                                    }`}
-                                >
-                                    <FunnelCanvasLabel />
+
+                                    <div>{isPaths ? <PathCanvasLabel /> : null}</div>
                                 </div>
-                            </div>
+                            )}
+
+                            {BlockingEmptyState ? (
+                                BlockingEmptyState
+                            ) : supportsDisplay && showLegend ? (
+                                <Row className="insights-graph-container-row" wrap={false}>
+                                    <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                                    <Col className="insights-graph-container-row-right">
+                                        <InsightLegend />
+                                    </Col>
+                                </Row>
+                            ) : (
+                                VIEW_MAP[activeView]
+                            )}
                         </div>
-                    )}
-
-                    {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
-                        <div className="flex items-center justify-between insights-graph-header">
-                            <div className="flex items-center">
-                                <InsightResultMetadata
-                                    disableLastComputation={disableLastComputation}
-                                    disableLastComputationRefresh={disableLastComputationRefresh}
-                                />
-                            </div>
-
-                            <div>{isPaths ? <PathCanvasLabel /> : null}</div>
-                        </div>
-                    )}
-
-                    {BlockingEmptyState ? (
-                        BlockingEmptyState
-                    ) : supportsDisplay && showLegend ? (
-                        <Row className="insights-graph-container-row" wrap={false}>
-                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                            <Col className="insights-graph-container-row-right">
-                                <InsightLegend />
-                            </Col>
-                        </Row>
-                    ) : (
-                        VIEW_MAP[activeView]
                     )}
                 </div>
             </Card>

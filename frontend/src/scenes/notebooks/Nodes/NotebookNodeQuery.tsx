@@ -118,6 +118,7 @@ export const Settings = ({
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
+            modifiedQuery.showHeader = true
         }
 
         return modifiedQuery
@@ -164,7 +165,7 @@ export const Settings = ({
             </div>
         </div>
     ) : (
-        <div className="p-3">
+        <div className="p-3 overflow-auto">
             <Query
                 query={modifiedQuery}
                 uniqueKey={attributes.nodeId}
@@ -179,6 +180,92 @@ export const Settings = ({
                 }}
             />
         </div>
+    )
+}
+
+export const Display = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
+    const { query } = attributes
+
+    const modifiedQuery = useMemo(() => {
+        const modifiedQuery = { ...query, full: false }
+
+        if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+            // We don't want to show the insights button for now
+            modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.showHogQLEditor = true
+            modifiedQuery.showResultsTable = false
+            modifiedQuery.showReload = false
+            modifiedQuery.showElapsedTime = false
+            modifiedQuery.embedded = true
+        }
+
+        if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
+            modifiedQuery.showFilters = false
+            modifiedQuery.showResults = false
+            modifiedQuery.embedded = true
+            modifiedQuery.showHeader = true
+        }
+
+        return modifiedQuery
+    }, [query])
+
+    const detachSavedInsight = (): void => {
+        if (attributes.query.kind === NodeKind.SavedInsightNode) {
+            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+            const dataLogic = insightDataLogic.findMounted(insightProps)
+
+            if (dataLogic) {
+                updateAttributes({ query: dataLogic.values.query as QuerySchema })
+            }
+        }
+    }
+
+    return attributes.query.kind === NodeKind.SavedInsightNode ? (
+        <div className="p-3 space-y-2">
+            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
+            <div>
+                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                insight to make changes independently in the notebook.
+            </div>
+
+            <div className="space-y-2">
+                <LemonButton
+                    center={true}
+                    type="secondary"
+                    fullWidth
+                    className="flex flex-1"
+                    to={urls.insightEdit(attributes.query.shortId)}
+                >
+                    Edit the insight
+                </LemonButton>
+                <LemonButton
+                    center={true}
+                    fullWidth
+                    type="secondary"
+                    className="flex flex-1"
+                    onClick={detachSavedInsight}
+                >
+                    Detach from insight
+                </LemonButton>
+            </div>
+        </div>
+    ) : (
+        <Query
+            query={modifiedQuery}
+            uniqueKey={attributes.nodeId}
+            readOnly={false}
+            setQuery={(t) => {
+                updateAttributes({
+                    query: {
+                        ...attributes.query,
+                        source: (t as DataTableNode | InsightVizNode).source,
+                    } as QuerySchema,
+                })
+            }}
+        />
     )
 }
 
@@ -199,8 +286,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
     widgets: [
         {
+            key: 'display',
+            label: 'Display settings',
+            Component: Display,
+        },
+        {
             key: 'settings',
+            label: 'Query settings',
             Component: Settings,
+            scrollable: true,
         },
     ],
     pasteOptions: {

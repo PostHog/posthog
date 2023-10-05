@@ -131,6 +131,11 @@
             --notebook-sidebar-height: calc(100vh - 11rem);
         }
 
+        .NotebookNodeSettings__widgets {
+            max-height: calc(100vh - 220px);
+            overflow: hidden;
+        }
+
         .NotebookSidebar__content {
             position: sticky;
             align-self: flex-start;
@@ -178,13 +183,6 @@
             .LemonButton__icon {
                 font-size: 1rem;
             }
-        }
-    }
-
-    .NotebookNodeSettings__widgets {
-        &__content {
-            max-height: calc(100vh - 220px);
-            overflow: auto;
         }
     }
 
