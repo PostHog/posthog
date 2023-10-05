@@ -491,6 +491,7 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
 export interface QueryResponse {
     results: unknown
     timings?: QueryTiming[]
+    hogql?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
@@ -512,8 +513,7 @@ export interface LifecycleQuery extends InsightsQueryBase {
 }
 
 export interface PersonsQueryResponse {
-    /** Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ] */
-    results: any[][] // typed as any[], not [str, ...any] because python
+    results: any[][]
     columns: any[]
     types: string[]
     hogql: string
@@ -524,9 +524,6 @@ export interface PersonsQueryResponse {
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
     select?: HogQLExpression[]
-    source?: InsightQueryNode
-    sourceDay?: string
-    sourceGroup?: string
     search?: string
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]

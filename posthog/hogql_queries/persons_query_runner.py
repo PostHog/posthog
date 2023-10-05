@@ -3,13 +3,14 @@ from datetime import timedelta
 from typing import Optional, Any, Dict, List, cast, Literal
 
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
-from posthog.schema import PersonsQuery, PersonsQueryResponse, LifecycleQuery
+from posthog.schema import PersonsQuery, PersonsQueryResponse
 
 PERSON_FULL_TUPLE = ["id", "properties", "created_at", "is_identified"]
 
@@ -41,12 +42,16 @@ class PersonsQueryRunner(QueryRunner):
                 new_result = dict(zip(PERSON_FULL_TUPLE, select))
                 new_result["properties"] = json.loads(new_result["properties"])
                 response.results[index][star_idx] = new_result
+
+        has_more = len(response.results) > self.query_limit()
         return PersonsQueryResponse(
-            results=response.results,
+            # we added +1 before for pagination, remove the last element if there's more
+            results=response.results[:-1] if has_more else response.results,
             timings=response.timings,
-            hogql=response.hogql,
-            columns=self.input_columns(),
             types=[type for _, type in response.types],
+            columns=self.input_columns(),
+            hogql=response.hogql,
+            hasMore=has_more,
         )
 
     def filter_conditions(self) -> List[ast.Expr]:
@@ -57,16 +62,6 @@ class PersonsQueryRunner(QueryRunner):
 
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
-
-        if self.query.source:
-            source = self.query.source
-            if isinstance(source, LifecycleQuery):
-                source_query = get_query_runner(source, self.team, self.timings).to_persons_query()
-                where_exprs.append(
-                    ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["id"]), right=source_query)
-                )
-            else:
-                raise ValueError(f"Queries of type '{source.kind}' are not supported as a PersonsQuery sources.")
 
         if self.query.search is not None and self.query.search != "":
             where_exprs.append(
@@ -88,8 +83,8 @@ class PersonsQueryRunner(QueryRunner):
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Like,
-                            left=ast.Field(chain=["distinct_ids", "distinct_id"]),
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["pdi", "distinct_id"]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                     ]
@@ -100,8 +95,10 @@ class PersonsQueryRunner(QueryRunner):
     def input_columns(self) -> List[str]:
         return self.query.select or ["person", "id", "created_at", "person.$delete"]
 
+    def query_limit(self) -> int:
+        return min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit)
+
     def to_query(self) -> ast.SelectQuery:
-        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
         with self.timings.measure("columns"):
             columns = []
@@ -181,10 +178,7 @@ class PersonsQueryRunner(QueryRunner):
 
         with self.timings.measure("limit"):
             # adding +1 to the limit to check if there's a "next page" after the requested results
-            limit = (
-                min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit)
-                + 1
-            )
+            limit = self.query_limit() + 1
             offset = 0 if self.query.offset is None else self.query.offset
 
         with self.timings.measure("select"):

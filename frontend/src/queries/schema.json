@@ -1421,6 +1421,9 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -1687,15 +1690,6 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
-                },
-                "source": {
-                    "$ref": "#/definitions/InsightQueryNode"
-                },
-                "sourceDay": {
-                    "type": "string"
-                },
-                "sourceGroup": {
-                    "type": "string"
                 }
             },
             "required": ["kind"],
@@ -1715,7 +1709,6 @@
                     "type": "string"
                 },
                 "results": {
-                    "description": "Results in the format: [ ['uuid', breakdown1, breakdown2, ...], ... ]",
                     "items": {
                         "items": {},
                         "type": "array"
@@ -2379,6 +2372,9 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2431,6 +2427,9 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -2486,6 +2485,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2540,6 +2542,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2593,6 +2598,9 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "is_cached": {
                     "type": "boolean"

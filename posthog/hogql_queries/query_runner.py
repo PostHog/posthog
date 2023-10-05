@@ -49,7 +49,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None
-    # hogql: Optional[str] = None
+    hogql: Optional[str] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -128,7 +128,7 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def calculate(self) -> QueryResponse:
+    def calculate(self) -> QueryResponse[Any]:
         raise NotImplementedError()
 
     def run(self, refresh_requested: bool) -> CachedQueryResponse:
