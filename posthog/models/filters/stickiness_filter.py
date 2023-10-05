@@ -4,7 +4,7 @@ from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth,
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
-from posthog.constants import INSIGHT_STICKINESS
+from posthog.constants import INSIGHT_STICKINESS, LEGACY_CONVERSION
 
 from .base_filter import BaseFilter
 from .mixins.common import (
@@ -17,6 +17,7 @@ from .mixins.common import (
     EntityTypeMixin,
     FilterTestAccountsMixin,
     InsightMixin,
+    LegacyConversionMixin,
     LimitMixin,
     OffsetMixin,
     SampleMixin,
@@ -50,6 +51,7 @@ class StickinessFilter(
     LimitMixin,
     ClientQueryIdMixin,
     SampleMixin,
+    LegacyConversionMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Optional[Callable]
@@ -62,7 +64,7 @@ class StickinessFilter(
             data = {"insight": INSIGHT_STICKINESS}
         super().__init__(data, request, **kwargs)
         team: Optional["Team"] = kwargs.get("team", None)
-        if not team:
+        if not data.get(LEGACY_CONVERSION, False) and not team:
             raise ValidationError("Team must be provided to stickiness filter")
         self.team = team
         self.get_earliest_timestamp = kwargs.get("get_earliest_timestamp", None)

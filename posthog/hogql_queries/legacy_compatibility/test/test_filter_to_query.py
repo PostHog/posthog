@@ -496,6 +496,11 @@ insight_30 = {
     "breakdown_type": "events",
     "breakdown_group_type_index": 0,
 }
+insight_31 = {
+    "events": [{"id": "$autocapture", "math": "total", "name": "$autocapture", "type": "events", "order": 0}],
+    "insight": "STICKINESS",
+    "entity_type": "events",
+}
 
 
 test_insights = [
@@ -530,20 +535,23 @@ test_insights = [
     insight_28,
     insight_29,
     insight_30,
+    insight_31,
 ]
 
 
 @pytest.mark.parametrize("insight", test_insights)
 def test_base_insights(insight):
+    # :TRICKY: we set is_simplified to avoid inlining cohorts, test account filters and aggregate groups
+    data = {**insight, "is_simplified": True, "legacy_conversion": True}
     """smoke test (i.e. filter_to_query should not throw) for real world insights"""
     if insight.get("insight") == "RETENTION":
-        filter = LegacyRetentionFilter(data=insight)
+        filter = LegacyRetentionFilter(data=data)
     elif insight.get("insight") == "PATHS":
-        filter = LegacyPathFilter(data=insight)
+        filter = LegacyPathFilter(data=data)
     elif insight.get("insight") == "STICKINESS":
-        filter = LegacyStickinessFilter(data=insight)
+        filter = LegacyStickinessFilter(data=data)
     else:
-        filter = LegacyFilter(data=insight)
+        filter = LegacyFilter(data=data)
     filter_to_query(filter)
 
 
