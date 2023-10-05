@@ -104,6 +104,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     }
                                 />
                             )}
+                            <LemonDivider vertical />
                             <LemonButton
                                 type="primary"
                                 data-attr="save-cohort"
