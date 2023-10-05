@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
@@ -99,12 +99,12 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string
-): Promise<N['response']> {
+): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
     }
 
-    let response: N['response']
+    let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
@@ -246,4 +246,12 @@ export async function legacyInsightQuery({
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
     return [fetchResponse, apiUrl]
+}
+
+export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
+    return await query<HogQLQuery>({
+        kind: NodeKind.HogQLQuery,
+        query: queryString,
+        values,
+    })
 }
