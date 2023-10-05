@@ -1,4 +1,4 @@
-name: Build hogql_parser
+name: Release hogql-parser
 
 on:
     push:
@@ -16,7 +16,7 @@ jobs:
     build-wheels:
         name: Build wheels on ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 30
+        timeout-minutes: 60
         strategy:
             fail-fast: false
             matrix:
@@ -39,13 +39,14 @@ jobs:
             - name: Build wheels
               run: cd hogql_parser && python -m cibuildwheel --output-dir wheelhouse
               env:
-                  MACOSX_DEPLOYMENT_TARGET: '12'
+                  MACOSX_DEPLOYMENT_TARGET: '12' # A modern target allows us to use C++20
 
             - uses: actions/upload-artifact@v3
               with:
                   path: hogql_parser/wheelhouse/*.whl
 
-    upload-all:
+    publish:
+        name: Publish on PyPI
         needs: build-wheels
         environment: pypi-hogql-parser
         permissions:
@@ -57,4 +58,5 @@ jobs:
                   name: artifact
                   path: dist
 
-            - uses: pypa/gh-action-pypi-publish@release/v1
+            - name: Publish package to PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
