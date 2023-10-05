@@ -16,6 +16,7 @@ jobs:
     build_wheels:
         name: Build wheels on ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -23,6 +24,12 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+
+            - name: Set up QEMU for Linux ARM builds
+              if: runner.os == 'Linux'
+              uses: docker/setup-qemu-action@v3
+              with:
+                  platforms: all
 
             - uses: actions/setup-python@v3
 
