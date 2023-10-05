@@ -58,8 +58,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             criteriaIndex,
         }),
         setQuery: (query: Node) => ({ query }),
-        duplicateToStaticCohort: true,
-        duplicateToDynamicCohort: true,
+        duplicateCohort: (asStatic: boolean) => ({ asStatic }),
     }),
 
     reducers(({ props }) => ({
@@ -254,47 +253,24 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
-        duplicatedStaticCohort: [
+        duplicatedCohort: [
             null as CohortType | null,
             {
-                duplicateToDynamicCohort: async (_, breakpoint) => {
+                duplicateCohort: async ({ asStatic }: { asStatic: boolean }, breakpoint) => {
+                    let cohort: CohortType
                     try {
                         await breakpoint(200)
-                        const data = { ...values.cohort }
-                        data.name += ' (dynamic copy)'
-                        const cohort = await api.cohorts.create(data)
-
+                        if (asStatic) {
+                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                        } else {
+                            const data = { ...values.cohort }
+                            data.name += ' (dynamic copy)'
+                            cohort = await api.cohorts.create(data)
+                        }
                         lemonToast.success(
-                            'Cohort duplicated dynamically. Please wait up to a few minutes for it to be calculated',
+                            'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
                             {
-                                toastId: `cohort-dynamically-duplicated-${values.cohort.id}`,
-                                button: {
-                                    label: 'View cohort',
-                                    action: () => {
-                                        router.actions.push(urls.cohort(cohort.id))
-                                    },
-                                },
-                            }
-                        )
-                        return cohort
-                    } catch (error: any) {
-                        lemonToast.error(error.detail || 'Failed to duplicate cohort')
-                        return null
-                    }
-                },
-            },
-        ],
-        duplicatedDynamicCohort: [
-            null as CohortType | null,
-            {
-                duplicateToStaticCohort: async (_, breakpoint) => {
-                    try {
-                        await breakpoint(200)
-                        const cohort = await api.cohorts.duplicate(values.cohort.id)
-                        lemonToast.success(
-                            'Cohort duplicated statically. Please wait up to a few minutes for it to be calculated',
-                            {
-                                toastId: `cohort-statically-duplicated-${values.cohort.id}`,
+                                toastId: `cohort-duplicated-${values.cohort.id}`,
                                 button: {
                                     label: 'View cohort',
                                     action: () => {
