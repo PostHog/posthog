@@ -267,7 +267,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: undefined, // No locality guarantees in overflow
+                key: null, // No locality guarantees in overflow
                 headers: message.headers,
                 waitForAck: true,
             })
