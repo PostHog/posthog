@@ -1663,6 +1663,12 @@
                 "offset": {
                     "type": "number"
                 },
+                "orderBy": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"

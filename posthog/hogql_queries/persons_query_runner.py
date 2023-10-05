@@ -1,9 +1,9 @@
 import json
 from datetime import timedelta
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, cast, Literal
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -150,6 +150,35 @@ class PersonsQueryRunner(QueryRunner):
             else:
                 having = ast.And(exprs=having_list)
 
+        with self.timings.measure("order"):
+            if self.query.orderBy is not None:
+                if self.query.orderBy in [["person"], ["person DESC"], ["person ASC"]]:
+                    order_property = (
+                        "email"
+                        if self.team.person_display_name_properties is None
+                        else self.team.person_display_name_properties[0]
+                    )
+                    order_by = [
+                        ast.OrderExpr(
+                            expr=ast.Field(chain=["properties", order_property]),
+                            order=cast(
+                                Literal["ASC", "DESC"], "DESC" if self.query.orderBy[0] == "person DESC" else "ASC"
+                            ),
+                        )
+                    ]
+                else:
+                    order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
+            elif "count()" in self.input_columns():
+                order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
+            elif len(aggregations) > 0:
+                order_by = [ast.OrderExpr(expr=aggregations[0], order="DESC")]
+            elif "created_at" in self.input_columns():
+                order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
+            elif len(columns) > 0:
+                order_by = [ast.OrderExpr(expr=columns[0], order="ASC")]
+            else:
+                order_by = []
+
         with self.timings.measure("limit"):
             # adding +1 to the limit to check if there's a "next page" after the requested results
             limit = (
@@ -165,7 +194,7 @@ class PersonsQueryRunner(QueryRunner):
                 where=where,
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
-                # order_by=order_by,
+                order_by=order_by,
                 limit=ast.Constant(value=limit),
                 offset=ast.Constant(value=offset),
             )

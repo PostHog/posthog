@@ -203,7 +203,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             }}
                         />
                         <LemonDivider />
-                        {canSort ? (
+                        {canSort && key !== 'person.$delete' ? (
                             <>
                                 <LemonButton
                                     fullWidth

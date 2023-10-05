@@ -530,6 +530,7 @@ export interface PersonsQuery extends DataNode {
     search?: string
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
+    orderBy?: string[]
     limit?: number
     offset?: number
     response?: PersonsQueryResponse

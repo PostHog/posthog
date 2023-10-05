@@ -1329,6 +1329,7 @@ class PersonsQuery(BaseModel):
     kind: Literal["PersonsQuery"] = "PersonsQuery"
     limit: Optional[float] = None
     offset: Optional[float] = None
+    orderBy: Optional[List[str]] = None
     properties: Optional[
         List[
             Union[
