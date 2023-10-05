@@ -267,7 +267,7 @@
                              AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
-                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
+                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
                  UNION ALL SELECT DISTINCT distinct_id,
                                            0 as value
                  FROM events all_events
@@ -336,7 +336,7 @@
                              AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
                       GROUP BY id
                       HAVING max(is_deleted) = 0
-                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
+                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
                  UNION ALL SELECT DISTINCT distinct_id,
                                            0 as value
                  FROM events all_events
@@ -378,7 +378,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'session start'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -410,7 +410,7 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'session start'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -469,7 +469,7 @@
                  FROM person
                  WHERE team_id = 2
                  GROUP BY id
-                 HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
               WHERE e.team_id = 2
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -525,7 +525,7 @@
                  FROM person
                  WHERE team_id = 2
                  GROUP BY id
-                 HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
               WHERE e.team_id = 2
                 AND event = 'session start'
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
