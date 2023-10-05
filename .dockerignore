@@ -23,7 +23,6 @@
 !frontend/public
 !frontend/*.*
 !ee
-!hogql_parser
 !.devcontainer
 !plugin-server/package.json
 !plugin-server/pnpm-lock.yaml
