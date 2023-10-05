@@ -282,7 +282,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       );
 
       PyObject* array_join_list = visitAsPyObject(array_join_clause_ctx->columnExprList());
-      for (size_t i = 0; i < PyList_Size(array_join_list); i++) {
+      for (Py_ssize_t i = 0; i < PyList_Size(array_join_list); i++) {
         PyObject* expr = PyList_GET_ITEM(array_join_list, i);
         if (!is_ast_node_instance(expr, "Alias")) {
           Py_DECREF(array_join_list);

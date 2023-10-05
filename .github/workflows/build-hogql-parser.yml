@@ -13,10 +13,10 @@ on:
             - .github/workflows/build-hogql-parser.yml
 
 jobs:
-    build_wheels:
+    build-wheels:
         name: Build wheels on ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 15
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
@@ -44,3 +44,17 @@ jobs:
             - uses: actions/upload-artifact@v3
               with:
                   path: hogql_parser/wheelhouse/*.whl
+
+    upload-all:
+        needs: build-wheels
+        environment: pypi-hogql-parser
+        permissions:
+            id-token: write
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/download-artifact@v3
+              with:
+                  name: artifact
+                  path: dist
+
+            - uses: pypa/gh-action-pypi-publish@release/v1
