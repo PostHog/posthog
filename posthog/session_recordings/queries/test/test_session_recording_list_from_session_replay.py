@@ -1979,10 +1979,10 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     def test_filter_for_recordings_by_console_text(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
-        with_warns_session_id = f"with-warns-session-{str(uuid4())}"
-        with_errors_session_id = f"with-errors-session-{str(uuid4())}"
-        with_two_session_id = f"with-two-session-{str(uuid4())}"
+        with_logs_session_id = "with-logs-session"
+        with_warns_session_id = "with-warns-session"
+        with_errors_session_id = "with-errors-session"
+        with_two_session_id = "with-two-session"
 
         produce_replay_summary(
             distinct_id="user",

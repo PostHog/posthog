@@ -2735,7 +2735,7 @@
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in ['with-errors-session-497cfe26-1ce1-4a2d-b81d-1b8e171b6564', 'with-two-session-52d93c81-84c8-490d-92fe-cd80ee9a2483', 'with-warns-session-20fe20bd-4364-4376-b221-9a284b53c7b7']
+    AND "session_id" in ['with-errors-session', 'with-two-session', 'with-warns-session']
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0
@@ -2782,7 +2782,7 @@
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in ['with-warns-session-20fe20bd-4364-4376-b221-9a284b53c7b7']
+    AND "session_id" in ['with-warns-session']
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0
@@ -2829,7 +2829,7 @@
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in ['with-warns-session-20fe20bd-4364-4376-b221-9a284b53c7b7']
+    AND "session_id" in ['with-warns-session']
   GROUP BY session_id
   HAVING 1=1
   AND (console_warn_count > 0
