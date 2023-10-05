@@ -32,11 +32,10 @@ import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Summary } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
-    // TODO: survey results logic
-    // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -289,12 +288,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
         currentQuestionIndexAndType,
+        surveyUserStats,
+        surveyUserStatsLoading,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
+            {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            )}
             {surveyMetricsQueries && (
                 <div className="flex flex-row gap-4 mb-4">
                     <div className="flex-1">

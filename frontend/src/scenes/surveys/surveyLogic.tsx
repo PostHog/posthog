@@ -17,7 +17,8 @@ import {
     SurveyType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -40,6 +41,12 @@ export interface SurveyLogicProps {
 export interface SurveyMetricsQueries {
     surveysShown: DataTableNode
     surveysDismissed: DataTableNode
+}
+
+export interface SurveyUserStats {
+    seen: number
+    dismissed: number
+    sent: number
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -114,6 +121,37 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             resumeSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: null })
+            },
+        },
+        surveyUserStats: {
+            loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: hogql`
+                        SELECT
+                            (SELECT COUNT(DISTINCT person_id)
+                                FROM events
+                                WHERE event = 'survey shown' AND properties.$survey_id = ${props.id}
+                                AND person_id NOT IN (
+                                    SELECT DISTINCT person_id
+                                    FROM events
+                                    WHERE event IN ('survey dismissed', 'survey sent') AND properties.$survey_id = ${props.id}
+                                )),
+                            (SELECT COUNT(DISTINCT person_id)
+                                FROM events
+                                WHERE event = 'survey dismissed' AND properties.$survey_id = ${props.id}),
+                            (SELECT COUNT(DISTINCT person_id)
+                                FROM events
+                                WHERE event = 'survey sent' AND properties.$survey_id = ${props.id})
+                    `,
+                }
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+                if (results && results[0]) {
+                    return { seen: results[0][0], dismissed: results[0][1], sent: results[0][2] }
+                } else {
+                    return { seen: 0, dismissed: 0, sent: 0 }
+                }
             },
         },
     })),
@@ -429,9 +467,10 @@ export const surveyLogic = kea<surveyLogicType>([
             }
         },
     })),
-    afterMount(async ({ props, actions }) => {
+    afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
-            await actions.loadSurvey()
+            actions.loadSurvey()
+            actions.loadSurveyUserStats()
         }
         if (props.id === 'new') {
             actions.resetSurvey()
