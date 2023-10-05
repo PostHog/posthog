@@ -89,6 +89,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     }, [])
 
     if (!expanded) {
+        // TODO: this isn't so informative as an empty state. Could we do better?
         return <div className="p-4">{summarizePlaylistFilters(filters, {})} </div>
     }
 

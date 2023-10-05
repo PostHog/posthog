@@ -321,10 +321,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                         'SessionRecordingsPlaylist--embedded': notebookNode,
                     })}
                 >
-                    <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
+                    <div className={clsx('SessionRecordingsPlaylist__list space-y-4')}>
                         <RecordingsLists {...props} />
                     </div>
-                    <div className="SessionRecordingsPlaylist__right-column">
+                    <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecording?.id ? (
                             <SessionRecordingPlayer
                                 playerKey="playlist"

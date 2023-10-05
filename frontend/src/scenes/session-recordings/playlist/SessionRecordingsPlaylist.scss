@@ -12,7 +12,7 @@
     border-radius: var(--radius);
     height: 100%;
 
-    .SessionRecordingsPlaylist__left-column {
+    .SessionRecordingsPlaylist__list {
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
@@ -22,7 +22,8 @@
         overflow: hidden;
         height: 100%;
     }
-    .SessionRecordingsPlaylist__right-column {
+
+    .SessionRecordingsPlaylist__player {
         flex: 1;
         height: 100%;
         overflow: hidden;
@@ -41,7 +42,7 @@
     }
 
     &--wide {
-        .SessionRecordingsPlaylist__right-column {
+        .SessionRecordingsPlaylist__player {
             flex: 1;
             height: 100%;
         }

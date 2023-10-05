@@ -66,7 +66,7 @@ function ActivityIndicators({
     onPropertyClick?: (property: string, value?: string) => void
     iconClassnames: string
 }): JSX.Element {
-    const iconPropertyKeys = ['$browser', '$device_type', '$os', '$geoip_country_code']
+    const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
             ? recordingProperties
@@ -89,13 +89,18 @@ function ActivityIndicators({
                     return (
                         <PropertyIcon
                             key={property}
-                            onClick={onPropertyClick}
+                            onClick={(e) => {
+                                if (e.altKey) {
+                                    e.stopPropagation()
+                                    onPropertyClick?.(property, value)
+                                }
+                            }}
                             className={iconClassnames}
                             property={property}
                             value={value}
                             tooltipTitle={() => (
                                 <div className="text-center">
-                                    Click to filter for
+                                    <code>Alt + Click</code> to filter for
                                     <br />
                                     <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
                                 </div>
@@ -179,10 +184,7 @@ export function SessionRecordingPreview({
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
-    const iconClassnames = clsx(
-        'SessionRecordingPreview__property-icon text-base text-muted-alt',
-        !isActive && 'opacity-75'
-    )
+    const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
