@@ -59,13 +59,11 @@ describe('Cohorts', () => {
         // duplicate cohort (dynamic)
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Duplicate as dynamic cohort').click()
-        cy.wait(500)
         cy.get('.Toastify__toast-body').contains('View cohort').click()
 
         // duplicate cohort (static)
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Duplicate as static cohort').click()
-        cy.wait(500)
         cy.get('.Toastify__toast-body').contains('View cohort').click()
 
         // delete cohort
