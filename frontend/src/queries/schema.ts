@@ -495,7 +495,6 @@ export interface QueryResponse {
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
-    hasMore?: boolean
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {

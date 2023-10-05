@@ -1421,9 +1421,6 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "hasMore": {
-                    "type": "boolean"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -2375,9 +2372,6 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "hasMore": {
-                    "type": "boolean"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -2433,9 +2427,6 @@
                 "columns": {
                     "items": {},
                     "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
                 },
                 "hogql": {
                     "type": "string"
@@ -2494,9 +2485,6 @@
                     "items": {},
                     "type": "array"
                 },
-                "hasMore": {
-                    "type": "boolean"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -2554,9 +2542,6 @@
                     "items": {},
                     "type": "array"
                 },
-                "hasMore": {
-                    "type": "boolean"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -2613,9 +2598,6 @@
                 "columns": {
                     "items": {},
                     "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
                 },
                 "hogql": {
                     "type": "string"
