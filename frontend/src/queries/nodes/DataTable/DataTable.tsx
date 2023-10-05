@@ -45,7 +45,11 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    extractExpressionComment,
+    getDataNodeDefaultColumns,
+    removeExpressionComment,
+} from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
@@ -260,16 +264,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     setQuery({
                                         ...query,
                                         source: {
                                             ...source,
-                                            select: [
-                                                ...(source.select || []).slice(0, index),
-                                                hogQl,
-                                                ...(source.select || []).slice(index),
-                                            ].filter((c) =>
-                                                isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                            select: [...columns.slice(0, index), hogQl, ...columns.slice(index)].filter(
+                                                (c) => (isAggregation ? c !== '*' && c !== 'person.$delete' : true)
                                             ),
                                         } as EventsQuery | PersonsQuery,
                                     })
@@ -292,14 +293,15 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     setQuery?.({
                                         ...query,
                                         source: {
                                             ...source,
                                             select: [
-                                                ...(source.select || []).slice(0, index + 1),
+                                                ...columns.slice(0, index + 1),
                                                 hogQl,
-                                                ...(source.select || []).slice(index + 1),
+                                                ...columns.slice(index + 1),
                                             ].filter((c) =>
                                                 isAggregation ? c !== '*' && c !== 'person.$delete' : true
                                             ),

@@ -42,10 +42,10 @@ export const personsLogic = kea<personsLogicType>({
         return props.cohort ? `cohort_${props.cohort}` : 'scene'
     },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
-    connect: {
+    connect: () => ({
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-    },
+    }),
     actions: {
         setPerson: (person: PersonType | null) => ({ person }),
         setPersons: (persons: PersonType[]) => ({ persons }),
