@@ -332,7 +332,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             className="w-max"
                             icon={<IconPlus />}
                             onClick={() => {
-                                setSurveyValue('questions', [...survey.questions, { ...defaultSurveyFieldValues.open }])
+                                setSurveyValue('questions', [
+                                    ...survey.questions,
+                                    { ...defaultSurveyFieldValues.open.questions[0] },
+                                ])
                             }}
                         >
                             Add question
