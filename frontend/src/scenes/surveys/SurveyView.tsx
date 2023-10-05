@@ -210,7 +210,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         <Link
                                                             data-attr="survey-doc-link"
                                                             target="_blank"
-                                                            to="https://posthog.com/docs/surveys/api"
+                                                            to="https://posthog.com/docs/surveys/implementing-custom-surveys"
                                                             targetBlankIcon
                                                         >
                                                             in the docs
