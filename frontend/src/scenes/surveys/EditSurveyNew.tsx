@@ -270,44 +270,176 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                 minRows={2}
                                                                             />
                                                                         </Field>
-                                                                        <Field name="type" label="Type">
-                                                                            {({ value, onChange }) => {
-                                                                                return (
-                                                                                    <FormType
-                                                                                        value={value}
-                                                                                        appearance={survey.appearance}
-                                                                                        onChange={(newType) => {
-                                                                                            onChange(newType)
-                                                                                            const isEditingQuestion =
-                                                                                                defaultSurveyFieldValues[
-                                                                                                    question.type
-                                                                                                ].questions[0]
-                                                                                                    .question !==
-                                                                                                question.question
-                                                                                            const isEditingDescription =
-                                                                                                defaultSurveyFieldValues[
-                                                                                                    question.type
-                                                                                                ].questions[0]
-                                                                                                    .description !==
-                                                                                                question.description
-                                                                                            const isEditingThankYouMessage =
-                                                                                                defaultSurveyFieldValues[
-                                                                                                    question.type
-                                                                                                ].appearance
-                                                                                                    .thankYouMessageHeader !==
-                                                                                                survey.appearance
-                                                                                                    .thankYouMessageHeader
-                                                                                            setDefaultForQuestionType(
-                                                                                                index,
-                                                                                                newType,
-                                                                                                isEditingQuestion,
-                                                                                                isEditingDescription,
-                                                                                                isEditingThankYouMessage
-                                                                                            )
-                                                                                        }}
-                                                                                    />
-                                                                                )
-                                                                            }}
+                                                                        <Field
+                                                                            name="type"
+                                                                            label="Question type"
+                                                                            className="max-w-60"
+                                                                        >
+                                                                            <LemonSelect
+                                                                                onSelect={(newType) => {
+                                                                                    const isEditingQuestion =
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].questions[0].question !==
+                                                                                        question.question
+                                                                                    const isEditingDescription =
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].questions[0].description !==
+                                                                                        question.description
+                                                                                    const isEditingThankYouMessage =
+                                                                                        defaultSurveyFieldValues[
+                                                                                            question.type
+                                                                                        ].appearance
+                                                                                            .thankYouMessageHeader !==
+                                                                                        survey.appearance
+                                                                                            .thankYouMessageHeader
+                                                                                    setDefaultForQuestionType(
+                                                                                        index,
+                                                                                        newType,
+                                                                                        isEditingQuestion,
+                                                                                        isEditingDescription,
+                                                                                        isEditingThankYouMessage
+                                                                                    )
+                                                                                }}
+                                                                                options={[
+                                                                                    {
+                                                                                        label: SurveyQuestionLabel[
+                                                                                            SurveyQuestionType.Open
+                                                                                        ],
+                                                                                        value: SurveyQuestionType.Open,
+                                                                                        tooltip: () => (
+                                                                                            <BaseAppearance
+                                                                                                preview
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
+                                                                                                appearance={{
+                                                                                                    ...survey.appearance,
+                                                                                                    whiteLabel: true,
+                                                                                                }}
+                                                                                                question="Share your thoughts"
+                                                                                                description="Optional form description."
+                                                                                                type={
+                                                                                                    SurveyQuestionType.Open
+                                                                                                }
+                                                                                            />
+                                                                                        ),
+                                                                                    },
+                                                                                    {
+                                                                                        label: 'Link',
+                                                                                        value: SurveyQuestionType.Link,
+                                                                                        tooltip: () => (
+                                                                                            <BaseAppearance
+                                                                                                preview
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
+                                                                                                appearance={{
+                                                                                                    ...survey.appearance,
+                                                                                                    whiteLabel: true,
+                                                                                                    submitButtonText:
+                                                                                                        'Register',
+                                                                                                }}
+                                                                                                question="Do you want to join our upcoming webinar?"
+                                                                                                type={
+                                                                                                    SurveyQuestionType.Link
+                                                                                                }
+                                                                                            />
+                                                                                        ),
+                                                                                    },
+                                                                                    {
+                                                                                        label: 'Rating',
+                                                                                        value: SurveyQuestionType.Rating,
+                                                                                        tooltip: () => (
+                                                                                            <SurveyRatingAppearance
+                                                                                                preview
+                                                                                                onSubmit={() =>
+                                                                                                    undefined
+                                                                                                }
+                                                                                                appearance={{
+                                                                                                    ...survey.appearance,
+                                                                                                    whiteLabel: true,
+                                                                                                }}
+                                                                                                question="How satisfied are you with our product?"
+                                                                                                description="Optional form description."
+                                                                                                ratingSurveyQuestion={{
+                                                                                                    display: 'number',
+                                                                                                    lowerBoundLabel:
+                                                                                                        'Not great',
+                                                                                                    upperBoundLabel:
+                                                                                                        'Fantastic',
+                                                                                                    question:
+                                                                                                        'How satisfied are you with our product?',
+                                                                                                    scale: 5,
+                                                                                                    type: SurveyQuestionType.Rating,
+                                                                                                }}
+                                                                                            />
+                                                                                        ),
+                                                                                    },
+                                                                                    ...[
+                                                                                        {
+                                                                                            label: 'Single choice select',
+                                                                                            value: SurveyQuestionType.SingleChoice,
+                                                                                            tooltip: () => (
+                                                                                                <SurveyMultipleChoiceAppearance
+                                                                                                    initialChecked={[0]}
+                                                                                                    preview
+                                                                                                    onSubmit={() =>
+                                                                                                        undefined
+                                                                                                    }
+                                                                                                    appearance={{
+                                                                                                        ...survey.appearance,
+                                                                                                        whiteLabel:
+                                                                                                            true,
+                                                                                                    }}
+                                                                                                    question="Have you found this tutorial useful?"
+                                                                                                    multipleChoiceQuestion={{
+                                                                                                        type: SurveyQuestionType.SingleChoice,
+                                                                                                        choices: [
+                                                                                                            'Yes',
+                                                                                                            'No',
+                                                                                                        ],
+                                                                                                        question:
+                                                                                                            'Have you found this tutorial useful?',
+                                                                                                    }}
+                                                                                                />
+                                                                                            ),
+                                                                                        },
+                                                                                        {
+                                                                                            label: 'Multiple choice select',
+                                                                                            value: SurveyQuestionType.MultipleChoice,
+                                                                                            tooltip: () => (
+                                                                                                <SurveyMultipleChoiceAppearance
+                                                                                                    initialChecked={[
+                                                                                                        0, 1,
+                                                                                                    ]}
+                                                                                                    preview
+                                                                                                    onSubmit={() =>
+                                                                                                        undefined
+                                                                                                    }
+                                                                                                    appearance={{
+                                                                                                        ...survey.appearance,
+                                                                                                        whiteLabel:
+                                                                                                            true,
+                                                                                                    }}
+                                                                                                    question="Which types of content would you like to see more of?"
+                                                                                                    multipleChoiceQuestion={{
+                                                                                                        type: SurveyQuestionType.MultipleChoice,
+                                                                                                        choices: [
+                                                                                                            'Tutorials',
+                                                                                                            'Customer case studies',
+                                                                                                            'Product announcements',
+                                                                                                        ],
+                                                                                                        question:
+                                                                                                            'Which types of content would you like to see more of?',
+                                                                                                    }}
+                                                                                                />
+                                                                                            ),
+                                                                                        },
+                                                                                    ],
+                                                                                ]}
+                                                                            />
                                                                         </Field>
                                                                         {question.type === SurveyQuestionType.Link && (
                                                                             <Field
