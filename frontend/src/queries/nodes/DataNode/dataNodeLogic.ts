@@ -21,6 +21,8 @@ import {
     EventsQuery,
     EventsQueryResponse,
     PersonsNode,
+    PersonsQuery,
+    PersonsQueryResponse,
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
@@ -370,7 +372,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
-                    if ((response as QueryResponse)?.hasMore) {
+                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as QueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
@@ -388,7 +390,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                            } as EventsQuery // might also be a persons query, but we don't care about the type here
+                            } as EventsQuery | PersonsQuery
                         }
                     }
                 }
