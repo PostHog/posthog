@@ -312,6 +312,7 @@ jobs:
                   group: ${{ matrix.group }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   snapshot_tests: false
+
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
