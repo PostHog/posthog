@@ -224,13 +224,14 @@ export function SurveyAppearance({
 }
 
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({
+export function BaseAppearance({
     type,
     question,
     appearance,
     onSubmit,
     description,
     link,
+    preview,
 }: {
     type: SurveyQuestionType
     question: string
@@ -238,6 +239,7 @@ function BaseAppearance({
     onSubmit: () => void
     description?: string | null
     link?: string | null
+    preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -260,16 +262,19 @@ function BaseAppearance({
             }}
         >
             <div className="survey-box">
-                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
+                {!preview && (
+                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
                 <div className="question-textarea-wrapper">
                     <div className="survey-question">{question}</div>
                     {description && <div className="description">{description}</div>}
                     {type === SurveyQuestionType.Open && (
                         <textarea
+                            {...(preview ? { tabIndex: -1 } : null)}
                             style={{ border: `1px solid ${appearance.borderColor}` }}
                             className="survey-textarea"
                             name="survey"
@@ -278,12 +283,16 @@ function BaseAppearance({
                         />
                     )}
                 </div>
+
                 <div className="bottom-section">
-                    <div className="buttons">
-                        <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
-                            {appearance.submitButtonText}
-                        </Button>
-                    </div>
+                    {!preview && (
+                        <div className="buttons">
+                            <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
+                                {appearance.submitButtonText}
+                            </Button>
+                        </div>
+                    )}
+
                     {!appearance.whiteLabel && (
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}
@@ -300,11 +309,13 @@ const RatingButton = ({
     active,
     appearance,
     setActiveNumber,
+    preview,
 }: {
     num: number
     active: boolean
     appearance: SurveyAppearanceType
     setActiveNumber: (num: number) => void
+    preview?: boolean
 }): JSX.Element => {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -318,6 +329,7 @@ const RatingButton = ({
 
     return (
         <button
+            {...(preview ? { tabIndex: -1 } : null)}
             ref={ref}
             className="ratings-number"
             type="button"
@@ -336,9 +348,11 @@ const RatingButton = ({
 const NumberRating = ({
     appearance,
     ratingSurveyQuestion,
+    preview,
 }: {
     appearance: SurveyAppearanceType
     ratingSurveyQuestion: RatingSurveyQuestion
+    preview?: boolean
 }): JSX.Element => {
     const [activeNumber, setActiveNumber] = useState<number | undefined>()
     return (
@@ -353,6 +367,7 @@ const NumberRating = ({
                 const active = activeNumber === num
                 return (
                     <RatingButton
+                        preview={preview}
                         key={idx}
                         active={active}
                         appearance={appearance}
@@ -368,9 +383,11 @@ const NumberRating = ({
 const EmojiRating = ({
     ratingSurveyQuestion,
     appearance,
+    preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
+    preview?: boolean
 }): JSX.Element => {
     const [activeIndex, setActiveIndex] = useState<number | undefined>()
     const threeEmojis = [dissatisfiedEmoji, neutralEmoji, satisfiedEmoji]
@@ -382,6 +399,7 @@ const EmojiRating = ({
                 const active = idx === activeIndex
                 return (
                     <button
+                        {...(preview ? { tabIndex: -1 } : null)}
                         className="ratings-emoji"
                         type="button"
                         key={idx}
@@ -396,18 +414,20 @@ const EmojiRating = ({
     )
 }
 
-function SurveyRatingAppearance({
+export function SurveyRatingAppearance({
     ratingSurveyQuestion,
     appearance,
     question,
     onSubmit,
     description,
+    preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
     onSubmit: () => void
     description?: string | null
+    preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -430,32 +450,45 @@ function SurveyRatingAppearance({
             }}
         >
             <div className="survey-box">
-                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
+                {!preview && (
+                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
                 <div className="survey-question">{question}</div>
                 {description && <div className="description">{description}</div>}
                 <div className="rating-section">
                     <div className="rating-options">
                         {ratingSurveyQuestion.display === 'emoji' && (
-                            <EmojiRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
+                            <EmojiRating
+                                preview={preview}
+                                appearance={appearance}
+                                ratingSurveyQuestion={ratingSurveyQuestion}
+                            />
                         )}
                         {ratingSurveyQuestion.display === 'number' && (
-                            <NumberRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
+                            <NumberRating
+                                preview={preview}
+                                appearance={appearance}
+                                ratingSurveyQuestion={ratingSurveyQuestion}
+                            />
                         )}
                     </div>
                     <div className="rating-text">
                         <div>{ratingSurveyQuestion.lowerBoundLabel}</div>
                         <div>{ratingSurveyQuestion.upperBoundLabel}</div>
                     </div>
+
                     <div className="bottom-section">
-                        <div className="buttons">
-                            <Button appearance={appearance} onSubmit={onSubmit}>
-                                {appearance.submitButtonText}
-                            </Button>
-                        </div>
+                        {!preview && (
+                            <div className="buttons">
+                                <Button appearance={appearance} onSubmit={onSubmit}>
+                                    {appearance.submitButtonText}
+                                </Button>
+                            </div>
+                        )}
                         {!appearance.whiteLabel && (
                             <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                                 Survey by {posthogLogoSVG}
@@ -468,18 +501,22 @@ function SurveyRatingAppearance({
     )
 }
 
-function SurveyMultipleChoiceAppearance({
+export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
     question,
     onSubmit,
     description,
+    preview,
+    initialChecked,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
     onSubmit: () => void
     description?: string | null
+    preview?: boolean
+    initialChecked?: number[]
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -503,28 +540,37 @@ function SurveyMultipleChoiceAppearance({
             }}
         >
             <div className="survey-box">
-                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
+                {!preview && (
+                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
                 <div className="survey-question">{question}</div>
                 {description && <div className="description">{description}</div>}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
-                            <input type={inputType} name="choice" value={choice} />
+                            <input
+                                {...(initialChecked ? { checked: initialChecked.includes(idx) } : null)}
+                                type={inputType}
+                                name="choice"
+                                value={choice}
+                            />
                             <label>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}
                 </div>
                 <div className="bottom-section">
-                    <div className="buttons">
-                        <Button appearance={appearance} onSubmit={onSubmit}>
-                            {appearance.submitButtonText}
-                        </Button>
-                    </div>
+                    {!preview && (
+                        <div className="buttons">
+                            <Button appearance={appearance} onSubmit={onSubmit}>
+                                {appearance.submitButtonText}
+                            </Button>
+                        </div>
+                    )}
                     {!appearance.whiteLabel && (
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}

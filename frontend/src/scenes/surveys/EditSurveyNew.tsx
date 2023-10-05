@@ -11,16 +11,194 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, SurveyQuestionType, SurveyType, LinkSurveyQuestion, RatingSurveyQuestion } from '~/types'
+import {
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance as SurveyAppearanceType,
+} from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
-import { SurveyAppearance } from './SurveyAppearance'
+import {
+    BaseAppearance,
+    SurveyAppearance,
+    SurveyMultipleChoiceAppearance,
+    SurveyRatingAppearance,
+} from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { defaultSurveyFieldValues, defaultSurveyAppearance } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import React from 'react'
+
+function FormTypeCard({
+    title,
+    description,
+    children,
+    type,
+    onClick,
+    value,
+    active,
+}: {
+    title: string
+    description?: string
+    children: React.ReactNode
+    type: SurveyQuestionType
+    onClick: (type: SurveyQuestionType) => void
+    value: SurveyQuestionType
+    active: boolean
+}): JSX.Element {
+    return (
+        <div
+            style={{ borderColor: active ? 'var(--primary)' : 'var(--border)' }}
+            className="border rounded-md relative px-4 py-2"
+        >
+            <p className="font-semibold m-0">{title}</p>
+            {description && <p className="m-0 text-xs">{description}</p>}
+            <div className="survey-preview relative mt-2">{children}</div>
+            <input
+                onClick={() => onClick(type)}
+                className="opacity-0 absolute inset-0 h-full w-full cursor-pointer"
+                name="type"
+                value={value}
+                type="radio"
+            />
+        </div>
+    )
+}
+
+export function FormType({
+    onChange,
+    appearance,
+    value,
+}: {
+    onChange: (type: SurveyQuestionType) => void
+    appearance: SurveyAppearanceType
+    value: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap list-none text-center mb-2 gap-4">
+            <FormTypeCard
+                type={SurveyQuestionType.Open}
+                onClick={onChange}
+                title="Freeform text"
+                value={SurveyQuestionType.Open}
+                active={value === SurveyQuestionType.Open}
+            >
+                <BaseAppearance
+                    preview
+                    onSubmit={() => undefined}
+                    appearance={{ ...appearance, whiteLabel: true }}
+                    question="Share your thoughts"
+                    description="Optional form description."
+                    type={SurveyQuestionType.Open}
+                />
+            </FormTypeCard>
+            <FormTypeCard
+                type={SurveyQuestionType.Rating}
+                onClick={onChange}
+                title="Rating"
+                description="Numerical or emoji"
+                value={SurveyQuestionType.Rating}
+                active={value === SurveyQuestionType.Rating}
+            >
+                <div style={{ transform: 'scale(.8)', top: '1rem' }} className="absolute">
+                    <SurveyRatingAppearance
+                        preview
+                        onSubmit={() => undefined}
+                        appearance={{ ...appearance, whiteLabel: true, ratingButtonColor: 'black' }}
+                        question="How do you feel about this page?"
+                        description="Optional form description."
+                        ratingSurveyQuestion={{
+                            display: 'emoji',
+                            lowerBoundLabel: 'Not great',
+                            upperBoundLabel: 'Fantastic',
+                            question: 'How do you feel about this page?',
+                            scale: 3,
+                            type: SurveyQuestionType.Rating,
+                        }}
+                    />
+                </div>
+                <div style={{ transform: 'scale(.8)', marginLeft: '-1.5rem' }}>
+                    <SurveyRatingAppearance
+                        preview
+                        onSubmit={() => undefined}
+                        appearance={{ ...appearance, whiteLabel: true }}
+                        question="How satisfied are you with our product?"
+                        description="Optional form description."
+                        ratingSurveyQuestion={{
+                            display: 'number',
+                            lowerBoundLabel: 'Not great',
+                            upperBoundLabel: 'Fantastic',
+                            question: 'How satisfied are you with our product?',
+                            scale: 5,
+                            type: SurveyQuestionType.Rating,
+                        }}
+                    />
+                </div>
+            </FormTypeCard>
+            <FormTypeCard
+                type={SurveyQuestionType.MultipleChoice}
+                onClick={onChange}
+                title="Multiple choice"
+                value={SurveyQuestionType.MultipleChoice}
+                active={value === SurveyQuestionType.MultipleChoice}
+            >
+                <SurveyMultipleChoiceAppearance
+                    initialChecked={[0, 1]}
+                    preview
+                    onSubmit={() => undefined}
+                    appearance={{ ...appearance, whiteLabel: true }}
+                    question="Which types of content would you like to see more of?"
+                    multipleChoiceQuestion={{
+                        type: SurveyQuestionType.MultipleChoice,
+                        choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
+                        question: 'Which types of content would you like to see more of?',
+                    }}
+                />
+            </FormTypeCard>
+            <FormTypeCard
+                type={SurveyQuestionType.SingleChoice}
+                onClick={onChange}
+                title="Single choice"
+                value={SurveyQuestionType.SingleChoice}
+                active={value === SurveyQuestionType.SingleChoice}
+            >
+                <SurveyMultipleChoiceAppearance
+                    initialChecked={[0]}
+                    preview
+                    onSubmit={() => undefined}
+                    appearance={{ ...appearance, whiteLabel: true }}
+                    question="Have you found this tutorial useful?"
+                    multipleChoiceQuestion={{
+                        type: SurveyQuestionType.SingleChoice,
+                        choices: ['Yes', 'No'],
+                        question: 'Have you found this tutorial useful?',
+                    }}
+                />
+            </FormTypeCard>
+            <FormTypeCard
+                type={SurveyQuestionType.Link}
+                onClick={onChange}
+                title="Link"
+                value={SurveyQuestionType.Link}
+                active={value === SurveyQuestionType.Link}
+            >
+                <BaseAppearance
+                    preview
+                    onSubmit={() => undefined}
+                    appearance={{ ...appearance, whiteLabel: true, submitButtonText: 'Register' }}
+                    question="Do you want to join our upcoming webinar?"
+                    type={SurveyQuestionType.Link}
+                />
+            </FormTypeCard>
+        </div>
+    )
+}
 
 export default function EditSurveyNew(): JSX.Element {
     const { survey, hasTargetingFlag } = useValues(surveyLogic)
@@ -76,43 +254,36 @@ export default function EditSurveyNew(): JSX.Element {
                                         ),
                                         content: (
                                             <>
-                                                <Field name="type" label="Question type" className="max-w-60">
-                                                    <LemonSelect
-                                                        onSelect={(newType) => {
-                                                            const isEditingQuestion =
-                                                                defaultSurveyFieldValues[question.type].questions[0]
-                                                                    .question !== question.question
-                                                            const isEditingDescription =
-                                                                defaultSurveyFieldValues[question.type].questions[0]
-                                                                    .description !== question.description
-                                                            const isEditingThankYouMessage =
-                                                                defaultSurveyFieldValues[question.type].appearance
-                                                                    .thankYouMessageHeader !==
-                                                                survey.appearance.thankYouMessageHeader
-                                                            setDefaultForQuestionType(
-                                                                index,
-                                                                newType,
-                                                                isEditingQuestion,
-                                                                isEditingDescription,
-                                                                isEditingThankYouMessage
-                                                            )
-                                                        }}
-                                                        options={[
-                                                            { label: 'Open text', value: SurveyQuestionType.Open },
-                                                            { label: 'Link', value: SurveyQuestionType.Link },
-                                                            { label: 'Rating', value: SurveyQuestionType.Rating },
-                                                            ...[
-                                                                {
-                                                                    label: 'Single choice select',
-                                                                    value: SurveyQuestionType.SingleChoice,
-                                                                },
-                                                                {
-                                                                    label: 'Multiple choice select',
-                                                                    value: SurveyQuestionType.MultipleChoice,
-                                                                },
-                                                            ],
-                                                        ]}
-                                                    />
+                                                <Field name="type" label="Question type">
+                                                    {({ value, onChange }) => {
+                                                        return (
+                                                            <FormType
+                                                                value={value}
+                                                                appearance={survey.appearance}
+                                                                onChange={(newType) => {
+                                                                    onChange(newType)
+                                                                    const isEditingQuestion =
+                                                                        defaultSurveyFieldValues[question.type]
+                                                                            .questions[0].question !== question.question
+                                                                    const isEditingDescription =
+                                                                        defaultSurveyFieldValues[question.type]
+                                                                            .questions[0].description !==
+                                                                        question.description
+                                                                    const isEditingThankYouMessage =
+                                                                        defaultSurveyFieldValues[question.type]
+                                                                            .appearance.thankYouMessageHeader !==
+                                                                        survey.appearance.thankYouMessageHeader
+                                                                    setDefaultForQuestionType(
+                                                                        index,
+                                                                        newType,
+                                                                        isEditingQuestion,
+                                                                        isEditingDescription,
+                                                                        isEditingThankYouMessage
+                                                                    )
+                                                                }}
+                                                            />
+                                                        )
+                                                    }}
                                                 </Field>
                                                 <Field name="question" label="Question">
                                                     <LemonInput value={question.question} />

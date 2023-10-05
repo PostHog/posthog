@@ -18,7 +18,7 @@ export const defaultSurveyAppearance = {
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
     borderColor: '#c9c6c6',
-    placeholder: '',
+    placeholder: 'Start typing...',
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
