@@ -29,7 +29,7 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
 
         pluginEvent = {
             distinct_id: 'my_id',
-            ip: '127.0.0.1',
+            ip: null,
             site_url: 'http://localhost',
             team_id: teamId,
             now: '2020-02-23T02:15:00Z',

@@ -11,13 +11,15 @@ jest.mock('../../../../src/utils/status')
 
 const pluginEvent: PluginEvent = {
     distinct_id: 'my_id',
-    ip: '127.0.0.1',
+    ip: null,
     site_url: 'http://localhost',
     team_id: 2,
     now: '2020-02-23T02:15:00Z',
     timestamp: '2020-02-23T02:15:00Z',
     event: 'default event',
-    properties: {},
+    properties: {
+        $ip: '127.0.0.1',
+    },
     uuid: '017ef865-19da-0000-3b60-1506093bf40f',
 }
 
@@ -84,7 +86,6 @@ describe('prepareEventStep()', () => {
             elementsList: [],
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-            ip: '127.0.0.1',
             properties: {
                 $ip: '127.0.0.1',
             },
@@ -106,7 +107,6 @@ describe('prepareEventStep()', () => {
             elementsList: [],
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-            ip: null,
             properties: {},
             teamId: 2,
             timestamp: '2020-02-23T02:15:00.000Z',

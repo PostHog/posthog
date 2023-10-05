@@ -651,7 +651,6 @@ export interface ClickHouseEvent extends BaseEvent {
 interface BaseIngestionEvent {
     eventUuid: string
     event: string
-    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
