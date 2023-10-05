@@ -1227,8 +1227,11 @@ const api = {
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
-        async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).get()
+        async get(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any> = {}
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {

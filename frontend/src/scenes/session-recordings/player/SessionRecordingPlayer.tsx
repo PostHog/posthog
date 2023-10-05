@@ -43,7 +43,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         playerKey,
         noMeta = false,
-        recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matchingEventsMatchType,
         noBorder = false,
         noInspector = false,
@@ -59,7 +58,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         playerKey,
         matchingEventsMatchType,
         sessionRecordingData,
-        recordingStartTime,
         autoPlay,
         nextSessionRecording,
         mode,

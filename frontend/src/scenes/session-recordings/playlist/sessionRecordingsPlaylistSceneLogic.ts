@@ -124,7 +124,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
                 {
-                    name: 'Recordings',
+                    name: 'Replay',
                     path: urls.replay(),
                 },
                 {

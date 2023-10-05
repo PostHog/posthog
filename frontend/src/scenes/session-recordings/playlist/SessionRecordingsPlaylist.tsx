@@ -150,7 +150,7 @@ function RecordingsLists({
                         <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                             <span className="px-2 py-1 flex flex-1 gap-2">
                                 <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                    Replays
+                                    Recordings
                                 </span>
                                 <Tooltip
                                     placement="bottom"
@@ -169,7 +169,7 @@ function RecordingsLists({
                                 </Tooltip>
                             </span>
                             <LemonButton
-                                tooltip={'filter recordings'}
+                                tooltip="Filter recordings"
                                 size="small"
                                 status={showFilters ? 'primary' : 'primary-alt'}
                                 type="tertiary"
@@ -184,7 +184,7 @@ function RecordingsLists({
                                 Filter
                             </LemonButton>
                             <LemonButton
-                                tooltip={'playlist settings'}
+                                tooltip="Playlist settings"
                                 size="small"
                                 status={showSettings ? 'primary' : 'primary-alt'}
                                 type="tertiary"
@@ -306,39 +306,38 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            <div
-                ref={playlistRef}
-                data-attr="session-recordings-playlist"
-                className={clsx('SessionRecordingsPlaylist', {
-                    'SessionRecordingsPlaylist--wide': size !== 'small',
-                })}
-            >
-                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
-                    <BindLogic logic={sessionRecordingsListLogic} props={logicProps}>
+            <BindLogic logic={sessionRecordingsListLogic} props={logicProps}>
+                <div
+                    ref={playlistRef}
+                    data-attr="session-recordings-playlist"
+                    className={clsx('SessionRecordingsPlaylist', {
+                        'SessionRecordingsPlaylist--wide': size !== 'small',
+                    })}
+                >
+                    <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
                         <RecordingsLists {...props} />
-                    </BindLogic>
-                </div>
-                <div className="SessionRecordingsPlaylist__right-column">
-                    {activeSessionRecording?.id ? (
-                        <SessionRecordingPlayer
-                            playerKey="playlist"
-                            sessionRecordingId={activeSessionRecording?.id}
-                            matchingEventsMatchType={matchingEventsMatchType}
-                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
-                            nextSessionRecording={nextSessionRecording}
-                        />
-                    ) : (
-                        <div className="mt-20">
-                            <EmptyMessage
-                                title="No recording selected"
-                                description="Please select a recording from the list on the left"
-                                buttonText="Learn more about recordings"
-                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+                    </div>
+                    <div className="SessionRecordingsPlaylist__right-column">
+                        {activeSessionRecording?.id ? (
+                            <SessionRecordingPlayer
+                                playerKey="playlist"
+                                sessionRecordingId={activeSessionRecording?.id}
+                                matchingEventsMatchType={matchingEventsMatchType}
+                                nextSessionRecording={nextSessionRecording}
                             />
-                        </div>
-                    )}
+                        ) : (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            </BindLogic>
         </>
     )
 }

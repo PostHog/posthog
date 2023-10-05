@@ -80,7 +80,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
     matchingEventsMatchType?: MatchingEventsMatchType
-    recordingStartTime?: string
     nextSessionRecording?: Partial<SessionRecordingType>
     autoPlay?: boolean
     mode?: SessionRecordingPlayerMode

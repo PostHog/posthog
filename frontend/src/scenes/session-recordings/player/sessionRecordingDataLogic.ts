@@ -134,7 +134,6 @@ const generateRecordingReportDurations = (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
-    recordingStartTime?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -323,11 +322,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-                const params = toParams({
+                const response = await api.recordings.get(props.sessionRecordingId, {
                     save_view: true,
-                    recording_start_time: props.recordingStartTime,
                 })
-                const response = await api.recordings.get(props.sessionRecordingId, params)
                 breakpoint()
 
                 return response
@@ -357,12 +354,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
                     await breakpoint(1)
 
-                    const params = toParams({
-                        recording_start_time: props.recordingStartTime,
-                    })
                     const apiUrl =
                         nextUrl ||
-                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots?${params}`
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots`
 
                     const response: SessionRecordingSnapshotResponse = await api.get(apiUrl)
                     breakpoint()

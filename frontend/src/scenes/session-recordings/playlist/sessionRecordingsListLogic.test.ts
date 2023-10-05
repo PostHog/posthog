@@ -144,7 +144,6 @@ describe('sessionRecordingsListLogic', () => {
             beforeEach(() => {
                 logic = sessionRecordingsListLogic({
                     key: 'tests',
-                    playlistShortId: 'playlist-test',
                     updateSearchParams: true,
                 })
                 logic.mount()
@@ -293,25 +292,6 @@ describe('sessionRecordingsListLogic', () => {
                         value: 600,
                         operator: PropertyOperator.LessThan,
                     })
-                })
-            })
-
-            describe('fetch pinned recordings', () => {
-                beforeEach(() => {
-                    logic = sessionRecordingsListLogic({
-                        key: 'static-tests',
-                        playlistShortId: 'static-playlist-test',
-                    })
-                    logic.mount()
-                })
-                it('calls list session recordings for static playlists', async () => {
-                    await expectLogic(logic)
-                        .toDispatchActions(['loadPinnedRecordingsSuccess'])
-                        .toMatchValues({
-                            pinnedRecordingsResponse: {
-                                results: ['Pinned recordings'],
-                            },
-                        })
                 })
             })
 
