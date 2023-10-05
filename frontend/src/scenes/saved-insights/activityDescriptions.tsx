@@ -99,7 +99,8 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the short id {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
+                    changed the short id {asNotification && ' of the insight '}to{' '}
+                    <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -119,7 +120,8 @@ const insightActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed the description {asNotification && ' of the insight '}to <strong>"{change?.after}"</strong>
+                    changed the description {asNotification && ' of the insight '}to{' '}
+                    <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }

@@ -11,13 +11,14 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
+import { createHub, createKafkaClient, createKafkaProducerWrapper, createStatsdClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
@@ -339,6 +340,14 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
+            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+            const appMetrics =
+                hub?.appMetrics ??
+                new AppMetrics(
+                    KafkaProducerWrapper,
+                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+                )
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
@@ -347,6 +356,7 @@ export async function startPluginsServer(
                     teamManager: teamManager,
                     organizationManager: organizationManager,
                     serverConfig: serverConfig,
+                    appMetrics: appMetrics,
                     statsd: statsd,
                 })
 

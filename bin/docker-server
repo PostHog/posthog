@@ -11,13 +11,6 @@ trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-if [[ -n $INJECT_EC2_CLIENT_RACK ]]; then
-  # To avoid cross-AZ Kafka traffic, set KAFKA_CLIENT_RACK from the EC2 metadata endpoint.
-  # TODO: switch to the downwards API when https://github.com/kubernetes/kubernetes/issues/40610 is released
-  TOKEN=$(curl --max-time 0.1 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-  export KAFKA_CLIENT_RACK=$(curl --max-time 0.1 -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/placement/availability-zone-id)
-fi
-
 exec gunicorn posthog.wsgi \
     --config gunicorn.config.py \
     --bind 0.0.0.0:8000 \

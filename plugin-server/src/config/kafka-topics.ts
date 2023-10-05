@@ -37,3 +37,6 @@ export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_se
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
+
+// log entries for ingestion into clickhouse
+export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`

@@ -4,12 +4,12 @@ import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
-    commitOffsetsForMessages,
     consumeMessages,
     countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
+    storeOffsetsForMessages,
 } from './consumer'
 
 export interface BatchConsumer {
@@ -23,6 +23,7 @@ export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
     topic,
+    autoCommit,
     sessionTimeout,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
@@ -32,13 +33,12 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     topicCreationTimeoutMs,
     eachBatch,
-    autoCommit = true,
-    cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
+    autoCommit: boolean
     sessionTimeout: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
@@ -48,8 +48,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-    autoCommit?: boolean
-    cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -76,9 +74,8 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
-        // We disable auto commit and rather we commit after one batch has
-        // completed.
-        'enable.auto.commit': false,
+        'enable.auto.commit': autoCommit,
+        'enable.auto.offset.store': false,
         /**
          * max.partition.fetch.bytes
          * The maximum amount of data per-partition the server will return.
@@ -115,12 +112,12 @@ export const startBatchConsumer = async ({
         // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
-        'partition.assignment.strategy': cooperativeRebalance ? 'cooperative-sticky' : 'range,roundrobin',
+        'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
 
-    instrumentConsumerMetrics(consumer, groupId, cooperativeRebalance)
+    instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
     let lastConsumeTime = 0
@@ -211,7 +208,7 @@ export const startBatchConsumer = async ({
                 messagesProcessed += messages.length
 
                 if (autoCommit) {
-                    commitOffsetsForMessages(messages, consumer)
+                    storeOffsetsForMessages(messages, consumer)
                 }
             }
         } catch (error) {

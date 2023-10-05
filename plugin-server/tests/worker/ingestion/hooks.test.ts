@@ -4,6 +4,7 @@ import fetch, { FetchError } from 'node-fetch'
 import { Action, PostIngestionEvent, Team } from '../../../src/types'
 import { isCloud } from '../../../src/utils/env-utils'
 import { UUIDT } from '../../../src/utils/utils'
+import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import {
     determineWebhookType,
     getActionDetails,
@@ -489,7 +490,9 @@ describe('hooks', () => {
                 {} as any,
                 {} as any,
                 {} as any,
-                new Set([hook.team_id]) // Hostname guard enabled
+                new Set([hook.team_id]), // Hostname guard enabled
+                // mock object with queueError function as no-op
+                { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as AppMetrics
             )
         })
 
