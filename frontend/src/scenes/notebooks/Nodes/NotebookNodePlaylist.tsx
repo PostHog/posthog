@@ -36,7 +36,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     )
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, insertReplayCommentByTimestamp } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
@@ -54,6 +54,14 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
                                       id: String(activeSessionRecording.id),
                                   },
                               })
+                          },
+                      },
+                      {
+                          text: 'Comment',
+                          onClick: () => {
+                              if (activeSessionRecording.id) {
+                                  insertReplayCommentByTimestamp(0, activeSessionRecording.id)
+                              }
                           },
                       },
                   ]
