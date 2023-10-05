@@ -39,7 +39,6 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]]):
            FROM raw_persons
            GROUP BY id
            HAVING ifNull(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), 0)
-           limit 10
         )
     """
     )
