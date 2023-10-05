@@ -45,7 +45,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
+        KAFKA_CONSUMPTION_USE_RDKAFKA: true, // Transitional setting, ignored for consumers that only support one library
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 50, // Maximum time the broker may wait to fill the Fetch response with fetch.min.bytes of messages.
@@ -155,8 +155,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
-        // by default a very restricted list of teams, so we can slowly roll out
-        MAX_TEAM_TO_ALLOW_SESSION_RECORDING_CONSOLE_LOGS_INGESTION: 2,
+        SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
     }
 }
 

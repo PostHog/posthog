@@ -222,8 +222,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_REDIS_PREFIX: string
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
-    // team ids greater than this won't ingest console logs separately, allows controlled rollout by team
-    MAX_TEAM_TO_ALLOW_SESSION_RECORDING_CONSOLE_LOGS_INGESTION: number
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
