@@ -156,16 +156,14 @@ export function HTMLElementsDisplay({
                                 } (${elementsToShowDepth} hidden)`}
                             </pre>
                         ) : null}
-                        <Fade visible={true} style={{ position: 'static' }}>
-                            <Tags
-                                elements={parsedElements}
-                                highlight={highlight}
-                                editable={editable}
-                                parsedCSSSelectors={parsedSelectors}
-                                onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
-                            />
-                            <CloseAllTags elements={parsedElements} />
-                        </Fade>
+                        <Tags
+                            elements={parsedElements}
+                            highlight={highlight}
+                            editable={editable}
+                            parsedCSSSelectors={parsedSelectors}
+                            onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
+                        />
+                        <CloseAllTags elements={parsedElements} />
                     </>
                 ) : (
                     <div className="text-side">No elements to display</div>
