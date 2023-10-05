@@ -516,14 +516,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         activeSessionRecording: [
-            (s) => [s.selectedRecordingId, s.sessionRecordings, (_, props) => props.autoPlay],
-            (selectedRecordingId, sessionRecordings, autoPlay): Partial<SessionRecordingType> | undefined => {
+            (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
+            (selectedRecordingId, recordings, autoPlay): Partial<SessionRecordingType> | undefined => {
                 return selectedRecordingId
-                    ? sessionRecordings.find((sessionRecording) => sessionRecording.id === selectedRecordingId) || {
-                          id: selectedRecordingId,
-                      }
+                    ? recordings.find((rec) => rec.id === selectedRecordingId) || { id: selectedRecordingId }
                     : autoPlay
-                    ? sessionRecordings[0]
+                    ? recordings[0]
                     : undefined
             },
         ],

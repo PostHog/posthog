@@ -26,10 +26,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import {
-    MatchingEventsMatchType,
-    sessionRecordingsPlaylistLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'

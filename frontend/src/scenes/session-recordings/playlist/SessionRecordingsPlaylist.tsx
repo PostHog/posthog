@@ -143,7 +143,7 @@ function RecordingsLists({
     const inNotebookNode = !!useNotebookNode()
 
     return (
-        <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r')}>
+        <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
             {!inNotebookNode ? (
                 <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                     <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
@@ -233,7 +233,7 @@ function RecordingsLists({
                             </Fragment>
                         ))}
 
-                        <LemonDivider />
+                        <LemonDivider className="my-0" />
                         <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                             {sessionRecordingsResponseLoading ? (
                                 <>
