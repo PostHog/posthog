@@ -18,7 +18,6 @@ from .mixins.common import (
     FormulaMixin,
     IncludeRecordingsMixin,
     InsightMixin,
-    LegacyConversionMixin,
     LimitMixin,
     OffsetMixin,
     SampleMixin,
@@ -90,7 +89,6 @@ class Filter(
     UpdatedAfterMixin,
     ClientQueryIdMixin,
     SampleMixin,
-    LegacyConversionMixin,
     AggregationAxisMixin,
     BaseFilter,
 ):

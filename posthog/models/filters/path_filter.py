@@ -12,7 +12,6 @@ from .mixins.common import (
     FilterTestAccountsMixin,
     IncludeRecordingsMixin,
     InsightMixin,
-    LegacyConversionMixin,
     LimitMixin,
     OffsetMixin,
     SampleMixin,
@@ -76,7 +75,6 @@ class PathFilter(
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
     SampleMixin,
-    LegacyConversionMixin,
 ):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:

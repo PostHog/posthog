@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import DATE_FROM, DATE_TO, LEGACY_CONVERSION, STICKINESS_DAYS
+from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
 from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -29,7 +29,7 @@ class StickinessDateMixin(DateMixin):
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime]]:
-        if not self._data.get(LEGACY_CONVERSION, False) and not self.team:
+        if not self.team:
             raise AttributeError("StickinessDateMixin requires team to be provided")
 
         _date_from = self._data.get(DATE_FROM, None)
@@ -42,8 +42,6 @@ class StickinessDateMixin(DateMixin):
         elif _date_from:
             return _date_from
         else:
-            if self._data.get(LEGACY_CONVERSION, False):
-                return None
             return relative_date_parse("-7d", self.team.timezone_info)
 
     @cached_property

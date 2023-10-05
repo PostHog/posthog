@@ -37,7 +37,6 @@ from posthog.constants import (
     INSIGHT,
     INSIGHT_TO_DISPLAY,
     INSIGHT_TRENDS,
-    LEGACY_CONVERSION,
     LIMIT,
     OFFSET,
     SAMPLING_FACTOR,
@@ -611,9 +610,3 @@ class AggregationAxisMixin(BaseParamMixin):
     @cached_property
     def aggregation_axis_postfix(self) -> Optional[str]:
         return self._data.get("aggregation_axis_postfix", None)
-
-
-class LegacyConversionMixin(BaseParamMixin):
-    @cached_property
-    def legacy_conversion(self) -> Optional[bool]:
-        return self._data.get(LEGACY_CONVERSION, False)

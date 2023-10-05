@@ -11,7 +11,6 @@ from .mixins.common import (
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     InsightMixin,
-    LegacyConversionMixin,
     LimitMixin,
     OffsetMixin,
     SampleMixin,
@@ -43,7 +42,6 @@ class RetentionFilter(
     ClientQueryIdMixin,
     SimplifyFilterMixin,
     SampleMixin,
-    LegacyConversionMixin,
     BaseFilter,
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
