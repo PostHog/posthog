@@ -40,8 +40,8 @@ def clean_property(property: Dict):
     if cleaned_property.get("values") is not None and cleaned_property.get("value") is None:
         cleaned_property["value"] = cleaned_property.pop("values")
 
-    # convert precalculated cohorts to cohorts
-    if cleaned_property.get("type") == "precalculated-cohort":
+    # convert precalculated and static cohorts to cohorts
+    if cleaned_property.get("type") in ("precalculated-cohort", "static-cohort"):
         cleaned_property["type"] = "cohort"
 
     # fix invalid property key for cohorts
@@ -404,6 +404,8 @@ def _insight_filter(filter: Dict):
 
 
 def _insight_type(filter: Dict) -> str:
+    if filter.get("insight") == "SESSIONS":
+        return "TRENDS"
     return filter.get("insight", "TRENDS")
 
 
@@ -423,3 +425,15 @@ def filter_to_query(filter: Dict) -> InsightQueryNode:
     }
 
     return Query(**data)
+
+
+def filter_str_to_query(filters: str) -> InsightQueryNode:
+    filter = json.loads(filters)
+    # we have insights that have been serialized to json twice in the database
+    # due to people misunderstanding our api
+    if isinstance(filter, str):
+        filter = json.loads(filter)
+    # we also have insights wrapped in an additional array
+    elif isinstance(filter, list):
+        filter = filter[0]
+    return filter_to_query(filter)

@@ -514,6 +514,37 @@ insight_32 = {
     "shown_as": "Stickiness",
     "date_from": "dStart",
 }
+insight_33 = {
+    "period": "Week",
+    "display": "ActionsTable",
+    "insight": "RETENTION",
+    "properties": [
+        {"key": "id", "type": "precalculated-cohort", "value": 71, "operator": None},
+        {"key": "id", "type": "static-cohort", "value": 696, "operator": None},
+    ],
+    "target_entity": {
+        "id": 4912,
+        "math": None,
+        "name": None,
+        "type": "actions",
+        "order": None,
+        "properties": [],
+        "custom_name": None,
+        "math_property": None,
+    },
+    "retention_type": "retention_first_time",
+    "total_intervals": 11,
+    "returning_entity": {
+        "id": 3410,
+        "math": None,
+        "name": None,
+        "type": "actions",
+        "order": None,
+        "properties": [],
+        "custom_name": None,
+        "math_property": None,
+    },
+}
 
 
 test_insights = [
@@ -550,6 +581,7 @@ test_insights = [
     insight_30,
     insight_31,
     insight_32,
+    insight_33,
 ]
 
 
