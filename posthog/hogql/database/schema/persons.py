@@ -43,12 +43,11 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]]):
     """
     )
 
-    query.select = []
     for field_name, field_chain in requested_fields.items():
         query.select.append(
             ast.Alias(
                 alias=field_name,
-                expr=ast.Field(chain=["raw_persons"] + field_chain),
+                expr=ast.Field(chain=field_chain),
             )
         )
     return query
