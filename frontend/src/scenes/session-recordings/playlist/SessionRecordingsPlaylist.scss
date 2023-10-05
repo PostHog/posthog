@@ -56,6 +56,22 @@
 }
 
 .SessionRecordingPreview {
+    display: flex;
+    padding: 0.5rem 0 0.5rem 0.5rem;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    border-left: 6px solid transparent;
+    transition: background-color 200ms ease, border 200ms ease;
+
+    &--active {
+        border-left-color: var(--primary);
+    }
+
+    &:hover {
+        background-color: var(--primary-highlight);
+    }
+
     .SessionRecordingPreview__property-icon:hover {
         transition: opacity 200ms;
         opacity: 1;

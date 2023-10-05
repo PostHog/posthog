@@ -23,7 +23,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
-import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -93,7 +92,6 @@ function RecordingsLists(): JSX.Element {
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
-    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         // If we are scrolling down then check if we are at the bottom of the list
@@ -208,10 +206,6 @@ function RecordingsLists(): JSX.Element {
                                 {i > 0 && <div className="border-t" />}
                                 <SessionRecordingPreview
                                     recording={rec}
-                                    recordingProperties={recordingPropertiesById[rec.id]}
-                                    recordingPropertiesLoading={
-                                        !recordingPropertiesById[rec.id] && recordingPropertiesLoading
-                                    }
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeSessionRecording?.id === rec.id}

@@ -11,11 +11,10 @@ import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
-    recordingProperties?: Record<string, any> // Loaded and rendered later
-    recordingPropertiesLoading: boolean
     onPropertyClick?: (property: string, value?: string) => void
     isActive?: boolean
     onClick?: () => void
@@ -55,17 +54,18 @@ function RecordingDuration({
 
 function ActivityIndicators({
     recording,
-    recordingProperties,
-    recordingPropertiesLoading,
     onPropertyClick,
     iconClassnames,
 }: {
     recording: SessionRecordingType
-    recordingProperties?: Record<string, any> // Loaded and rendered later
-    recordingPropertiesLoading: boolean
     onPropertyClick?: (property: string, value?: string) => void
     iconClassnames: string
 }): JSX.Element {
+    const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+
+    const recordingProperties = recordingPropertiesById[recording.id]
+    const loading = !recordingProperties && recordingPropertiesLoading
+
     const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
     const iconProperties =
         recordingProperties && Object.keys(recordingProperties).length > 0
@@ -74,7 +74,7 @@ function ActivityIndicators({
 
     const propertyIcons = (
         <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
-            {!recordingPropertiesLoading ? (
+            {!loading ? (
                 iconPropertyKeys.map((property) => {
                     let value = iconProperties?.[property]
                     if (property === '$device_type') {
@@ -161,7 +161,7 @@ function PinnedIndicator(props: { pinnedCount: number | undefined }): JSX.Elemen
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
         <Tooltip title={'Indicates the recording has not been watched yet'}>
-            <div className="w-2 h-2 mt-2 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
+            <div className="w-2 h-2 m-1 rounded-full bg-primary-light" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null
 }
@@ -179,8 +179,6 @@ export function SessionRecordingPreview({
     isActive,
     onClick,
     onPropertyClick,
-    recordingProperties,
-    recordingPropertiesLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
@@ -190,20 +188,12 @@ export function SessionRecordingPreview({
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
-                className={clsx(
-                    'SessionRecordingPreview',
-                    'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
-                    isActive && 'bg-primary-highlight'
-                )}
+                className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
             >
-                <div className="w-2 h-2 mx-2">
-                    <ViewedIndicator viewed={recording.viewed} />
-                </div>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
-                            <PinnedIndicator pinnedCount={recording.pinned_count} />
                             <div className="truncate font-medium text-primary ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
@@ -220,14 +210,17 @@ export function SessionRecordingPreview({
                         <ActivityIndicators
                             onPropertyClick={onPropertyClick}
                             recording={recording}
-                            recordingProperties={recordingProperties}
-                            recordingPropertiesLoading={recordingPropertiesLoading}
                             iconClassnames={iconClassnames}
                         />
                         <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
                     </div>
 
                     <FirstURL startUrl={recording.start_url} />
+                </div>
+
+                <div className="w-6 flex flex-col items-center mt-1">
+                    <ViewedIndicator viewed={recording.viewed} />
+                    <PinnedIndicator pinnedCount={recording.pinned_count} />
                 </div>
             </div>
         </DraggableToNotebook>
