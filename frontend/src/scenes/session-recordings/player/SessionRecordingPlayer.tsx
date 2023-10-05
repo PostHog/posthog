@@ -47,7 +47,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noBorder = false,
         noInspector = false,
         autoPlay = true,
-        nextSessionRecording,
+        playlistLogic,
         mode = SessionRecordingPlayerMode.Standard,
     } = props
 
@@ -59,7 +59,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matchingEventsMatchType,
         sessionRecordingData,
         autoPlay,
-        nextSessionRecording,
+        playlistLogic,
         mode,
         playerRef,
     }

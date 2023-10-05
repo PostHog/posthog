@@ -528,21 +528,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
         nextSessionRecording: [
-            (s) => [s.activeSessionRecording, s.sessionRecordings, s.autoplayDirection],
-            (
-                activeSessionRecording,
-                sessionRecordings,
-                autoplayDirection
-            ): Partial<SessionRecordingType> | undefined => {
+            (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
+            (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
                 if (!activeSessionRecording || !autoplayDirection) {
                     return
                 }
-                const activeSessionRecordingIndex = sessionRecordings.findIndex(
-                    (x) => x.id === activeSessionRecording.id
-                )
+                const activeSessionRecordingIndex = recordings.findIndex((x) => x.id === activeSessionRecording.id)
                 return autoplayDirection === 'older'
-                    ? sessionRecordings[activeSessionRecordingIndex + 1]
-                    : sessionRecordings[activeSessionRecordingIndex - 1]
+                    ? recordings[activeSessionRecordingIndex + 1]
+                    : recordings[activeSessionRecordingIndex - 1]
             },
         ],
         hasNext: [

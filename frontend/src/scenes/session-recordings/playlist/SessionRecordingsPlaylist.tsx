@@ -295,7 +295,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         autoPlay: props.autoPlay ?? true,
     }
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
+    const { activeSessionRecording, matchingEventsMatchType } = useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -324,7 +324,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                                 playerKey="playlist"
                                 sessionRecordingId={activeSessionRecording?.id}
                                 matchingEventsMatchType={matchingEventsMatchType}
-                                nextSessionRecording={nextSessionRecording}
+                                playlistLogic={logic}
                                 noBorder
                             />
                         ) : (
