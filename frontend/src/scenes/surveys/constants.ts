@@ -4,7 +4,7 @@ export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
 export const SurveyQuestionLabel = {
-    [SurveyQuestionType.Open]: 'Open text',
+    [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',
     [SurveyQuestionType.Link]: 'Link',
     [SurveyQuestionType.SingleChoice]: 'Single choice select',

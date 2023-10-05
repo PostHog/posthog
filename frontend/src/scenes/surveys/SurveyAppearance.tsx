@@ -32,7 +32,11 @@ interface SurveyAppearanceProps {
     surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
     description?: string | null
     link?: string | null
-    readOnly?: boolean
+}
+
+interface CustomizationProps {
+    appearance: SurveyAppearanceType
+    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 
@@ -82,11 +86,7 @@ export function SurveyAppearance({
     surveyQuestionItem,
     description,
     link,
-    readOnly,
-    onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
-    const { whitelabelAvailable } = useValues(surveysLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [showThankYou, setShowThankYou] = useState(false)
     const [hideSubmittedSurvey, setHideSubmittedSurvey] = useState(false)
 
@@ -100,7 +100,6 @@ export function SurveyAppearance({
 
     return (
         <>
-            <h3 className="mb-4 text-center">Preview</h3>
             {!hideSubmittedSurvey && (
                 <>
                     {type === SurveyQuestionType.Rating && (
@@ -136,90 +135,91 @@ export function SurveyAppearance({
                 </>
             )}
             {showThankYou && <SurveyThankYou appearance={appearance} setShowThankYou={setShowThankYou} />}
-            {!readOnly && (
-                <div className="flex flex-col">
-                    <div className="mt-2">Background color</div>
-                    <LemonInput
-                        value={appearance?.backgroundColor}
-                        onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
-                    />
-                    <div className="mt-2">Border color</div>
-                    <LemonInput
-                        value={appearance?.borderColor}
-                        onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
-                    />
-                    {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
-                        <>
-                            <div className="mt-2">Position</div>
-                            <div className="flex gap-1">
-                                {['left', 'center', 'right'].map((position) => {
-                                    return (
-                                        <LemonButton
-                                            key={position}
-                                            type="tertiary"
-                                            onClick={() => onAppearanceChange({ ...appearance, position })}
-                                            active={appearance.position === position}
-                                        >
-                                            {position}
-                                        </LemonButton>
-                                    )
-                                })}
-                            </div>
-                        </>
-                    )}
-                    {surveyQuestionItem.type === SurveyQuestionType.Rating && (
-                        <>
-                            <div className="mt-2">Rating button color</div>
-                            <LemonInput
-                                value={appearance?.ratingButtonColor}
-                                onChange={(ratingButtonColor) =>
-                                    onAppearanceChange({ ...appearance, ratingButtonColor })
-                                }
-                            />
-                            <div className="mt-2">Rating button active color</div>
-                            <LemonInput
-                                value={appearance?.ratingButtonActiveColor}
-                                onChange={(ratingButtonActiveColor) =>
-                                    onAppearanceChange({ ...appearance, ratingButtonActiveColor })
-                                }
-                            />
-                        </>
-                    )}
-                    <div className="mt-2">Button color</div>
-                    <LemonInput
-                        value={appearance?.submitButtonColor}
-                        onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-                    />
-                    <div className="mt-2">Button text</div>
-                    <LemonInput
-                        value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                        onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-                    />
-                    {surveyQuestionItem.type === SurveyQuestionType.Open && (
-                        <>
-                            <div className="mt-2">Placeholder</div>
-                            <LemonInput
-                                value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
-                                onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
-                            />
-                        </>
-                    )}
-                    <div className="mt-2">
-                        <LemonCheckbox
-                            label={
-                                <div className="flex items-center">
-                                    <span>Hide PostHog branding</span>
-                                </div>
-                            }
-                            onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
-                            disabledReason={
-                                !whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null
-                            }
-                        />
-                    </div>
-                </div>
-            )}
         </>
+    )
+}
+
+export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
+    const { whitelabelAvailable } = useValues(surveysLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    return (
+        <div className="flex flex-col">
+            <div className="mt-2">Background color</div>
+            <LemonInput
+                value={appearance?.backgroundColor}
+                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+            />
+            <div className="mt-2">Border color</div>
+            <LemonInput
+                value={appearance?.borderColor}
+                onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+            />
+            {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
+                <>
+                    <div className="mt-2">Position</div>
+                    <div className="flex gap-1">
+                        {['left', 'center', 'right'].map((position) => {
+                            return (
+                                <LemonButton
+                                    key={position}
+                                    type="tertiary"
+                                    onClick={() => onAppearanceChange({ ...appearance, position })}
+                                    active={appearance.position === position}
+                                >
+                                    {position}
+                                </LemonButton>
+                            )
+                        })}
+                    </div>
+                </>
+            )}
+            {surveyQuestionItem.type === SurveyQuestionType.Rating && (
+                <>
+                    <div className="mt-2">Rating button color</div>
+                    <LemonInput
+                        value={appearance?.ratingButtonColor}
+                        onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
+                    />
+                    <div className="mt-2">Rating button active color</div>
+                    <LemonInput
+                        value={appearance?.ratingButtonActiveColor}
+                        onChange={(ratingButtonActiveColor) =>
+                            onAppearanceChange({ ...appearance, ratingButtonActiveColor })
+                        }
+                    />
+                </>
+            )}
+            <div className="mt-2">Button color</div>
+            <LemonInput
+                value={appearance?.submitButtonColor}
+                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+            />
+            <div className="mt-2">Button text</div>
+            <LemonInput
+                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+            />
+            {surveyQuestionItem.type === SurveyQuestionType.Open && (
+                <>
+                    <div className="mt-2">Placeholder</div>
+                    <LemonInput
+                        value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
+                        onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                    />
+                </>
+            )}
+            <div className="mt-2">
+                <LemonCheckbox
+                    label={
+                        <div className="flex items-center">
+                            <span>Hide PostHog branding</span>
+                        </div>
+                    }
+                    onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
+                />
+            </div>
+        </div>
     )
 }
 
