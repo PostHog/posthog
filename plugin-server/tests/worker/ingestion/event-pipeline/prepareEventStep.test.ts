@@ -81,7 +81,6 @@ describe('prepareEventStep()', () => {
 
         expect(response).toEqual({
             distinctId: 'my_id',
-            elementsList: [],
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             ip: '127.0.0.1',
@@ -103,7 +102,6 @@ describe('prepareEventStep()', () => {
 
         expect(response).toEqual({
             distinctId: 'my_id',
-            elementsList: [],
             event: 'default event',
             eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
             ip: null,
@@ -112,5 +110,46 @@ describe('prepareEventStep()', () => {
             timestamp: '2020-02-23T02:15:00.000Z',
         })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
+    })
+
+    // Tests combo of prepareEvent + createEvent
+    it('extracts elements_chain from properties', async () => {
+        const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
+        const preppedEvent = await prepareEventStep(runner, event)
+        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+
+        expect(chEvent.elements_chain).toEqual('random string')
+        expect(chEvent.properties).toEqual('{"a":1}')
+    })
+    // Tests combo of prepareEvent + createEvent
+    it('uses elements_chain if both elements and elements_chain are present', async () => {
+        const event: PluginEvent = {
+            ...pluginEvent,
+            ip: null,
+            properties: {
+                $elements_chain: 'random string',
+                a: 1,
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+            },
+        }
+        const preppedEvent = await prepareEventStep(runner, event)
+        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+
+        expect(chEvent.elements_chain).toEqual('random string')
+        expect(chEvent.properties).toEqual('{"a":1}')
+    })
+
+    // Tests combo of prepareEvent + createEvent
+    it('processes elements correctly', async () => {
+        const event: PluginEvent = {
+            ...pluginEvent,
+            ip: null,
+            properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
+        }
+        const preppedEvent = await prepareEventStep(runner, event)
+        const [chEvent, _] = await runner.hub.eventsProcessor.createEvent(preppedEvent, person)
+
+        expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
+        expect(chEvent.properties).toEqual('{"a":1}')
     })
 })

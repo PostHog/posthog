@@ -104,6 +104,30 @@ export class EventsProcessor {
         return result
     }
 
+    private getElementsChain(properties: Properties): string {
+        /*
+        We're deprecating $elements in favor of $elements_chain, which doesn't require extra
+        processing on the ingestion side and is the way we store elements in ClickHouse.
+        As part of that we'll move posthog-js to send us $elements_chain as string directly,
+        but we still need to support the old way of sending $elements and converting them
+        to $elements_chain, while everyone hasn't upgraded.
+        */
+        let elementsChain = ''
+        if (properties['$elements_chain']) {
+            elementsChain = properties['$elements_chain']
+        } else if (properties['$elements']) {
+            const elements: Record<string, any>[] | undefined = properties['$elements']
+            let elementsList: Element[] = []
+            if (elements && elements.length) {
+                elementsList = extractElements(elements)
+                elementsChain = elementsToString(elementsList)
+            }
+        }
+        delete properties['$elements_chain']
+        delete properties['$elements']
+        return elementsChain
+    }
+
     private async capture(
         eventUuid: string,
         ip: string | null,
@@ -114,13 +138,6 @@ export class EventsProcessor {
         timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
-        const elements: Record<string, any>[] | undefined = properties['$elements']
-        let elementsList: Element[] = []
-
-        if (elements && elements.length) {
-            elementsList = extractElements(elements)
-            delete properties['$elements']
-        }
 
         if (ip) {
             if (team.anonymize_ips) {
@@ -155,7 +172,6 @@ export class EventsProcessor {
             distinctId,
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
-            elementsList,
             teamId: team.id,
         }
     }
@@ -175,17 +191,20 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
-        const {
-            eventUuid: uuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList: elements,
-        } = preIngestionEvent
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
-        const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+        let elementsChain = ''
+        try {
+            elementsChain = this.getElementsChain(properties)
+        } catch (error) {
+            Sentry.captureException(error, { tags: { team_id: teamId } })
+            status.warn('⚠️', 'Failed to get process elements', {
+                uuid,
+                teamId: teamId,
+                properties,
+                error,
+            })
+        }
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
