@@ -39,21 +39,24 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
             <div className="w-full mx-auto h-8 mb-4">
                 {[
                     {
+                        value: seenPercentage,
                         label: 'Seen',
                         classes: 'bg-primary rounded-l',
                         style: { width: `${seenPercentage}%` },
                     },
                     {
+                        value: dismissedPercentage,
                         label: 'Dismissed',
                         classes: 'bg-warning',
                         style: { width: `${dismissedPercentage}%`, left: `${seenPercentage}%` },
                     },
                     {
+                        value: sentPercentage,
                         label: 'Submitted',
                         classes: 'bg-success rounded-r',
                         style: { width: `${sentPercentage}%`, left: `${seenPercentage + dismissedPercentage}%` },
                     },
-                ].map(({ label, classes, style }) => (
+                ].map(({ value, label, classes, style }) => (
                     <Tooltip
                         key={`survey-summary-chart-${label}`}
                         title={`Seen surveys: ${seenPercentage.toFixed(1)}%`}
@@ -61,9 +64,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                         placement="top"
                     >
                         <div className={`h-8 text-white text-center absolute cursor-pointer ${classes}`} style={style}>
-                            <span className="inline-flex font-semibold leading-8">
-                                {formatPercentageValue(seenPercentage)}
-                            </span>
+                            <span className="inline-flex font-semibold leading-8">{formatPercentageValue(value)}</span>
                         </div>
                     </Tooltip>
                 ))}
