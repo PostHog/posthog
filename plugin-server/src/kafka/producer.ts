@@ -21,9 +21,8 @@ export const createKafkaProducer = async (config: ProducerGlobalConfig) => {
         // the batch size while the number of Kafka inflight requests is
         // saturated, by default 5 inflight requests.
         'linger.ms': 20,
-        // The default is 16kb. 1024kb also seems quite small for our use case
-        // but at least larger than the default.
-        'batch.size': 1024 * 1024,
+        // The default is 1MiB.
+        'batch.size': 8 * 1024 * 1024,
         'compression.codec': 'snappy',
         // Ensure that librdkafka handled producer retries do not produce
         // duplicates. Note this doesn't mean that if we manually retry a
