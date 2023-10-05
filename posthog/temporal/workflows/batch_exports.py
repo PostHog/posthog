@@ -38,6 +38,7 @@ SELECT_QUERY_TEMPLATE = Template(
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
         $exclude_events
+        $include_events
     $order_by
     $format
     """
@@ -50,6 +51,7 @@ async def get_rows_count(
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
 ) -> int:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -61,11 +63,19 @@ async def get_rows_count(
         exclude_events_statement = ""
         events_to_exclude_tuple = ()
 
+    if include_events:
+        include_events_statement = "AND event IN {include_events}"
+        events_to_include_tuple = tuple(include_events)
+    else:
+        include_events_statement = ""
+        events_to_include_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
         exclude_events=exclude_events_statement,
+        include_events=include_events_statement,
     )
 
     count = await client.read_query(
@@ -75,6 +85,7 @@ async def get_rows_count(
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
             "exclude_events": events_to_exclude_tuple,
+            "include_events": events_to_include_tuple,
         },
     )
 
@@ -108,6 +119,7 @@ def get_results_iterator(
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -119,11 +131,19 @@ def get_results_iterator(
         exclude_events_statement = ""
         events_to_exclude_tuple = ()
 
+    if include_events:
+        include_events_statement = "AND event IN {include_events}"
+        events_to_include_tuple = tuple(include_events)
+    else:
+        include_events_statement = ""
+        events_to_include_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
         exclude_events=exclude_events_statement,
+        include_events=include_events_statement,
     )
 
     for batch in client.stream_query_as_arrow(
@@ -133,6 +153,7 @@ def get_results_iterator(
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
             "exclude_events": events_to_exclude_tuple,
+            "include_events": events_to_include_tuple,
         },
     ):
         yield from iter_batch_records(batch)

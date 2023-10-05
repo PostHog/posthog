@@ -67,6 +67,7 @@ class BigQueryInsertInputs:
     data_interval_start: str
     data_interval_end: str
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @contextlib.contextmanager
@@ -113,6 +114,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
@@ -131,6 +133,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
         table_schema = [
             bigquery.SchemaField("uuid", "STRING"),
@@ -244,6 +247,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         try:
