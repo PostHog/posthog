@@ -20,7 +20,7 @@ import {
 import { loaders } from 'kea-loaders'
 
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
-import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsListLogic'
+import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
 import api from 'lib/api'
 
 export interface SessionRecordingsPlaylistLogicProps {

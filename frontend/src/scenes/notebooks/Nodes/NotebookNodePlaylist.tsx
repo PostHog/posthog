@@ -7,8 +7,8 @@ import {
 import {
     addedAdvancedFilters,
     getDefaultFilters,
-    sessionRecordingsListLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+    sessionRecordingsPlaylistLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { useEffect, useMemo, useState } from 'react'
@@ -44,7 +44,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { expanded } = useValues(notebookNodeLogic)
     const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
-    const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
+    const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 

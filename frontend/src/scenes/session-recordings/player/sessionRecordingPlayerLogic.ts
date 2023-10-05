@@ -22,8 +22,8 @@ import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import {
     MatchingEventsMatchType,
-    sessionRecordingsListLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+    sessionRecordingsPlaylistLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
@@ -891,11 +891,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
             const listLogic =
                 !!props.playlistShortId &&
-                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
+                sessionRecordingsPlaylistLogic.isMounted({ playlistShortId: props.playlistShortId })
                     ? // On playlist page
-                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
+                      sessionRecordingsPlaylistLogic({ playlistShortId: props.playlistShortId })
                     : // In any other context with a list of recordings (recent recordings)
-                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
+                      sessionRecordingsPlaylistLogic.findMounted({ updateSearchParams: true })
 
             if (listLogic) {
                 listLogic.actions.loadAllRecordings()

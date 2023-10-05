@@ -12,7 +12,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -146,7 +146,7 @@ describe('sessionRecordingPlayerLogic', () => {
     describe('delete session recording', () => {
         it('on playlist page', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsListLogic({ playlistShortId: 'playlist_id' })
+            const listLogic = sessionRecordingsPlaylistLogic({ playlistShortId: 'playlist_id' })
             listLogic.mount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
@@ -165,7 +165,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     listLogic.actionCreators.setSelectedRecordingId(null),
                 ])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
 
             expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
@@ -174,7 +174,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('on any other recordings page with a list', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsListLogic({ updateSearchParams: true })
+            const listLogic = sessionRecordingsPlaylistLogic({ updateSearchParams: true })
             listLogic.mount()
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
             logic.mount()
@@ -204,7 +204,7 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions(['deleteRecording'])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
                 .toFinishAllListeners()
 
@@ -225,7 +225,7 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions(['deleteRecording'])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
                 .toFinishAllListeners()
 

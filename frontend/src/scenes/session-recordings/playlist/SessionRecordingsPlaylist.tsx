@@ -6,8 +6,8 @@ import {
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     SessionRecordingListLogicProps,
-    sessionRecordingsListLogic,
-} from './sessionRecordingsListLogic'
+    sessionRecordingsPlaylistLogic,
+} from './sessionRecordingsPlaylistLogic'
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -27,8 +27,8 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { SessionRecordingPlaylistItem, SessionRecordingPlaylistItemSkeleton } from './SessionRecordingsPlaylistItem'
 import { range } from 'd3'
+import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -77,7 +77,7 @@ function RecordingsLists({
         filters: defaultFilters,
         updateSearchParams,
     }
-    const logic = sessionRecordingsListLogic(logicProps)
+    const logic = sessionRecordingsPlaylistLogic(logicProps)
 
     const {
         filters,
@@ -219,7 +219,7 @@ function RecordingsLists({
                             {recordings.map((rec, i) => (
                                 <Fragment key={rec.id}>
                                     {i > 0 && <div className="border-t" />}
-                                    <SessionRecordingPlaylistItem
+                                    <SessionRecordingPreview
                                         recording={rec}
                                         recordingProperties={recordingPropertiesById[rec.id]}
                                         recordingPropertiesLoading={
@@ -250,7 +250,7 @@ function RecordingsLists({
                     ) : sessionRecordingsResponseLoading ? (
                         <>
                             {range(RECORDINGS_LIMIT).map((i) => (
-                                <SessionRecordingPlaylistItemSkeleton key={i} />
+                                <SessionRecordingPreviewSkeleton key={i} />
                             ))}
                         </>
                     ) : (
@@ -296,7 +296,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const logic = sessionRecordingsListLogic(logicProps)
+    const logic = sessionRecordingsPlaylistLogic(logicProps)
     const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -306,7 +306,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
 
     return (
         <>
-            <BindLogic logic={sessionRecordingsListLogic} props={logicProps}>
+            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
                 <div
                     ref={playlistRef}
                     data-attr="session-recordings-playlist"

@@ -1,9 +1,9 @@
 import {
-    sessionRecordingsListLogic,
+    sessionRecordingsPlaylistLogic,
     RECORDINGS_LIMIT,
     DEFAULT_RECORDING_FILTERS,
     defaultRecordingDurationFilter,
-} from './sessionRecordingsListLogic'
+} from './sessionRecordingsPlaylistLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -11,8 +11,8 @@ import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
-describe('sessionRecordingsListLogic', () => {
-    let logic: ReturnType<typeof sessionRecordingsListLogic.build>
+describe('sessionRecordingsPlaylistLogic', () => {
+    let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
     const aRecording = { id: 'abc', viewed: false, recording_duration: 10 }
     const listOfSessionRecordings = [aRecording]
 
@@ -31,7 +31,7 @@ describe('sessionRecordingsListLogic', () => {
                 },
             })
             initKeaTests()
-            logic = sessionRecordingsListLogic({
+            logic = sessionRecordingsPlaylistLogic({
                 key: 'tests',
                 updateSearchParams: true,
             })
@@ -142,7 +142,7 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('global logic', () => {
             beforeEach(() => {
-                logic = sessionRecordingsListLogic({
+                logic = sessionRecordingsPlaylistLogic({
                     key: 'tests',
                     updateSearchParams: true,
                 })
@@ -299,7 +299,7 @@ describe('sessionRecordingsListLogic', () => {
                 it('loads the correct recording from the hash params', async () => {
                     router.actions.push('/replay/recent', {}, { sessionRecordingId: 'abc' })
 
-                    logic = sessionRecordingsListLogic({
+                    logic = sessionRecordingsPlaylistLogic({
                         key: 'hash-recording-tests',
                         updateSearchParams: true,
                     })
@@ -431,7 +431,7 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('person specific logic', () => {
             beforeEach(() => {
-                logic = sessionRecordingsListLogic({
+                logic = sessionRecordingsPlaylistLogic({
                     key: 'cool_user_99',
                     personUUID: 'cool_user_99',
                     updateSearchParams: true,
@@ -455,7 +455,7 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('total filters count', () => {
             beforeEach(() => {
-                logic = sessionRecordingsListLogic({
+                logic = sessionRecordingsPlaylistLogic({
                     key: 'cool_user_99',
                     personUUID: 'cool_user_99',
                     updateSearchParams: true,
@@ -477,7 +477,7 @@ describe('sessionRecordingsListLogic', () => {
 
         describe('resetting filters', () => {
             beforeEach(() => {
-                logic = sessionRecordingsListLogic({
+                logic = sessionRecordingsPlaylistLogic({
                     key: 'cool_user_99',
                     personUUID: 'cool_user_99',
                     updateSearchParams: true,

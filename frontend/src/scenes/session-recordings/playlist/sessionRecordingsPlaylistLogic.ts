@@ -11,7 +11,6 @@ import {
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
-import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogicType'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
@@ -20,6 +19,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import posthog from 'posthog-js'
+
+import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
 export type PersonUUID = string
 
@@ -167,8 +168,8 @@ export interface SessionRecordingListLogicProps {
     pinnedRecordings?: SessionRecordingType[]
 }
 
-export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
+export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
     props({} as SessionRecordingListLogicProps),
     key(
         (props: SessionRecordingListLogicProps) =>

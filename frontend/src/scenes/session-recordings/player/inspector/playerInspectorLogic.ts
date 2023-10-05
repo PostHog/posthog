@@ -17,7 +17,7 @@ import { getKeyMapping } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 

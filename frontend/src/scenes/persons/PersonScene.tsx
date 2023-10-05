@@ -33,7 +33,7 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { SessionRecordingsPlaylistV2 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -235,7 +235,7 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <SessionRecordingsPlaylistV2 personUUID={person.uuid} updateSearchParams />
+                                <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                             </>
                         ),
                     },
