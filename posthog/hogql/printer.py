@@ -82,6 +82,8 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, stack, context)
 
+        # We support global query settings, and local subquery settings.
+        # If the global query is a select query with settings, merge the two.
         if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
             for key, value in node.settings.model_dump().items():
                 if value is not None:
