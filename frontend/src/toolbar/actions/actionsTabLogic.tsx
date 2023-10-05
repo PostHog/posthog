@@ -30,7 +30,7 @@ function toElementsChain(element: HTMLElement): ElementType[] {
     return chain.map(
         (element, index) =>
             ({
-                attr_class: element.getAttribute('class') || undefined,
+                attr_class: element.getAttribute('class')?.split(' '),
                 attr_id: element.getAttribute('id') || undefined,
                 attributes: Array.from(element.attributes).reduce((acc, attr) => {
                     if (!acc[attr.name]) {
