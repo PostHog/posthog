@@ -18,7 +18,7 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FunctionCallTable,
 )
-from posthog.hogql.database.schema.LogEntries import (
+from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
     BatchExportLogEntriesTable,
@@ -71,7 +71,6 @@ class Database(BaseModel):
         "person",
         "person_distinct_id2",
         "person_overrides",
-        "session_recording_events",
         "session_replay_events",
         "cohortpeople",
         "person_static_cohort",

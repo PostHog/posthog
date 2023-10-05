@@ -22,7 +22,7 @@ LOG_ENTRIES_FIELDS: Dict[str, FieldOrTable] = {
 
 
 class LogEntriesTable(Table):
-    fields: LOG_ENTRIES_FIELDS
+    fields = LOG_ENTRIES_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "log_entries"
