@@ -151,7 +151,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
             />
             <div className="mt-2">Border color</div>
             <LemonInput
-                value={appearance?.borderColor}
+                value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
                 onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
             />
             {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
@@ -257,13 +257,18 @@ export function BaseAppearance({
             className="survey-form"
             style={{
                 backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor}`,
+                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 color: textColor,
             }}
         >
             <div className="survey-box">
                 {!preview && (
-                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
                         <button className="form-cancel" type="button">
                             {cancel}
                         </button>
@@ -275,7 +280,9 @@ export function BaseAppearance({
                     {type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
-                            style={{ border: `1px solid ${appearance.borderColor}` }}
+                            style={{
+                                border: `1px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                            }}
                             className="survey-textarea"
                             name="survey"
                             rows={4}
@@ -337,7 +344,7 @@ const RatingButton = ({
             style={{
                 color: textColor,
                 backgroundColor: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor,
-                borderColor: appearance.borderColor,
+                borderColor: appearance.borderColor || defaultSurveyAppearance.borderColor,
             }}
         >
             {num}
@@ -358,7 +365,7 @@ const NumberRating = ({
     return (
         <div
             style={{
-                border: `1.5px solid ${appearance.borderColor}`,
+                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 gridTemplateColumns: `repeat(${ratingSurveyQuestion.scale}, minmax(0, 1fr))`,
             }}
             className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
@@ -445,13 +452,18 @@ export function SurveyRatingAppearance({
             className="survey-form"
             style={{
                 backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor}`,
+                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 color: textColor,
             }}
         >
             <div className="survey-box">
                 {!preview && (
-                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
                         <button className="form-cancel" type="button">
                             {cancel}
                         </button>
@@ -535,13 +547,18 @@ export function SurveyMultipleChoiceAppearance({
             className="survey-form"
             style={{
                 backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor}`,
+                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 color: textColor,
             }}
         >
             <div className="survey-box">
                 {!preview && (
-                    <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
                         <button className="form-cancel" type="button">
                             {cancel}
                         </button>
@@ -605,12 +622,15 @@ function SurveyThankYou({
             className="thank-you-message"
             style={{
                 backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor}`,
+                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 color: textColor,
             }}
         >
             <div className="thank-you-message-container">
-                <div style={{ border: `1.5px solid ${appearance.borderColor}` }} className="cancel-btn-wrapper">
+                <div
+                    style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
+                    className="cancel-btn-wrapper"
+                >
                     <button className="form-cancel" type="button" onClick={() => setShowThankYou(false)}>
                         {cancel}
                     </button>

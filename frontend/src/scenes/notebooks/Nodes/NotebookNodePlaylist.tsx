@@ -20,6 +20,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, nodeId } = props.attributes
@@ -41,10 +42,11 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     )
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType, sessionRecordings } =
+        useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
     useEffect(() => {
@@ -67,8 +69,22 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         )
     }, [activeSessionRecording])
 
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ sessionRecordingId, time }) => {
+                setSelectedRecordingId(sessionRecordingId)
+                scrollIntoView()
+
+                setTimeout(() => {
+                    // NOTE: This is a hack but we need a delay to give time for the player to mount
+                    sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(time)
+                }, 100)
+            },
+        })
+    }, [])
+
     if (!expanded) {
-        return <div className="p-4">20+ recordings </div>
+        return <div className="p-4">{sessionRecordings.length}+ recordings </div>
     }
 
     const content = !activeSessionRecording?.id ? (

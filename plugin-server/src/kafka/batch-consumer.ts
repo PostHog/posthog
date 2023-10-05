@@ -33,7 +33,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     topicCreationTimeoutMs,
     eachBatch,
-    cooperativeRebalance = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
@@ -49,7 +48,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-    cooperativeRebalance?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -114,12 +112,12 @@ export const startBatchConsumer = async ({
         // https://www.confluent.io/en-gb/blog/incremental-cooperative-rebalancing-in-kafka/
         // for details on the advantages of this rebalancing strategy as well as
         // how it works.
-        'partition.assignment.strategy': cooperativeRebalance ? 'cooperative-sticky' : 'range,roundrobin',
+        'partition.assignment.strategy': 'cooperative-sticky',
         rebalance_cb: true,
         offset_commit_cb: true,
     })
 
-    instrumentConsumerMetrics(consumer, groupId, cooperativeRebalance)
+    instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
     let lastConsumeTime = 0
@@ -183,13 +181,13 @@ export const startBatchConsumer = async ({
                 // protocol. If we never manage to consume, we don't want our health checks to pass.
                 lastConsumeTime = Date.now()
 
+                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
+                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                }
+
                 if (!messages) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
                     continue
-                }
-
-                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
-                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })

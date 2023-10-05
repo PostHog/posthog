@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import {
     SessionRecordingPlayerMode,
     getCurrentPlayerTime,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -37,10 +38,19 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
         noInspector: noInspector,
     }
 
+    const { expanded } = useValues(notebookNodeLogic)
+    const {
+        setActions,
+        insertAfter,
+        insertReplayCommentByTimestamp,
+        setMessageListeners,
+        setExpanded,
+        scrollIntoView,
+    } = useActions(notebookNodeLogic)
+
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
-    const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, insertReplayCommentByTimestamp } = useActions(notebookNodeLogic)
+    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
     useEffect(() => {
         loadRecordingMeta()
@@ -75,6 +85,20 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
                 : undefined,
         ])
     }, [sessionPlayerMetaData?.person?.id])
+
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ time }) => {
+                if (!expanded) {
+                    setExpanded(true)
+                }
+                setPlay()
+
+                seekToTime(time)
+                scrollIntoView()
+            },
+        })
+    }, [])
 
     return !expanded ? (
         <div>

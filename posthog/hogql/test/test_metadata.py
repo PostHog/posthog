@@ -7,8 +7,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _expr(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(kind="HogQLMetadata", expr=query, response=None), team=self.team)
+    def _expr(self, query: str, table: str = "events") -> HogQLMetadataResponse:
+        return get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", expr=query, table=table, response=None), team=self.team
+        )
 
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
@@ -110,6 +112,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    def test_metadata_table(self):
+        metadata = self._expr("timestamp", "events")
+        self.assertEqual(metadata.isValid, True)
+
+        metadata = self._expr("timestamp", "persons")
+        self.assertEqual(metadata.isValid, False)
+
+        metadata = self._expr("is_identified", "events")
+        self.assertEqual(metadata.isValid, False)
+
+        metadata = self._expr("is_identified", "persons")
+        self.assertEqual(metadata.isValid, True)
 
     def test_metadata_in_cohort(self):
         cohort = Cohort.objects.create(team=self.team, name="cohort_name")

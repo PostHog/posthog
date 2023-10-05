@@ -11,7 +11,7 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isEventsQuery, taxonomicFilterToHogQl, trimQuotes } from '~/queries/utils'
+import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -166,7 +166,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            const column = taxonomicFilterToHogQl(group.type, value)
+                                            const column = taxonomicEventFilterToHogQL(group.type, value)
                                             if (column !== null) {
                                                 selectColumn(column)
                                             }

@@ -7,11 +7,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { Survey } from '~/types'
+import { Survey, SurveyUrlMatchType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { SurveyView } from './SurveyView'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { NewSurvey } from './constants'
+import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import EditSurveyOld from './EditSurveyOld'
 import EditSurveyNew from './EditSurveyNew'
@@ -123,7 +123,13 @@ export function SurveyReleaseSummary({
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>URL contains:</span>{' '}
+                        <span>
+                            URL{' '}
+                            {SurveyUrlMatchTypeLabels[
+                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
+                            ].slice(2)}
+                            :
+                        </span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
                 </div>

@@ -18,6 +18,7 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     SurveyAppearance as SurveyAppearanceType,
+    SurveyUrlMatchType,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
@@ -31,7 +32,12 @@ import {
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { defaultSurveyFieldValues, defaultSurveyAppearance, SurveyQuestionLabel } from './constants'
+import {
+    defaultSurveyFieldValues,
+    defaultSurveyAppearance,
+    SurveyQuestionLabel,
+    SurveyUrlMatchTypeLabels,
+} from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import React from 'react'
@@ -202,7 +208,7 @@ export function FormType({
 }
 
 export default function EditSurveyNew(): JSX.Element {
-    const { survey, hasTargetingFlag } = useValues(surveyLogic)
+    const { survey, hasTargetingFlag, urlMatchTypeValidationError } = useValues(surveyLogic)
     const { setSurveyValue, setDefaultForQuestionType } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
@@ -812,12 +818,33 @@ export default function EditSurveyNew(): JSX.Element {
                                     <Field name="conditions">
                                         {({ value, onChange }) => (
                                             <>
-                                                <PureField label="URL contains:">
-                                                    <LemonInput
-                                                        value={value?.url}
-                                                        onChange={(urlVal) => onChange({ ...value, url: urlVal })}
-                                                        placeholder="ex: https://app.posthog.com"
-                                                    />
+                                                <PureField
+                                                    label="URL targeting"
+                                                    error={urlMatchTypeValidationError}
+                                                    info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                                >
+                                                    <div className="flex flex-row gap-2 items-center">
+                                                        URL
+                                                        <LemonSelect
+                                                            value={value?.urlMatchType || SurveyUrlMatchType.Contains}
+                                                            onChange={(matchTypeVal) => {
+                                                                onChange({ ...value, urlMatchType: matchTypeVal })
+                                                            }}
+                                                            data-attr="survey-url-matching-type"
+                                                            options={Object.keys(SurveyUrlMatchTypeLabels).map(
+                                                                (key) => ({
+                                                                    label: SurveyUrlMatchTypeLabels[key],
+                                                                    value: key,
+                                                                })
+                                                            )}
+                                                        />
+                                                        <LemonInput
+                                                            value={value?.url}
+                                                            onChange={(urlVal) => onChange({ ...value, url: urlVal })}
+                                                            placeholder="ex: https://app.posthog.com"
+                                                            fullWidth
+                                                        />
+                                                    </div>
                                                 </PureField>
                                                 <PureField label="Selector matches:">
                                                     <LemonInput

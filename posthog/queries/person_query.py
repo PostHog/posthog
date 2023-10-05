@@ -144,6 +144,7 @@ class PersonQuery:
             {distinct_id_condition} {email_condition}
             {order}
             {limit_offset}
+            SETTINGS optimize_aggregation_in_order = 1
             """,
             {
                 **updated_after_params,
@@ -255,7 +256,6 @@ class PersonQuery:
             return "", {}
 
     def _get_limit_offset_clause(self) -> Tuple[str, Dict]:
-
         if not isinstance(self._filter, Filter):
             return "", {}
 
