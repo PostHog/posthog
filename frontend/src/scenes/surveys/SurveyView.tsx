@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -25,7 +25,6 @@ import {
 } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
@@ -206,16 +205,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         <div className="w-full flex flex-col items-center">
                                             {survey.type === SurveyType.API && (
                                                 <div className="border rounded p-4">
-                                                    <div className="w-full flex flex-col items-center">
-                                                        Need more information on API setup?{' '}
-                                                        <a
+                                                    <div className="w-full flex flex-row gap-1 items-center">
+                                                        Learn how to set up API surveys{' '}
+                                                        <Link
                                                             data-attr="survey-doc-link"
                                                             target="_blank"
-                                                            rel="noopener"
-                                                            href="https://posthog.com/docs/surveys/manual"
+                                                            to="https://posthog.com/docs/surveys/api"
+                                                            targetBlankIcon
                                                         >
-                                                            Check the docs <IconOpenInNew />
-                                                        </a>
+                                                            in the docs
+                                                        </Link>
                                                     </div>
                                                 </div>
                                             )}
