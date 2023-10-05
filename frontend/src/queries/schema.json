@@ -1424,7 +1424,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -1437,7 +1437,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "LifecycleToggle": {
@@ -2288,7 +2288,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -2301,7 +2301,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebAnalyticsFilters": {},
@@ -2341,7 +2341,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2356,7 +2356,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopClicksQuery": {
@@ -2395,7 +2395,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2410,7 +2410,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopPagesQuery": {
@@ -2449,7 +2449,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2464,7 +2464,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopSourcesQuery": {
@@ -2503,7 +2503,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2518,7 +2518,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         }
     }
