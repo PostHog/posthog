@@ -87,7 +87,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                     >
                                                         Duplicate as static cohort
                                                     </LemonButton>
-                                                    <LemonDivider vertical />
+                                                    <LemonDivider />
                                                 </>
                                             )}
                                             <LemonButton
