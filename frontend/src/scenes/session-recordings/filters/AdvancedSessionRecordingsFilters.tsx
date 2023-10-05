@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { useDebounce } from 'use-debounce'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -156,6 +157,12 @@ function ConsoleFilters({
         }
     }
 
+    const [onInputDebounced] = useDebounce((s: string): void => {
+        setFilters({
+            console_search_query: s,
+        })
+    }, 250)
+
     return (
         <>
             <LemonLabel>Filter by console logs</LemonLabel>
@@ -165,11 +172,7 @@ function ConsoleFilters({
                         className={'grow'}
                         placeholder={'containing text'}
                         value={filters.console_search_query}
-                        onChange={(s) => {
-                            setFilters({
-                                console_search_query: s,
-                            })
-                        }}
+                        onChange={onInputDebounced}
                     />
 
                     <Tooltip
