@@ -13,7 +13,7 @@
             AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', ''))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))
+     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius.1
@@ -25,7 +25,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
@@ -138,7 +138,7 @@
             AND cohort_id = 2
             AND version = 0 )
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
@@ -150,7 +150,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
@@ -185,7 +185,7 @@
             AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(properties, 'group'), '^"|"$', '')))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
+     AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
@@ -197,7 +197,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
@@ -260,7 +260,7 @@
             AND cohort_id = 2
             AND version = 0 )
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
@@ -280,7 +280,7 @@
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))
-           OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
+           OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
@@ -292,7 +292,7 @@
      FROM person
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
@@ -331,7 +331,7 @@
         ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
      WHERE team_id = 2
      GROUP BY id
-     HAVING max(is_deleted) = 0)
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_experience_continuity_working_slow_db
