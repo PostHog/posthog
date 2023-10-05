@@ -263,7 +263,7 @@ export class HookCommander {
     fetchHostnameGuardTeams: Set<number> | null
 
     /** Hook request timeout in ms. */
-    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
+    EXTERNAL_REQUEST_TIMEOUT: number
 
     constructor(
         postgres: PostgresRouter,
@@ -271,7 +271,8 @@ export class HookCommander {
         organizationManager: OrganizationManager,
         fetchHostnameGuardTeams: Set<number> | null = new Set(),
         appMetrics: AppMetrics,
-        statsd: StatsD | undefined
+        statsd: StatsD | undefined,
+        timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
@@ -285,6 +286,7 @@ export class HookCommander {
         }
         this.statsd = statsd
         this.appMetrics = appMetrics
+        this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {

@@ -203,6 +203,7 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
+    EXTERNAL_REQUEST_TIMEOUT_MS: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
