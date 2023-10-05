@@ -49,7 +49,11 @@ class MessagingRecord(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("email_hash", "campaign_key", "campaign_count")  # can only send campaign once to each email
+        unique_together = (
+            "email_hash",
+            "campaign_key",
+            "campaign_count",
+        )  # can only send campaign once to each email for a given count
 
     def can_be_resent(self, resend_interval: timedelta) -> bool:
         """
