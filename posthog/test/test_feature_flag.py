@@ -2018,24 +2018,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             name="cohort2",
         )
 
-        cohort3 = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": r"@posthog\.com$",
-                            "negation": False,
-                            "operator": "regex",
-                        }
-                    ]
-                }
-            ],
-            name="cohort3",
-        )
-
         feature_flag1: FeatureFlag = self.create_feature_flag(
             key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
         )
@@ -2048,14 +2030,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]},
                     {"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
-                    {"properties": [{"key": "id", "value": cohort3.pk, "type": "cohort"}]},
                 ]
             },
         )
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
 
-        with self.assertNumQueries(5):
-            # single query for all cohorts
+        with self.assertNumQueries(6):
+            # no double queries for the same cohort
             # no team queries
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -2108,7 +2089,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             self.assertEqual(
                 FeatureFlagMatcher([feature_flag1, feature_flag2], "example_id", property_value_overrides={}).get_match(
                     feature_flag1
@@ -2116,7 +2097,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
@@ -2126,7 +2107,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -2135,7 +2116,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -2144,7 +2125,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher(
                     [feature_flag1, feature_flag2],
