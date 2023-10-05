@@ -64,7 +64,9 @@ jobs:
               uses: actions/download-artifact@v3
               with:
                   name: artifact
-                  path: dist
+                  path: hogql_parser/dist/
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  packages-dir: hogql_parser/dist/
