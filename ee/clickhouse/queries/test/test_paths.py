@@ -1,4 +1,5 @@
 from datetime import timedelta
+import pytest
 from typing import Tuple
 from unittest.mock import MagicMock
 from uuid import UUID
@@ -1731,6 +1732,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    @pytest.mark.snapshot_tests
     @freeze_time("2023-05-23T11:00:00.000Z")
     def test_event_exclusion_filters_with_wildcard_groups(self):
         # P1 for pageview event /2/bar/1/foo

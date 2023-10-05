@@ -271,7 +271,36 @@ jobs:
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  snapshot_tests: false
 
+            - name: Archive email renders
+              uses: actions/upload-artifact@v3
+              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
+              with:
+                  name: email_renders
+                  path: posthog/tasks/test/__emails__
+                  retention-days: 5
+
+    snapshots:
+        needs: changes
+        timeout-minutes: 30
+
+        name: Snapshot tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ['3.10.10']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
+                segment: ['FOSS', 'EE']
+                person-on-events: [false, true]
+                # :NOTE: Keep concurrency and groups in sync
+                concurrency: [1]
+                group: [1]
+                snapshot_tests: true
+
+        steps:
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
@@ -300,14 +329,6 @@ jobs:
               run: |
                   echo "${{ steps.changed-files.outputs.diff }}"
                   exit 1
-
-            - name: Archive email renders
-              uses: actions/upload-artifact@v3
-              if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
-              with:
-                  name: email_renders
-                  path: posthog/tasks/test/__emails__
-                  retention-days: 5
 
     async-migrations:
         name: Async migrations tests
