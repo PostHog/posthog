@@ -5,14 +5,15 @@ import { Notebook } from './Notebook'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookSyncInfo } from './NotebookMeta'
+import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 export function NotebookPopoverCard(): JSX.Element | null {
     const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
@@ -20,12 +21,16 @@ export function NotebookPopoverCard(): JSX.Element | null {
     const { setVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { width } = useWindowSize()
 
     const editable = visibility !== 'hidden' && !notebook?.is_template
 
     if (droppedResource) {
         return null
     }
+
+    const contentWidthHasEffect = useMemo(() => fullScreen && width && width > 866, [fullScreen, width])
+
     return (
         <div className="NotebookPopover__content__card">
             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
@@ -48,6 +53,8 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         tooltip="Go to Notebook"
                         tooltipPlacement="left"
                     />
+
+                    {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
 
                     <LemonButton
                         size="small"
