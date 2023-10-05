@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
-import { AvailableFeature, ReplayTabs } from '~/types'
+import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -23,6 +23,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -61,6 +62,15 @@ export function SessionsRecordings(): JSX.Element {
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
                             <>
+                                <NotebookSelectButton
+                                    resource={{
+                                        attrs: {
+                                            filters: filters,
+                                        },
+                                        type: NotebookNodeType.RecordingPlaylist,
+                                    }}
+                                    type="secondary"
+                                />
                                 <LemonButton
                                     fullWidth={false}
                                     data-attr={'session-recordings-filters-save-as-playlist'}

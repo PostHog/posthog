@@ -140,17 +140,19 @@ function RecordingsLists({
         }
     }, [showFilters, showSettings])
 
-    const inNotebookNode = !!useNotebookNode()
+    const notebookNode = useNotebookNode()
 
     return (
         <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
-            {!inNotebookNode ? (
+            {
                 <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                     <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                         <span className="px-2 py-1 flex flex-1 gap-2">
-                            <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
-                                Recordings
-                            </span>
+                            {!notebookNode ? (
+                                <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
+                                    Recordings
+                                </span>
+                            ) : null}
                             <Tooltip
                                 placement="bottom"
                                 title={
@@ -178,7 +180,13 @@ function RecordingsLists({
                                     <IconFilter />
                                 </IconWithCount>
                             }
-                            onClick={() => setShowFilters(!showFilters)}
+                            onClick={() => {
+                                if (notebookNode) {
+                                    notebookNode.actions.toggleEditing()
+                                } else {
+                                    setShowFilters(!showFilters)
+                                }
+                            }}
                         >
                             Filter
                         </LemonButton>
@@ -194,25 +202,23 @@ function RecordingsLists({
                         <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                     </div>
                 </DraggableToNotebook>
-            ) : null}
+            }
 
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
-                {!inNotebookNode ? (
-                    showFilters ? (
-                        <div className="bg-side border-b">
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                hasAdvancedFilters={hasAdvancedFilters}
-                                showAdvancedFilters={showAdvancedFilters}
-                                setShowAdvancedFilters={setShowAdvancedFilters}
-                            />
-                        </div>
-                    ) : showSettings ? (
-                        <SessionRecordingsPlaylistSettings />
-                    ) : null
+                {!notebookNode && showFilters ? (
+                    <div className="bg-side border-b">
+                        <SessionRecordingsFilters
+                            filters={filters}
+                            setFilters={setFilters}
+                            showPropertyFilters={!personUUID}
+                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                            hasAdvancedFilters={hasAdvancedFilters}
+                            showAdvancedFilters={showAdvancedFilters}
+                            setShowAdvancedFilters={setShowAdvancedFilters}
+                        />
+                    </div>
+                ) : showSettings ? (
+                    <SessionRecordingsPlaylistSettings />
                 ) : null}
 
                 {recordings?.length ? (
@@ -302,7 +308,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         750: 'medium',
     })
 
-    const inNotebookNode = !!useNotebookNode()
+    const notebookNode = useNotebookNode()
 
     return (
         <>
@@ -312,7 +318,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     data-attr="session-recordings-playlist"
                     className={clsx('SessionRecordingsPlaylist', {
                         'SessionRecordingsPlaylist--wide': size !== 'small',
-                        'SessionRecordingsPlaylist--embedded': inNotebookNode,
+                        'SessionRecordingsPlaylist--embedded': notebookNode,
                     })}
                 >
                     <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
