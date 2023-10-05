@@ -384,11 +384,9 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 if (rawPersonUUID) {
-                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
-                    const decodedPersonDistinctId = decodeURIComponent(rawPersonUUID)
-
-                    if (!values.person || values.person.id != decodedPersonDistinctId) {
-                        actions.loadPersonUUID(decodedPersonDistinctId) // underscore contains the wildcard
+                    const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
+                    if (!values.person || values.person.id != decodedPersonUUID) {
+                        actions.loadPersonUUID(decodedPersonUUID)
                     }
                 }
             }

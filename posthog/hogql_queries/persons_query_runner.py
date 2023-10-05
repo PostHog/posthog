@@ -35,13 +35,13 @@ class PersonsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         if "person" in input_columns:
-            star_idx = input_columns.index("person")
+            person_column_index = input_columns.index("person")
             for index, result in enumerate(response.results):
                 response.results[index] = list(result)
-                select = result[star_idx]
+                select = result[person_column_index]
                 new_result = dict(zip(PERSON_FULL_TUPLE, select))
                 new_result["properties"] = json.loads(new_result["properties"])
-                response.results[index][star_idx] = new_result
+                response.results[index][person_column_index] = new_result
 
         has_more = len(response.results) > self.query_limit()
         return PersonsQueryResponse(

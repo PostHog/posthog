@@ -129,7 +129,9 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def calculate(self) -> QueryResponse[Any]:
+    def calculate(self) -> BaseModel:
+        # The returned model should have a structure similar to QueryResponse.
+        # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
     def run(self, refresh_requested: bool) -> CachedQueryResponse:
@@ -148,7 +150,7 @@ class QueryRunner(ABC):
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
-        fresh_response_dict = self.calculate().model_dump()
+        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
