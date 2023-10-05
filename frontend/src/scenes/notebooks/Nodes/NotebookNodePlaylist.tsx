@@ -72,34 +72,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         return <div className="p-4">20+ recordings </div>
     }
 
-    return (
-        <div className="flex flex-row overflow-hidden gap-2 h-full">
-            <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
-        </div>
-    )
-
-    // const content = !activeSessionRecording?.id ? (
-    //     <RecordingsLists {...recordingPlaylistLogicProps} />
-    // ) : (
-    //     <>
-    //         <LemonButton
-    //             size="small"
-    //             type="secondary"
-    //             icon={<IconChevronLeft />}
-    //             onClick={() => setSelectedRecordingId(null)}
-    //             className="self-start"
-    //         />
-    //         <SessionRecordingPlayer
-    //             playerKey={playerKey}
-    //             sessionRecordingId={activeSessionRecording.id}
-    //             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
-    //             nextSessionRecording={nextSessionRecording}
-    //             matchingEventsMatchType={matchingEventsMatchType}
-    //         />
-    //     </>
-    // )
-
-    return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
+    return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
 
 export const Settings = ({

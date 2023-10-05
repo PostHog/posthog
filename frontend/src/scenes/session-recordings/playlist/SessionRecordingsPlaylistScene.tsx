@@ -146,11 +146,13 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 }
             />
             {playlist.short_id ? (
-                <SessionRecordingsPlaylist
-                    filters={playlist.filters}
-                    onFiltersChange={setFilters}
-                    pinnedRecordings={pinnedRecordings?.results}
-                />
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist
+                        filters={playlist.filters}
+                        onFiltersChange={setFilters}
+                        pinnedRecordings={pinnedRecordings?.results}
+                    />
+                </div>
             ) : null}
         </div>
     )

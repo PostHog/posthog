@@ -161,7 +161,9 @@ export function SessionsRecordings(): JSX.Element {
                 {!tab ? (
                     <Spinner />
                 ) : tab === ReplayTabs.Recent ? (
-                    <SessionRecordingsPlaylist updateSearchParams />
+                    <div className="SessionRecordingPlaylistHeightWrapper">
+                        <SessionRecordingsPlaylist updateSearchParams />
+                    </div>
                 ) : tab === ReplayTabs.Playlists ? (
                     <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
                 ) : tab === ReplayTabs.FilePlayback ? (

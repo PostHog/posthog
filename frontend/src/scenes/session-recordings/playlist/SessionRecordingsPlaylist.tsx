@@ -140,11 +140,11 @@ function RecordingsLists({
         }
     }, [showFilters, showSettings])
 
-    const nodeLogic = useNotebookNode()
+    const inNotebookNode = !!useNotebookNode()
 
     return (
         <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r')}>
-            {!nodeLogic ? (
+            {!inNotebookNode ? (
                 <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                     <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
                         <span className="px-2 py-1 flex flex-1 gap-2">
@@ -197,20 +197,22 @@ function RecordingsLists({
             ) : null}
 
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
-                {showFilters ? (
-                    <div className="bg-side border-b">
-                        <SessionRecordingsFilters
-                            filters={filters}
-                            setFilters={setFilters}
-                            showPropertyFilters={!personUUID}
-                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                            hasAdvancedFilters={hasAdvancedFilters}
-                            showAdvancedFilters={showAdvancedFilters}
-                            setShowAdvancedFilters={setShowAdvancedFilters}
-                        />
-                    </div>
-                ) : showSettings ? (
-                    <SessionRecordingsPlaylistSettings />
+                {!inNotebookNode ? (
+                    showFilters ? (
+                        <div className="bg-side border-b">
+                            <SessionRecordingsFilters
+                                filters={filters}
+                                setFilters={setFilters}
+                                showPropertyFilters={!personUUID}
+                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                hasAdvancedFilters={hasAdvancedFilters}
+                                showAdvancedFilters={showAdvancedFilters}
+                                setShowAdvancedFilters={setShowAdvancedFilters}
+                            />
+                        </div>
+                    ) : showSettings ? (
+                        <SessionRecordingsPlaylistSettings />
+                    ) : null
                 ) : null}
 
                 {recordings?.length ? (
@@ -300,6 +302,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         750: 'medium',
     })
 
+    const inNotebookNode = !!useNotebookNode()
+
     return (
         <>
             <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
@@ -308,6 +312,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     data-attr="session-recordings-playlist"
                     className={clsx('SessionRecordingsPlaylist', {
                         'SessionRecordingsPlaylist--wide': size !== 'small',
+                        'SessionRecordingsPlaylist--embedded': inNotebookNode,
                     })}
                 >
                     <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>

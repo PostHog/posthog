@@ -3,22 +3,30 @@
 
 .SessionRecordingsPlaylist {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: row;
+    justify-content: flex-start;
+
     align-items: flex-start;
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    height: 100%;
 
     .SessionRecordingsPlaylist__left-column {
         flex-shrink: 0;
-        width: 100%;
         display: flex;
         flex-direction: column;
+        max-width: 350px;
+        min-width: 300px;
+        width: 25%;
+        overflow: hidden;
+        height: 100%;
     }
     .SessionRecordingsPlaylist__right-column {
+        flex: 1;
+        height: 100%;
         overflow: hidden;
         width: 100%;
-        height: 30rem;
 
         .SessionRecordingsPlaylist__loading {
             display: flex;
@@ -28,26 +36,22 @@
         }
     }
 
+    &--embedded {
+        border: none;
+    }
+
     &--wide {
-        flex-direction: row;
-        justify-content: flex-start;
-        // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-        height: calc(100vh - 15rem);
-        min-height: 41rem;
-
-        .SessionRecordingsPlaylist__left-column {
-            max-width: 350px;
-            min-width: 300px;
-            width: 25%;
-            overflow: hidden;
-            height: 100%;
-        }
-
         .SessionRecordingsPlaylist__right-column {
             flex: 1;
             height: 100%;
         }
     }
+}
+
+.SessionRecordingPlaylistHeightWrapper {
+    // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
+    height: calc(100vh - 15rem);
+    min-height: 41rem;
 }
 
 .SessionRecordingPreview {

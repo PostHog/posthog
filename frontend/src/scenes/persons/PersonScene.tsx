@@ -235,7 +235,9 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                <div className="SessionRecordingPlaylistHeightWrapper">
+                                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                </div>
                             </>
                         ),
                     },
