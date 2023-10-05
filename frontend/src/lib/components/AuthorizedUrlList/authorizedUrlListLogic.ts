@@ -12,10 +12,9 @@ import {
     sharedListeners,
 } from 'kea'
 import api from 'lib/api'
-import { isDomain, isURL, toParams } from 'lib/utils'
-import { ToolbarParams, TrendResult } from '~/types'
+import { isDomain, isURL } from 'lib/utils'
+import { ToolbarParams } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import { encodeParams, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -24,6 +23,8 @@ import { forms } from 'kea-forms'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
 import { subscriptions } from 'kea-subscriptions'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 
 export interface ProposeNewUrlFormType {
     url: string
@@ -110,23 +111,30 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: {
             __default: [] as string[],
             loadSuggestions: async () => {
-                const params = {
-                    events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
-                    breakdown: '$current_url',
-                    date_from: dayjs().subtract(3, 'days').toISOString(),
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: hogql`select properties.$current_url, count()
+                        from events
+                           where event = '$pageview'
+                           and timestamp >= now() - interval 3 day 
+                            and timestamp <= now()
+                         group by properties.$current_url
+                         order by count() desc
+                        limit 25`,
                 }
-                const result = (
-                    await api.get(`api/projects/${values.currentTeamId}/insights/trend/?${toParams(params)}`)
-                ).result as TrendResult[]
-                if (result && result[0]?.count === 0) {
+
+                const response = await api.query(query)
+                const result = response.results as [string, number][]
+
+                if (result && result.length === 0) {
                     return []
                 }
                 const suggestedDomains: string[] = []
 
-                result.forEach((item) => {
-                    if (item.breakdown_value && typeof item.breakdown_value === 'string') {
+                result.forEach(([url]) => {
+                    if (url) {
                         try {
-                            const parsedUrl = new URL(item.breakdown_value)
+                            const parsedUrl = new URL(url)
                             const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
                             // Have we already added this domain?
                             if (suggestedDomains.indexOf(urlWithoutPath) > -1) {

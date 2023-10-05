@@ -1,4 +1,3 @@
-import './Plugins.scss'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from './pluginsLogic'
@@ -14,6 +13,8 @@ import { AppsTab } from './tabs/apps/AppsTab'
 import { PluginTab } from './types'
 import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+
+import './Plugins.scss'
 
 export const scene: SceneExport = {
     component: AppsScene,

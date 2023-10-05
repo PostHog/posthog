@@ -238,7 +238,7 @@ function Pages(): JSX.Element {
                                 <PageButton
                                     title="Browse Apps"
                                     icon={<IconApps />}
-                                    identifier={Scene.Plugins}
+                                    identifier={Scene.Apps}
                                     to={urls.projectApps()}
                                 />
                             )}

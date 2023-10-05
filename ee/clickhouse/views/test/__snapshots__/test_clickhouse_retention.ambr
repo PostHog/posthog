@@ -229,7 +229,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -265,7 +265,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -329,7 +329,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -365,7 +365,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target
@@ -425,7 +425,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -461,7 +461,7 @@
                   AND (NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
+           AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND e.event = 'target event'
         GROUP BY target

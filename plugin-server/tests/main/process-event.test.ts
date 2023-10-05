@@ -21,18 +21,21 @@ import {
     PropertyDefinitionTypeEnum,
     RRWebEvent,
     Team,
+    TimestampFormat,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
-import { UUIDT } from '../../src/utils/utils'
+import { castTimestampToClickhouseFormat, UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import {
+    ConsoleLogEntry,
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
+    gatherConsoleLogEvents,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1481,6 +1484,60 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
     }).toThrowError()
 })
 
+function consoleMessageFor(payload: any[]) {
+    return {
+        timestamp: 1682449093469,
+        type: 6,
+        data: {
+            plugin: 'rrweb/console@1',
+            payload: {
+                level: 'info',
+                payload: payload,
+            },
+        },
+    }
+}
+
+test.each([
+    {
+        payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
+        expectedMessage: 'the message more strings',
+    },
+    {
+        // lone surrogate pairs are replaced with the "unknown" character
+        payload: ['\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ud83c...[truncated]'],
+        expectedMessage: '\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ufffd...[truncated]',
+    },
+    {
+        // sometimes the strings are wrapped in quotes...
+        payload: ['"test"'],
+        expectedMessage: '"test"',
+    },
+    {
+        // let's not accept arbitrary length content
+        payload: [new Array(3001).join('a')],
+        expectedMessage: new Array(3000).join('a'),
+    },
+])('simple console log processing', ({ payload, expectedMessage }) => {
+    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
+        consoleMessageFor(payload),
+        // see https://posthog.sentry.io/issues/4525043303
+        // null events always ignored
+        null as unknown as RRWebEvent,
+    ])
+    expect(consoleLogEntries).toEqual([
+        {
+            team_id: team.id,
+            log_level: 'info',
+            log_source: 'session_replay',
+            log_source_id: 'session_id',
+            instance_id: null,
+            timestamp: castTimestampToClickhouseFormat(DateTime.fromMillis(1682449093469), TimestampFormat.ClickHouse),
+            message: expectedMessage,
+        } satisfies ConsoleLogEntry,
+    ])
+})
+
 test('performance event stored as performance_event', () => {
     const data = createPerformanceEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', {
         // Taken from a real event from the JS
@@ -2789,6 +2846,35 @@ test('$unset person property', async () => {
     const [person] = await hub.db.fetchPersons()
     expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
     expect(person.properties).toEqual({ b: 2 })
+})
+
+test('$unset person empty set ignored', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: {},
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual({})
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
 })
 
 describe('ingestion in any order', () => {

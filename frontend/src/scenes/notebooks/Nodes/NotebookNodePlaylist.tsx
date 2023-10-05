@@ -11,7 +11,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
@@ -20,31 +20,71 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, nodeId } = props.attributes
     const playerKey = `notebook-${nodeId}`
 
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = {
-        logicKey: playerKey,
-        filters,
-        updateSearchParams: false,
-        autoPlay: false,
-        onFiltersChange: (newFilters) => {
-            props.updateAttributes({
-                filters: newFilters,
-            })
-        },
-    }
+    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = useMemo(
+        () => ({
+            logicKey: playerKey,
+            filters,
+            updateSearchParams: false,
+            autoPlay: false,
+            onFiltersChange: (newFilters: RecordingFilters) => {
+                props.updateAttributes({
+                    filters: newFilters,
+                })
+            },
+        }),
+        [playerKey, filters]
+    )
 
     const { expanded } = useValues(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType, sessionRecordings } =
+        useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
+    useEffect(() => {
+        setActions(
+            activeSessionRecording
+                ? [
+                      {
+                          text: 'Pin replay',
+                          onClick: () => {
+                              insertAfter({
+                                  type: NotebookNodeType.Recording,
+                                  attrs: {
+                                      id: String(activeSessionRecording.id),
+                                  },
+                              })
+                          },
+                      },
+                  ]
+                : []
+        )
+    }, [activeSessionRecording])
+
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ sessionRecordingId, time }) => {
+                setSelectedRecordingId(sessionRecordingId)
+                scrollIntoView()
+
+                setTimeout(() => {
+                    // NOTE: This is a hack but we need a delay to give time for the player to mount
+                    sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(time)
+                }, 100)
+            },
+        })
+    }, [])
+
     if (!expanded) {
-        return <div className="p-4">20+ recordings </div>
+        return <div className="p-4">{sessionRecordings.length}+ recordings </div>
     }
 
     const content = !activeSessionRecording?.id ? (

@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar
+from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast
 
-from prometheus_client import Counter
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
+from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -14,8 +14,15 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
-from posthog.schema import QueryTiming
-from posthog.types import InsightQueryNode
+from posthog.schema import (
+    QueryTiming,
+    TrendsQuery,
+    LifecycleQuery,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+    WebOverviewStatsQuery,
+)
 from posthog.utils import generate_cache_key, get_safe_cache
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
@@ -39,6 +46,8 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     result: DataT
     timings: Optional[List[QueryTiming]] = None
+    types: Optional[List[Tuple[str, str]]] = None
+    columns: Optional[List[str]] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -50,13 +59,60 @@ class CachedQueryResponse(QueryResponse):
     next_allowed_client_refresh: str
 
 
+RunnableQueryNode = Union[
+    TrendsQuery,
+    LifecycleQuery,
+    WebOverviewStatsQuery,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+]
+
+
+def get_query_runner(
+    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
+) -> "QueryRunner":
+    kind = None
+    if isinstance(query, dict):
+        kind = query.get("kind", None)
+    elif hasattr(query, "kind"):
+        kind = query.kind
+
+    if kind == "LifecycleQuery":
+        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+
+        return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "TrendsQuery":
+        from .insights.trends_query_runner import TrendsQueryRunner
+
+        return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "WebOverviewStatsQuery":
+        from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
+
+        return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebTopSourcesQuery":
+        from .web_analytics.top_sources import WebTopSourcesQueryRunner
+
+        return WebTopSourcesQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebTopClicksQuery":
+        from .web_analytics.top_clicks import WebTopClicksQueryRunner
+
+        return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebTopPagesQuery":
+        from .web_analytics.top_pages import WebTopPagesQueryRunner
+
+        return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
+
+    raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
+
+
 class QueryRunner(ABC):
-    query: InsightQueryNode
-    query_type: Type[InsightQueryNode]
+    query: RunnableQueryNode
+    query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
 
-    def __init__(self, query: InsightQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(self, query: RunnableQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
         self.team = team
         self.timings = timings or HogQLTimings()
         if isinstance(query, self.query_type):
@@ -99,8 +155,7 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    @abstractmethod
-    def to_persons_query(self) -> str:
+    def to_persons_query(self) -> ast.SelectQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
@@ -116,7 +171,9 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def _cache_key(self) -> str:
-        return generate_cache_key(f"query_{self.toJSON()}_{self.team.pk}_{self.team.timezone}")
+        return generate_cache_key(
+            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}"
+        )
 
     @abstractmethod
     def _is_stale(self, cached_result_package):

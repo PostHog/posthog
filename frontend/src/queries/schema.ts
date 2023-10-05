@@ -57,6 +57,12 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
 
+    // Web analytics queries
+    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebTopSourcesQuery = 'WebTopSourcesQuery',
+    WebTopPagesQuery = 'WebTopPagesQuery',
+    WebTopClicksQuery = 'WebTopClicksQuery',
+
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
@@ -75,6 +81,10 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | TimeToSeeDataSessionsQuery
+    | WebOverviewStatsQuery
+    | WebTopSourcesQuery
+    | WebTopClicksQuery
+    | WebTopPagesQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -136,6 +146,8 @@ export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Constant values that can be referenced with the {placeholder} syntax in the query */
+    values?: Record<string, any>
     response?: HogQLQueryResponse
 }
 
@@ -158,8 +170,12 @@ export interface HogQLMetadataResponse {
 
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
-    expr?: string
+    /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
+    /** HogQL expression to validate (use `select` or `expr`, but not both) */
+    expr?: string
+    /** Table to validate the expression against */
+    table?: string
     filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
@@ -277,7 +293,16 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | HogQLQuery
+        | TimeToSeeDataSessionsQuery
+        | WebOverviewStatsQuery
+        | WebTopSourcesQuery
+        | WebTopClicksQuery
+        | WebTopPagesQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -481,6 +506,56 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
+}
+
+export type WebAnalyticsFilters = any
+
+export interface WebAnalyticsQueryBase {
+    dateRange?: DateRange
+}
+
+export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewStatsQuery
+    filters: WebAnalyticsFilters
+    response?: WebOverviewStatsQueryResponse
+}
+
+export interface WebOverviewStatsQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopSourcesQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopSourcesQueryResponse
+}
+export interface WebTopSourcesQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopClicksQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopClicksQueryResponse
+}
+export interface WebTopClicksQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopPagesQuery
+    filters: WebAnalyticsFilters
+    response?: WebTopPagesQueryResponse
+}
+export interface WebTopPagesQueryResponse extends QueryResponse {
+    result: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
 }
 
 export type InsightQueryNode =

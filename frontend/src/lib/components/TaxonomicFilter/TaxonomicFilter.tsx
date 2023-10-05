@@ -23,6 +23,7 @@ export function TaxonomicFilter({
     onClose,
     taxonomicGroupTypes,
     optionsFromProp,
+    hogQLTable,
     eventNames,
     height,
     width,
@@ -50,6 +51,7 @@ export function TaxonomicFilter({
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
+        hogQLTable,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

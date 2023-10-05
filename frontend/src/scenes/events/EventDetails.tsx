@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import ReactJson from 'react-json-view'
+import ReactJson from '@microlink/react-json-view'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 

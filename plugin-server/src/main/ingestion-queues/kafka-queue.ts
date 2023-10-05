@@ -249,13 +249,13 @@ export class IngestionConsumer {
             connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
             topic: this.topic,
             groupId: this.consumerGroupId,
+            autoCommit: true,
             sessionTimeout: 30000,
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             fetchBatchSize: 500,
             topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            cooperativeRebalance: this.pluginsServer.KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
         this.consumerReady = true

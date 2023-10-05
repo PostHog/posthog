@@ -129,7 +129,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
-    KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -141,7 +140,6 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
@@ -205,6 +203,7 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
+    EXTERNAL_REQUEST_TIMEOUT_MS: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -223,6 +222,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_REDIS_PREFIX: string
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined

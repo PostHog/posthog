@@ -1,10 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
+    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -286,6 +288,104 @@ export interface SummarizedSessionRecordingEvent {
     message_count: number
 }
 
+export type ConsoleLogEntry = {
+    team_id: number
+    message: string
+    log_level: 'info' | 'warn' | 'error'
+    log_source: 'session_replay'
+    // the session_id
+    log_source_id: string
+    // The ClickHouse log_entries table collapses input based on its order by key
+    // team_id, log_source, log_source_id, instance_id, timestamp
+    // since we don't have a natural instance id, we don't send one.
+    // This means that if we can log two messages for one session with the same timestamp
+    // we might lose one of them
+    // in practice console log timestamps are pretty precise: 2023-10-04 07:53:29.586
+    // so, this is unlikely enough that we can avoid filling the DB with UUIDs only to avoid losing
+    // a very, very small proportion of console logs.
+    instance_id: string | null
+    timestamp: ClickHouseTimestamp
+}
+
+function sanitizeForUTF8(input: string): string {
+    // the JS console truncates some logs...
+    // when it does that it doesn't check if the output is valid UTF-8
+    // and so it can truncate half way through a UTF-16 pair 🤷
+    // the simplest way to fix this is to convert to a buffer and back
+    // annoyingly Node 20 has `toWellFormed` which might have been useful
+    const buffer = Buffer.from(input)
+    return buffer.toString()
+}
+
+function safeString(payload: (string | null)[]) {
+    // the individual strings are sometimes wrapped in quotes... we want to strip those
+    return payload
+        .filter((item): item is string => !!item && typeof item === 'string')
+        .map((item) => sanitizeForUTF8(item.substring(0, 2999)))
+        .join(' ')
+}
+
+enum RRWebEventType {
+    DomContentLoaded = 0,
+    Load = 1,
+    FullSnapshot = 2,
+    IncrementalSnapshot = 3,
+    Meta = 4,
+    Custom = 5,
+    Plugin = 6,
+}
+
+enum RRWebEventSource {
+    Mutation = 0,
+    MouseMove = 1,
+    MouseInteraction = 2,
+    Scroll = 3,
+    ViewportResize = 4,
+    Input = 5,
+    TouchMove = 6,
+    MediaInteraction = 7,
+    StyleSheetRule = 8,
+    CanvasMutation = 9,
+    Font = 1,
+    Log = 1,
+    Drag = 1,
+    StyleDeclaration = 1,
+    Selection = 1,
+}
+export const gatherConsoleLogEvents = (
+    team_id: number,
+    session_id: string,
+    events: RRWebEvent[]
+): ConsoleLogEntry[] => {
+    const consoleLogEntries: ConsoleLogEntry[] = []
+
+    events.forEach((event) => {
+        // it should be unnecessary to check for truthiness of event here,
+        // but we've seen null in production so 🤷
+        if (!!event && event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
+            try {
+                const level = event.data.payload?.level
+                const message = safeString(event.data.payload?.payload)
+                consoleLogEntries.push({
+                    team_id,
+                    // TODO when is it not a single item array?
+                    message: message,
+                    log_level: level,
+                    log_source: 'session_replay',
+                    log_source_id: session_id,
+                    instance_id: null,
+                    timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                })
+            } catch (e) {
+                // if we can't process a console log, we don't want to lose the whole shebang
+                captureException(e, { extra: { messagePayload: event.data.payload?.payload }, tags: { session_id } })
+            }
+        }
+    })
+
+    return consoleLogEntries
+}
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
@@ -316,19 +416,19 @@ export const createSessionReplayEvent = (
     let consoleErrorCount = 0
     let url: string | null = null
     events.forEach((event) => {
-        if (event.type === 3) {
+        if (event.type === RRWebEventType.IncrementalSnapshot) {
             mouseActivity += 1
-            if (event.data?.source === 2) {
+            if (event.data?.source === RRWebEventSource.MouseInteraction) {
                 clickCount += 1
             }
-            if (event.data?.source === 5) {
+            if (event.data?.source === RRWebEventSource.Input) {
                 keypressCount += 1
             }
         }
         if (url === null && !!event.data?.href?.trim().length) {
             url = event.data.href
         }
-        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+        if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = event.data.payload?.level
             if (level === 'log') {
                 consoleLogCount += 1

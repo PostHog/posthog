@@ -71,7 +71,7 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     ROLE_BASED_ACCESS = 'role_based_access',
-    GOOGLE_LOGIN = 'google_login',
+    SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -750,6 +750,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
+    console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
 }
@@ -2089,7 +2090,13 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean; seenSurveyWaitPeriodInDays?: number } | null
+    conditions: {
+        url: string
+        selector: string
+        is_headless?: boolean
+        seenSurveyWaitPeriodInDays?: number
+        urlMatchType?: SurveyUrlMatchType
+    } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2098,6 +2105,12 @@ export interface Survey {
     end_date: string | null
     archived: boolean
     remove_targeting_flag?: boolean
+}
+
+export enum SurveyUrlMatchType {
+    Exact = 'exact',
+    Contains = 'icontains',
+    Regex = 'regex',
 }
 
 export enum SurveyType {
@@ -2111,15 +2124,16 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
-    textColor?: string
     submitButtonText?: string
-    descriptionTextColor?: string
     ratingButtonColor?: string
-    ratingButtonHoverColor?: string
+    ratingButtonActiveColor?: string
+    borderColor?: string
+    placeholder?: string
     whiteLabel?: boolean
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
+    position?: string
 }
 
 export interface SurveyQuestionBase {
