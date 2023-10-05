@@ -301,7 +301,6 @@ insight_17 = {
 }
 
 # real world regression tests
-
 insight_18 = {
     "actions": [
         {
@@ -319,7 +318,6 @@ insight_18 = {
     "interval": "day",
     "shown_as": "Lifecycle",
 }
-
 insight_19 = {
     "events": [
         {
@@ -338,7 +336,6 @@ insight_19 = {
     "interval": "day",
     "shown_as": "Lifecycle",
 }
-
 insight_20 = {
     "events": [
         {
@@ -357,7 +354,6 @@ insight_20 = {
     "shown_as": "Lifecycle",
     "properties": [{"key": "id", "type": "cohort", "value": 929, "operator": "exact"}],
 }
-
 insight_21 = {
     "actions": [
         {
@@ -378,7 +374,6 @@ insight_21 = {
     "properties": [{"key": "id", "type": "precalculated-cohort", "value": 760, "operator": None}],
     "funnel_window_days": 14,
 }
-
 insight_22 = {
     "actions": [
         {
@@ -396,7 +391,6 @@ insight_22 = {
     "interval": "day",
     "breakdown_type": "undefined",
 }
-
 insight_23 = {
     "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
     "display": "ActionsLineGraph",
@@ -407,7 +401,6 @@ insight_23 = {
     "properties": [{"key": "$current_url", "type": "event", "value": "https://example.com/", "operator": "icontains"}],
     "breakdown_type": "undefined",
 }
-
 insight_24 = {
     "events": [
         {
@@ -425,7 +418,6 @@ insight_24 = {
     "interval": "day",
     "date_from": "-90d",
 }
-
 insight_25 = {
     "events": [
         {
@@ -440,7 +432,6 @@ insight_25 = {
     ],
     "insight": "TRENDS",
 }
-
 insight_26 = {
     "events": [
         {
@@ -451,7 +442,6 @@ insight_26 = {
     ],
     "insight": "TRENDS",
 }
-
 insight_27 = {
     "actions": [
         {
@@ -466,7 +456,6 @@ insight_27 = {
     ],
     "insight": "TRENDS",
 }
-
 insight_28 = {
     "events": [
         {
@@ -478,7 +467,6 @@ insight_28 = {
     "breakdown": [None],
     "breakdown_type": "cohort",
 }
-
 insight_29 = {
     "events": [
         "{EXAMPLE_VARIABLE}",
@@ -496,7 +484,6 @@ insight_29 = {
     ],
     "insight": "TRENDS",
 }
-
 insight_30 = {
     "events": [
         {
