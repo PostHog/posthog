@@ -1,20 +1,14 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
-import {
-    RecordingsLists,
-    SessionRecordingsPlaylistProps,
-} from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
     addedAdvancedFilters,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { useEffect, useMemo, useState } from 'react'
 import { fromParamsGivenUrl } from 'lib/utils'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -45,8 +39,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
     const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
-    const { activeSessionRecording, nextSessionRecording, matchingEventsMatchType } = useValues(logic)
-    const { setSelectedRecordingId } = useActions(logic)
+    const { activeSessionRecording } = useValues(logic)
 
     useEffect(() => {
         setActions(
