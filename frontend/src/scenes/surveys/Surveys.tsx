@@ -94,6 +94,20 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
+                caption={
+                    <>
+                        Check out our
+                        <Link
+                            data-attr="survey-help"
+                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
+                            target="_blank"
+                        >
+                            {' '}
+                            surveys docs
+                        </Link>{' '}
+                        to learn more.
+                    </>
+                }
             />
             <LemonTabs
                 activeKey={tab}
