@@ -60,7 +60,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
@@ -186,7 +185,7 @@ export const Settings = ({
 export const Display = ({
     attributes,
     updateAttributes,
-}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query } = attributes
 
     const modifiedQuery = useMemo(() => {
@@ -212,47 +211,11 @@ export const Display = ({
         return modifiedQuery
     }, [query])
 
-    const detachSavedInsight = (): void => {
-        if (attributes.query.kind === NodeKind.SavedInsightNode) {
-            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
-            const dataLogic = insightDataLogic.findMounted(insightProps)
-
-            if (dataLogic) {
-                updateAttributes({ query: dataLogic.values.query as QuerySchema })
-            }
-        }
+    if (attributes.query.kind === NodeKind.SavedInsightNode) {
+        return null
     }
 
-    return attributes.query.kind === NodeKind.SavedInsightNode ? (
-        <div className="p-3 space-y-2">
-            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
-            <div>
-                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
-                insight to make changes independently in the notebook.
-            </div>
-
-            <div className="space-y-2">
-                <LemonButton
-                    center={true}
-                    type="secondary"
-                    fullWidth
-                    className="flex flex-1"
-                    to={urls.insightEdit(attributes.query.shortId)}
-                >
-                    Edit the insight
-                </LemonButton>
-                <LemonButton
-                    center={true}
-                    fullWidth
-                    type="secondary"
-                    className="flex flex-1"
-                    onClick={detachSavedInsight}
-                >
-                    Detach from insight
-                </LemonButton>
-            </div>
-        </div>
-    ) : (
+    return (
         <Query
             query={modifiedQuery}
             uniqueKey={attributes.nodeId}
