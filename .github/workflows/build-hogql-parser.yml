@@ -47,7 +47,7 @@ jobs:
 
             - uses: actions/upload-artifact@v3
               with:
-                  path: hogql_parser/wheelhouse/*.whl
+                  path: hogql_parser/wheelhouse/*.{whl,tar.gz}
 
     publish:
         name: Publish on PyPI

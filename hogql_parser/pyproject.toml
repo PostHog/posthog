@@ -3,8 +3,9 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
     "cp3*-macosx_x86_64",
     "cp3*-macosx_arm64",
     "cp3*-manylinux_x86_64",
+    "cp3*-manylinux_aarch64",
 ]
-build-frontend = "build" # This is successor to building with pip
+build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"] # We could also build a universal wheel, but separate ones are lighter individually
