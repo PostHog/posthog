@@ -18,7 +18,7 @@ export function ExportWithConfirmation({
 }: ExportWithConfirmationProps): JSX.Element {
     return (
         <Popconfirm
-            zIndex={10000}
+            className="ant-popconfirm"
             placement={placement}
             title={
                 <>
