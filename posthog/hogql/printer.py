@@ -1012,3 +1012,15 @@ class _Printer(Visitor):
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
+
+
+def quick_pretty_print(query: str) -> str:
+    return (
+        query.replace("SELECT", "\nSELECT")
+        .replace("FROM", "\nFROM")
+        .replace("WHERE", "\nWHERE")
+        .replace("GROUP", "\nGROUP")
+        .replace("HAVING", "\nHAVING")
+        .replace("LIMIT", "\nLIMIT")
+        .replace("SETTINGS", "\nSETTINGS")
+    )
