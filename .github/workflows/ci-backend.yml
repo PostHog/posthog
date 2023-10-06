@@ -145,7 +145,7 @@ jobs:
                   cd current
                   npm run schema:build:python && git diff --exit-code
 
-            - name: Check if antlr definitions are up to date
+            - name: Check if ANTLR definitions are up to date
               run: |
                   # Installing a version of ant compatible with what we use in development from homebrew (4.13)
                   # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
