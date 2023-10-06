@@ -12,11 +12,15 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
 build-frontend = "build" # This is successor to building with pip
 
 [tool.cibuildwheel.macos]
-archs = [
+archs = [ # We could also build a universal wheel, but separate ones are lighter individually
     "x86_64",
     "arm64",
-] # We could also build a universal wheel, but separate ones are lighter individually
-before-all = ["brew install boost antlr antlr4-cpp-runtime"]
+]
+before-build = [
+    "brew uninstall --force boost antlr4-cpp-runtime",
+    "brew fetch --force --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime",
+    "brew install $(brew --cache --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime)",
+]
 
 [tool.cibuildwheel.linux]
 before-all = [
@@ -26,8 +30,8 @@ before-all = [
     "unzip antlr4-source.zip -d antlr4-source && cd antlr4-source",
     "cmake .",
     "DESTDIR=out make install",
-    "cp -r out/usr/local/include/antlr4-runtime /usr/local/include",
-    "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/local/lib",
+    "cp -r out/usr/local/include/antlr4-runtime /usr/include/",
+    "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/",
     "ldconfig",
 ]
 archs = ["x86_64", "aarch64"]
