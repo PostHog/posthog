@@ -1,3 +1,7 @@
+[tool.black]
+line-length = 120
+target-version = ['py310']
+
 [tool.cibuildwheel]
 build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
     "cp3*-macosx_x86_64",

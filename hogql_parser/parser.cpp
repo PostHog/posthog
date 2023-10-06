@@ -1300,7 +1300,7 @@ static int parser_clear(PyObject* module) {
 
 static struct PyModuleDef parser = {
     .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "parser",
+    .m_name = "hogql_parser",
     .m_doc = "HogQL parsing",
     .m_size = sizeof(parser_state),
     .m_methods = parser_methods,
