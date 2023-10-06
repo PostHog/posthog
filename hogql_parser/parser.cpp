@@ -1148,7 +1148,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return parse_string(text);  
+        return parse_string(text);
       }
     }
     return text;
@@ -1160,7 +1160,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       char first_char = text.front();
       char last_char = text.back();
       if ((first_char == '`' && last_char == '`') || (first_char == '"' && last_char == '"')) {
-        return parse_string(text);  
+        return parse_string(text);
       }
     }
     return text;

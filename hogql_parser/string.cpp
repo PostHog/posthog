@@ -51,6 +51,6 @@ string parse_string_literal(antlr4::tree::TerminalNode* node) {
   try {
     return parse_string(text);
   } catch (HogQLException& e) {
-    throw HogQLSyntaxException(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex()+1);
+    throw HogQLSyntaxException(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex() + 1);
   }
 }
