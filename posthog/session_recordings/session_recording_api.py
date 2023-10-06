@@ -502,6 +502,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     """
 
     all_session_ids = filter.session_ids
+
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()

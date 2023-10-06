@@ -165,7 +165,8 @@ export interface SessionRecordingPlaylistLogicProps {
     updateSearchParams?: boolean
     autoPlay?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
-    pinnedRecordings?: SessionRecordingType[]
+    pinnedRecordings?: (SessionRecordingType | string)[]
+    onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
@@ -283,11 +284,30 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 loadPinnedRecordings: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const fromProps = props.pinnedRecordings ?? []
-                    // TODO: React to props changing and order appropriately
+
+                    // props.pinnedRecordings can be strings or objects.
+                    // If objects we can simply use them, if strings we need to fetch them
+
+                    let recordings = props.pinnedRecordings?.filter(
+                        (x) => typeof x !== 'string'
+                    ) as SessionRecordingType[]
+                    const recordingIds = props.pinnedRecordings?.filter((x) => typeof x === 'string') as string[]
+
+                    if (recordingIds) {
+                        // TODO: This is broken - we don't return only certain session_ids for some reason....
+                        const fetchedRecordings = await api.recordings.list(
+                            toParams({
+                                filters: {
+                                    session_ids: recordingIds,
+                                },
+                            })
+                        )
+
+                        recordings = [...recordings, ...fetchedRecordings.results]
+                    }
                     // TODO: Check for pinnedRecordings being IDs and fetch them, returnig the merged list
 
-                    return fromProps
+                    return recordings
                 },
             },
         ],
@@ -516,14 +536,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 }
             },
         ],
-        activeSessionRecording: [
+        activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
-            (selectedRecordingId, recordings, autoPlay): Partial<SessionRecordingType> | undefined => {
+            (selectedRecordingId, recordings, autoPlay): SessionRecordingId | undefined => {
                 return selectedRecordingId
-                    ? recordings.find((rec) => rec.id === selectedRecordingId) || { id: selectedRecordingId }
+                    ? recordings.find((rec) => rec.id === selectedRecordingId)?.id || selectedRecordingId
                     : autoPlay
-                    ? recordings[0]
+                    ? recordings[0]?.id
                     : undefined
+            },
+        ],
+        activeSessionRecording: [
+            (s) => [s.activeSessionRecordingId, s.recordings],
+            (activeSessionRecordingId, recordings): SessionRecordingType | undefined => {
+                return recordings.find((rec) => rec.id === activeSessionRecordingId)
+            },
+        ],
+        pinnedRecordingIds: [
+            (s) => [s.pinnedRecordings],
+            (pinnedRecordings): string[] => {
+                return pinnedRecordings?.map((x) => x.id) ?? []
             },
         ],
         nextSessionRecording: [

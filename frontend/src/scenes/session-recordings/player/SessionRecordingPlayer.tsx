@@ -49,6 +49,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         autoPlay = true,
         playlistLogic,
         mode = SessionRecordingPlayerMode.Standard,
+        pinned,
+        setPinned,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -62,6 +64,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         playlistLogic,
         mode,
         playerRef,
+        pinned,
+        setPinned,
     }
     const {
         incrementClickCount,

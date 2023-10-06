@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -120,7 +120,7 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
 
-export interface PlayerInspectorLogicProps extends SessionRecordingLogicProps {
+export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 

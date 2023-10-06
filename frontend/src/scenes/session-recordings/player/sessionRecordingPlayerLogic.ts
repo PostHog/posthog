@@ -16,9 +16,12 @@ import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState, SessionRecordingId } from '~/types'
+import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
@@ -74,19 +77,16 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
 }
 
-// This is the basic props used by most sub-logics
-export interface SessionRecordingLogicProps {
-    sessionRecordingId: SessionRecordingId
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
-}
-
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
+    pinned?: boolean
+    setPinned?: (pinned: boolean) => void
 }
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
@@ -1013,7 +1013,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 ])
 
-export const getCurrentPlayerTime = (logicProps: SessionRecordingLogicProps): number => {
+export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProps): number => {
     // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
     const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
     return Math.floor(playerTime / 1000)

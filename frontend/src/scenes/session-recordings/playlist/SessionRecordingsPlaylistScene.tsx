@@ -24,7 +24,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, pinnedRecordings, hasChanges, derivedName } = useValues(
         sessionRecordingsPlaylistSceneLogic
     )
-    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(
+    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
         sessionRecordingsPlaylistSceneLogic
     )
 
@@ -150,6 +150,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     <SessionRecordingsPlaylist
                         filters={playlist.filters}
                         onFiltersChange={setFilters}
+                        onPinnedChange={onPinnedChange}
                         pinnedRecordings={pinnedRecordings?.results}
                     />
                 </div>

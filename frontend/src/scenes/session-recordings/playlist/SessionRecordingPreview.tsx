@@ -18,6 +18,7 @@ export interface SessionRecordingPreviewProps {
     onPropertyClick?: (property: string, value?: string) => void
     isActive?: boolean
     onClick?: () => void
+    pinned?: boolean
 }
 
 function RecordingDuration({
@@ -150,12 +151,12 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     )
 }
 
-function PinnedIndicator(props: { pinnedCount: number | undefined }): JSX.Element | null {
-    return (props.pinnedCount ?? 0) > 0 ? (
-        <Tooltip placement="topRight" title={`This recording is pinned on ${props.pinnedCount} playlists`}>
+function PinnedIndicator(): JSX.Element | null {
+    return (
+        <Tooltip placement="topRight" title={`This recording is pinned to this list`}>
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
-    ) : null
+    )
 }
 
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
@@ -179,6 +180,7 @@ export function SessionRecordingPreview({
     isActive,
     onClick,
     onPropertyClick,
+    pinned,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
@@ -220,7 +222,7 @@ export function SessionRecordingPreview({
 
                 <div className="w-6 flex flex-col items-center mt-1">
                     <ViewedIndicator viewed={recording.viewed} />
-                    <PinnedIndicator pinnedCount={recording.pinned_count} />
+                    {pinned ? <PinnedIndicator /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

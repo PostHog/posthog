@@ -62,7 +62,7 @@ function RecordingsLists(): JSX.Element {
         hasNext,
         recordings,
         sessionRecordingsResponseLoading,
-        activeSessionRecording,
+        activeSessionRecordingId,
         showFilters,
         showSettings,
         totalFiltersCount,
@@ -71,6 +71,7 @@ function RecordingsLists(): JSX.Element {
         showAdvancedFilters,
         hasAdvancedFilters,
         logicProps,
+        pinnedRecordingIds,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -208,7 +209,8 @@ function RecordingsLists(): JSX.Element {
                                     recording={rec}
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
-                                    isActive={activeSessionRecording?.id === rec.id}
+                                    isActive={activeSessionRecordingId === rec.id}
+                                    pinned={pinnedRecordingIds.includes(rec.id)}
                                 />
                             </Fragment>
                         ))}
@@ -275,7 +277,8 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         autoPlay: props.autoPlay ?? true,
     }
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const { activeSessionRecording, matchingEventsMatchType } = useValues(logic)
+    const { activeSessionRecording, activeSessionRecordingId, matchingEventsMatchType, pinnedRecordingIds } =
+        useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -299,13 +302,24 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         <RecordingsLists />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
-                        {activeSessionRecording?.id ? (
+                        {activeSessionRecordingId ? (
                             <SessionRecordingPlayer
                                 playerKey="playlist"
-                                sessionRecordingId={activeSessionRecording?.id}
+                                sessionRecordingId={activeSessionRecordingId}
                                 matchingEventsMatchType={matchingEventsMatchType}
                                 playlistLogic={logic}
                                 noBorder
+                                pinned={pinnedRecordingIds.includes(activeSessionRecordingId)}
+                                setPinned={
+                                    props.onPinnedChange
+                                        ? (pinned) => {
+                                              if (!activeSessionRecording?.id) {
+                                                  return
+                                              }
+                                              props.onPinnedChange?.(activeSessionRecording, pinned)
+                                          }
+                                        : undefined
+                                }
                             />
                         ) : (
                             <div className="mt-20">

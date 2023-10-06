@@ -5,6 +5,7 @@ import {
     SessionRecordingPlaylistType,
     ReplayTabs,
     SessionRecordingsResponse,
+    SessionRecordingType,
 } from '~/types'
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
@@ -22,6 +23,7 @@ import { loaders } from 'kea-loaders'
 import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
 import api from 'lib/api'
+import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -41,6 +43,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
+        onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
     }),
     loaders(({ values, props }) => ({
         playlist: [
@@ -87,6 +90,24 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     })
                     breakpoint()
                     return response
+                },
+
+                onPinnedChange: async ({ recording, pinned }) => {
+                    let newResults = values.pinnedRecordings?.results || []
+
+                    newResults = newResults.filter((r) => r.id !== recording.id)
+
+                    if (pinned) {
+                        await addRecordingToPlaylist(props.shortId, recording.id)
+                        newResults.push(recording)
+                    } else {
+                        await removeRecordingFromPlaylist(props.shortId, recording.id)
+                    }
+
+                    return {
+                        results: newResults,
+                        has_next: false,
+                    }
                 },
             },
         ],

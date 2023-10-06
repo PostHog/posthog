@@ -1,7 +1,7 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FilterType, NotebookNodeType, RecordingFilters } from '~/types'
-import { SessionRecordingsPlaylistProps } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
+    SessionRecordingPlaylistLogicProps,
     addedAdvancedFilters,
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
@@ -19,10 +19,10 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, nodeId } = props.attributes
+    const { filters, pinned, nodeId } = props.attributes
     const playerKey = `notebook-${nodeId}`
 
-    const recordingPlaylistLogicProps: SessionRecordingsPlaylistProps = useMemo(
+    const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
             filters,
@@ -33,8 +33,16 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
                     filters: newFilters,
                 })
             },
+            pinnedRecordings: pinned,
+            onPinnedChange(recording, isPinned) {
+                props.updateAttributes({
+                    pinned: isPinned
+                        ? [...(pinned || []), String(recording.id)]
+                        : pinned?.filter((id) => id !== recording.id),
+                })
+            },
         }),
-        [playerKey, filters]
+        [playerKey, filters, pinned]
     )
 
     const { expanded } = useValues(notebookNodeLogic)
@@ -126,6 +134,7 @@ export const Settings = ({
 
 type NotebookNodePlaylistAttributes = {
     filters: RecordingFilters
+    pinned?: string[]
 }
 
 export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
@@ -141,6 +150,9 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     startExpanded: true,
     attributes: {
         filters: {
+            default: undefined,
+        },
+        pinned: {
             default: undefined,
         },
     },
