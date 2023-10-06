@@ -631,9 +631,16 @@ export function ExperimentsListPayGate(): JSX.Element {
 }
 
 export function ViewExperimentPayGate(): JSX.Element {
-    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
     useEffect(() => {
         router.actions.push(urls.experiment(MOCK_FUNNEL_EXPERIMENT.id))
+    }, [])
+    return <App />
+}
+
+export function ExperimentNotFound(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
+    useEffect(() => {
+        router.actions.push(urls.experiment('abcde'))
     }, [])
     return <App />
 }
