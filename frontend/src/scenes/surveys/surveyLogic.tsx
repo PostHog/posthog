@@ -89,6 +89,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         resumeSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
+        setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -197,6 +198,12 @@ export const surveyLogic = kea<surveyLogicType>([
             { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
             {
                 setCurrentQuestionIndexAndType: (_, { idx, type }) => ({ idx, type }),
+            },
+        ],
+        writingHTMLDescription: [
+            false,
+            {
+                setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
     }),
