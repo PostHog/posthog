@@ -34,7 +34,9 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     const dismissedPercentage = (dismissed / total) * 100
     const sentPercentage = (sent / total) * 100
 
-    return (
+    return total === 0 ? (
+        <></>
+    ) : (
         <div className="mb-6">
             <div className="w-full mx-auto h-8 mb-4">
                 {[
