@@ -1689,6 +1689,7 @@ export interface TrendsFilterType extends FilterType {
     smoothing_intervals?: number
     compare?: boolean
     formula?: string
+    /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
@@ -1705,6 +1706,7 @@ export interface TrendsFilterType extends FilterType {
 
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
+    /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
 
@@ -1775,6 +1777,7 @@ export interface RetentionFilterType extends FilterType {
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
+    /** @deprecated */
     shown_as?: ShownAsValue
 
     // frontend only

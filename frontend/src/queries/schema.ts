@@ -398,7 +398,7 @@ export interface InsightsQueryBase extends Node {
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type TrendsFilter = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
 
 export interface TrendsQueryResponse extends QueryResponse {
@@ -467,7 +467,7 @@ export interface PathsQuery extends InsightsQueryBase {
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days'
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
@@ -480,7 +480,7 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
