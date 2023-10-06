@@ -95,16 +95,12 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        insertReplayCommentByTimestamp: (
-            timestamp: number,
-            sessionRecordingId: string,
+        insertReplayCommentByTimestamp: (options: {
+            timestamp: number
+            sessionRecordingId: string
             knownStartingPosition?: number
-        ) => ({
-            timestamp,
-            sessionRecordingId,
-            // if operating on a particular instance of a replay comment, we can pass the known starting position
-            knownStartingPosition,
-        }),
+            nodeId?: string
+        }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
     }),
     reducers({
@@ -344,6 +340,14 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             },
         ],
+        findNodeLogicById: [
+            (s) => [s.nodeLogics],
+            (nodeLogics) => {
+                return (id: string): notebookNodeLogicType | null => {
+                    return Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === id) ?? null
+                }
+            },
+        ],
 
         isShowingSidebar: [
             (s) => [s.editingNodeId, s.showHistory],
@@ -403,7 +407,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
+        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition, nodeId }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
                 () => {
@@ -424,7 +428,11 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     values.editor?.insertContentAfterNode(
                         insertionPosition,
-                        buildTimestampCommentContent(timestamp, sessionRecordingId)
+                        buildTimestampCommentContent({
+                            playbackTime: timestamp,
+                            sessionRecordingId,
+                            sourceNodeId: nodeId,
+                        })
                     )
                 }
             )

@@ -54,7 +54,7 @@ pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
 export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
     const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
-    return new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
+    return new KafkaProducerWrapper(producer)
 }
 
 export async function createHub(

@@ -12,7 +12,6 @@ const testElements: any = ['element1', 'element2']
 const ingestionEvent: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
-    ip: '127.0.0.1',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',

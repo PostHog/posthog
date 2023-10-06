@@ -176,17 +176,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 ) => {
                     const question = isEditingQuestion
                         ? state.questions[idx].question
-                        : defaultSurveyFieldValues[type].questions[idx].question
+                        : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
                         ? state.questions[idx].description
-                        : defaultSurveyFieldValues[type].questions[idx].description
+                        : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
                         ...state.questions[idx],
-                        ...(defaultSurveyFieldValues[type].questions[idx] as SurveyQuestionBase),
+                        ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
                     }
