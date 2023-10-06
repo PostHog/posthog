@@ -48,7 +48,7 @@ LIMIT 100
         )
 
         return WebTopSourcesQueryResponse(
-            columns=response.columns, result=response.results, timings=response.timings, types=response.types
+            columns=response.columns, results=response.results, timings=response.timings, types=response.types
         )
 
     @cached_property

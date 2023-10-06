@@ -247,6 +247,13 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             }
                                         />
                                     </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
+                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Snowflake' ? (
                                 <>
@@ -280,6 +287,23 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="role" label="Role" showOptional>
                                         <LemonInput placeholder="my-role" />
+                                    </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
                                     </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Postgres' ? (
@@ -327,6 +351,23 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             }
                                         />
                                     </Field>
+
+                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={
+                                                'Input one or more events to exclude from the export (optional)'
+                                            }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
+                                        />
+                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'BigQuery' ? (
                                 <>
@@ -349,6 +390,13 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             placeholder={
                                                 'Input one or more events to exclude from the export (optional)'
                                             }
+                                        />
+                                    </Field>
+                                    <Field name="include_events" label="Events to include" className="flex-1">
+                                        <LemonSelectMultiple
+                                            mode="multiple-custom"
+                                            options={[]}
+                                            placeholder={'Input one or more events to include in the export (optional)'}
                                         />
                                     </Field>
                                 </>

@@ -230,10 +230,6 @@ class S3MultiPartUpload:
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
-        if exc_type == asyncio.CancelledError:
-            # Ensure we clean-up the cancelled upload.
-            await self.abort()
-
         return False
 
 
@@ -272,6 +268,7 @@ class S3InsertInputs:
     aws_secret_access_key: str | None = None
     compression: str | None = None
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
 
@@ -353,6 +350,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
@@ -379,6 +378,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         result = None
@@ -496,6 +496,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
         )

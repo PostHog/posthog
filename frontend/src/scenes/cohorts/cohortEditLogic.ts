@@ -58,7 +58,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             criteriaIndex,
         }),
         setQuery: (query: Node) => ({ query }),
-        duplicateToStaticCohort: true,
+        duplicateCohort: (asStatic: boolean) => ({ asStatic }),
     }),
 
     reducers(({ props }) => ({
@@ -253,17 +253,24 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
-        duplicatedStaticCohort: [
+        duplicatedCohort: [
             null as CohortType | null,
             {
-                duplicateToStaticCohort: async (_, breakpoint) => {
+                duplicateCohort: async ({ asStatic }: { asStatic: boolean }, breakpoint) => {
+                    let cohort: CohortType
                     try {
                         await breakpoint(200)
-                        const cohort = await api.cohorts.duplicate(values.cohort.id)
+                        if (asStatic) {
+                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                        } else {
+                            const data = { ...values.cohort }
+                            data.name += ' (dynamic copy)'
+                            cohort = await api.cohorts.create(data)
+                        }
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
                             {
-                                toastId: `cohort-duplicated-${values.cohort.id}`,
+                                toastId: `cohort-duplicated-${cohort.id}`,
                                 button: {
                                     label: 'View cohort',
                                     action: () => {

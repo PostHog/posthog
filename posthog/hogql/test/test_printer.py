@@ -3,6 +3,7 @@ from typing import Literal, Optional, Dict
 from django.test import override_settings
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField
@@ -581,14 +582,14 @@ class TestPrinter(BaseTest):
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
@@ -597,7 +598,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             expected = self._select(
@@ -605,7 +606,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
     def test_count_distinct(self):
@@ -815,4 +816,40 @@ class TestPrinter(BaseTest):
             f"isNotNull(session_replay_events.click_count) "
             # ...
             f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
+        )
+
+    def test_print_global_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
+        )
+
+    def test_print_query_level_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        printed = print_ast(query, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1",
+        )
+
+    def test_print_both_settings(self):
+        query = parse_select("SELECT 1 FROM events")
+        query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            printed,
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1",
         )

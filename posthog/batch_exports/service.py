@@ -57,6 +57,7 @@ class S3BatchExportInputs:
     data_interval_end: str | None = None
     compression: str | None = None
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
 
@@ -77,6 +78,8 @@ class SnowflakeBatchExportInputs:
     table_name: str = "events"
     data_interval_end: str | None = None
     role: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @dataclass
@@ -95,6 +98,8 @@ class PostgresBatchExportInputs:
     table_name: str = "events"
     port: int = 5432
     data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @dataclass
@@ -113,6 +118,7 @@ class BigQueryBatchExportInputs:
     table_id: str = "events"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 DESTINATION_WORKFLOWS = {

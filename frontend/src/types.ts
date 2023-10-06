@@ -1523,6 +1523,23 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum BatchExportLogEntryLevel {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warning = 'WARNING',
+    Error = 'ERROR',
+}
+
+export interface BatchExportLogEntry {
+    team_id: number
+    batch_export_id: number
+    run_id: number
+    timestamp: string
+    level: BatchExportLogEntryLevel
+    message: string
+}
+
 export enum AnnotationScope {
     Insight = 'dashboard_item',
     Project = 'project',
@@ -3125,6 +3142,7 @@ export type BatchExportDestinationS3 = {
         aws_access_key_id: string
         aws_secret_access_key: string
         exclude_events: string[]
+        include_events: string[]
         compression: string | null
         encryption: string | null
         kms_key_id: string | null
@@ -3142,6 +3160,8 @@ export type BatchExportDestinationPostgres = {
         schema: string
         table_name: string
         has_self_signed_cert: boolean
+        exclude_events: string[]
+        include_events: string[]
     }
 }
 
@@ -3156,6 +3176,8 @@ export type BatchExportDestinationSnowflake = {
         schema: string
         table_name: string
         role: string | null
+        exclude_events: string[]
+        include_events: string[]
     }
 }
 
@@ -3170,6 +3192,7 @@ export type BatchExportDestinationBigQuery = {
         dataset_id: string
         table_id: string
         exclude_events: string[]
+        include_events: string[]
     }
 }
 

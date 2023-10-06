@@ -1,9 +1,5 @@
 import pytest
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models.filters.filter import Filter as LegacyFilter
-from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter
-from posthog.models.filters.retention_filter import RetentionFilter as LegacyRetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter as LegacyStickinessFilter
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -300,6 +296,257 @@ insight_17 = {
     "filter_test_accounts": True,
 }
 
+# real world regression tests
+insight_18 = {
+    "actions": [
+        {
+            "id": 2760,
+            "math": "total",
+            "name": "Pageviews",
+            "type": "actions",
+            "order": 0,
+            "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": None}],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsBar",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+}
+insight_19 = {
+    "events": [
+        {
+            "id": "created change",
+            "math": "total",
+            "name": "created change",
+            "type": "events",
+            "order": 0,
+            "properties": [{"key": "id", "type": "cohort", "value": 2208, "operator": None}],
+            "custom_name": None,
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+}
+insight_20 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": "total",
+            "name": "$pageview",
+            "type": "events",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+    "properties": [{"key": "id", "type": "cohort", "value": 929, "operator": "exact"}],
+}
+insight_21 = {
+    "actions": [
+        {
+            "id": 4317,
+            "math": "total",
+            "name": "Some name",
+            "type": "actions",
+            "order": 0,
+            "properties": [],
+            "custom_name": None,
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "LIFECYCLE",
+    "interval": "day",
+    "shown_as": "Lifecycle",
+    "properties": [{"key": "id", "type": "precalculated-cohort", "value": 760, "operator": None}],
+    "funnel_window_days": 14,
+}
+insight_22 = {
+    "actions": [
+        {
+            "id": "10184",
+            "math": None,
+            "name": "Some name",
+            "type": "actions",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGraph",
+    "insight": "TRENDS",
+    "interval": "day",
+    "breakdown_type": "undefined",
+}
+insight_23 = {
+    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+    "display": "ActionsLineGraph",
+    "insight": "TRENDS",
+    "interval": "day",
+    "shown_as": "Volume",
+    "breakdown": False,
+    "properties": [{"key": "$current_url", "type": "event", "value": "https://example.com/", "operator": "icontains"}],
+    "breakdown_type": "undefined",
+}
+insight_24 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": 0,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "display": "ActionsLineGrap[…]ccounts=false",
+    "insight": "TRENDS",
+    "interval": "day",
+    "date_from": "-90d",
+}
+insight_25 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": None,
+            "name": "$pageview",
+            "type": "events",
+            "order": 2,
+            "properties": [{"key": "$host", "type": "event", "value": [None], "operator": "exact"}],
+            "math_property": None,
+        },
+    ],
+    "insight": "TRENDS",
+}
+insight_26 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "name": "$pageview",
+            "type": "events",
+        },
+    ],
+    "insight": "TRENDS",
+}
+insight_27 = {
+    "actions": [
+        {
+            "id": None,
+            "math": None,
+            "name": None,
+            "type": "actions",
+            "order": None,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "insight": "TRENDS",
+}
+insight_28 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "type": "events",
+        }
+    ],
+    "insight": "TRENDS",
+    "breakdown": [None],
+    "breakdown_type": "cohort",
+}
+insight_29 = {
+    "events": [
+        "{EXAMPLE_VARIABLE}",
+        {
+            "id": "$pageview",
+            "math": "dau",
+            "name": "$pageview",
+            "type": "events",
+            "order": 1,
+            "properties": [
+                {"key": "$current_url", "type": "event", "value": "posthog.com/signup$", "operator": "regex"}
+            ],
+            "custom_name": "Views on signup page",
+        },
+    ],
+    "insight": "TRENDS",
+}
+insight_30 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "name": "$pageview",
+        }
+    ],
+    "insight": "TRENDS",
+    "breakdown": "$geoip_country_code",
+    "breakdown_type": "events",
+    "breakdown_group_type_index": 0,
+}
+insight_31 = {
+    "events": [{"id": "$autocapture", "math": "total", "name": "$autocapture", "type": "events", "order": 0}],
+    "insight": "STICKINESS",
+    "entity_type": "events",
+}
+insight_32 = {
+    "events": [
+        {
+            "id": "$pageview",
+            "math": "dau",
+            "name": "$pageview",
+            "type": "events",
+            "order": None,
+            "properties": [],
+            "math_property": None,
+        }
+    ],
+    "insight": "STICKINESS",
+    "interval": "minute",
+    "shown_as": "Stickiness",
+    "date_from": "dStart",
+}
+insight_33 = {
+    "period": "Week",
+    "display": "ActionsTable",
+    "insight": "RETENTION",
+    "properties": [
+        {"key": "id", "type": "precalculated-cohort", "value": 71, "operator": None},
+        {"key": "id", "type": "static-cohort", "value": 696, "operator": None},
+    ],
+    "target_entity": {
+        "id": 4912,
+        "math": None,
+        "name": None,
+        "type": "actions",
+        "order": None,
+        "properties": [],
+        "custom_name": None,
+        "math_property": None,
+    },
+    "retention_type": "retention_first_time",
+    "total_intervals": 11,
+    "returning_entity": {
+        "id": 3410,
+        "math": None,
+        "name": None,
+        "type": "actions",
+        "order": None,
+        "properties": [],
+        "custom_name": None,
+        "math_property": None,
+    },
+}
+
+
 test_insights = [
     insight_0,
     insight_1,
@@ -319,20 +566,27 @@ test_insights = [
     insight_15,
     insight_16,
     insight_17,
+    insight_18,
+    insight_19,
+    insight_20,
+    insight_21,
+    insight_22,
+    insight_23,
+    insight_24,
+    insight_25,
+    insight_26,
+    insight_27,
+    insight_28,
+    insight_29,
+    insight_30,
+    insight_31,
+    insight_32,
+    insight_33,
 ]
 
 
-@pytest.mark.parametrize("insight", test_insights)
-def test_base_insights(insight):
-    """smoke test (i.e. filter_to_query should not throw) for real world insights"""
-    if insight.get("insight") == "RETENTION":
-        filter = LegacyRetentionFilter(data=insight)
-    elif insight.get("insight") == "PATHS":
-        filter = LegacyPathFilter(data=insight)
-    elif insight.get("insight") == "STICKINESS":
-        filter = LegacyStickinessFilter(data=insight)
-    else:
-        filter = LegacyFilter(data=insight)
+@pytest.mark.parametrize("filter", test_insights)
+def test_base_insights(filter: dict):
     filter_to_query(filter)
 
 
@@ -405,6 +659,11 @@ properties_9 = {
         {"type": "OR", "values": [{}]},
     ],
 }
+properties_10 = [{"key": "id", "type": "cohort", "value": 71, "operator": None}]
+properties_11 = [{"key": [498], "type": "cohort", "value": 498, "operator": None}]
+properties_12 = [{"key": "userId", "type": "event", "values": ["63ffaeae99ac3c4240976d60"], "operator": "exact"}]
+properties_13 = {"plan": "premium"}
+properties_14 = {"$current_url__icontains": "signin"}
 
 test_properties = [
     properties_0,
@@ -417,157 +676,100 @@ test_properties = [
     properties_7,
     properties_8,
     properties_9,
+    properties_10,
+    properties_11,
+    properties_12,
+    properties_13,
+    properties_14,
 ]
 
 
 @pytest.mark.parametrize("properties", test_properties)
 def test_base_properties(properties):
     """smoke test (i.e. filter_to_query should not throw) for real world properties"""
-    filter = LegacyFilter(data={"properties": properties})
-    filter_to_query(filter)
+    filter_to_query({"properties": properties})
 
 
 class TestFilterToQuery(BaseTest):
     def test_base_trend(self):
-        filter = LegacyFilter(data={})
+        filter = {}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "TrendsQuery")
 
     def test_full_trend(self):
-        filter = LegacyFilter(data={})
+        filter = {}
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.model_dump(exclude_defaults=True),
-            {
-                "dateRange": {"date_from": "-7d"},
-                "interval": "day",
-                "series": [],
-                "filterTestAccounts": False,
-                "breakdown": {"breakdown_normalize_url": False},
-                "trendsFilter": {
-                    "compare": False,
-                    "display": ChartDisplayType.ActionsLineGraph,
-                    "smoothing_intervals": 1,
-                },
-            },
+            {"series": []},
         )
 
     def test_base_funnel(self):
-        filter = LegacyFilter(data={"insight": "FUNNELS"})
+        filter = {"insight": "FUNNELS"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "FunnelsQuery")
 
     def test_base_retention_query(self):
-        filter = LegacyFilter(data={"insight": "RETENTION"})
-
-        with pytest.raises(Exception) as exception:
-            filter_to_query(filter)
-
-        self.assertEqual(
-            str(exception.value),
-            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type RETENTION",
-        )
-
-    def test_base_retention_query_from_retention_filter(self):
-        filter = LegacyRetentionFilter(data={})
+        filter = {"insight": "RETENTION"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "RetentionQuery")
 
     def test_base_paths_query(self):
-        filter = LegacyFilter(data={"insight": "PATHS"})
-
-        with pytest.raises(Exception) as exception:
-            filter_to_query(filter)
-
-        self.assertEqual(
-            str(exception.value),
-            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type PATHS",
-        )
-
-    def test_base_path_query_from_path_filter(self):
-        filter = LegacyPathFilter(data={})
+        filter = {"insight": "PATHS"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "PathsQuery")
 
     def test_base_lifecycle_query(self):
-        filter = LegacyFilter(data={"insight": "LIFECYCLE"})
+        filter = {"insight": "LIFECYCLE"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "LifecycleQuery")
 
     def test_base_stickiness_query(self):
-        filter = LegacyFilter(data={"insight": "STICKINESS"})
-
-        with pytest.raises(Exception) as exception:
-            filter_to_query(filter)
-
-        self.assertEqual(
-            str(exception.value),
-            "Filter type <class 'posthog.models.filters.filter.Filter'> does not match insight type STICKINESS",
-        )
-
-    def test_base_stickiness_query_from_stickiness_filter(self):
-        filter = LegacyStickinessFilter(data={}, team=self.team)
+        filter = {"insight": "STICKINESS"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.kind, "StickinessQuery")
 
-    def test_date_range_default(self):
-        filter = LegacyFilter(data={})
-
-        query = filter_to_query(filter)
-
-        self.assertEqual(query.dateRange.date_from, "-7d")
-        self.assertEqual(query.dateRange.date_to, None)
-
-    def test_date_range_custom(self):
-        filter = LegacyFilter(data={"date_from": "-14d", "date_to": "-7d"})
+    def test_date_range(self):
+        filter = {"date_from": "-14d", "date_to": "-7d"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
 
-    def test_interval_default(self):
-        filter = LegacyFilter(data={})
-
-        query = filter_to_query(filter)
-
-        self.assertEqual(query.interval, "day")
-
-    def test_interval_custom(self):
-        filter = LegacyFilter(data={"interval": "hour"})
+    def test_interval(self):
+        filter = {"interval": "hour"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.interval, "hour")
 
     def test_series_default(self):
-        filter = LegacyFilter(data={})
+        filter = {}
 
         query = filter_to_query(filter)
 
         self.assertEqual(query.series, [])
 
     def test_series_custom(self):
-        filter = LegacyFilter(
-            data={
-                "events": [{"id": "$pageview"}, {"id": "$pageview", "math": "dau"}],
-                "actions": [{"id": 1}, {"id": 1, "math": "dau"}],
-            }
-        )
+        filter = {
+            "events": [{"id": "$pageview"}, {"id": "$pageview", "math": "dau"}],
+            "actions": [{"id": 1}, {"id": 1, "math": "dau"}],
+        }
 
         query = filter_to_query(filter)
 
@@ -582,12 +784,10 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_order(self):
-        filter = LegacyFilter(
-            data={
-                "events": [{"id": "$pageview", "order": 1}, {"id": "$pageview", "math": "dau", "order": 2}],
-                "actions": [{"id": 1, "order": 3}, {"id": 1, "math": "dau", "order": 0}],
-            }
-        )
+        filter = {
+            "events": [{"id": "$pageview", "order": 1}, {"id": "$pageview", "math": "dau", "order": 2}],
+            "actions": [{"id": 1, "order": 3}, {"id": 1, "math": "dau", "order": 0}],
+        }
 
         query = filter_to_query(filter)
 
@@ -602,21 +802,19 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_math(self):
-        filter = LegacyFilter(
-            data={
-                "events": [
-                    {"id": "$pageview", "math": "dau"},  # base math type
-                    {"id": "$pageview", "math": "median", "math_property": "$math_prop"},  # property math type
-                    {"id": "$pageview", "math": "avg_count_per_actor"},  # count per actor math type
-                    {"id": "$pageview", "math": "unique_group", "math_group_type_index": 0},  # unique group
-                    {
-                        "id": "$pageview",
-                        "math": "hogql",
-                        "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
-                    },  # hogql
-                ]
-            }
-        )
+        filter = {
+            "events": [
+                {"id": "$pageview", "math": "dau"},  # base math type
+                {"id": "$pageview", "math": "median", "math_property": "$math_prop"},  # property math type
+                {"id": "$pageview", "math": "avg_count_per_actor"},  # count per actor math type
+                {"id": "$pageview", "math": "unique_group", "math_group_type_index": 0},  # unique group
+                {
+                    "id": "$pageview",
+                    "math": "hogql",
+                    "math_hogql": "avg(toInt(properties.$session_id)) + 1000",
+                },  # hogql
+            ]
+        }
 
         query = filter_to_query(filter)
 
@@ -639,55 +837,53 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_series_properties(self):
-        filter = LegacyFilter(
-            data={
-                "events": [
-                    {"id": "$pageview", "properties": []},  # smoke test
-                    {
-                        "id": "$pageview",
-                        "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
-                    },
-                    {
-                        "id": "$pageview",
-                        "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                    },
-                    {
-                        "id": "$pageview",
-                        "properties": [{"key": "text", "value": ["some text"], "operator": "exact", "type": "element"}],
-                    },
-                    {
-                        "id": "$pageview",
-                        "properties": [{"key": "$session_duration", "value": 1, "operator": "gt", "type": "session"}],
-                    },
-                    {"id": "$pageview", "properties": [{"key": "id", "value": 2, "type": "cohort"}]},
-                    {
-                        "id": "$pageview",
-                        "properties": [
-                            {
-                                "key": "name",
-                                "value": ["Hedgebox Inc."],
-                                "operator": "exact",
-                                "type": "group",
-                                "group_type_index": 2,
-                            }
-                        ],
-                    },
-                    {
-                        "id": "$pageview",
-                        "properties": [
-                            {"key": "dateDiff('minute', timestamp, now()) < 30", "type": "hogql", "value": None}
-                        ],
-                    },
-                    {
-                        "id": "$pageview",
-                        "properties": [
-                            {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                            {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
-                        ],
-                    },
-                ]
-            }
-        )
+        filter = {
+            "events": [
+                {"id": "$pageview", "properties": []},  # smoke test
+                {
+                    "id": "$pageview",
+                    "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
+                },
+                {
+                    "id": "$pageview",
+                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                },
+                {
+                    "id": "$pageview",
+                    "properties": [{"key": "text", "value": ["some text"], "operator": "exact", "type": "element"}],
+                },
+                {
+                    "id": "$pageview",
+                    "properties": [{"key": "$session_duration", "value": 1, "operator": "gt", "type": "session"}],
+                },
+                {"id": "$pageview", "properties": [{"key": "id", "value": 2, "type": "cohort"}]},
+                {
+                    "id": "$pageview",
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": ["Hedgebox Inc."],
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 2,
+                        }
+                    ],
+                },
+                {
+                    "id": "$pageview",
+                    "properties": [
+                        {"key": "dateDiff('minute', timestamp, now()) < 30", "type": "hogql", "value": None}
+                    ],
+                },
+                {
+                    "id": "$pageview",
+                    "properties": [
+                        {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+                        {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
+                    ],
+                },
+            ]
+        }
 
         query = filter_to_query(filter)
 
@@ -746,48 +942,46 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_breakdown(self):
-        filter = LegacyFilter(data={"breakdown_type": "event", "breakdown": "$browser"})
+        filter = {"breakdown_type": "event", "breakdown": "$browser"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.breakdown,
-            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_normalize_url=False),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
         )
 
     def test_breakdown_converts_multi(self):
-        filter = LegacyFilter(data={"breakdowns": [{"type": "event", "property": "$browser"}]})
+        filter = {"breakdowns": [{"type": "event", "property": "$browser"}]}
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.breakdown,
-            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_normalize_url=False),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
         )
 
     def test_breakdown_type_default(self):
-        filter = LegacyFilter(data={"breakdown": "some_prop"})
+        filter = {"breakdown": "some_prop"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.breakdown,
-            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop", breakdown_normalize_url=False),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop"),
         )
 
     def test_trends_filter(self):
-        filter = LegacyFilter(
-            data={
-                "smoothing_intervals": 2,
-                "compare": True,
-                "aggregation_axis_format": "duration_ms",
-                "aggregation_axis_prefix": "pre",
-                "aggregation_axis_postfix": "post",
-                "formula": "A + B",
-                "shown_as": "Volume",
-                "display": "ActionsAreaGraph",
-            }
-        )
+        filter = {
+            "smoothing_intervals": 2,
+            "compare": True,
+            "aggregation_axis_format": "duration_ms",
+            "aggregation_axis_prefix": "pre",
+            "aggregation_axis_postfix": "post",
+            "formula": "A + B",
+            "shown_as": "Volume",
+            "display": "ActionsAreaGraph",
+        }
 
         query = filter_to_query(filter)
 
@@ -806,45 +1000,43 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_funnels_filter(self):
-        filter = LegacyFilter(
-            data={
-                "insight": "FUNNELS",
-                "funnel_viz_type": "steps",
-                "funnel_window_interval_unit": "hour",
-                "funnel_window_interval": 13,
-                "breakdown_attribution_type": "step",
-                "breakdown_attribution_value": 2,
-                "funnel_order_type": "strict",
-                "funnel_aggregate_by_hogql": "person_id",
-                "exclusions": [
-                    {
-                        "id": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "name": "$pageview",
-                        "funnel_from_step": 1,
-                        "funnel_to_step": 2,
-                    }
-                ],
-                "bin_count": 15,  # used in time to convert: number of bins to show in histogram
-                "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
-                "funnel_to_step": 2,  # used in time to convert: ending step index to compute time to convert
-                #
-                # frontend only params
-                # "layout": layout,
-                # "funnel_step_reference": "previous", # whether conversion shown in graph should be across all steps or just from the previous step
-                # hidden_legend_keys # used to toggle visibilities in table and legend
-                #
-                # persons endpoint only params
-                # "funnel_step_breakdown": funnel_step_breakdown, # used in steps breakdown: persons modal
-                # "funnel_correlation_person_entity":funnel_correlation_person_entity,
-                # "funnel_correlation_person_converted":funnel_correlation_person_converted, # success or failure counts
-                # "entrance_period_start": entrance_period_start, # this and drop_off is used for funnels time conversion date for the persons modal
-                # "drop_off": drop_off,
-                # "funnel_step": funnel_step,
-                # "funnel_custom_steps": funnel_custom_steps,
-            }
-        )
+        filter = {
+            "insight": "FUNNELS",
+            "funnel_viz_type": "steps",
+            "funnel_window_interval_unit": "hour",
+            "funnel_window_interval": 13,
+            "breakdown_attribution_type": "step",
+            "breakdown_attribution_value": 2,
+            "funnel_order_type": "strict",
+            "funnel_aggregate_by_hogql": "person_id",
+            "exclusions": [
+                {
+                    "id": "$pageview",
+                    "type": "events",
+                    "order": 0,
+                    "name": "$pageview",
+                    "funnel_from_step": 1,
+                    "funnel_to_step": 2,
+                }
+            ],
+            "bin_count": 15,  # used in time to convert: number of bins to show in histogram
+            "funnel_from_step": 1,  # used in time to convert: initial step index to compute time to convert
+            "funnel_to_step": 2,  # used in time to convert: ending step index to compute time to convert
+            #
+            # frontend only params
+            # "layout": layout,
+            # "funnel_step_reference": "previous", # whether conversion shown in graph should be across all steps or just from the previous step
+            # hidden_legend_keys # used to toggle visibilities in table and legend
+            #
+            # persons endpoint only params
+            # "funnel_step_breakdown": funnel_step_breakdown, # used in steps breakdown: persons modal
+            # "funnel_correlation_person_entity":funnel_correlation_person_entity,
+            # "funnel_correlation_person_converted":funnel_correlation_person_converted, # success or failure counts
+            # "entrance_period_start": entrance_period_start, # this and drop_off is used for funnels time conversion date for the persons modal
+            # "drop_off": drop_off,
+            # "funnel_step": funnel_step,
+            # "funnel_custom_steps": funnel_custom_steps,
+        }
 
         query = filter_to_query(filter)
 
@@ -876,16 +1068,15 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_retention_filter(self):
-        filter = LegacyRetentionFilter(
-            data={
-                "retention_type": "retention_first_time",
-                # retention_reference="previous",
-                "total_intervals": 12,
-                "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                "period": "Week",
-            }
-        )
+        filter = {
+            "insight": "RETENTION",
+            "retention_type": "retention_first_time",
+            # retention_reference="previous",
+            "total_intervals": 12,
+            "returning_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+            "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+            "period": "Week",
+        }
 
         query = filter_to_query(filter)
 
@@ -913,34 +1104,33 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_paths_filter(self):
-        filter = LegacyPathFilter(
-            data={
-                "include_event_types": ["$pageview", "hogql"],
-                "start_point": "http://localhost:8000/events",
-                "end_point": "http://localhost:8000/home",
-                "paths_hogql_expression": "event",
-                "edge_limit": 50,
-                "min_edge_weight": 10,
-                "max_edge_weight": 20,
-                "local_path_cleaning_filters": [{"alias": "merchant", "regex": "\\/merchant\\/\\d+\\/dashboard$"}],
-                "path_replacements": True,
-                "exclude_events": ["http://localhost:8000/events"],
-                "step_limit": 5,
-                "path_groupings": ["/merchant/*/payment"],
-                "funnel_paths": "funnel_path_between_steps",
-                "funnel_filter": {
-                    "insight": "FUNNELS",
-                    "events": [
-                        {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
-                        {"type": "events", "id": None, "order": 1, "math": "total"},
-                    ],
-                    "funnel_viz_type": "steps",
-                    "exclusions": [],
-                    "filter_test_accounts": True,
-                    "funnel_step": 2,
-                },
-            }
-        )
+        filter = {
+            "insight": "PATHS",
+            "include_event_types": ["$pageview", "hogql"],
+            "start_point": "http://localhost:8000/events",
+            "end_point": "http://localhost:8000/home",
+            "paths_hogql_expression": "event",
+            "edge_limit": 50,
+            "min_edge_weight": 10,
+            "max_edge_weight": 20,
+            "local_path_cleaning_filters": [{"alias": "merchant", "regex": "\\/merchant\\/\\d+\\/dashboard$"}],
+            "path_replacements": True,
+            "exclude_events": ["http://localhost:8000/events"],
+            "step_limit": 5,
+            "path_groupings": ["/merchant/*/payment"],
+            "funnel_paths": "funnel_path_between_steps",
+            "funnel_filter": {
+                "insight": "FUNNELS",
+                "events": [
+                    {"type": "events", "id": "$pageview", "order": 0, "name": "$pageview", "math": "total"},
+                    {"type": "events", "id": None, "order": 1, "math": "total"},
+                ],
+                "funnel_viz_type": "steps",
+                "exclusions": [],
+                "filter_test_accounts": True,
+                "funnel_step": 2,
+            },
+        }
 
         query = filter_to_query(filter)
 
@@ -977,9 +1167,7 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = LegacyStickinessFilter(
-            data={"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}, team=self.team
-        )
+        filter = {"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}
 
         query = filter_to_query(filter)
 
@@ -989,12 +1177,10 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_lifecycle_filter(self):
-        filter = LegacyFilter(
-            data={
-                "insight": "LIFECYCLE",
-                "shown_as": "Lifecycle",
-            }
-        )
+        filter = {
+            "insight": "LIFECYCLE",
+            "shown_as": "Lifecycle",
+        }
 
         query = filter_to_query(filter)
 

@@ -70,6 +70,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
@@ -84,19 +85,21 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        launchSurvey: true,
-        stopSurvey: true,
         archiveSurvey: true,
-        resumeSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    const survey = await api.surveys.get(props.id)
-                    actions.reportSurveyViewed(survey)
-                    return survey
+                    try {
+                        const survey = await api.surveys.get(props.id)
+                        actions.reportSurveyViewed(survey)
+                        return survey
+                    } catch (error: any) {
+                        actions.setSurveyMissing()
+                        throw error
+                    }
                 }
                 return { ...NEW_SURVEY }
             },
@@ -158,6 +161,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
+        surveyMissing: [
+            false,
+            {
+                setSurveyMissing: () => true,
+            },
+        ],
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
@@ -167,17 +176,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 ) => {
                     const question = isEditingQuestion
                         ? state.questions[idx].question
-                        : defaultSurveyFieldValues[type].questions[idx].question
+                        : defaultSurveyFieldValues[type].questions[0].question
                     const description = isEditingDescription
                         ? state.questions[idx].description
-                        : defaultSurveyFieldValues[type].questions[idx].description
+                        : defaultSurveyFieldValues[type].questions[0].description
                     const thankYouMessageHeader = isEditingThankYouMessage
                         ? state.appearance.thankYouMessageHeader
                         : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
                     newQuestions[idx] = {
                         ...state.questions[idx],
-                        ...(defaultSurveyFieldValues[type].questions[idx] as SurveyQuestionBase),
+                        ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
                         question,
                         description,
                     }
