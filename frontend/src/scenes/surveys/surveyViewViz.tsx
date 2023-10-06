@@ -10,10 +10,6 @@ const formatCount = (count: number, total: number): string => {
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    if (!surveyUserStats) {
-        return <></>
-    }
-
     const { seen, dismissed, sent } = surveyUserStats
     const total = seen + dismissed + sent
     const labelTotal = total === 1 ? 'Unique user viewed' : 'Unique users viewed'
@@ -36,10 +32,6 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
 }
 
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    if (!surveyUserStats) {
-        return <></>
-    }
-
     const { seen, dismissed, sent } = surveyUserStats
 
     const total = seen + dismissed + sent
@@ -127,6 +119,10 @@ export function Summary({
     surveyUserStats: SurveyUserStats
     surveyUserStatsLoading: boolean
 }): JSX.Element {
+    if (!surveyUserStats) {
+        return <></>
+    }
+
     return (
         <div className="mb-4">
             {surveyUserStatsLoading ? (
