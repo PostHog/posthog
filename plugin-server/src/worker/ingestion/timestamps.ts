@@ -11,6 +11,11 @@ const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
+    if (data.properties?.['$use_timestamp_directly']) {
+        const tsProp = data['timestamp'] ?? data.properties['timestamp']
+        return tsProp ? parseDate(tsProp) : now
+    }
+
     let sentAt: DateTime | null = null
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
