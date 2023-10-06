@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     Table,
     StringDatabaseField,
@@ -40,16 +41,20 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]]):
            GROUP BY id
            HAVING ifNull(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), 0)
         )
-    """
+        """
     )
+    query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
     for field_name, field_chain in requested_fields.items():
-        query.select.append(
-            ast.Alias(
-                alias=field_name,
-                expr=ast.Field(chain=field_chain),
+        # We need to always select the 'id' field for the join constraint. The field name here is likely to
+        # be "persons__id" if anything, but just in case, let's avoid duplicates.
+        if field_name != "id":
+            query.select.append(
+                ast.Alias(
+                    alias=field_name,
+                    expr=ast.Field(chain=field_chain),
+                )
             )
-        )
     return query
 
 

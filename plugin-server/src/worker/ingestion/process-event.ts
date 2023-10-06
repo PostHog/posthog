@@ -61,7 +61,6 @@ export class EventsProcessor {
 
     public async processEvent(
         distinctId: string,
-        ip: string | null,
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
@@ -92,7 +91,7 @@ export class EventsProcessor {
                 eventUuid,
             })
             try {
-                result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
                 this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                     team_id: teamId.toString(),
                 })
@@ -107,7 +106,6 @@ export class EventsProcessor {
 
     private async capture(
         eventUuid: string,
-        ip: string | null,
         team: Team,
         event: string,
         distinctId: string,
@@ -123,13 +121,8 @@ export class EventsProcessor {
             delete properties['$elements']
         }
 
-        if (ip) {
-            if (team.anonymize_ips) {
-                ip = null
-                delete properties['$ip']
-            } else if (!('$ip' in properties)) {
-                properties['$ip'] = ip
-            }
+        if (properties['$ip'] && team.anonymize_ips) {
+            delete properties['$ip']
         }
 
         try {
@@ -152,7 +145,6 @@ export class EventsProcessor {
         return {
             eventUuid,
             event,
-            ip,
             distinctId,
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
