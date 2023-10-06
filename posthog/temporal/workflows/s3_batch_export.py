@@ -230,10 +230,6 @@ class S3MultiPartUpload:
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
-        if exc_type == asyncio.CancelledError:
-            # Ensure we clean-up the cancelled upload.
-            await self.abort()
-
         return False
 
 
