@@ -62,11 +62,11 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
       "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
     },
     {
-      "durationMs": 525,
-      "endTimestamp": 1682952388658,
+      "durationMs": 527,
+      "endTimestamp": 1682952388659,
       "isActive": false,
       "kind": "gap",
-      "startTimestamp": 1682952388133,
+      "startTimestamp": 1682952388132,
       "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
     },
     {
