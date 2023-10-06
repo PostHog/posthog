@@ -62,7 +62,7 @@ PATHNAME_CTE = """
 SELECT
     events.properties.`$pathname` AS pathname,
     count() as total_pageviews,
-    uniq(events.properties.person_id) as unique_visitors -- might want to use person id? have seen a small number of pages where unique > total
+    uniq(events.person_id) as unique_visitors -- might want to use person id? have seen a small number of pages where unique > total
 FROM
     events
 WHERE
