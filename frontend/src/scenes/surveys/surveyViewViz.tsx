@@ -59,7 +59,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                 ].map(({ value, label, classes, style }) => (
                     <Tooltip
                         key={`survey-summary-chart-${label}`}
-                        title={`Seen surveys: ${seenPercentage.toFixed(1)}%`}
+                        title={`${label} surveys: ${seenPercentage.toFixed(1)}%`}
                         delayMs={0}
                         placement="top"
                     >
