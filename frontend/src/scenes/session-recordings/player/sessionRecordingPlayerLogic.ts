@@ -490,6 +490,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
+            cache.debug?.('tryInitReplayer', {
+                windowId,
+                rootFrame: values.rootFrame,
+                snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
+            })
+
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
                 ...COMMON_REPLAYER_CONFIG,
@@ -652,6 +658,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
+
+            cache.debug?.('pause', {
+                currentTimestamp: values.currentTimestamp,
+                currentSegment: values.currentSegment,
+            })
         },
         setEndReached: ({ reached }) => {
             if (reached) {
@@ -767,11 +778,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The main loop of the player. Called on each frame
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
-
-            cache.debug('update', {
-                rrwebPlayerTime,
-                newTimestamp,
-            })
 
             const skip = values.playerSpeed * (1000 / 60) // rough animation fps
             if (
@@ -997,7 +1003,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.debug = (...args: any[]) => {
             if (cache.debugging) {
                 // eslint-disable-next-line no-console
-                console.log('⏯️ [PHPlayer]', ...args)
+                console.log('[⏯️ PostHog Replayer]', ...args)
             }
         }
         ;(window as any).__debug_player = () => {

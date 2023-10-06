@@ -29,35 +29,6 @@ exports[`segmenter includes inactive events in the active segment until a thresh
 ]
 `;
 
-exports[`segmenter inserts gaps 1`] = `
-[
-  {
-    "durationMs": 100,
-    "endTimestamp": 1672531200100,
-    "isActive": true,
-    "kind": "window",
-    "startTimestamp": 1672531200000,
-    "windowId": "A",
-  },
-  {
-    "durationMs": 599800,
-    "endTimestamp": 1672531799900,
-    "isActive": false,
-    "kind": "gap",
-    "startTimestamp": 1672531200100,
-    "windowId": undefined,
-  },
-  {
-    "durationMs": 100,
-    "endTimestamp": 1672531800000,
-    "isActive": false,
-    "kind": "window",
-    "startTimestamp": 1672531799900,
-    "windowId": "B",
-  },
-]
-`;
-
 exports[`segmenter inserts gaps inclusively 1`] = `
 [
   {
