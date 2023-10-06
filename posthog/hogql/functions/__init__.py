@@ -9,6 +9,7 @@ from .mapping import (
 )
 from .cohort import cohort
 from .sparkline import sparkline
+from .flag_variant import flag_variant
 
 __all__ = [
     "validate_function_args",
@@ -20,4 +21,5 @@ __all__ = [
     "FIRST_ARG_DATETIME_FUNCTIONS",
     "cohort",
     "sparkline",
+    "flag_variant",
 ]

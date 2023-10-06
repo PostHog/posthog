@@ -9,6 +9,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.flag_variant import flag_variant
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -315,6 +316,8 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
+            if node.name == "flag_variant":
+                return self.visit(flag_variant(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []

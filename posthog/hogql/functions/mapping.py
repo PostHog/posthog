@@ -156,6 +156,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 2, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 1, tz_aware=True),
+    "unhex": HogQLFunctionMeta("unhex", 1, 1),
+    "reinterpretAsUInt64": HogQLFunctionMeta("reinterpretAsUInt64", 1, 1),
     # dates and times
     "toTimeZone": HogQLFunctionMeta("toTimeZone", 2, 2),
     "timeZoneOf": HogQLFunctionMeta("timeZoneOf", 1, 1),
@@ -547,6 +549,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    # misc
+    "SHA1": HogQLFunctionMeta("SHA1", 1, 1),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
@@ -721,6 +725,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
+    "flag_variant": HogQLFunctionMeta("flag_variant", 2, 2),
 }
 
 # TODO: Make the below details part of function meta
