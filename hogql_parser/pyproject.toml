@@ -7,7 +7,7 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
     "cp3*-macosx_x86_64",
     "cp3*-macosx_arm64",
     "cp3*-manylinux_x86_64",
-    # "cp3*-manylinux_aarch64",
+    "cp3*-manylinux_aarch64",
 ]
 build-frontend = "build" # This is successor to building with pip
 
@@ -16,7 +16,7 @@ archs = [ # We could also build a universal wheel, but separate ones are lighter
     "x86_64",
     "arm64",
 ]
-before-build = [
+before-build = [ # We need to install the libraries for each architecture separately
     "brew uninstall --force boost antlr4-cpp-runtime",
     "brew fetch --force --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime",
     "brew install $(brew --cache --bottle-tag=${ARCHFLAGS##'-arch '}_monterey boost antlr4-cpp-runtime)",
