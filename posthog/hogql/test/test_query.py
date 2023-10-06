@@ -52,7 +52,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT count(), events.event FROM events WHERE and(equals(events.team_id, {self.team.id}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT count(), events.event FROM events WHERE and(equals(events.team_id, {self.team.id}), "
+                f"ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), "
+                f"'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) GROUP BY events.event LIMIT 100 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -67,7 +70,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT count, event FROM (SELECT count() AS count, events.event FROM events WHERE and(equals(events.team_id, {self.team.id}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) GROUP BY events.event) GROUP BY count, event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT count, event FROM (SELECT count() AS count, events.event FROM events WHERE and(equals(events.team_id, "
+                f"{self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), "
+                f"'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) GROUP BY events.event) GROUP BY count, event "
+                f"LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -82,7 +88,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT c.count, c.event FROM (SELECT count(*) AS count, events.event FROM events WHERE and(equals(events.team_id, {self.team.id}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) GROUP BY events.event) AS c GROUP BY c.count, c.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT c.count, c.event FROM (SELECT count(*) AS count, events.event FROM events WHERE "
+                f"and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw("
+                f"events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_1)s), 0)) "
+                f"GROUP BY events.event) AS c GROUP BY c.count, c.event LIMIT 100 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -97,7 +107,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT DISTINCT persons.properties___sneaky_mail FROM (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___sneaky_mail, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___random_uuid, person.id AS id FROM person WHERE equals(person.team_id, {self.team.id}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons WHERE ifNull(equals(persons.properties___random_uuid, %(hogql_val_2)s), 0) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT DISTINCT persons.properties___sneaky_mail FROM (SELECT person.id, replaceRegexpAll(nullIf(nullIf("
+                f"JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS properties___sneaky_mail, "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '') "
+                f"AS properties___random_uuid FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, "
+                f"person.version), (SELECT person.id, max(person.version) AS version FROM person WHERE equals(person.team_id, "
+                f"{self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) "
+                f"SETTINGS optimize_aggregation_in_order=1) AS persons WHERE ifNull(equals(persons.properties___random_uuid, "
+                f"%(hogql_val_2)s), 0) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -111,7 +128,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT DISTINCT person_distinct_ids.person_id, person_distinct_ids.distinct_id FROM (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.id}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS person_distinct_ids LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT DISTINCT person_distinct_ids.person_id, person_distinct_ids.distinct_id FROM (SELECT "
+                f"argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id "
+                f"AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
+                f"GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
+                f"person_distinct_id2.version), 0), 0)) AS person_distinct_ids LIMIT 100 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -245,11 +267,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT pdi.distinct_id, toTimeZone(pdi__person.created_at, %(hogql_val_0)s) FROM person_distinct_id2 AS pdi INNER JOIN (SELECT "
-                f"argMax(person.created_at, person.version) AS created_at, person.id AS id FROM person WHERE "
-                f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, "
-                f"person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, pdi__person.id) WHERE "
-                f"equals(pdi.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT pdi.distinct_id, toTimeZone(pdi__person.created_at, %(hogql_val_0)s) FROM person_distinct_id2 "
+                f"AS pdi INNER JOIN (SELECT person.id, person.created_at AS created_at FROM person WHERE "
+                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), "
+                f"(SELECT person.id, max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) "
+                f"GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) "
+                f"SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, pdi__person.id) "
+                f"WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(response.results[0][1], datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc))
@@ -269,10 +294,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT pdi.distinct_id, pdi__person.properties___sneaky_mail FROM person_distinct_id2 AS pdi INNER JOIN "
-                f"(SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) "
-                f"AS properties___sneaky_mail, person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON "
-                f"equals(pdi.person_id, pdi__person.id) WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"(SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), "
+                f"'null'), '^\"|\"$', '') AS properties___sneaky_mail FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"ifNull(in(tuple(person.id, person.version), (SELECT person.id, max(person.version) AS version FROM person "
+                f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, "
+                f"person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, "
+                f"pdi__person.id) WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(response.results[0][1], "tim@posthog.com")
@@ -287,15 +315,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, events__pdi__person.id FROM events "
-                f"INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
-                f"person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-                f"GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
+                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, "
+                f"events__pdi__person.id FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
+                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM "
+                f"person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY "
+                f"person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
                 f"person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) "
-                f"INNER JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING "
-                f"ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON "
-                f"equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10"
-                f" SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"INNER JOIN (SELECT person.id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"ifNull(in(tuple(person.id, person.version), (SELECT person.id, max(person.version) AS version FROM "
+                f"person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax("
+                f"person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS "
+                f"events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, "
+                f"{self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -316,15 +347,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi.distinct_id, events__pdi__person.properties___sneaky_mail FROM events "
-                f"INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
-                f"person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-                f"GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) "
-                f"AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT "
-                f"argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) "
-                f"AS properties___sneaky_mail, person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING "
-                f"ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, "
-                f"events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi.distinct_id, "
+                f"events__pdi__person.properties___sneaky_mail FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
+                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM "
+                f"person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id "
+                f"HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON "
+                f"equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT person.id, replaceRegexpAll(nullIf(nullIf("
+                f"JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS properties___sneaky_mail "
+                f"FROM person WHERE and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT "
+                f"person.id, max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) "
+                f"LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -344,16 +378,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi.distinct_id, e__pdi__person.properties___sneaky_mail FROM events AS e "
-                f"INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
-                f"person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-                f"GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
-                f"person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN "
-                f"(SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), "
-                f"person.version) AS properties___sneaky_mail, person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) "
-                f"GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON "
-                f"equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10"
-                f" SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi.distinct_id, e__pdi__person.properties___sneaky_mail "
+                f"FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
+                f"person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, "
+                f"{self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
+                f"person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (SELECT "
+                f"person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), "
+                f"'^\"|\"$', '') AS properties___sneaky_mail FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"ifNull(in(tuple(person.id, person.version), (SELECT person.id, max(person.version) AS version FROM person "
+                f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, "
+                f"person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON "
+                f"equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -373,15 +409,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi__person.properties___sneaky_mail FROM events AS e INNER JOIN (SELECT "
-                f"argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id "
-                f"FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id "
-                f"HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, "
-                f"e__pdi.distinct_id) INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), "
-                f"'^\"|\"$', ''), person.version) AS properties___sneaky_mail, person.id AS id FROM person WHERE "
-                f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10"
-                f" SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi__person.properties___sneaky_mail "
+                f"FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) "
+                f"AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE "
+                f"equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING "
+                f"ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi "
+                f"ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (SELECT person.id, "
+                f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), "
+                f"'^\"|\"$', '') AS properties___sneaky_mail FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"ifNull(in(tuple(person.id, person.version), (SELECT person.id, max(person.version) AS version "
+                f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax("
+                f"person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person "
+                f"ON equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10 "
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
@@ -399,14 +439,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             expected = (
                 f"SELECT s__pdi__person.properties___sneaky_mail, count() FROM events AS s INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
-                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE "
-                f"equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING "
-                f"ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON "
-                f"equals(s.distinct_id, s__pdi.distinct_id) INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, "
-                f"%(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___sneaky_mail, person.id AS id FROM person WHERE "
-                f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS s__pdi__person ON equals(s__pdi.person_id, s__pdi__person.id) WHERE equals(s.team_id, {self.team.pk}) "
-                f"GROUP BY s__pdi__person.properties___sneaky_mail LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1"
+                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 "
+                f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax("
+                f"person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) "
+                f"INNER JOIN (SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), "
+                f"'null'), '^\"|\"$', '') AS properties___sneaky_mail FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
+                f"ifNull(in(tuple(person.id, person.version), (SELECT person.id, max(person.version) AS version FROM person "
+                f"WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, "
+                f"person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON "
+                f"equals(s__pdi.person_id, s__pdi__person.id) WHERE equals(s.team_id, {self.team.pk}) GROUP BY "
+                f"s__pdi__person.properties___sneaky_mail LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1"
             )
             self.assertEqual(response.clickhouse, expected)
             self.assertEqual(
@@ -446,16 +488,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi__person.id, events__pdi__person.properties___sneaky_mail "
-                f"FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, "
-                f"person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) "
-                f"GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
+                f"SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi__person.id, "
+                f"events__pdi__person.properties___sneaky_mail FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
+                f"person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM "
+                f"person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY "
+                f"person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, "
                 f"person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) "
-                f"INNER JOIN (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), "
-                f"'^\"|\"$', ''), person.version) AS properties___sneaky_mail, person.id AS id FROM person WHERE "
-                f"equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) "
-                f"WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"INNER JOIN (SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, "
+                f"%(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS properties___sneaky_mail FROM person WHERE "
+                f"and(equals(person.team_id, {self.team.pk}), ifNull(in(tuple(person.id, person.version), (SELECT person.id, "
+                f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
+                f"HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) "
+                f"AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, "
+                f"{self.team.pk}) LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(
                 response.hogql,
