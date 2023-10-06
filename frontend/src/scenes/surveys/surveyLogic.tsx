@@ -96,7 +96,7 @@ export const surveyLogic = kea<surveyLogicType>([
         resumeSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
     }),
-    loaders(({ props, actions }) => ({
+    loaders(({ props, actions, values }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -125,26 +125,42 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         surveyUserStats: {
             loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
+                const { survey } = values
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: hogql`
                         SELECT
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey shown' AND properties.$survey_id = ${props.id}),
+                                WHERE event = 'survey shown'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey dismissed' AND properties.$survey_id = ${props.id}),
+                                WHERE event = 'survey dismissed'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey sent' AND properties.$survey_id = ${props.id})
+                                WHERE event = 'survey sent'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate})
                     `,
                 }
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    const [seen, dismissed, sent] = results[0]
-                    return { seen: seen - dismissed - sent, dismissed, sent }
+                    const [totalSeen, dismissed, sent] = results[0]
+                    const onlySeen = totalSeen - dismissed - sent
+                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
                 } else {
                     return { seen: 0, dismissed: 0, sent: 0 }
                 }
@@ -182,6 +198,7 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         loadSurveySuccess: ({ survey }) => {
             actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
+            actions.loadSurveyUserStats()
         },
     })),
     reducers({
@@ -466,7 +483,6 @@ export const surveyLogic = kea<surveyLogicType>([
     afterMount(async ({ props, actions }) => {
         if (props.id !== 'new') {
             await actions.loadSurvey()
-            await actions.loadSurveyUserStats()
         }
         if (props.id === 'new') {
             await actions.resetSurvey()

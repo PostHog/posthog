@@ -2,13 +2,6 @@ import { LemonTable } from '@posthog/lemon-ui'
 import { SurveyUserStats } from './surveyLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-const formatPercentageValue = (value: number): string => {
-    if (value < 5) {
-        return ''
-    }
-    return `${value.toFixed(1)}%`
-}
-
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
     if (!surveyUserStats) {
         return <></>
@@ -26,7 +19,18 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
     )
 }
 
+const formatCount = (count: number, total: number): string => {
+    if ((count / total) * 100 < 3) {
+        return ''
+    }
+    return `${count}`
+}
+
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
+    if (!surveyUserStats) {
+        return <></>
+    }
+
     const { seen, dismissed, sent } = surveyUserStats
 
     const total = seen + dismissed + sent
@@ -38,35 +42,45 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
         <></>
     ) : (
         <div className="mb-6">
-            <div className="w-full mx-auto h-8 mb-4">
+            <div className="w-full mx-auto h-10 mb-4">
                 {[
                     {
-                        value: seenPercentage,
-                        label: 'Seen',
-                        classes: 'bg-primary rounded-l',
+                        count: seen,
+                        label: 'Viewed',
+                        classes: `bg-primary rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
                         style: { width: `${seenPercentage}%` },
                     },
                     {
-                        value: dismissedPercentage,
+                        count: dismissed,
                         label: 'Dismissed',
-                        classes: 'bg-warning',
-                        style: { width: `${dismissedPercentage}%`, left: `${seenPercentage}%` },
+                        classes: `${seen === 0 ? 'rounded-l' : ''} ${sent === 0 ? 'rounded-r' : ''}`,
+                        style: {
+                            backgroundColor: '#E3A506',
+                            width: `${dismissedPercentage}%`,
+                            left: `${seenPercentage}%`,
+                        },
                     },
                     {
-                        value: sentPercentage,
+                        count: sent,
                         label: 'Submitted',
-                        classes: 'bg-success rounded-r',
-                        style: { width: `${sentPercentage}%`, left: `${seenPercentage + dismissedPercentage}%` },
+                        classes: `rounded-r ${seen === 0 && dismissed === 0 ? 'rounded-l' : ''}`,
+                        style: {
+                            backgroundColor: '#529B08',
+                            width: `${sentPercentage}%`,
+                            left: `${seenPercentage + dismissedPercentage}%`,
+                        },
                     },
-                ].map(({ value, label, classes, style }) => (
+                ].map(({ count, label, classes, style }) => (
                     <Tooltip
                         key={`survey-summary-chart-${label}`}
-                        title={`${label} surveys: ${seenPercentage.toFixed(1)}%`}
+                        title={`${label} surveys: ${count}`}
                         delayMs={0}
                         placement="top"
                     >
-                        <div className={`h-8 text-white text-center absolute cursor-pointer ${classes}`} style={style}>
-                            <span className="inline-flex font-semibold leading-8">{formatPercentageValue(value)}</span>
+                        <div className={`h-10 text-white text-center absolute cursor-pointer ${classes}`} style={style}>
+                            <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
+                                {formatCount(count, total)}
+                            </span>
                         </div>
                     </Tooltip>
                 ))}
@@ -74,13 +88,16 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
             <div className="w-full flex justify-center">
                 <div className="flex items-center">
                     {[
-                        { label: 'Seen', color: 'bg-primary' },
-                        { label: 'Dismissed', color: 'bg-warning' },
-                        { label: 'Submitted', color: 'bg-success' },
-                    ].map(({ label, color }) => (
+                        { count: seen, label: 'Viewed', color: 'bg-primary' },
+                        { count: dismissed, label: 'Dismissed', color: 'bg-warning' },
+                        { count: sent, label: 'Submitted', color: 'bg-success' },
+                    ].map(({ count, label, color }) => (
                         <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                            <div className={`w-2 h-2 rounded-full mr-2 ${color}`} />
-                            <span className="font-semibold text-muted-alt">{label}</span>
+                            <div className={`w-3 h-3 rounded-full mr-2 ${color}`} />
+                            <span className="font-semibold text-muted-alt">{`${label} (${(
+                                (count / total) *
+                                100
+                            ).toFixed(1)}%)`}</span>
                         </div>
                     ))}
                 </div>
