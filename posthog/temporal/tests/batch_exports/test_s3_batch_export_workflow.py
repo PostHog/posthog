@@ -359,35 +359,26 @@ async def test_s3_export_workflow_with_minio_bucket(
         interval=batch_export_data["interval"],
     )
 
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
+
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
+            "timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "created_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "inserted_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            ),
+            "_timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S"),
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
             "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
+        }
+        for i in range(1, 3)
     ]
 
     if interval == "day":
@@ -427,7 +418,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     inputs = S3BatchExportInputs(
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **batch_export.destination.config,
     )
@@ -519,35 +510,26 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
         interval=batch_export_data["interval"],
     )
 
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
+
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
+            "timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "created_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "inserted_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            ),
+            "_timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S"),
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
             "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
+        }
+        for i in range(1, 3)
     ]
 
     if interval == "day":
@@ -587,7 +569,7 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
     inputs = S3BatchExportInputs(
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **batch_export.destination.config,
     )
