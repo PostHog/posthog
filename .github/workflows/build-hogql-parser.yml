@@ -14,34 +14,34 @@ on:
 
 jobs:
     build-wheels:
-        name: Build wheels on ${{ matrix.os }}
-        runs-on: ${{ matrix.os }}
+        name: Build wheels
+        runs-on: macos-12
         timeout-minutes: 120
-        strategy:
-            fail-fast: false
-            matrix:
-                os: [ubuntu-22.04, macos-12]
 
         steps:
             - uses: actions/checkout@v4
 
-            - name: Set up QEMU for Linux ARM builds
-              if: runner.os == 'Linux'
-              uses: docker/setup-qemu-action@v3
-              with:
-                  platforms: all
+            - name: Set up Docker with Linux virtualization
+              if: runner.os == 'macos'
+              run: |
+                  brew install docker
+                  colima start
 
             - uses: actions/setup-python@v3
 
             - name: Build sdist
-              if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
               run: cd hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
               run: python -m pip install cibuildwheel==2.16.*
 
-            - name: Build wheels
-              run: cd hogql_parser && python -m cibuildwheel --output-dir dist
+            # Surprisingly, it's much faster to build Linux aarch64 wheels on macOS. About 10x faster in fact,
+            # so it makes sense to use the 10x more expensive macOS runner here - same cost, 1/10th of the time
+            - name: Build wheels for Linux
+              run: cd hogql_parser && python -m cibuildwheel --output-dir dist --platform linux
+
+            - name: Build wheels for macOS
+              run: cd hogql_parser && python -m cibuildwheel --output-dir dist --platform macos
               env:
                   MACOSX_DEPLOYMENT_TARGET: '12' # A modern target allows us to use C++20
 
