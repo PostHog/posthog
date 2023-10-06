@@ -35,7 +35,7 @@ jobs:
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
-              run: python -m build hogql_parser --sdist
+              run: cd hogql_parser && python setup.py sdist
 
             - name: Install cibuildwheel
               run: python -m pip install cibuildwheel==2.16.*
