@@ -69,8 +69,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
-            modifiedQuery.showHeader = true
-            modifiedQuery.showResults = false
+            modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
             modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
