@@ -39,7 +39,9 @@ def flag_variant(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) ->
                     "{v} < {max}",
                     placeholders={
                         "v": variant_uint64,
-                        "max": ast.Constant(value=variant_min + variant["rollout_percentage"] / 100),
+                        "max": ast.Constant(
+                            value=(variant_min + variant["rollout_percentage"] / 100) * float(0xFFFFFFFFFFFFFFF)
+                        ),
                     },
                 )
                 variant_min = variant_min + variant["rollout_percentage"] / 100
