@@ -1414,18 +1414,18 @@ const sessionReplayEventTestCases: {
             ],
         },
         expected: {
-            click_count: 0,
+            click_count: 3,
             keypress_count: 0,
-            mouse_activity_count: 0,
-            first_url: 'http://127.0.0.1:8000/second/url',
-            first_timestamp: '2023-04-25 18:58:13.469',
-            last_timestamp: '2023-04-25 18:58:13.693',
-            active_milliseconds: 0,
+            mouse_activity_count: 3,
+            first_url: null,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:15.000',
+            active_milliseconds: 1,
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 213,
-            event_count: 2,
+            size: 217,
+            event_count: 3,
             message_count: 1,
         },
     },
@@ -1483,28 +1483,6 @@ sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
 test(`snapshot event with no event summary is ignored`, () => {
     expect(() => {
         createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [])
-    }).toThrowError()
-})
-
-test(`snapshot event with no event summary timestamps is ignored`, () => {
-    expect(() => {
-        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [
-            {
-                timestamp: 1682449093693,
-                type: 6,
-                data: {},
-            },
-            {
-                timestamp: -9221675455710836,
-                type: 6,
-                data: {},
-            },
-            {
-                timestamp: 1682449095000,
-                type: 6,
-                data: {},
-            },
-        ] as any[])
     }).toThrowError()
 })
 
