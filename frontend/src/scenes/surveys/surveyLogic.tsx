@@ -70,6 +70,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
@@ -84,19 +85,21 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingDescription,
             isEditingThankYouMessage,
         }),
-        launchSurvey: true,
-        stopSurvey: true,
         archiveSurvey: true,
-        resumeSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    const survey = await api.surveys.get(props.id)
-                    actions.reportSurveyViewed(survey)
-                    return survey
+                    try {
+                        const survey = await api.surveys.get(props.id)
+                        actions.reportSurveyViewed(survey)
+                        return survey
+                    } catch (error: any) {
+                        actions.setSurveyMissing()
+                        throw error
+                    }
                 }
                 return { ...NEW_SURVEY }
             },
@@ -156,6 +159,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 editingSurvey: (_, { editing }) => editing,
+            },
+        ],
+        surveyMissing: [
+            false,
+            {
+                setSurveyMissing: () => true,
             },
         ],
         survey: [

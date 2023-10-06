@@ -125,6 +125,12 @@ const meta: Meta = {
                     next: null,
                     previous: null,
                 },
+                '/api/projects/:team_id/early-access-feature/not-found/': [
+                    404,
+                    {
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/early-access-feature/:flagId/':
                     EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
             },
@@ -144,6 +150,14 @@ export function NewFeatureFlag(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.earlyAccessFeature('new'))
+    }, [])
+    return <App />
+}
+
+export function NotFoundEarlyAccess(): JSX.Element {
+    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
+    useEffect(() => {
+        router.actions.push(urls.earlyAccessFeature('not-found'))
     }, [])
     return <App />
 }
