@@ -387,6 +387,7 @@ export const createSessionReplayEvent = (
 ) => {
     const timestamps = events
         .filter((e) => !!e?.timestamp)
+        .filter((e) => Math.sign(e.timestamp) === 1)
         .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
         .sort()
 

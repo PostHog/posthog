@@ -1407,6 +1407,31 @@ const sessionReplayEventTestCases: {
     {
         snapshotData: {
             events_summary: [
+                // a negative timestamp is ignored
+                { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: -922167545571, type: 3, data: { source: 2 }, windowId: '1' },
+            ],
+        },
+        expected: {
+            click_count: 0,
+            keypress_count: 0,
+            mouse_activity_count: 0,
+            first_url: 'http://127.0.0.1:8000/second/url',
+            first_timestamp: '2023-04-25 18:58:13.469',
+            last_timestamp: '2023-04-25 18:58:13.693',
+            active_milliseconds: 0,
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 213,
+            event_count: 2,
+            message_count: 1,
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
                 // three windows with 1 second, 2 seconds, and 3 seconds of activity
                 // even though they overlap they should be summed separately
                 { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
@@ -1458,6 +1483,28 @@ sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
 test(`snapshot event with no event summary is ignored`, () => {
     expect(() => {
         createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [])
+    }).toThrowError()
+})
+
+test(`snapshot event with no event summary timestamps is ignored`, () => {
+    expect(() => {
+        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [
+            {
+                timestamp: 1682449093693,
+                type: 6,
+                data: {},
+            },
+            {
+                timestamp: -9221675455710836,
+                type: 6,
+                data: {},
+            },
+            {
+                timestamp: 1682449095000,
+                type: 6,
+                data: {},
+            },
+        ] as any[])
     }).toThrowError()
 })
 
