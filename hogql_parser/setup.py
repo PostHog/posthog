@@ -21,17 +21,11 @@ module = Extension(
     ],
     include_dirs=[
         f"{homebrew_location}/include/" if is_macos else "/usr/include/",
-        f"{homebrew_location}/include/antlr4-runtime/"
-        if is_macos
-        else "/usr/local/include/antlr4-runtime/",
+        f"{homebrew_location}/include/antlr4-runtime/" if is_macos else "/usr/local/include/antlr4-runtime/",
     ],
     library_dirs=[
-        f"{homebrew_location}/Cellar/boost/1.82.0_1/lib/"
-        if is_macos == "Darwin"
-        else "/usr/lib64/",
-        f"{homebrew_location}/Cellar/antlr4-cpp-runtime/4.13.1/lib/"
-        if is_macos == "Darwin"
-        else "/usr/local/lib/",
+        f"{homebrew_location}/Cellar/boost/1.82.0_1/lib/" if is_macos == "Darwin" else "/usr/lib64/",
+        f"{homebrew_location}/Cellar/antlr4-cpp-runtime/4.13.1/lib/" if is_macos == "Darwin" else "/usr/local/lib/",
     ],
     libraries=["antlr4-runtime"],
     extra_compile_args=["-std=c++20"],
