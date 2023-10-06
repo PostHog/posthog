@@ -103,7 +103,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
-        supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
         supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsPercentStackView: [
             (s) => [s.querySource, s.display],

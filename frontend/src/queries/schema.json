@@ -2030,9 +2030,6 @@
                 "compare": {
                     "type": "boolean"
                 },
-                "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
-                },
                 "hidden_legend_indexes": {
                     "items": {
                         "type": "number"

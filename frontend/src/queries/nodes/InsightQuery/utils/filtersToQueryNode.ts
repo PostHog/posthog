@@ -240,7 +240,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // stickiness filter
     if (isStickinessFilter(filters) && isStickinessQuery(query)) {
         query.stickinessFilter = objectCleanWithEmpty({
-            display: filters.display,
             compare: filters.compare,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),

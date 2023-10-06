@@ -418,7 +418,6 @@ class StickinessFilter(BaseModel):
         extra="forbid",
     )
     compare: Optional[bool] = None
-    display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None

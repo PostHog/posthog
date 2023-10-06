@@ -485,7 +485,6 @@ describe('filtersToQueryNode', () => {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    display: ChartDisplayType.ActionsLineGraph,
                 },
             }
             expect(result).toEqual(query)

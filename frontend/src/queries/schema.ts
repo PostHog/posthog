@@ -467,7 +467,7 @@ export interface PathsQuery extends InsightsQueryBase {
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as' | 'display'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
