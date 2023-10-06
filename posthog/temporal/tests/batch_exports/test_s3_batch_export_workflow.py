@@ -320,7 +320,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "interval,compression,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
+    itertools.product(["hour", "day", "every 5 minutes"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
 )
 async def test_s3_export_workflow_with_minio_bucket(
     client: HttpClient, s3_client, bucket_name, interval, compression, exclude_events
@@ -469,7 +469,12 @@ async def test_s3_export_workflow_with_minio_bucket(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "interval,compression,encryption,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-exclude"]]),
+    itertools.product(
+        ["hour", "day", "every 5 minutes"],
+        [None, "gzip", "brotli"],
+        [None, "AES256", "aws:kms"],
+        [None, ["test-exclude"]],
+    ),
 )
 async def test_s3_export_workflow_with_s3_bucket(interval, compression, encryption, exclude_events):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
