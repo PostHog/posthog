@@ -3,26 +3,23 @@
 #include <stdexcept>
 #include <string>
 
-// The input does not conform to HogQL syntax.
-class HogQLSyntaxError : public std::runtime_error {
- public:
-  size_t start;
-  size_t end;
+#define EXCEPTION_CLASS_DEFINITION(NAME, BASE, MEMBERS)                  \
+  class NAME : public BASE {                                             \
+   public:                                                               \
+    MEMBERS                                                              \
+    explicit NAME(const std::string& message, size_t start, size_t end); \
+    explicit NAME(const char* message, size_t start, size_t end);        \
+    explicit NAME(const std::string& message);                           \
+    explicit NAME(const char* message);                                  \
+  };
 
-  explicit HogQLSyntaxError(const std::string& message, size_t start, size_t end);
-  explicit HogQLSyntaxError(const char* message, size_t start, size_t end);
-};
+EXCEPTION_CLASS_DEFINITION(HogQLException, std::runtime_error, size_t start; size_t end;)
+
+// The input does not conform to HogQL syntax.
+EXCEPTION_CLASS_DEFINITION(HogQLSyntaxException, HogQLException, ;)  // The `;` means there are no extra members
 
 // This feature isn't implemented in HogQL (yet).
-class HogQLNotImplementedError : public std::logic_error {
- public:
-  explicit HogQLNotImplementedError(const std::string& message);
-  explicit HogQLNotImplementedError(const char* message);
-};
+EXCEPTION_CLASS_DEFINITION(HogQLNotImplementedException, HogQLException, ;)
 
 // An internal problem in the parser layer.
-class HogQLParsingError : public std::logic_error {
- public:
-  explicit HogQLParsingError(const std::string& message);
-  explicit HogQLParsingError(const char* message);
-};
+EXCEPTION_CLASS_DEFINITION(HogQLParsingException, HogQLException, ;)

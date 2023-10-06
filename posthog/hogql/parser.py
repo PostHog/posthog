@@ -191,7 +191,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.arrayJoinClause():
             array_join_clause = ctx.arrayJoinClause()
             if select_query.select_from is None:
-                raise HogQLException("Using ARRAY JOIN without a FROM clause is not permitted")
+                raise SyntaxException("Using ARRAY JOIN without a FROM clause is not permitted")
             if array_join_clause.LEFT():
                 select_query.array_join_op = "LEFT ARRAY JOIN"
             elif array_join_clause.INNER():
@@ -201,7 +201,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             select_query.array_join_list = self.visit(array_join_clause.columnExprList())
             for expr in select_query.array_join_list:
                 if not isinstance(expr, ast.Alias):
-                    raise HogQLException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+                    raise SyntaxException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
 
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
@@ -446,6 +446,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
+        alias: str
         if ctx.alias():
             alias = self.visit(ctx.alias())
         elif ctx.identifier():
@@ -456,8 +457,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedException(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
-        if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
+        if alias.lower() in RESERVED_KEYWORDS:
+            raise SyntaxException(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
 
         return ast.Alias(expr=expr, alias=alias)
 
@@ -774,9 +775,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
-        alias = self.visit(ctx.alias() or ctx.identifier())
-        if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
+        alias: str = self.visit(ctx.alias() or ctx.identifier())
+        if alias.lower() in RESERVED_KEYWORDS:
+            raise SyntaxException(f"Alias '{alias}' is a reserved keyword")
         table = self.visit(ctx.tableExpr())
         if isinstance(table, ast.JoinExpr):
             table.alias = alias

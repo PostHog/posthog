@@ -2,13 +2,14 @@
 
 using namespace std;
 
-HogQLSyntaxError::HogQLSyntaxError(const string& message, size_t start, size_t end)
-    : runtime_error(message), start(start), end(end) {}
-HogQLSyntaxError::HogQLSyntaxError(const char* message, size_t start, size_t end)
-    : runtime_error(message), start(start), end(end) {}
+#define EXCEPTION_CLASS_IMPLEMENTATION(NAME, BASE)                                                       \
+  NAME::NAME(const string& message, size_t start, size_t end) : BASE(message), start(start), end(end) {} \
+  NAME::NAME(const char* message, size_t start, size_t end) : BASE(message), start(start), end(end) {}   \
+  NAME::NAME(const string& message) : BASE(message) {}                                                   \
+  NAME::NAME(const char* message) : BASE(message) {}
 
-HogQLNotImplementedError::HogQLNotImplementedError(const string& message) : logic_error(message) {}
-HogQLNotImplementedError::HogQLNotImplementedError(const char* message) : logic_error(message) {}
+EXCEPTION_CLASS_IMPLEMENTATION(HogQLException, runtime_error)
 
-HogQLParsingError::HogQLParsingError(const string& message) : logic_error(message) {}
-HogQLParsingError::HogQLParsingError(const char* message) : logic_error(message) {}
+EXCEPTION_CLASS_IMPLEMENTATION(HogQLSyntaxException, HogQLException)
+EXCEPTION_CLASS_IMPLEMENTATION(HogQLNotImplementedException, HogQLException)
+EXCEPTION_CLASS_IMPLEMENTATION(HogQLParsingException, HogQLException)

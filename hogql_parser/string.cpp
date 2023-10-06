@@ -10,7 +10,7 @@ using namespace std;
 string parse_string(string text) {
   size_t original_text_size = text.size();
   if (original_text_size == 0) {
-    throw HogQLParsingError("Encountered an unexpected empty string input");
+    throw HogQLParsingException("Encountered an unexpected empty string input");
   }
   const char first_char = text.front();
   const char last_char = text.back();
@@ -31,8 +31,7 @@ string parse_string(string text) {
     boost::replace_all(text, "{{", "{");
     boost::replace_all(text, "\\{", "{");
   } else {
-    // FIXME: start=end=
-    throw HogQLSyntaxError("Invalid string literal, must start and end with the same quote type: " + text, 0, 0);
+    throw HogQLSyntaxException("Invalid string literal, must start and end with the same quote type: " + text);
   }
   // Copied from clickhouse_driver/util/escape.py
   boost::replace_all(text, "\\b", "\b");
@@ -49,5 +48,9 @@ string parse_string(string text) {
 
 string parse_string_literal(antlr4::tree::TerminalNode* node) {
   string text = node->getText();
-  return parse_string(text);
+  try {
+    return parse_string(text);
+  } catch (HogQLException& e) {
+    throw HogQLSyntaxException(e.what(), node->getSymbol()->getStartIndex(), node->getSymbol()->getStopIndex()+1);
+  }
 }
