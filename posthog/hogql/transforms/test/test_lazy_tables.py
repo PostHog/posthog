@@ -5,7 +5,8 @@ from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast, quick_pretty_print
+from posthog.hogql.printer import print_ast
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.test.base import BaseTest
 
 
@@ -80,5 +81,4 @@ class TestLazyJoins(BaseTest):
     def _print_select(self, select: str):
         expr = parse_select(select)
         query = print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
-        query = query.replace(f"team_id, {self.team.pk})", "team_id, 420)")
-        return quick_pretty_print(query)
+        return pretty_print_in_tests(query, self.team.pk)
