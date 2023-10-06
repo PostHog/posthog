@@ -66,7 +66,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.clearResponse()
         }
         if (!queryEqual(props.query, oldProps.query)) {
-            if (!props.cachedResults || (isInsightQueryNode(props.query) && !props.cachedResults['result'])) {
+            if (
+                !props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
+            ) {
                 actions.loadData()
             } else {
                 actions.setResponse(props.cachedResults)
