@@ -456,7 +456,7 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_replay_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_replay_events", "log_entries"]
 if not is_cloud():
     CLICKHOUSE_TABLES.append("session_recording_events")
 

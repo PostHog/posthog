@@ -731,13 +731,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                 }),
                             },
                             {
-                                icon: IconRecording,
-                                display: 'Schedule Quick Call',
-                                executor: () => {
-                                    open('https://calendly.com/posthog-feedback')
-                                },
-                            },
-                            {
                                 icon: IconGithub,
                                 display: 'Create GitHub Issue',
                                 executor: () => {
