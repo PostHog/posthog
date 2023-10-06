@@ -13,7 +13,7 @@ MATERIALIZE_PROJECTION_SQL = """
 ALTER TABLE sharded_events
 ON CLUSTER '{cluster}'
 MATERIALIZE PROJECTION events_inserted_at_projection
-IN PARTITION '202309';
+IN PARTITION '202310';
 """
 
 operations = [
