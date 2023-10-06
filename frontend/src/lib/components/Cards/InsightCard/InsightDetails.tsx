@@ -331,7 +331,7 @@ function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: Rea
                     <h5>Created by</h5>
                     <section>
                         <ProfilePicture
-                            name={created_by?.first_name || 'PostHog via feature flag'}
+                            name={created_by?.first_name || 'PostHog'}
                             email={created_by?.email}
                             showName
                             size="md"
