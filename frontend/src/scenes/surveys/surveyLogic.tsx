@@ -131,12 +131,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         SELECT
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
-                                WHERE event = 'survey shown' AND properties.$survey_id = ${props.id}
-                                AND person_id NOT IN (
-                                    SELECT DISTINCT person_id
-                                    FROM events
-                                    WHERE event IN ('survey dismissed', 'survey sent') AND properties.$survey_id = ${props.id}
-                                )),
+                                WHERE event = 'survey shown' AND properties.$survey_id = ${props.id}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey dismissed' AND properties.$survey_id = ${props.id}),
@@ -148,7 +143,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    return { seen: results[0][0], dismissed: results[0][1], sent: results[0][2] }
+                    const [seen, dismissed, sent] = results[0]
+                    return { seen: seen - dismissed - sent, dismissed, sent }
                 } else {
                     return { seen: 0, dismissed: 0, sent: 0 }
                 }
@@ -467,13 +463,13 @@ export const surveyLogic = kea<surveyLogicType>([
             }
         },
     })),
-    afterMount(({ props, actions }) => {
+    afterMount(async ({ props, actions }) => {
         if (props.id !== 'new') {
-            actions.loadSurvey()
-            actions.loadSurveyUserStats()
+            await actions.loadSurvey()
+            await actions.loadSurveyUserStats()
         }
         if (props.id === 'new') {
-            actions.resetSurvey()
+            await actions.resetSurvey()
         }
     }),
 ])
