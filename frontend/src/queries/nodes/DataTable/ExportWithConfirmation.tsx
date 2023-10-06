@@ -18,6 +18,7 @@ export function ExportWithConfirmation({
 }: ExportWithConfirmationProps): JSX.Element {
     return (
         <Popconfirm
+            zIndex={10000}
             placement={placement}
             title={
                 <>
