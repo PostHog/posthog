@@ -65,42 +65,40 @@ class TestEmail(BaseTest):
             record.refresh_from_db()
             self.assertEqual(record.sent_at, sent_at)
 
-    # TODO: reinstate this test after https://github.com/PostHog/posthog/pull/17365 is in, ETA 2023-10-21
-    #
-    # @freeze_time("2020-09-21")
-    # def test_can_send_same_campaign_twice_with_resend_frequency(self) -> None:
-    #     with override_instance_config("EMAIL_HOST", "localhost"):
-    #         sent_at = timezone.now() - timezone.timedelta(days=8)
+    @freeze_time("2020-09-21")
+    def test_can_send_same_campaign_twice_with_resend_frequency(self) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            sent_at = timezone.now() - timezone.timedelta(days=8)
 
-    #         record = MessagingRecord.objects.create(
-    #             raw_email="test0@posthog.com", campaign_key="campaign_2", campaign_count=1
-    #         )
-    #         record.sent_at = sent_at
-    #         record.save()
+            record = MessagingRecord.objects.create(
+                raw_email="test0@posthog.com", campaign_key="campaign_2", campaign_count=1
+            )
+            record.sent_at = sent_at
+            record.save()
 
-    #         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-    #             _send_email(
-    #                 campaign_key="campaign_2",
-    #                 to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
-    #                 subject="Test email",
-    #                 headers={},
-    #                 resend_frequency_days=7,
-    #             )
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                _send_email(
+                    campaign_key="campaign_2",
+                    to=[{"raw_email": "test0@posthog.com", "recipient": "Test PostHog <test0@posthog.com>"}],
+                    subject="Test email",
+                    headers={},
+                    resend_frequency_days=7,
+                )
 
-    #         self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(len(mail.outbox), 1)
 
-    #         record.refresh_from_db()
-    #         assert record.sent_at == sent_at
+            record.refresh_from_db()
+            assert record.sent_at == sent_at
 
-    #         records = (
-    #             MessagingRecord.objects.filter(raw_email="test0@posthog.com", campaign_key="campaign_2")
-    #             .order_by("-campaign_count")
-    #             .all()
-    #         )
+            records = (
+                MessagingRecord.objects.filter(raw_email="test0@posthog.com", campaign_key="campaign_2")
+                .order_by("-campaign_count")
+                .all()
+            )
 
-    #         assert len(records) == 2
-    #         assert records[0].campaign_count is None
-    #         assert records[1].campaign_count == 1
+            assert len(records) == 2
+            assert records[0].campaign_count is None
+            assert records[1].campaign_count == 1
 
     @freeze_time("2020-09-21")
     def test_cant_send_same_campaign_twice_less_than_resend_frequency(self) -> None:
