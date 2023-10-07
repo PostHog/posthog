@@ -12,7 +12,6 @@ import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/Produc
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
-import { teamLogic } from 'scenes/teamLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 
@@ -74,17 +73,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { updateCurrentTeam } = useActions(teamLogic)
     return (
-        <OnboardingWrapper
-            onStart={() => {
-                updateCurrentTeam({
-                    session_recording_opt_in: true,
-                    capture_console_log_opt_in: true,
-                    capture_performance_opt_in: true,
-                })
-            }}
-        >
+        <OnboardingWrapper>
             <SDKs
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
