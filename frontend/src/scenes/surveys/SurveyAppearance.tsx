@@ -87,54 +87,38 @@ export function SurveyAppearance({
     description,
     link,
 }: SurveyAppearanceProps): JSX.Element {
-    const [showThankYou, setShowThankYou] = useState(false)
-    const [hideSubmittedSurvey, setHideSubmittedSurvey] = useState(false)
-
-    useEffect(() => {
-        if (appearance.displayThankYouMessage && showThankYou) {
-            setHideSubmittedSurvey(true)
-        } else {
-            setHideSubmittedSurvey(false)
-        }
-    }, [showThankYou])
-
     return (
         <>
-            {!hideSubmittedSurvey && (
-                <>
-                    {type === SurveyQuestionType.Rating && (
-                        <SurveyRatingAppearance
-                            ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
-                            appearance={appearance}
-                            question={question}
-                            description={description}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                    {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
-                        surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
-                        <SurveyMultipleChoiceAppearance
-                            multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
-                            appearance={appearance}
-                            question={question}
-                            description={description}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                    {(surveyQuestionItem.type === SurveyQuestionType.Open ||
-                        surveyQuestionItem.type === SurveyQuestionType.Link) && (
-                        <BaseAppearance
-                            type={type}
-                            question={question}
-                            description={description}
-                            appearance={appearance}
-                            link={link}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                </>
+            {type === SurveyQuestionType.Rating && (
+                <SurveyRatingAppearance
+                    ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
+                    appearance={appearance}
+                    question={question}
+                    description={description}
+                    onSubmit={() => undefined}
+                />
             )}
-            {showThankYou && <SurveyThankYou appearance={appearance} setShowThankYou={setShowThankYou} />}
+            {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
+                surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
+                <SurveyMultipleChoiceAppearance
+                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    appearance={appearance}
+                    question={question}
+                    description={description}
+                    onSubmit={() => undefined}
+                />
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.Open ||
+                surveyQuestionItem.type === SurveyQuestionType.Link) && (
+                <BaseAppearance
+                    type={type}
+                    question={question}
+                    description={description}
+                    appearance={appearance}
+                    link={link}
+                    onSubmit={() => undefined}
+                />
+            )}
         </>
     )
 }
@@ -599,13 +583,7 @@ export function SurveyMultipleChoiceAppearance({
     )
 }
 
-function SurveyThankYou({
-    appearance,
-    setShowThankYou,
-}: {
-    appearance: SurveyAppearanceType
-    setShowThankYou: (show: boolean) => void
-}): JSX.Element {
+export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
 
@@ -631,13 +609,13 @@ function SurveyThankYou({
                     style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
                     className="cancel-btn-wrapper"
                 >
-                    <button className="form-cancel" type="button" onClick={() => setShowThankYou(false)}>
+                    <button className="form-cancel" type="button" onClick={() => undefined}>
                         {cancel}
                     </button>
                 </div>
                 <h3 className="thank-you-message-header">{appearance?.thankYouMessageHeader || 'Thank you!'}</h3>
                 <div className="thank-you-message-body">{appearance?.thankYouMessageDescription || ''}</div>
-                <Button appearance={appearance} onSubmit={() => setShowThankYou(false)}>
+                <Button appearance={appearance} onSubmit={() => undefined}>
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
