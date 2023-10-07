@@ -6,7 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
-import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
@@ -23,7 +22,7 @@ export const scene: SceneExport = {
 /**
  * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
  */
-const OnboardingWrapper = ({ children, onStart }: { children: React.ReactNode; onStart?: () => void }): JSX.Element => {
+const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { currentOnboardingStepNumber, shouldShowBillingStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
@@ -45,13 +44,12 @@ const OnboardingWrapper = ({ children, onStart }: { children: React.ReactNode; o
     }
 
     const createAllSteps = (): void => {
-        const ProductIntro = <OnboardingProductIntro product={product} onStart={onStart} />
         const OtherProductsStep = <OnboardingOtherProductsStep />
         let steps = []
         if (Array.isArray(children)) {
-            steps = [ProductIntro, ...children]
+            steps = [...children]
         } else {
-            steps = [ProductIntro, children as JSX.Element]
+            steps = [children as JSX.Element]
         }
         if (shouldShowBillingStep) {
             const BillingStep = <OnboardingBillingStep product={product} />
