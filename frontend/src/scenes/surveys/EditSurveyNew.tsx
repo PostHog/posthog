@@ -1,3 +1,4 @@
+import './EditSurvey.scss'
 import { surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
@@ -17,7 +18,6 @@ import {
     SurveyType,
     LinkSurveyQuestion,
     RatingSurveyQuestion,
-    SurveyAppearance as SurveyAppearanceType,
     SurveyUrlMatchType,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
@@ -42,11 +42,10 @@ import {
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import React, { useEffect, useState } from 'react'
 
-function FormTypeCard({
+function PresentationTypeCard({
     title,
     description,
     children,
-    type,
     onClick,
     value,
     active,
@@ -54,155 +53,25 @@ function FormTypeCard({
     title: string
     description?: string
     children: React.ReactNode
-    type: SurveyQuestionType
-    onClick: (type: SurveyQuestionType) => void
-    value: SurveyQuestionType
+    onClick: () => void
+    value: any
     active: boolean
 }): JSX.Element {
     return (
         <div
-            style={{ borderColor: active ? 'var(--primary)' : 'var(--border)', height: 230 }}
-            className="border rounded-md relative px-4 py-2"
+            style={{ borderColor: active ? 'var(--primary)' : 'var(--border)', height: 230, width: 260 }}
+            className="border rounded-md relative px-4 py-2 overflow-hidden"
         >
             <p className="font-semibold m-0">{title}</p>
             {description && <p className="m-0 text-xs">{description}</p>}
-            <div className="survey-preview relative mt-2">{children}</div>
+            <div className="relative mt-2 presentation-preview">{children}</div>
             <input
-                onClick={() => onClick(type)}
+                onClick={onClick}
                 className="opacity-0 absolute inset-0 h-full w-full cursor-pointer"
                 name="type"
                 value={value}
                 type="radio"
             />
-        </div>
-    )
-}
-
-export function FormType({
-    onChange,
-    appearance,
-    value,
-}: {
-    onChange: (type: SurveyQuestionType) => void
-    appearance: SurveyAppearanceType
-    value: string
-}): JSX.Element {
-    return (
-        <div className="flex flex-wrap list-none text-center mb-2 gap-2">
-            <FormTypeCard
-                type={SurveyQuestionType.Open}
-                onClick={onChange}
-                title={SurveyQuestionLabel[SurveyQuestionType.Open]}
-                value={SurveyQuestionType.Open}
-                active={value === SurveyQuestionType.Open}
-            >
-                <BaseAppearance
-                    preview
-                    onSubmit={() => undefined}
-                    appearance={{ ...appearance, whiteLabel: true }}
-                    question="Share your thoughts"
-                    description="Optional form description."
-                    type={SurveyQuestionType.Open}
-                />
-            </FormTypeCard>
-            <FormTypeCard
-                type={SurveyQuestionType.Rating}
-                onClick={onChange}
-                title={SurveyQuestionLabel[SurveyQuestionType.Rating]}
-                description="Numerical or emoji"
-                value={SurveyQuestionType.Rating}
-                active={value === SurveyQuestionType.Rating}
-            >
-                <div style={{ transform: 'scale(.8)', top: '1rem', right: '-1.5rem' }} className="absolute">
-                    <SurveyRatingAppearance
-                        preview
-                        onSubmit={() => undefined}
-                        appearance={{ ...appearance, whiteLabel: true, ratingButtonColor: 'black' }}
-                        question="How do you feel about this page?"
-                        description="Optional form description."
-                        ratingSurveyQuestion={{
-                            display: 'emoji',
-                            lowerBoundLabel: 'Not great',
-                            upperBoundLabel: 'Fantastic',
-                            question: 'How do you feel about this page?',
-                            scale: 3,
-                            type: SurveyQuestionType.Rating,
-                        }}
-                    />
-                </div>
-                <div style={{ transform: 'scale(.8)', left: '-1.5rem' }} className="relative">
-                    <SurveyRatingAppearance
-                        preview
-                        onSubmit={() => undefined}
-                        appearance={{ ...appearance, whiteLabel: true }}
-                        question="How satisfied are you with our product?"
-                        description="Optional form description."
-                        ratingSurveyQuestion={{
-                            display: 'number',
-                            lowerBoundLabel: 'Not great',
-                            upperBoundLabel: 'Fantastic',
-                            question: 'How satisfied are you with our product?',
-                            scale: 5,
-                            type: SurveyQuestionType.Rating,
-                        }}
-                    />
-                </div>
-            </FormTypeCard>
-            <FormTypeCard
-                type={SurveyQuestionType.MultipleChoice}
-                onClick={onChange}
-                title={SurveyQuestionLabel[SurveyQuestionType.MultipleChoice]}
-                value={SurveyQuestionType.MultipleChoice}
-                active={value === SurveyQuestionType.MultipleChoice}
-            >
-                <SurveyMultipleChoiceAppearance
-                    initialChecked={[0, 1]}
-                    preview
-                    onSubmit={() => undefined}
-                    appearance={{ ...appearance, whiteLabel: true }}
-                    question="Which types of content would you like to see more of?"
-                    multipleChoiceQuestion={{
-                        type: SurveyQuestionType.MultipleChoice,
-                        choices: ['Tutorials', 'Customer case studies', 'Product announcements'],
-                        question: 'Which types of content would you like to see more of?',
-                    }}
-                />
-            </FormTypeCard>
-            <FormTypeCard
-                type={SurveyQuestionType.SingleChoice}
-                onClick={onChange}
-                title={SurveyQuestionLabel[SurveyQuestionType.SingleChoice]}
-                value={SurveyQuestionType.SingleChoice}
-                active={value === SurveyQuestionType.SingleChoice}
-            >
-                <SurveyMultipleChoiceAppearance
-                    initialChecked={[0]}
-                    preview
-                    onSubmit={() => undefined}
-                    appearance={{ ...appearance, whiteLabel: true }}
-                    question="Have you found this tutorial useful?"
-                    multipleChoiceQuestion={{
-                        type: SurveyQuestionType.SingleChoice,
-                        choices: ['Yes', 'No'],
-                        question: 'Have you found this tutorial useful?',
-                    }}
-                />
-            </FormTypeCard>
-            <FormTypeCard
-                type={SurveyQuestionType.Link}
-                onClick={onChange}
-                title={SurveyQuestionLabel[SurveyQuestionType.Link]}
-                value={SurveyQuestionType.Link}
-                active={value === SurveyQuestionType.Link}
-            >
-                <BaseAppearance
-                    preview
-                    onSubmit={() => undefined}
-                    appearance={{ ...appearance, whiteLabel: true, submitButtonText: 'Register' }}
-                    question="Do you want to join our upcoming webinar?"
-                    type={SurveyQuestionType.Link}
-                />
-            </FormTypeCard>
         </div>
     )
 }
@@ -224,7 +93,7 @@ export default function EditSurveyNew(): JSX.Element {
         }
     }, [targetAll])
 
-    const showThankYou = survey.appearance.displayThankYouMessage && activePreview > survey.questions.length
+    const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
     return (
         <div className="flex flex-row gap-4">
@@ -618,7 +487,7 @@ export default function EditSurveyNew(): JSX.Element {
                                             ...(survey.appearance.displayThankYouMessage
                                                 ? [
                                                       {
-                                                          key: survey.questions.length + 1,
+                                                          key: survey.questions.length,
                                                           header: (
                                                               <div className="flex flex-row w-full items-center justify-between">
                                                                   <b>Confirmation message</b>
@@ -708,7 +577,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setActivePreview(survey.questions.length + 1)
+                                                    setActivePreview(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -722,17 +591,66 @@ export default function EditSurveyNew(): JSX.Element {
                             key: 'presentation',
                             header: 'Presentation',
                             content: (
-                                <>
-                                    <Field name="type" className="w-max">
-                                        <LemonSelect
-                                            data-attr="survey-type"
-                                            options={[
-                                                { label: 'Popover', value: SurveyType.Popover },
-                                                { label: 'API', value: SurveyType.API },
-                                            ]}
-                                        />
-                                    </Field>
-                                </>
+                                <Field name="type">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex gap-4">
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.Popover}
+                                                    onClick={() => onChange(SurveyType.Popover)}
+                                                    title="Popover"
+                                                    description="Automatically appears when PostHog JS is installed"
+                                                    value={SurveyType.Popover}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            transform: 'scale(.8)',
+                                                            position: 'absolute',
+                                                            top: '-1rem',
+                                                            left: '-1rem',
+                                                        }}
+                                                    >
+                                                        <SurveyAppearance
+                                                            preview
+                                                            type={survey.questions[0].type}
+                                                            surveyQuestionItem={survey.questions[0]}
+                                                            question={survey.questions[0].question}
+                                                            description={survey.questions[0].description}
+                                                            link={
+                                                                survey.questions[0].type === SurveyQuestionType.Link
+                                                                    ? survey.questions[0].link
+                                                                    : undefined
+                                                            }
+                                                            appearance={{
+                                                                ...(survey.appearance || defaultSurveyAppearance),
+                                                                ...(survey.questions.length > 1
+                                                                    ? { submitButtonText: 'Next' }
+                                                                    : null),
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.API}
+                                                    onClick={() => onChange(SurveyType.API)}
+                                                    title="API"
+                                                    description="Use the PostHog API to show/hide your survey programmatically"
+                                                    value={SurveyType.API}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            position: 'absolute',
+                                                            left: '1rem',
+                                                            width: 350,
+                                                        }}
+                                                    >
+                                                        <SurveyAPIEditor survey={survey} />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                            </div>
+                                        )
+                                    }}
+                                </Field>
                             ),
                         },
                         ...(survey.type !== SurveyType.API
@@ -978,7 +896,7 @@ export default function EditSurveyNew(): JSX.Element {
                                     ? [
                                           {
                                               label: `${survey.questions.length + 1}. Confirmation message`,
-                                              value: survey.questions.length + 1,
+                                              value: survey.questions.length,
                                           },
                                       ]
                                     : []),
@@ -986,7 +904,10 @@ export default function EditSurveyNew(): JSX.Element {
                         />
                     </>
                 ) : (
-                    <SurveyAPIEditor survey={survey} />
+                    <div className="flex flex-col">
+                        <h4 className="text-center">API survey response</h4>
+                        <SurveyAPIEditor survey={survey} />
+                    </div>
                 )}
             </div>
         </div>

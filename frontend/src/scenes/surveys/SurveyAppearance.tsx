@@ -21,7 +21,7 @@ import {
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -32,6 +32,7 @@ interface SurveyAppearanceProps {
     surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
     description?: string | null
     link?: string | null
+    preview?: boolean
 }
 
 interface CustomizationProps {
@@ -40,19 +41,22 @@ interface CustomizationProps {
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 
+interface ButtonProps {
+    link?: string | null
+    type?: SurveyQuestionType
+    onSubmit: () => void
+    appearance: SurveyAppearanceType
+    children: React.ReactNode
+}
+
 const Button = ({
     link,
     type,
     onSubmit,
     appearance,
     children,
-}: {
-    link?: string | null
-    type?: SurveyQuestionType
-    onSubmit: () => void
-    appearance: SurveyAppearanceType
-    children: React.ReactNode
-}): JSX.Element => {
+    ...other
+}: ButtonProps & React.HTMLProps<HTMLButtonElement>): JSX.Element => {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
 
@@ -73,6 +77,7 @@ const Button = ({
                 onSubmit()
             }}
             style={{ color: textColor, backgroundColor: appearance.submitButtonColor }}
+            {...other}
         >
             {children || 'Submit'}
         </button>
@@ -86,11 +91,13 @@ export function SurveyAppearance({
     surveyQuestionItem,
     description,
     link,
+    preview,
 }: SurveyAppearanceProps): JSX.Element {
     return (
         <>
             {type === SurveyQuestionType.Rating && (
                 <SurveyRatingAppearance
+                    preview={preview}
                     ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
                     appearance={appearance}
                     question={question}
@@ -101,6 +108,7 @@ export function SurveyAppearance({
             {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
                 surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
                 <SurveyMultipleChoiceAppearance
+                    preview={preview}
                     multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
                     appearance={appearance}
                     question={question}
@@ -111,6 +119,7 @@ export function SurveyAppearance({
             {(surveyQuestionItem.type === SurveyQuestionType.Open ||
                 surveyQuestionItem.type === SurveyQuestionType.Link) && (
                 <BaseAppearance
+                    preview={preview}
                     type={type}
                     question={question}
                     description={description}
@@ -276,15 +285,19 @@ export function BaseAppearance({
                 </div>
 
                 <div className="bottom-section">
-                    {!preview && (
-                        <div className="buttons">
-                            <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
-                                {appearance.submitButtonText}
-                            </Button>
-                        </div>
-                    )}
+                    <div className="buttons">
+                        <Button
+                            {...(preview ? { tabIndex: -1 } : null)}
+                            appearance={appearance}
+                            link={link}
+                            onSubmit={onSubmit}
+                            type={type}
+                        >
+                            {appearance.submitButtonText}
+                        </Button>
+                    </div>
 
-                    {!appearance.whiteLabel && (
+                    {!preview && !appearance.whiteLabel && (
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </a>
@@ -478,14 +491,17 @@ export function SurveyRatingAppearance({
                     </div>
 
                     <div className="bottom-section">
-                        {!preview && (
-                            <div className="buttons">
-                                <Button appearance={appearance} onSubmit={onSubmit}>
-                                    {appearance.submitButtonText}
-                                </Button>
-                            </div>
-                        )}
-                        {!appearance.whiteLabel && (
+                        <div className="buttons">
+                            <Button
+                                {...(preview ? { tabIndex: -1 } : null)}
+                                appearance={appearance}
+                                onSubmit={onSubmit}
+                            >
+                                {appearance.submitButtonText}
+                            </Button>
+                        </div>
+
+                        {!preview && !appearance.whiteLabel && (
                             <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                                 Survey by {posthogLogoSVG}
                             </a>
@@ -565,14 +581,13 @@ export function SurveyMultipleChoiceAppearance({
                     ))}
                 </div>
                 <div className="bottom-section">
-                    {!preview && (
-                        <div className="buttons">
-                            <Button appearance={appearance} onSubmit={onSubmit}>
-                                {appearance.submitButtonText}
-                            </Button>
-                        </div>
-                    )}
-                    {!appearance.whiteLabel && (
+                    <div className="buttons">
+                        <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
+                            {appearance.submitButtonText}
+                        </Button>
+                    </div>
+
+                    {!preview && !appearance.whiteLabel && (
                         <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </a>
