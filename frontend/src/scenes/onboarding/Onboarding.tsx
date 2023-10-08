@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
@@ -44,7 +44,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     }
 
     const createAllSteps = (): void => {
-        const OtherProductsStep = <OnboardingOtherProductsStep />
+        const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
         let steps = []
         if (Array.isArray(children)) {
             steps = [...children]
@@ -52,7 +52,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [children as JSX.Element]
         }
         if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} />
+            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
             steps = [...steps, BillingStep]
         }
         steps = [...steps, OtherProductsStep]
@@ -65,8 +65,16 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingVerificationStep listeningForName="event" teamPropertyToVerify="ingested_event" />
+            <SDKs
+                usersAction="collecting events"
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                stepKey={OnboardingStepKey.SDKS}
+            />
+            <OnboardingVerificationStep
+                listeningForName="event"
+                teamPropertyToVerify="ingested_event"
+                stepKey={OnboardingStepKey.VERIFY}
+            />
         </OnboardingWrapper>
     )
 }
@@ -77,6 +85,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
     )
@@ -88,6 +97,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
                 usersAction="loading flags"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
                 subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
     )

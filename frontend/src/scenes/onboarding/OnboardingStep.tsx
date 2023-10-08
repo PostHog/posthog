@@ -1,10 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 
 export const OnboardingStep = ({
+    stepKey, // eslint-disable-line @typescript-eslint/no-unused-vars
     title,
     subtitle,
     children,
@@ -12,6 +13,7 @@ export const OnboardingStep = ({
     onSkip,
     continueOverride,
 }: {
+    stepKey: OnboardingStepKey
     title: string
     subtitle?: string
     children: React.ReactNode
