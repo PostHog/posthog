@@ -21,8 +21,6 @@ export enum OnboardingStepKey {
     VERIFY = 'verify',
 }
 
-export type OnboardingStepMap = Record<OnboardingStepKey, string>
-
 // These types have to be set like this, so that kea typegen is happy
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
@@ -128,6 +126,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
                 return !product?.subscribed || !hasAllAddons || subscribedDuringOnboarding
             },
+        ],
+        shouldShowOtherProductsStep: [
+            (s) => [s.suggestedProducts],
+            (suggestedProducts: BillingProductV2Type[]) => suggestedProducts.length > 0,
         ],
         suggestedProducts: [
             (s) => [s.billing, s.product, s.currentTeam],

@@ -23,7 +23,7 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep } = useValues(onboardingLogic)
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
@@ -44,7 +44,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     }
 
     const createAllSteps = (): void => {
-        const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
         let steps = []
         if (Array.isArray(children)) {
             steps = [...children]
@@ -55,7 +54,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
             steps = [...steps, BillingStep]
         }
-        steps = [...steps, OtherProductsStep]
+        if (shouldShowOtherProductsStep) {
+            const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
+            steps = [...steps, OtherProductsStep]
+        }
         setAllSteps(steps)
     }
 

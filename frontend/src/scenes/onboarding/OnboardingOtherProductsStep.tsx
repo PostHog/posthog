@@ -10,9 +10,6 @@ export const OnboardingOtherProductsStep = ({
 }): JSX.Element => {
     const { product, suggestedProducts } = useValues(onboardingLogic)
     const { completeOnboarding } = useActions(onboardingLogic)
-    if (suggestedProducts.length === 0) {
-        completeOnboarding()
-    }
 
     return (
         <OnboardingStep
