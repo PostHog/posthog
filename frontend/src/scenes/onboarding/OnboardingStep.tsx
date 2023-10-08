@@ -3,6 +3,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const OnboardingStep = ({
     stepKey, // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -31,13 +33,14 @@ export const OnboardingStep = ({
             hedgehog={false}
             fixedWidth={false}
             header={
-                hasPreviousStep && (
-                    <div className="mb-4">
-                        <LemonButton icon={<IconArrowLeft />} onClick={() => goToPreviousStep()}>
-                            Back
-                        </LemonButton>
-                    </div>
-                )
+                <div className="mb-4">
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        onClick={() => (hasPreviousStep ? goToPreviousStep() : router.actions.push(urls.products()))}
+                    >
+                        Back
+                    </LemonButton>
+                </div>
             }
         >
             <div className="w-md">
