@@ -21,9 +21,9 @@ export const OnboardingStep = ({
     onSkip?: () => void
     continueOverride?: JSX.Element
 }): JSX.Element => {
-    const { currentOnboardingStepNumber, totalOnboardingSteps } = useValues(onboardingLogic)
-    const { setCurrentOnboardingStepNumber, completeOnboarding } = useActions(onboardingLogic)
-    const isLastStep = currentOnboardingStepNumber == totalOnboardingSteps
+    const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+
     return (
         <BridgePage
             view="onboarding-step"
@@ -31,12 +31,9 @@ export const OnboardingStep = ({
             hedgehog={false}
             fixedWidth={false}
             header={
-                currentOnboardingStepNumber > 1 && (
+                hasPreviousStep && (
                     <div className="mb-4">
-                        <LemonButton
-                            icon={<IconArrowLeft />}
-                            onClick={() => setCurrentOnboardingStepNumber(currentOnboardingStepNumber - 1)}
-                        >
+                        <LemonButton icon={<IconArrowLeft />} onClick={() => goToPreviousStep()}>
                             Back
                         </LemonButton>
                     </div>
@@ -53,13 +50,11 @@ export const OnboardingStep = ({
                             type="tertiary"
                             onClick={() => {
                                 onSkip && onSkip()
-                                isLastStep
-                                    ? completeOnboarding()
-                                    : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             status="muted"
                         >
-                            Skip {isLastStep ? 'and finish' : 'for now'}
+                            Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
                     {continueOverride ? (
@@ -67,14 +62,10 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
-                            onClick={() =>
-                                currentOnboardingStepNumber == totalOnboardingSteps
-                                    ? completeOnboarding()
-                                    : setCurrentOnboardingStepNumber(currentOnboardingStepNumber + 1)
-                            }
-                            sideIcon={currentOnboardingStepNumber !== totalOnboardingSteps ? <IconArrowRight /> : null}
+                            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
-                            {currentOnboardingStepNumber == totalOnboardingSteps ? 'Finish' : 'Continue'}
+                            {!hasNextStep ? 'Finish' : 'Continue'}
                         </LemonButton>
                     )}
                 </div>
