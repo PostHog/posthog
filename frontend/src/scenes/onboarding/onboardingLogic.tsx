@@ -23,14 +23,6 @@ export enum OnboardingStepKey {
 
 export type OnboardingStepMap = Record<OnboardingStepKey, string>
 
-const onboardingStepMap: OnboardingStepMap = {
-    [OnboardingStepKey.PRODUCT_INTRO]: 'OnboardingProductIntro',
-    [OnboardingStepKey.SDKS]: 'SDKs',
-    [OnboardingStepKey.BILLING]: 'OnboardingBillingStep',
-    [OnboardingStepKey.OTHER_PRODUCTS]: 'OnboardingOtherProductsStep',
-    [OnboardingStepKey.VERIFY]: 'OnboardingVerificationStep',
-}
-
 // These types have to be set like this, so that kea typegen is happy
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
@@ -260,10 +252,10 @@ export const onboardingLogic = kea<onboardingLogicType>({
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey)
             }
-            if (step && step in onboardingStepMap) {
+            if (step) {
                 actions.setStepKey(step)
             } else {
-                actions.setStepKey('')
+                actions.resetStepKey()
             }
         },
     }),
