@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export const OnboardingStep = ({
-    stepKey, // eslint-disable-line @typescript-eslint/no-unused-vars
+    stepKey,
     title,
     subtitle,
     children,
@@ -25,6 +25,9 @@ export const OnboardingStep = ({
 }): JSX.Element => {
     const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    if (!stepKey) {
+        throw new Error('stepKey is required in any OnboardingStep')
+    }
 
     return (
         <BridgePage
