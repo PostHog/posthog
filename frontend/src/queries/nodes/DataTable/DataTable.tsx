@@ -443,7 +443,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     {showSecondRow && (
                         <div className="flex gap-4 justify-between flex-wrap">
                             <div className="flex gap-4 items-center">{secondRowLeft}</div>
-                            {/* {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null} */}
                             <div className="flex gap-4 items-center">{secondRowRight}</div>
                         </div>
                     )}
