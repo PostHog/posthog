@@ -54,7 +54,7 @@ pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
 export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
     const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
-    return new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
+    return new KafkaProducerWrapper(producer)
 }
 
 export async function createHub(
@@ -129,15 +129,7 @@ export async function createHub(
 
     const promiseManager = new PromiseManager(serverConfig, statsd)
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        kafkaProducer,
-        clickhouse,
-        statsd,
-        promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd, serverConfig.PERSON_INFO_CACHE_TTL)
     const teamManager = new TeamManager(postgres, serverConfig, statsd)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)

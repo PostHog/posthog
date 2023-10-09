@@ -146,7 +146,7 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.trendsFilter is not None and self.query.trendsFilter.formula is not None:
             res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(result=res, timings=timings)
+        return TrendsQueryResponse(results=res, timings=timings)
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras):
         if response.results is None:

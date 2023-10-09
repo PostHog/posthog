@@ -147,6 +147,7 @@ class Resolver(CloningVisitor):
         new_node.window_exprs = (
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
+        new_node.settings = node.settings.model_copy() if node.settings is not None else None
 
         self.scopes.pop()
 

@@ -181,13 +181,13 @@ export const startBatchConsumer = async ({
                 // protocol. If we never manage to consume, we don't want our health checks to pass.
                 lastConsumeTime = Date.now()
 
+                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
+                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                }
+
                 if (!messages) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
                     continue
-                }
-
-                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
-                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
                 }
 
                 status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
