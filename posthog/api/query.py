@@ -46,6 +46,9 @@ QUERY_WITH_RUNNER = [
     "WebTopClicksQuery",
     "WebTopPagesQuery",
 ]
+QUERY_WITH_RUNNER_NO_CACHE = [
+    "PersonsQuery",
+]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -218,6 +221,9 @@ def process_query(
         refresh_requested = refresh_requested_by_client(request) if request else False
         query_runner = get_query_runner(query_json, team)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
+        query_runner = get_query_runner(query_json, team)
+        return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "EventsQuery":
         events_query = EventsQuery.model_validate(query_json)
         events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)

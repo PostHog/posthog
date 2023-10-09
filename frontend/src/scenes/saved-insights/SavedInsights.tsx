@@ -182,6 +182,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
+    [NodeKind.PersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table',
