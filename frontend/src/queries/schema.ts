@@ -21,6 +21,7 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    EventPropertyFilter,
 } from '~/types'
 
 /**
@@ -533,7 +534,7 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
-export type WebAnalyticsFilters = any
+export type WebAnalyticsFilters = EventPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange

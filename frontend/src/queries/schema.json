@@ -2387,7 +2387,12 @@
             "required": ["results"],
             "type": "object"
         },
-        "WebAnalyticsFilters": {},
+        "WebAnalyticsFilters": {
+            "items": {
+                "$ref": "#/definitions/EventPropertyFilter"
+            },
+            "type": "array"
+        },
         "WebOverviewStatsQuery": {
             "additionalProperties": false,
             "properties": {

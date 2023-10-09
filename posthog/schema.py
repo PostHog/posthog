@@ -720,7 +720,7 @@ class WebOverviewStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
+    filters: List[EventPropertyFilter]
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
     response: Optional[WebOverviewStatsQueryResponse] = None
 
@@ -730,7 +730,7 @@ class WebTopClicksQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
+    filters: List[EventPropertyFilter]
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     response: Optional[WebTopClicksQueryResponse] = None
 
@@ -740,7 +740,7 @@ class WebTopPagesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
+    filters: List[EventPropertyFilter]
     kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
     response: Optional[WebTopPagesQueryResponse] = None
 
@@ -750,7 +750,7 @@ class WebTopSourcesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
+    filters: List[EventPropertyFilter]
     kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
     response: Optional[WebTopSourcesQueryResponse] = None
 

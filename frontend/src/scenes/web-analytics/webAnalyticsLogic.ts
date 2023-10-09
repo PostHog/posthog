@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import { NodeKind, QuerySchema } from '~/queries/schema'
+import { NodeKind, QuerySchema, WebAnalyticsFilters } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 interface Layout {
@@ -12,15 +12,27 @@ export interface WebDashboardTile {
     query: QuerySchema
     layout: Layout
 }
+
+export const initialWebAnalyticsFilter = [] as WebAnalyticsFilters
+
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect({}),
-    actions({}),
-    reducers({}),
+    actions({
+        setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsFilters) => ({ webAnalyticsFilters }),
+    }),
+    reducers({
+        webAnalyticsFilters: [
+            initialWebAnalyticsFilter,
+            {
+                setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
+            },
+        ],
+    }),
     selectors({
         tiles: [
-            () => [],
-            (): WebDashboardTile[] => [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters): WebDashboardTile[] => [
                 {
                     layout: {
                         colSpan: 12,
@@ -30,7 +42,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebOverviewStatsQuery,
-                            filters: {},
+                            filters: webAnalyticsFilters,
                         },
                     },
                 },
@@ -43,7 +55,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebTopPagesQuery,
-                            filters: {},
+                            filters: webAnalyticsFilters,
                         },
                     },
                 },
@@ -56,7 +68,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebTopSourcesQuery,
-                            filters: {},
+                            filters: webAnalyticsFilters,
                         },
                     },
                 },
@@ -86,6 +98,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.ActionsLineGraph,
                             },
                             filterTestAccounts: true,
+                            properties: webAnalyticsFilters,
                         },
                     },
                 },
@@ -115,6 +128,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 display: ChartDisplayType.WorldMap,
                             },
                             filterTestAccounts: true,
+                            properties: webAnalyticsFilters,
                         },
                     },
                 },
