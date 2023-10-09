@@ -1,6 +1,7 @@
 import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
+import { AppMetrics } from 'worker/ingestion/app-metrics'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
@@ -55,6 +56,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     organizationManager,
     statsd,
     serverConfig,
+    appMetrics,
 }: {
     kafka: Kafka
     postgres: PostgresRouter
@@ -62,6 +64,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
     serverConfig: PluginsServerConfig
+    appMetrics: AppMetrics
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -90,7 +93,9 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         teamManager,
         organizationManager,
         new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
-        statsd
+        appMetrics,
+        statsd,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 

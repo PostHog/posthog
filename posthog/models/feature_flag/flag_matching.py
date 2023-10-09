@@ -427,6 +427,14 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
+                if any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                    all_cohorts = {
+                        cohort.pk: cohort
+                        for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                            team_id=team_id, deleted=False
+                        )
+                    }
+                    self.cohorts_cache.update(all_cohorts)
                 # release conditions
                 for feature_flag in self.feature_flags:
 

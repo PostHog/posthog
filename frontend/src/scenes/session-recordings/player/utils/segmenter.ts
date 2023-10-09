@@ -116,10 +116,12 @@ export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, en
         const previousSegment = segments[index - 1]
         const list = [...acc]
 
-        if (previousSegment && segment.startTimestamp - previousSegment.endTimestamp > 1) {
-            const startTimestamp = previousSegment.endTimestamp + 1
-            const endTimestamp = segment.startTimestamp - 1
-            const windowId = findWindowIdForTimestamp(startTimestamp, previousSegment.windowId)
+        if (previousSegment && segment.startTimestamp !== previousSegment.endTimestamp) {
+            // If the segments do not immediately follow each other then we add a "gap" segment
+            const startTimestamp = previousSegment.endTimestamp
+            const endTimestamp = segment.startTimestamp
+            // Offset the window ID check so we look for a subsequent segment
+            const windowId = findWindowIdForTimestamp(startTimestamp + 1, previousSegment.windowId)
             const gapSegment: Partial<RecordingSegment> = {
                 kind: 'gap',
                 startTimestamp,

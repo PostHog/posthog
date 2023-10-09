@@ -636,3 +636,11 @@ export function ViewExperimentPayGate(): JSX.Element {
     }, [])
     return <App />
 }
+
+export function ExperimentNotFound(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.EXPERIMENTATION])
+    useEffect(() => {
+        router.actions.push(urls.experiment('1200000'))
+    }, [])
+    return <App />
+}

@@ -1,5 +1,6 @@
 from typing import Dict, List
 
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     Table,
@@ -9,9 +10,11 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     BooleanDatabaseField,
     LazyTable,
+    LazyJoin,
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 
 PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -19,17 +22,24 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "properties": StringJSONDatabaseField(name="properties"),
     "is_identified": BooleanDatabaseField(name="is_identified"),
+    "pdi": LazyJoin(
+        from_field="id",
+        join_table=PersonsPDITable(),
+        join_function=persons_pdi_join,
+    ),
 }
 
 
 def select_from_persons_table(requested_fields: Dict[str, List[str]]):
-    return argmax_select(
+    select = argmax_select(
         table_name="raw_persons",
         select_fields=requested_fields,
         group_fields=["id"],
         argmax_field="version",
         deleted_field="is_deleted",
     )
+    select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    return select
 
 
 def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, List[str]]):

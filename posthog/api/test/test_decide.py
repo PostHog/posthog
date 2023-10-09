@@ -2618,13 +2618,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_founder")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -2637,13 +2636,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -2656,13 +2654,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(

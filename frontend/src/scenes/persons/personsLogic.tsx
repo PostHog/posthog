@@ -22,6 +22,7 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { asDisplay } from './person-utils'
+import { hogqlQuery } from '~/queries/query'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -40,14 +41,15 @@ export const personsLogic = kea<personsLogicType>({
         return props.cohort ? `cohort_${props.cohort}` : 'scene'
     },
     path: (key) => ['scenes', 'persons', 'personsLogic', key],
-    connect: {
+    connect: () => ({
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-    },
+    }),
     actions: {
         setPerson: (person: PersonType | null) => ({ person }),
         setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
+        loadPersonUUID: (uuid: string) => ({ uuid }),
         loadPersons: (url: string | null = '') => ({ url }),
         setListFilters: (payload: PersonListParams) => ({ payload }),
         setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
@@ -281,12 +283,52 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
+                    if (values.featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]) {
+                        const response = await hogqlQuery(
+                            'select id, groupArray(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where pdi.distinct_id={distinct_id} group by id, properties, is_identified, created_at',
+                            { distinct_id: id }
+                        )
+                        const row = response?.results?.[0]
+                        if (row) {
+                            const person: PersonType = {
+                                id: row[0],
+                                uuid: row[0],
+                                distinct_ids: row[1],
+                                properties: JSON.parse(row[2] || '{}'),
+                                is_identified: !!row[3],
+                                created_at: row[4],
+                            }
+                            actions.reportPersonDetailViewed(person)
+                            return person
+                        }
+                    }
+
                     const response = await api.persons.list({ distinct_id: id })
                     const person = response.results[0]
                     if (person) {
                         actions.reportPersonDetailViewed(person)
                     }
                     return person
+                },
+                loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
+                    const response = await hogqlQuery(
+                        'select id, groupArray(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
+                        { id: uuid }
+                    )
+                    const row = response?.results?.[0]
+                    if (row) {
+                        const person: PersonType = {
+                            id: row[0],
+                            uuid: row[0],
+                            distinct_ids: row[1],
+                            properties: JSON.parse(row[2] || '{}'),
+                            is_identified: !!row[3],
+                            created_at: row[4],
+                        }
+                        actions.reportPersonDetailViewed(person)
+                        return person
+                    }
+                    return null
                 },
             },
         ],
@@ -343,6 +385,26 @@ export const personsLogic = kea<personsLogicType>({
 
                     if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
                         actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
+                    }
+                }
+            }
+        },
+        '/persons/*': ({ _: rawPersonUUID }, { sessionRecordingId }, { activeTab }) => {
+            if (props.syncWithUrl) {
+                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                } else if (activeTab && values.activeTab !== activeTab) {
+                    actions.navigateToTab(activeTab as PersonsTabType)
+                }
+
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                }
+
+                if (rawPersonUUID) {
+                    const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
+                    if (!values.person || values.person.id != decodedPersonUUID) {
+                        actions.loadPersonUUID(decodedPersonUUID)
                     }
                 }
             }

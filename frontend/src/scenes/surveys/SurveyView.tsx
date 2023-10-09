@@ -1,7 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -26,17 +25,15 @@ import {
 } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Summary } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
-    // TODO: survey results logic
-    // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -205,45 +202,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
-                                            <div className="border rounded p-4 w-full">
-                                                {survey.type !== SurveyType.API ? (
-                                                    showSurveyAppWarning && (
-                                                        <div className="flex flex-col">
-                                                            <div className="flex gap-2 items-start">
-                                                                1. Add the following option to your PostHog instance:
-                                                            </div>
-                                                            <CodeSnippet language={Language.JavaScript} wrap>
-                                                                {OPT_IN_SNIPPET}
-                                                            </CodeSnippet>
-                                                            <div className="flex items-center">
-                                                                2.{' '}
-                                                                <LemonButton
-                                                                    onClick={() =>
-                                                                        surveyPlugin?.id && editPlugin(surveyPlugin.id)
-                                                                    }
-                                                                >
-                                                                    Enable and save the surveys app
-                                                                </LemonButton>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                ) : (
-                                                    <span className="font-medium">
-                                                        See the documentation below on API survey setup.
-                                                    </span>
-                                                )}
-                                                <div>
-                                                    Need more information?{' '}
-                                                    <a
-                                                        data-attr="survey-doc-link"
-                                                        target="_blank"
-                                                        rel="noopener"
-                                                        href="https://posthog.com/docs/surveys/manual"
-                                                    >
-                                                        Check the docs <IconOpenInNew />
-                                                    </a>
+                                            {survey.type === SurveyType.API && (
+                                                <div className="border rounded p-4">
+                                                    <div className="w-full flex flex-row gap-1 items-center">
+                                                        Learn how to set up API surveys{' '}
+                                                        <Link
+                                                            data-attr="survey-doc-link"
+                                                            target="_blank"
+                                                            to="https://posthog.com/docs/surveys/implementing-custom-surveys"
+                                                            targetBlankIcon
+                                                        >
+                                                            in the docs
+                                                        </Link>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
                                                     <SurveyAppearance
@@ -289,12 +262,17 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
         currentQuestionIndexAndType,
+        surveyUserStats,
+        surveyUserStatsLoading,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
+            {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            )}
             {surveyMetricsQueries && (
                 <div className="flex flex-row gap-4 mb-4">
                     <div className="flex-1">
@@ -346,11 +324,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         </>
     )
 }
-
-const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
-    api_host: 'YOUR API HOST',
-    opt_in_site_apps: true // <--- Add this line
-})`
 
 function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
     return (

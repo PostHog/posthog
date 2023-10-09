@@ -1,3 +1,4 @@
+from django.conf import settings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.filters import replace_filters
@@ -53,9 +54,9 @@ def get_hogql_metadata(
             if "mismatched input '<EOF>' expecting" in error:
                 error = "Unexpected end of query"
             response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        else:
+        elif not settings.DEBUG:
             # We don't want to accidentally expose too much data via errors
-            response.errors.append(HogQLNotice(message=f"Unexpected f{e.__class__.__name__}"))
+            response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     return response
 

@@ -70,7 +70,10 @@ export function PlayerMetaLinks(): JSX.Element {
                                 return
                             }
 
-                            theNotebookLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
+                            theNotebookLogic.actions.insertReplayCommentByTimestamp({
+                                timestamp: time,
+                                sessionRecordingId,
+                            })
                         }}
                     >
                         Comment

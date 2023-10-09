@@ -25,12 +25,12 @@ const consoleLogEventsCounter = new Counter({
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
-    max_allowed_team: number
+    enabled: boolean
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly persistentHighWaterMarker: OffsetHighWaterMarker
     ) {
-        this.max_allowed_team = serverConfig.MAX_TEAM_TO_ALLOW_SESSION_RECORDING_CONSOLE_LOGS_INGESTION
+        this.enabled = serverConfig.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED
     }
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -82,6 +82,10 @@ export class ConsoleLogsIngester {
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
+        if (!this.enabled) {
+            return
+        }
+
         const warn = (text: string, labels: Record<string, any> = {}) =>
             status.warn('⚠️', `[console-log-events-ingester] ${text}`, {
                 offset: event.metadata.offset,
@@ -117,10 +121,6 @@ export class ConsoleLogsIngester {
             )
         ) {
             return drop('high_water_mark')
-        }
-
-        if (event.team_id > this.max_allowed_team) {
-            return drop('team_above_max_allowed')
         }
 
         try {

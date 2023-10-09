@@ -216,6 +216,12 @@ export function Editor({
                         domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
                     })
                 },
+                scrollToPosition(position) {
+                    queueMicrotask(() => {
+                        const domEl = editor.view.nodeDOM(position) as HTMLElement
+                        domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                    })
+                },
             })
         },
         onUpdate: onUpdate,

@@ -837,7 +837,6 @@ test('capture bad team', async () => {
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
-            '',
             {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
@@ -1484,19 +1483,46 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
     }).toThrowError()
 })
 
-test('simple console log processing', () => {
-    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
-        {
-            timestamp: 1682449093469,
-            type: 6,
-            data: {
-                plugin: 'rrweb/console@1',
-                payload: {
-                    level: 'info',
-                    payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
-                },
+function consoleMessageFor(payload: any[]) {
+    return {
+        timestamp: 1682449093469,
+        type: 6,
+        data: {
+            plugin: 'rrweb/console@1',
+            payload: {
+                level: 'info',
+                payload: payload,
             },
         },
+    }
+}
+
+test.each([
+    {
+        payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
+        expectedMessage: 'the message more strings',
+    },
+    {
+        // lone surrogate pairs are replaced with the "unknown" character
+        payload: ['\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ud83c...[truncated]'],
+        expectedMessage: '\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ufffd...[truncated]',
+    },
+    {
+        // sometimes the strings are wrapped in quotes...
+        payload: ['"test"'],
+        expectedMessage: '"test"',
+    },
+    {
+        // let's not accept arbitrary length content
+        payload: [new Array(3001).join('a')],
+        expectedMessage: new Array(3000).join('a'),
+    },
+])('simple console log processing', ({ payload, expectedMessage }) => {
+    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
+        consoleMessageFor(payload),
+        // see https://posthog.sentry.io/issues/4525043303
+        // null events always ignored
+        null as unknown as RRWebEvent,
     ])
     expect(consoleLogEntries).toEqual([
         {
@@ -1506,7 +1532,7 @@ test('simple console log processing', () => {
             log_source_id: 'session_id',
             instance_id: null,
             timestamp: castTimestampToClickhouseFormat(DateTime.fromMillis(1682449093469), TimestampFormat.ClickHouse),
-            message: 'the message more strings',
+            message: expectedMessage,
         } satisfies ConsoleLogEntry,
     ])
 })
@@ -2397,7 +2423,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
@@ -2408,7 +2433,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),

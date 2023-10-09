@@ -50,7 +50,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
                     <PropertiesTable
                         type={PropertyDefinitionType.Event}
                         properties={{
-                            $timestamp: dayjs(event.timestamp).toISOString(),
+                            ...('timestamp' in event ? { $timestamp: dayjs(event.timestamp).toISOString() } : {}),
                             ...displayedEventProperties,
                             ...visibleSystemProperties,
                         }}
