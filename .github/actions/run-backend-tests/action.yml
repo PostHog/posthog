@@ -52,8 +52,7 @@ runs:
         - name: Install SAML (python3-saml) dependencies
           shell: bash
           run: |
-              apt update
-              apt install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
@@ -74,7 +73,7 @@ runs:
           # This is not cached currently, as it's important to build the current HEAD version (we can't just look at
           # requirements.txt, which only has the published version) and caching just one package is not worth the effort
           run: |
-              apt install libboost-all-dev unzip cmake curl uuid pkg-config
+              sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
               unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
               cmake .

@@ -164,7 +164,7 @@ jobs:
                   # If added or modified, run OptiPNG
                   if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
-                    apt update && apt install -y optipng
+                    sudo apt-get update && sudo apt-get install -y optipng
                     optipng -clobber -o4 -strip all
                     
                     # we don't want to _always_ run OptiPNG
