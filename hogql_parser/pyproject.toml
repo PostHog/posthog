@@ -34,6 +34,6 @@ before-all = [
     "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/",
     "ldconfig",
 ]
-archs = ["x86_64", "aarch64"]
+archs = ["native"] # We run x86_64 and aarch64 as separate CI jobs, and we want native in each case as emulation is slow
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"

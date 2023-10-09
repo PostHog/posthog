@@ -41,18 +41,21 @@ jobs:
         timeout-minutes: 120 # The Linux ARM builds are painfully slow
         strategy:
             matrix:
-                os: [ubuntu-22.04, macos-12]
+                # ARM emulation is reasonably fast on macOS, but insanely slow (20x longer) on Linux runners
+                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-12]
 
         steps:
             - uses: actions/checkout@v4
 
-            - name: Set up QEMU for Linux ARM builds
-              if: runner.os == 'Linux'
-              uses: docker/setup-qemu-action@v3
+            - if: ${{ !endsWith(matrix.os, '-arm') }}
+              uses: actions/setup-python@v4
               with:
-                  platforms: linux/arm64
+                  python-version: '3.11'
 
-            - uses: actions/setup-python@v3
+            - if: ${{ endsWith(matrix.os, '-arm') }}
+              uses: deadsnakes/action@v3.0.1 # Unfortunately actions/setup-python@v4 just doesn't work on ARM! This does
+              with:
+                  python-version: '3.11'
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
