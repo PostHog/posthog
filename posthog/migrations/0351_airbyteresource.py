@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="AirbyteSource",
+            name="AirbyteResource",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
@@ -24,6 +24,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("source_id", models.CharField(max_length=400)),
+                ("connection_id", models.CharField(max_length=400)),
                 (
                     "created_by",
                     models.ForeignKey(

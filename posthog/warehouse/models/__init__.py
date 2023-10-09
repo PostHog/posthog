@@ -2,4 +2,4 @@ from .table import *
 from .credential import *
 from .datawarehouse_saved_query import *
 from .view_link import *
-from .airbyte_source import *
+from .airbyte_resource import *

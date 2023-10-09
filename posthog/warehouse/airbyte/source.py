@@ -87,7 +87,7 @@ def _create_source(payload: Dict) -> AirbyteSource:
     response = requests.post(AIRBYTE_SOURCE_URL, json=payload, headers=headers)
     response_payload = response.json()
     if not response.ok:
-        raise ValueError(response_payload["message"])
+        raise ValueError(response_payload["detail"])
 
     return AirbyteSource(
         source_id=response_payload["sourceId"],

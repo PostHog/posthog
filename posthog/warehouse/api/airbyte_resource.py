@@ -5,20 +5,21 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import AirbyteSource
-from posthog.warehouse.airbyte import StripeSourcePayload, create_stripe_source
+from posthog.warehouse.models import AirbyteResource
+from posthog.warehouse.airbyte.source import StripeSourcePayload, create_stripe_source
+from posthog.warehouse.airbyte.connection import create_connection
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
 from typing import Any
 
 
-class AirbyteSourceSerializers(serializers.ModelSerializer):
+class AirbyteResourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
 
     class Meta:
-        model = AirbyteSource
+        model = AirbyteResource
         fields = ["id", "source_id", "created_at", "created_by"]
         read_only_fields = [
             "id",
@@ -33,8 +34,8 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     Create, Read, Update and Delete Airbyte Sources.
     """
 
-    queryset = AirbyteSource.objects.all()
-    serializer_class = AirbyteSourceSerializers
+    queryset = AirbyteResource.objects.all()
+    serializer_class = AirbyteResourceSerializers
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
@@ -62,8 +63,13 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             account_id=account_id,
             client_secret=client_secret,
         )
-        stripe_response = create_stripe_source(stripe_payload)
+        new_source = create_stripe_source(stripe_payload)
+        new_connection = create_connection(new_source.source_id)
 
-        AirbyteSource.objects.create(source_id=stripe_response.source_id, team=self.request.user.current_team)
+        AirbyteResource.objects.create(
+            source_id=new_source.source_id,
+            connection_id=new_connection.connection_id,
+            team=self.request.user.current_team,
+        )
 
-        return Response(status=status.HTTP_201_CREATED, data={"source_id": stripe_response.source_id})
+        return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source.source_id})
