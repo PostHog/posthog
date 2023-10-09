@@ -4,6 +4,6 @@
 
 #include "antlr4-runtime.h"
 
-std::string parse_string(std::string text);
+std::string unquote_string(std::string text);
 
-std::string parse_string_literal(antlr4::tree::TerminalNode* node);
+std::string unquote_string_terminal(antlr4::tree::TerminalNode* node);
