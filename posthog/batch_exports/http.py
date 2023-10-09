@@ -180,7 +180,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 group_properties={
                     "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
                 },
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             ):
                 raise PermissionDenied("Higher frequency exports are not enabled for this team.")
