@@ -170,11 +170,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
 
-        if validated_data["interval"] not in ("hour", "day", "week") and not posthoganalytics.feature_enabled(
-            "high-frequency-batch-exports",
-            str(Team.objects.get(id=team_id).uuid),
-        ):
-            raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+        if validated_data["interval"] not in ("hour", "day", "week"):
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
 
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
