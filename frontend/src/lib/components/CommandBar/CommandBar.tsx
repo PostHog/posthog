@@ -1,8 +1,6 @@
 import { useRef, forwardRef } from 'react'
 import { useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 
@@ -10,6 +8,7 @@ import { commandBarLogic } from './commandBarLogic'
 import { BarStatus } from './types'
 
 import './index.scss'
+import SearchBar from './SearchBar'
 
 const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
     <div
@@ -66,15 +65,7 @@ function CommandBar(): JSX.Element | null {
     return (
         <CommandBarOverlay>
             <CommandBarContainer ref={containerRef}>
-                <div className="border-b">
-                    <LemonInput
-                        type="search"
-                        className="command-bar__search-input"
-                        fullWidth
-                        suffix={<KeyboardShortcut escape muted />}
-                        autoFocus
-                    />
-                </div>
+                <SearchBar />
             </CommandBarContainer>
         </CommandBarOverlay>
     )
