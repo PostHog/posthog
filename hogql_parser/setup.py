@@ -20,12 +20,12 @@ module = Extension(
         "parser.cpp",
     ],
     include_dirs=[
-        f"{homebrew_location}/include/" if is_macos else "/usr/include/",
-        f"{homebrew_location}/include/antlr4-runtime/" if is_macos else "/usr/include/antlr4-runtime/",
-    ],
-    library_dirs=[
-        f"{homebrew_location}/lib/" if is_macos else "/usr/lib64/",
-    ],
+        f"{homebrew_location}/include/",
+        f"{homebrew_location}/include/antlr4-runtime/",
+    ]
+    if is_macos
+    else ["/usr/include/", "/usr/include/antlr4-runtime/"],
+    library_dirs=[f"{homebrew_location}/lib/"] if is_macos else ["/usr/lib/", "/usr/lib64/"],
     libraries=["antlr4-runtime"],
     extra_compile_args=["-std=c++20"],
 )
