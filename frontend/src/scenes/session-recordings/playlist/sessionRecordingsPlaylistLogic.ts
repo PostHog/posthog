@@ -544,12 +544,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return recordings.find((rec) => rec.id === activeSessionRecordingId)
             },
         ],
-        pinnedRecordingIds: [
-            (s) => [s.pinnedRecordings],
-            (pinnedRecordings): string[] => {
-                return pinnedRecordings?.map((x) => x.id) ?? []
-            },
-        ],
         nextSessionRecording: [
             (s) => [s.activeSessionRecording, s.recordings, s.autoplayDirection],
             (activeSessionRecording, recordings, autoplayDirection): Partial<SessionRecordingType> | undefined => {
@@ -590,7 +584,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 return addedAdvancedFilters(filters, defaultFilters)
             },
         ],
-        recordings: [
+
+        otherRecordings: [
             (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId],
             (
                 sessionRecordings,
@@ -598,21 +593,24 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 pinnedRecordings,
                 selectedRecordingId
             ): SessionRecordingType[] => {
-                const allRecordings = [...pinnedRecordings].concat(
-                    sessionRecordings.filter((rec) => {
-                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                            return false
-                        }
+                return sessionRecordings.filter((rec) => {
+                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                        return false
+                    }
 
-                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                            return false
-                        }
+                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
 
-                        return true
-                    })
-                )
+                    return true
+                })
+            },
+        ],
 
-                return allRecordings
+        recordings: [
+            (s) => [s.pinnedRecordings, s.otherRecordings],
+            (pinnedRecordings, otherRecordings): SessionRecordingType[] => {
+                return [...pinnedRecordings, ...otherRecordings]
             },
         ],
     }),

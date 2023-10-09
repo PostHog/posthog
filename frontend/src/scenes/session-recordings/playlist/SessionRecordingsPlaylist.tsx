@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingType, ReplayTabs } from '~/types'
 import {
@@ -11,7 +11,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -60,7 +60,8 @@ function RecordingsLists(): JSX.Element {
     const {
         filters,
         hasNext,
-        recordings,
+        pinnedRecordings,
+        otherRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecordingId,
         showFilters,
@@ -71,7 +72,6 @@ function RecordingsLists(): JSX.Element {
         showAdvancedFilters,
         hasAdvancedFilters,
         logicProps,
-        pinnedRecordingIds,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -136,7 +136,7 @@ function RecordingsLists(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Showing {recordings.length} results.
+                                        Showing {otherRecordings.length + pinnedRecordings.length} results.
                                         <br />
                                         Scrolling to the bottom or the top of the list will load older or newer
                                         recordings respectively.
@@ -144,7 +144,9 @@ function RecordingsLists(): JSX.Element {
                                 }
                             >
                                 <span>
-                                    <CounterBadge>{Math.min(999, recordings.length)}+</CounterBadge>
+                                    <CounterBadge>
+                                        {Math.min(999, otherRecordings.length + pinnedRecordings.length)}+
+                                    </CounterBadge>
                                 </span>
                             </Tooltip>
                         </span>
@@ -200,22 +202,38 @@ function RecordingsLists(): JSX.Element {
                     <SessionRecordingsPlaylistSettings />
                 ) : null}
 
-                {recordings?.length ? (
+                {pinnedRecordings.length || otherRecordings.length ? (
                     <ul>
-                        {recordings.map((rec, i) => (
-                            <Fragment key={rec.id}>
-                                {i > 0 && <div className="border-t" />}
+                        {pinnedRecordings.map((rec) => (
+                            <div key={rec.id} className="border-b">
                                 <SessionRecordingPreview
                                     recording={rec}
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeSessionRecordingId === rec.id}
-                                    pinned={pinnedRecordingIds.includes(rec.id)}
+                                    pinned={true}
                                 />
-                            </Fragment>
+                            </div>
                         ))}
 
-                        <LemonDivider className="my-0" />
+                        {pinnedRecordings.length && otherRecordings.length ? (
+                            <div className="px-3 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
+                                Other recordings
+                            </div>
+                        ) : null}
+
+                        {otherRecordings.map((rec) => (
+                            <div key={rec.id} className="border-b">
+                                <SessionRecordingPreview
+                                    recording={rec}
+                                    onClick={() => onRecordingClick(rec)}
+                                    onPropertyClick={onPropertyClick}
+                                    isActive={activeSessionRecordingId === rec.id}
+                                    pinned={false}
+                                />
+                            </div>
+                        ))}
+
                         <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                             {sessionRecordingsResponseLoading ? (
                                 <>
@@ -277,7 +295,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         autoPlay: props.autoPlay ?? true,
     }
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const { activeSessionRecording, activeSessionRecordingId, matchingEventsMatchType, pinnedRecordingIds } =
+    const { activeSessionRecording, activeSessionRecordingId, matchingEventsMatchType, pinnedRecordings } =
         useValues(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -309,7 +327,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                                 matchingEventsMatchType={matchingEventsMatchType}
                                 playlistLogic={logic}
                                 noBorder
-                                pinned={pinnedRecordingIds.includes(activeSessionRecordingId)}
+                                pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
                                 setPinned={
                                     props.onPinnedChange
                                         ? (pinned) => {
