@@ -173,6 +173,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    CMD_K_SEARCH: 'cmd-k-search', // owner: @thmsobrmlr
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
