@@ -50,6 +50,7 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
                             <LemonSelect
                                 value={selectedTableName}
                                 fullWidth
+                                allowClear
                                 options={tableOptions}
                                 onSelect={selectTableName}
                                 placeholder="Select a table"
