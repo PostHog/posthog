@@ -47,6 +47,8 @@ function CommandBar(): JSX.Element | null {
             } else {
                 toggleSearchBar()
             }
+        } else if (event.key === 'Escape') {
+            hideCommandBar()
         }
     })
 
