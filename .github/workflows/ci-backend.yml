@@ -119,7 +119,7 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install python dependencies
+            - name: Install Python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   cd current
@@ -165,6 +165,18 @@ jobs:
                   cd ../current
                   antlr | grep "Version"
                   npm run grammar:build && git diff --exit-code
+
+            - name: Check if hogql-parser versions are in sync
+              shell: bash
+              run: |
+                  local=$(python hogql_parser/setup.py --version)
+                  required=$(grep 'hogql-parser' requirements.txt | cut -d "=" -f3)
+                  if [[ "$required" == "$local" ]]; then
+                      echo "Version $required of hogql-parser specified in requirements.txt is not the same as $local in hogql_parser/setup.py"
+                      echo "This needs to be resolved before this PR is merged"
+                      echo "If $local is not yet available on PyPI, wait for the \"Release hogql-parser\" workflow to finish"
+                      exit 1
+                  fi
 
     check-migrations:
         needs: changes

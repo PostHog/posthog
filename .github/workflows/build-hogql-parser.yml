@@ -36,9 +36,8 @@ jobs:
     build-wheels:
         name: Build wheels on ${{ matrix.os }}
         needs: check-version
-        # if: github.ref == 'refs/heads/master' TODO: Only build on master once the containers build on ARM
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 120 # The Linux ARM builds are painfully slow
+        timeout-minutes: 30
         strategy:
             matrix:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
