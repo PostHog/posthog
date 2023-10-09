@@ -251,10 +251,10 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
-    elif interval == "every-5-minutes":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=5)
-    elif interval == "every-10-minutes":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=10)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(**kwargs)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 

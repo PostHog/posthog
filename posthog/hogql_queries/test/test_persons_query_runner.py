@@ -1,0 +1,130 @@
+from posthog.hogql import ast
+from posthog.hogql.visitor import clear_locations
+from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
+from posthog.models.utils import UUIDT
+from posthog.schema import PersonsQuery, PersonPropertyFilter, HogQLPropertyFilter, PropertyOperator
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+
+
+class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+    random_uuid: str
+
+    def _create_random_persons(self) -> str:
+        random_uuid = str(UUIDT())
+        for index in range(10):
+            _create_person(
+                properties={
+                    "email": f"jacob{index}@{random_uuid}.posthog.com",
+                    "name": f"Mr Jacob {random_uuid}",
+                    "random_uuid": random_uuid,
+                    "index": index,
+                },
+                team=self.team,
+                distinct_ids=[f"id-{random_uuid}-{index}"],
+                is_identified=True,
+            )
+        flush_persons_and_events()
+        return random_uuid
+
+    def _create_runner(self, query: PersonsQuery) -> PersonsQueryRunner:
+        return PersonsQueryRunner(team=self.team, query=query)
+
+    def setUp(self):
+        super().setUp()
+        self.random_uuid = self._create_random_persons()
+
+    def test_default_persons_query(self):
+        runner = self._create_runner(PersonsQuery())
+
+        query = runner.to_query()
+        query = clear_locations(query)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Tuple(
+                    exprs=[
+                        ast.Field(chain=["id"]),
+                        ast.Field(chain=["properties"]),
+                        ast.Field(chain=["created_at"]),
+                        ast.Field(chain=["is_identified"]),
+                    ]
+                ),
+                ast.Field(chain=["id"]),
+                ast.Field(chain=["created_at"]),
+                ast.Constant(value=1),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=None,
+            limit=ast.Constant(value=101),
+            offset=ast.Constant(value=0),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
+        )
+        self.assertEqual(clear_locations(query), expected)
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 10)
+
+    def test_persons_query_properties(self):
+        runner = self._create_runner(
+            PersonsQuery(
+                properties=[
+                    PersonPropertyFilter(key="random_uuid", value=self.random_uuid, operator=PropertyOperator.exact),
+                    HogQLPropertyFilter(key="toInt(properties.index) > 5"),
+                ]
+            )
+        )
+        self.assertEqual(len(runner.calculate().results), 4)
+
+    def test_persons_query_fixed_properties(self):
+        runner = self._create_runner(
+            PersonsQuery(
+                fixedProperties=[
+                    PersonPropertyFilter(key="random_uuid", value=self.random_uuid, operator=PropertyOperator.exact),
+                    HogQLPropertyFilter(key="toInt(properties.index) < 2"),
+                ]
+            )
+        )
+        self.assertEqual(len(runner.calculate().results), 2)
+
+    def test_persons_query_search_email(self):
+        self._create_random_persons()
+        runner = self._create_runner(PersonsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(PersonsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
+        self.assertEqual(len(runner.calculate().results), 1)
+
+    def test_persons_query_search_name(self):
+        runner = self._create_runner(PersonsQuery(search=f"Mr Jacob {self.random_uuid}"))
+        self.assertEqual(len(runner.calculate().results), 10)
+        runner = self._create_runner(PersonsQuery(search=f"MR JACOB {self.random_uuid}"))
+        self.assertEqual(len(runner.calculate().results), 10)
+
+    def test_persons_query_search_distinct_id(self):
+        runner = self._create_runner(PersonsQuery(search=f"id-{self.random_uuid}-9"))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(PersonsQuery(search=f"id-{self.random_uuid}-9"))
+        self.assertEqual(len(runner.calculate().results), 1)
+
+    def test_persons_query_aggregation_select_having(self):
+        runner = self._create_runner(PersonsQuery(select=["properties.name", "count()"]))
+        results = runner.calculate().results
+        self.assertEqual(results, [[f"Mr Jacob {self.random_uuid}", 10]])
+
+    def test_persons_query_order_by(self):
+        runner = self._create_runner(PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
+        results = runner.calculate().results
+        self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
+
+    def test_persons_query_limit(self):
+        runner = self._create_runner(
+            PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
+        )
+        response = runner.calculate()
+        self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
+        self.assertEqual(response.hasMore, True)
+
+        runner = self._create_runner(
+            PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1, offset=2)
+        )
+        response = runner.calculate()
+        self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
+        self.assertEqual(response.hasMore, True)

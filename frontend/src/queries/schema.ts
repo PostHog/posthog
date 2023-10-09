@@ -43,6 +43,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    PersonsQuery = 'PersonsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -74,13 +75,14 @@ export enum NodeKind {
 }
 
 export type AnyDataNode =
-    | EventsNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
-    | TimeToSeeDataSessionsQuery
     | WebOverviewStatsQuery
     | WebTopSourcesQuery
     | WebTopClicksQuery
@@ -297,6 +299,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | EventsNode
         | EventsQuery
         | PersonsNode
+        | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewStatsQuery
@@ -486,8 +489,9 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'show
 } // using everything except what it inherits from FilterType
 
 export interface QueryResponse {
-    results: unknown
+    results: unknown[]
     timings?: QueryTiming[]
+    hogql?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
@@ -506,6 +510,27 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
+}
+
+export interface PersonsQueryResponse {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+}
+
+export interface PersonsQuery extends DataNode {
+    kind: NodeKind.PersonsQuery
+    select?: HogQLExpression[]
+    search?: string
+    properties?: AnyPropertyFilter[]
+    fixedProperties?: AnyPropertyFilter[]
+    orderBy?: string[]
+    limit?: number
+    offset?: number
+    response?: PersonsQueryResponse
 }
 
 export type WebAnalyticsFilters = any
