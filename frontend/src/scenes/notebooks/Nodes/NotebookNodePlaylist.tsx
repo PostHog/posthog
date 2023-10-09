@@ -21,7 +21,6 @@ import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } f
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import NotebookSidebar from '../Notebook/NotebookSidebar'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, nodeId } = props.attributes
@@ -127,19 +126,15 @@ export const Settings = ({
 
     return (
         <ErrorBoundary>
-            <NotebookSidebar.Settings>
-                <NotebookSidebar.Widget label="Settings">
-                    <SessionRecordingsFilters
-                        filters={{ ...defaultFilters, ...filters }}
-                        setFilters={(filters) => updateAttributes({ filters })}
-                        showPropertyFilters
-                        onReset={() => updateAttributes({ filters: undefined })}
-                        hasAdvancedFilters={hasAdvancedFilters}
-                        showAdvancedFilters={showAdvancedFilters}
-                        setShowAdvancedFilters={setShowAdvancedFilters}
-                    />
-                </NotebookSidebar.Widget>
-            </NotebookSidebar.Settings>
+            <SessionRecordingsFilters
+                filters={{ ...defaultFilters, ...filters }}
+                setFilters={(filters) => updateAttributes({ filters })}
+                showPropertyFilters
+                onReset={() => updateAttributes({ filters: undefined })}
+                hasAdvancedFilters={hasAdvancedFilters}
+                showAdvancedFilters={showAdvancedFilters}
+                setShowAdvancedFilters={setShowAdvancedFilters}
+            />
         </ErrorBoundary>
     )
 }

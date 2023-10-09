@@ -22,7 +22,6 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
-import NotebookSidebar from '../Notebook/NotebookSidebar'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -119,18 +118,14 @@ export const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeRecordingAttributes>): JSX.Element => {
     return (
-        <NotebookSidebar.Settings>
-            <NotebookSidebar.Widget label="Settings">
-                <div className="p-3">
-                    <LemonSwitch
-                        onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
-                        label="Hide Inspector"
-                        checked={attributes.noInspector}
-                        fullWidth={true}
-                    />
-                </div>
-            </NotebookSidebar.Widget>
-        </NotebookSidebar.Settings>
+        <div className="p-3">
+            <LemonSwitch
+                onChange={() => updateAttributes({ noInspector: !attributes.noInspector })}
+                label="Hide Inspector"
+                checked={attributes.noInspector}
+                fullWidth={true}
+            />
+        </div>
     )
 }
 

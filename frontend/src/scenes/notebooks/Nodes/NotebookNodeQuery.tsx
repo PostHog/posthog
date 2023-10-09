@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import NotebookSidebar from '../Notebook/NotebookSidebar'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -124,52 +123,18 @@ export const Settings = ({
         return modifiedQuery
     }, [query])
 
-    return (
-        <NotebookSidebar.Settings>
-            {attributes.query.kind === NodeKind.SavedInsightNode ? (
-                <NotebookSidebar.Widget label="Saved Insight">
-                    <SavedInsightSettings shortId={attributes.query.shortId} updateAttributes={updateAttributes} />
-                </NotebookSidebar.Widget>
-            ) : (
-                <NotebookSidebar.Widget label={`Editing '${attributes.title}'`}>
-                    <div className="p-3">
-                        <Query
-                            query={modifiedQuery}
-                            uniqueKey={attributes.nodeId}
-                            readOnly={false}
-                            setQuery={(t) => {
-                                updateAttributes({
-                                    query: {
-                                        ...attributes.query,
-                                        source: (t as DataTableNode | InsightVizNode).source,
-                                    } as QuerySchema,
-                                })
-                            }}
-                        />
-                    </div>
-                </NotebookSidebar.Widget>
-            )}
-        </NotebookSidebar.Settings>
-    )
-}
-
-const SavedInsightSettings = ({
-    shortId,
-    updateAttributes,
-}: {
-    shortId: InsightShortId
-    updateAttributes: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>['updateAttributes']
-}): JSX.Element => {
     const detachSavedInsight = (): void => {
-        const insightProps: InsightLogicProps = { dashboardItemId: shortId }
-        const dataLogic = insightDataLogic.findMounted(insightProps)
+        if (attributes.query.kind === NodeKind.SavedInsightNode) {
+            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+            const dataLogic = insightDataLogic.findMounted(insightProps)
 
-        if (dataLogic) {
-            updateAttributes({ query: dataLogic.values.query as QuerySchema })
+            if (dataLogic) {
+                updateAttributes({ query: dataLogic.values.query as QuerySchema })
+            }
         }
     }
 
-    return (
+    return attributes.query.kind === NodeKind.SavedInsightNode ? (
         <div className="p-3 space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
@@ -183,7 +148,7 @@ const SavedInsightSettings = ({
                     type="secondary"
                     fullWidth
                     className="flex flex-1"
-                    to={urls.insightEdit(shortId)}
+                    to={urls.insightEdit(attributes.query.shortId)}
                 >
                     Edit the insight
                 </LemonButton>
@@ -197,6 +162,22 @@ const SavedInsightSettings = ({
                     Detach from insight
                 </LemonButton>
             </div>
+        </div>
+    ) : (
+        <div className="p-3">
+            <Query
+                query={modifiedQuery}
+                uniqueKey={attributes.nodeId}
+                readOnly={false}
+                setQuery={(t) => {
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
+            />
         </div>
     )
 }
