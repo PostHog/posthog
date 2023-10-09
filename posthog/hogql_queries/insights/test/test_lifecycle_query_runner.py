@@ -9,7 +9,7 @@ from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
-class TestLifecycleHogQLQuery(ClickhouseTestMixin, APIBaseTest):
+class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:

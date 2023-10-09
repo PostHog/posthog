@@ -206,3 +206,11 @@ export function SurveyView(): JSX.Element {
     }, [])
     return <App />
 }
+
+export function SurveyNotFound(): JSX.Element {
+    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
+    useEffect(() => {
+        router.actions.push(urls.survey('1234566789'))
+    }, [])
+    return <App />
+}

@@ -79,22 +79,25 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/EventsQuery"
-                },
-                {
                     "$ref": "#/definitions/ActionsNode"
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
                 },
                 {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLMetadata"
-                },
-                {
-                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewStatsQuery"
@@ -395,6 +398,9 @@
                         },
                         {
                             "$ref": "#/definitions/PersonsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/PersonsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -1334,9 +1340,6 @@
                 "show_values_on_series": {
                     "type": "boolean"
                 },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
-                },
                 "toggledLifecycles": {
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
@@ -1415,6 +1418,9 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -1636,6 +1642,90 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
+                "orderBy": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse",
+                    "description": "Cached query response"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "select": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "columns", "types", "hogql"],
             "type": "object"
         },
         "PropertyFilterValue": {
@@ -2022,10 +2112,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ShownAsValue": {
-            "enum": ["Volume", "Stickiness", "Lifecycle"],
-            "type": "string"
-        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2051,9 +2137,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 }
             },
             "type": "object"
@@ -2197,9 +2280,6 @@
                 "show_values_on_series": {
                     "type": "boolean"
                 },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
-                },
                 "smoothing_intervals": {
                     "type": "number"
                 }
@@ -2279,6 +2359,9 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2331,6 +2414,9 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -2386,6 +2472,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2440,6 +2529,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2493,6 +2585,9 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "is_cached": {
                     "type": "boolean"
