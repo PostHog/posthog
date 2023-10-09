@@ -23,7 +23,7 @@ import {
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeWidget,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
@@ -36,7 +36,7 @@ export type NotebookNodeLogicProps = {
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    widgets: NotebookNodeWidget[]
+    settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
@@ -116,7 +116,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        settings: [(_, p) => [p.settings], (settings) => settings],
 
         sendMessage: [
             (s) => [s.messageListeners],
