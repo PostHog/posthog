@@ -57,6 +57,7 @@ export const NotebookSidebarWidget = ({ label, children }: { label: string; chil
                     </LemonButton>
                 </>
             }
+            className="NotebookSidebar__widget"
         >
             {children}
         </LemonWidget>

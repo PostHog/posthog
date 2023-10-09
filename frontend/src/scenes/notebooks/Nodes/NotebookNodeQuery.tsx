@@ -124,21 +124,12 @@ export const Settings = ({
         return modifiedQuery
     }, [query])
 
-    const detachSavedInsight = (): void => {
-        if (attributes.query.kind === NodeKind.SavedInsightNode) {
-            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
-            const dataLogic = insightDataLogic.findMounted(insightProps)
-
-            if (dataLogic) {
-                updateAttributes({ query: dataLogic.values.query as QuerySchema })
-            }
-        }
-    }
-
     return (
         <NotebookSidebar.Settings>
             {attributes.query.kind === NodeKind.SavedInsightNode ? (
-                <SavedInsightSettings shortId={attributes.query.shortId} detach={detachSavedInsight} />
+                <NotebookSidebar.Widget label="Saved Insight">
+                    <SavedInsightSettings shortId={attributes.query.shortId} updateAttributes={updateAttributes} />
+                </NotebookSidebar.Widget>
             ) : (
                 <NotebookSidebar.Widget label={`Editing '${attributes.title}'`}>
                     <div className="p-3">
@@ -162,32 +153,51 @@ export const Settings = ({
     )
 }
 
-const SavedInsightSettings = ({ shortId, detach }: { shortId: InsightShortId; detach: () => void }): JSX.Element => {
-    return (
-        <NotebookSidebar.Widget label="Saved Insight">
-            <div className="p-3 space-y-2">
-                <div className="text-lg font-semibold">Insight created outside of this notebook</div>
-                <div>
-                    Changes made to the original insight will be reflected in the notebook. Or you can detach from the
-                    insight to make changes independently in the notebook.
-                </div>
+const SavedInsightSettings = ({
+    shortId,
+    updateAttributes,
+}: {
+    shortId: InsightShortId
+    updateAttributes: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>['updateAttributes']
+}): JSX.Element => {
+    const detachSavedInsight = (): void => {
+        const insightProps: InsightLogicProps = { dashboardItemId: shortId }
+        const dataLogic = insightDataLogic.findMounted(insightProps)
 
-                <div className="space-y-2">
-                    <LemonButton
-                        center={true}
-                        type="secondary"
-                        fullWidth
-                        className="flex flex-1"
-                        to={urls.insightEdit(shortId)}
-                    >
-                        Edit the insight
-                    </LemonButton>
-                    <LemonButton center={true} fullWidth type="secondary" className="flex flex-1" onClick={detach}>
-                        Detach from insight
-                    </LemonButton>
-                </div>
+        if (dataLogic) {
+            updateAttributes({ query: dataLogic.values.query as QuerySchema })
+        }
+    }
+
+    return (
+        <div className="p-3 space-y-2">
+            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
+            <div>
+                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                insight to make changes independently in the notebook.
             </div>
-        </NotebookSidebar.Widget>
+
+            <div className="space-y-2">
+                <LemonButton
+                    center={true}
+                    type="secondary"
+                    fullWidth
+                    className="flex flex-1"
+                    to={urls.insightEdit(shortId)}
+                >
+                    Edit the insight
+                </LemonButton>
+                <LemonButton
+                    center={true}
+                    fullWidth
+                    type="secondary"
+                    className="flex flex-1"
+                    onClick={detachSavedInsight}
+                >
+                    Detach from insight
+                </LemonButton>
+            </div>
+        </div>
     )
 }
 

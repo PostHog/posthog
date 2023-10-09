@@ -10,13 +10,21 @@ export interface LemonWidgetProps {
     onClose?: () => void
     actions?: React.ReactNode
     children: React.ReactChild
+    className?: string
 }
 
-export function LemonWidget({ title, collapsible = true, onClose, actions, children }: LemonWidgetProps): JSX.Element {
+export function LemonWidget({
+    title,
+    collapsible = true,
+    onClose,
+    actions,
+    children,
+    className,
+}: LemonWidgetProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState<boolean>(true)
 
     return (
-        <Widget>
+        <Widget className={className}>
             <Header>
                 {collapsible ? (
                     <>
