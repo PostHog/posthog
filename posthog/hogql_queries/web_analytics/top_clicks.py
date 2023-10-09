@@ -31,6 +31,7 @@ AND el_text IS NOT NULL
 GROUP BY
     el_text
 ORDER BY total_clicks DESC
+LIMIT 10
                 """,
                 timings=self.timings,
             )
