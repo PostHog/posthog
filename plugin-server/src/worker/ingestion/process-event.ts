@@ -407,7 +407,9 @@ export const createSessionReplayEvent = (
     const timestamps = events
         .filter((e) => !!e?.timestamp)
         .filter((e) => Math.sign(e.timestamp) === 1)
-        .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
+        .map((e) => DateTime.fromMillis(e.timestamp))
+        .filter((e) => e.isValid)
+        .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
         .sort()
 
     // but every event where chunk index = 0 must have an eventsSummary
