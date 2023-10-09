@@ -3,7 +3,7 @@ import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
@@ -147,7 +147,8 @@ export class ConsoleLogsIngester {
     }
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
 
