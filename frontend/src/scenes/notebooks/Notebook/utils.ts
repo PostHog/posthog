@@ -1,4 +1,5 @@
 // Helpers for Kea issue with double importing
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
@@ -25,8 +26,8 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
-    title: string | ((attributes: T) => Promise<string>)
     height?: string | number
+    title: string
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -45,11 +46,13 @@ export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit
         node: NotebookNode
     }
 
-export type NotebookNodeWidget = {
-    key: string
-    label?: string
+export type NotebookNodeSettings =
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
-    Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
+    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
+
+export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
+    text: string
+    onClick: () => void
 }
 
 export interface NotebookEditor {
@@ -63,7 +66,6 @@ export interface NotebookEditor {
     setSelection: (position: number) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
-    isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
@@ -73,6 +75,7 @@ export interface NotebookEditor {
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
     scrollToSelection: () => void
+    scrollToPosition: (position: number) => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
@@ -98,7 +101,7 @@ export const textContent = (node: any): string => {
     const customOrTitleSerializer: TextSerializer = (props): string => {
         // TipTap chooses whether to add a separator based on a couple of factors
         // but, we always want a separator since this text is for search purposes
-        const serializedText = props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+        const serializedText = props.node.type.spec.serializedText?.(props.node.attrs) || props.node.attrs?.title || ''
         if (serializedText.length > 0 && serializedText[serializedText.length - 1] !== '\n') {
             return serializedText + '\n'
         }

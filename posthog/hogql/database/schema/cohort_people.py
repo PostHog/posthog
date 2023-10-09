@@ -23,11 +23,9 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
 
     table_name = "raw_cohort_people"
 
+    # must always include the person and cohort ids regardless of what other fields are requested
     requested_fields = {"person_id": ["person_id"], "cohort_id": ["cohort_id"], **requested_fields}
-
-    fields: List[ast.Expr] = [
-        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
-    ]
+    fields: List[ast.Expr] = [ast.Field(chain=[table_name] + chain) for name, chain in requested_fields.items()]
 
     return ast.SelectQuery(
         select=fields,

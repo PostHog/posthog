@@ -319,7 +319,6 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
                     formula: 'A+B',
-                    shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
                 breakdown: {
@@ -354,7 +353,6 @@ describe('filtersToQueryNode', () => {
                 funnel_correlation_person_entity: { a: 1 },
                 funnel_correlation_person_converted: 'true',
                 funnel_custom_steps: [1, 2, 3],
-                funnel_advanced: true,
                 layout: FunnelLayout.horizontal,
                 funnel_step: 1,
                 entrance_period_start: 'abc',
@@ -371,7 +369,6 @@ describe('filtersToQueryNode', () => {
                     funnel_from_step: 1,
                     funnel_to_step: 2,
                     funnel_step_reference: FunnelStepReference.total,
-                    funnel_step_breakdown: 1,
                     breakdown_attribution_type: BreakdownAttributionType.AllSteps,
                     breakdown_attribution_value: 1,
                     bin_count: 'auto',
@@ -384,14 +381,7 @@ describe('filtersToQueryNode', () => {
                             funnel_to_step: 1,
                         },
                     ],
-                    funnel_correlation_person_entity: { a: 1 },
-                    funnel_correlation_person_converted: 'true',
-                    funnel_custom_steps: [1, 2, 3],
-                    funnel_advanced: true,
                     layout: FunnelLayout.horizontal,
-                    funnel_step: 1,
-                    entrance_period_start: 'abc',
-                    drop_off: true,
                     hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
             }
@@ -465,9 +455,6 @@ describe('filtersToQueryNode', () => {
                     funnel_filter: { a: 1 },
                     exclude_events: ['e', 'f'],
                     step_limit: 1,
-                    path_start_key: 'g',
-                    path_end_key: 'h',
-                    path_dropoff_key: 'i',
                     path_replacements: true,
                     local_path_cleaning_filters: [{ alias: 'home' }],
                     edge_limit: 1,
@@ -486,7 +473,6 @@ describe('filtersToQueryNode', () => {
                 compare: true,
                 show_legend: true,
                 hidden_legend_keys: { 0: true, 10: true },
-                stickiness_days: 2,
                 shown_as: ShownAsValue.STICKINESS,
                 display: ChartDisplayType.ActionsLineGraph,
             }
@@ -499,8 +485,6 @@ describe('filtersToQueryNode', () => {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    stickiness_days: 2,
-                    shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,
                 },
             }
@@ -521,7 +505,6 @@ describe('filtersToQueryNode', () => {
             const query: Partial<LifecycleQuery> = {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
                     toggledLifecycles: ['new', 'dormant'],
                 },
             }
@@ -657,9 +640,6 @@ describe('filtersToQueryNode', () => {
                     },
                 ],
                 interval: 'day',
-                lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
-                },
             }
             expect(result).toEqual(query)
         })

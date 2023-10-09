@@ -10,7 +10,15 @@ import {
 } from '@tiptap/react'
 import { ReactNode, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconClose, IconDragHandle, IconFilter, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import {
+    IconClose,
+    IconDragHandle,
+    IconFilter,
+    IconLink,
+    IconPlusMini,
+    IconUnfoldLess,
+    IconUnfoldMore,
+} from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -24,14 +32,16 @@ import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
-    NotebookNodeWidget,
     CustomNotebookNodeAttributes,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     nodeType: NotebookNodeType
-    children?: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    children?: ReactNode
+
+    // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
+    defaultTitle: string
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
@@ -44,11 +54,11 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     autoHideMetadata?: boolean
     /** Expand the node if the component is clicked */
     expandOnClick?: boolean
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
 }
 
-export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    title: titleOrGenerator,
+function NodeWrapper<T extends CustomNotebookNodeAttributes>({
+    defaultTitle,
     nodeType,
     children,
     selected,
@@ -64,11 +74,11 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     getPos,
     attributes,
     updateAttributes,
-    widgets = [],
+    settings = null,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
-    const { setEditingNodeId } = useActions(mountedNotebookLogic)
+    const { isEditable, editingNodeId } = useValues(notebookLogic)
+    const { setEditingNodeId } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -80,13 +90,12 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         nodeId,
         notebookLogic: mountedNotebookLogic,
         getPos,
-        title: titleOrGenerator,
         resizeable: resizeableOrGenerator,
-        widgets,
+        settings,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { title, resizeable, expanded } = useValues(nodeLogic)
+    const { resizeable, expanded, actions } = useValues(nodeLogic)
     const { setExpanded, deleteNode } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
@@ -115,6 +124,8 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     }, [resizeable, updateAttributes])
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
+    // If a title is set on the attrs we use it. Otherwise we use the base component title.
+    const title = attributes.title ? attributes.title : defaultTitle
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
@@ -122,93 +133,123 @@ export function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
-                <NodeViewWrapper
-                    ref={ref}
-                    as="div"
-                    className={clsx(nodeType, 'NotebookNode', {
-                        'NotebookNode--selected': isEditable && selected,
-                        'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                    })}
-                >
-                    <ErrorBoundary>
-                        {!inView ? (
-                            <>
-                                <div className="h-4" /> {/* Placeholder for the drag handle */}
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <div style={{ height: heightEstimate }}>
-                                    <LemonSkeleton className="h-full" />
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className="NotebookNode__meta" data-drag-handle>
-                                    <LemonButton
-                                        onClick={() => setExpanded(!expanded)}
-                                        size="small"
-                                        status="primary-alt"
-                                        className="flex-1"
-                                        icon={
-                                            isEditable ? (
-                                                <IconDragHandle className="cursor-move text-base shrink-0" />
-                                            ) : undefined
-                                        }
-                                    >
-                                        <span className="flex-1 cursor-pointer">{title}</span>
-                                    </LemonButton>
-
-                                    <div className="flex space-x-1">
-                                        {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
-
-                                        {expandable && (
+                <NodeViewWrapper as="div">
+                    <div
+                        ref={ref}
+                        className={clsx(nodeType, 'NotebookNode', {
+                            'NotebookNode--selected': isEditable && selected,
+                            'NotebookNode--auto-hide-metadata': autoHideMetadata,
+                        })}
+                    >
+                        <div className="NotebookNode__box">
+                            <ErrorBoundary>
+                                {!inView ? (
+                                    <>
+                                        <div className="h-4" /> {/* Placeholder for the drag handle */}
+                                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                                        <div style={{ height: heightEstimate }}>
+                                            <LemonSkeleton className="h-full" />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="NotebookNode__meta" data-drag-handle>
                                             <LemonButton
                                                 onClick={() => setExpanded(!expanded)}
                                                 size="small"
-                                                icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                            />
-                                        )}
-
-                                        {widgets.length > 0 ? (
-                                            <LemonButton
-                                                onClick={() =>
-                                                    setEditingNodeId(editingNodeId === nodeId ? null : nodeId)
+                                                status="primary-alt"
+                                                className="flex-1"
+                                                icon={
+                                                    isEditable ? (
+                                                        <IconDragHandle className="cursor-move text-base shrink-0" />
+                                                    ) : undefined
                                                 }
-                                                size="small"
-                                                icon={<IconFilter />}
-                                                active={editingNodeId === nodeId}
-                                            />
-                                        ) : null}
+                                            >
+                                                <span className="flex-1 cursor-pointer">{title}</span>
+                                            </LemonButton>
 
-                                        {isEditable && (
-                                            <LemonButton
-                                                onClick={() => deleteNode()}
-                                                size="small"
-                                                status="danger"
-                                                icon={<IconClose />}
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                                <div
-                                    ref={contentRef}
-                                    className={clsx(
-                                        'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        isEditable && isResizeable && 'resize-y'
-                                    )}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={isResizeable ? { height, minHeight } : {}}
-                                    onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
-                                    onMouseDown={onResizeStart}
-                                >
-                                    {children}
-                                </div>
-                            </>
-                        )}
-                    </ErrorBoundary>
+                                            <div className="flex space-x-1">
+                                                {parsedHref && (
+                                                    <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
+                                                )}
+
+                                                {expandable && (
+                                                    <LemonButton
+                                                        onClick={() => setExpanded(!expanded)}
+                                                        size="small"
+                                                        icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                                    />
+                                                )}
+
+                                                {isEditable ? (
+                                                    <>
+                                                        {settings ? (
+                                                            <LemonButton
+                                                                onClick={() =>
+                                                                    setEditingNodeId(
+                                                                        editingNodeId === nodeId ? null : nodeId
+                                                                    )
+                                                                }
+                                                                size="small"
+                                                                icon={<IconFilter />}
+                                                                active={editingNodeId === nodeId}
+                                                            />
+                                                        ) : null}
+
+                                                        <LemonButton
+                                                            onClick={() => deleteNode()}
+                                                            size="small"
+                                                            status="danger"
+                                                            icon={<IconClose />}
+                                                        />
+                                                    </>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                        <div
+                                            ref={contentRef}
+                                            className={clsx(
+                                                'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
+                                                isEditable && isResizeable && 'resize-y'
+                                            )}
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={isResizeable ? { height, minHeight } : {}}
+                                            onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
+                                            onMouseDown={onResizeStart}
+                                        >
+                                            {children}
+                                        </div>
+                                    </>
+                                )}
+                            </ErrorBoundary>
+                        </div>
+                        {isEditable && actions.length ? (
+                            <div className="NotebookNode__actions">
+                                {actions.map((x, i) => (
+                                    <LemonButton
+                                        key={i}
+                                        type="secondary"
+                                        status="primary"
+                                        size="small"
+                                        icon={x.icon ?? <IconPlusMini />}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            x.onClick()
+                                        }}
+                                    >
+                                        {x.text}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
                 </NodeViewWrapper>
             </BindLogic>
         </NotebookNodeContext.Provider>
     )
 }
+
+// const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
@@ -218,7 +259,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 

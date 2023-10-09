@@ -1,4 +1,5 @@
 import datetime as dt
+import typing
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -23,6 +24,10 @@ from posthog.batch_exports.models import (
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
+
+
+class BatchExportsInputsProtocol(typing.Protocol):
+    team_id: int
 
 
 @dataclass
@@ -52,6 +57,7 @@ class S3BatchExportInputs:
     data_interval_end: str | None = None
     compression: str | None = None
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
 
@@ -72,6 +78,8 @@ class SnowflakeBatchExportInputs:
     table_name: str = "events"
     data_interval_end: str | None = None
     role: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @dataclass
@@ -90,6 +98,8 @@ class PostgresBatchExportInputs:
     table_name: str = "events"
     port: int = 5432
     data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @dataclass
@@ -108,6 +118,7 @@ class BigQueryBatchExportInputs:
     table_id: str = "events"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 DESTINATION_WORKFLOWS = {
@@ -253,6 +264,11 @@ def backfill_export(
 async def backfill_schedule(temporal: Client, schedule_id: str, schedule_backfill: ScheduleBackfill):
     """Async call the Temporal client to execute a backfill on the given schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
+    description = await handle.describe()
+
+    if description.schedule.spec.jitter is not None:
+        schedule_backfill.end_at += description.schedule.spec.jitter
+
     await handle.backfill(schedule_backfill)
 
 

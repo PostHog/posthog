@@ -145,6 +145,35 @@
   
   '
 ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  ) ENGINE = Kafka('test.kafka.broker:9092', 'log_entries_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
   '
   
@@ -733,6 +762,35 @@
   
   '
 ---
+# name: test_create_table_query[kafka_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS kafka_log_entries ON CLUSTER 'posthog'
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  ) ENGINE = Kafka('kafka:9092', 'log_entries_test', 'group1', 'JSONEachRow')
+  
+  '
+---
 # name: test_create_table_query[kafka_performance_events]
   '
   
@@ -928,6 +986,60 @@
       event_count Int64,
       message_count Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
+  PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[log_entries_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS log_entries_mv ON CLUSTER 'posthog'
+  TO posthog_test.log_entries
+  AS SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_log_entries
   
   '
 ---
@@ -1838,6 +1950,41 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS log_entries ON CLUSTER 'posthog'
+  (
+      team_id UInt64,
+      -- The name of the service or product that generated the logs.
+      -- Examples: batch_exports
+      log_source LowCardinality(String),
+      -- An id for the log source.
+      -- Set log_source to avoid collision with ids from other log sources if the id generation is not safe.
+      -- Examples: A batch export id, a cronjob id, a plugin id.
+      log_source_id String,
+      -- A secondary id e.g. for the instance of log_source that generated this log.
+      -- This may be ommitted if log_source is a singleton.
+      -- Examples: A batch export run id, a plugin_config id, a thread id, a process id, a machine id.
+      instance_id String,
+      -- Timestamp indicating when the log was generated.
+      timestamp DateTime64(6, 'UTC'),
+      -- The log level.
+      -- Examples: INFO, WARNING, DEBUG, ERROR.
+      level LowCardinality(String),
+      -- The actual log message.
+      message String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_entries', '{replica}-{shard}', _timestamp)
+  PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+  
+  SETTINGS index_granularity=512
   
   '
 ---

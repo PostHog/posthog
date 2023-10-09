@@ -12,6 +12,8 @@ import {
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 
+import './SessionRecordingScene.scss'
+
 export const scene: SceneExport = {
     logic: sessionRecordingDetailLogic,
     component: SessionRecordingDetail,
@@ -23,7 +25,7 @@ export const scene: SceneExport = {
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
-        <div className="flex flex-col overflow-hidden h-screen">
+        <div className="SessionRecordingScene">
             <PageHeader title={<div>Recording</div>} />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">

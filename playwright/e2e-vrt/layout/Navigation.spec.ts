@@ -6,12 +6,14 @@ test.describe('Navigation', () => {
     test('App Page With Side Bar Hidden (Mobile)', async ({ storyPage }) => {
         await storyPage.resizeToMobile()
         await storyPage.goto(toId('Layout/Navigation', 'App Page With Side Bar Hidden'))
+        await storyPage.mainAppContent.waitFor()
         await storyPage.expectFullPageScreenshot()
     })
 
     test('App Page With Side Bar Shown (Mobile)', async ({ storyPage }) => {
         await storyPage.resizeToMobile()
         await storyPage.goto(toId('Layout/Navigation', 'App Page With Side Bar Shown'))
+        await storyPage.mainAppContent.waitFor()
         await storyPage.expectFullPageScreenshot()
     })
 })

@@ -129,7 +129,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
-    KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -140,11 +139,11 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
-    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
+    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
+    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
@@ -204,6 +203,7 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
+    EXTERNAL_REQUEST_TIMEOUT_MS: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -219,7 +219,10 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_BUFFER_AGE_JITTER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
-    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    SESSION_RECORDING_REDIS_PREFIX: string
+    SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
+    SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
+    SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -268,7 +271,8 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    fetchHostnameGuardTeams: Set<number>
+    /** null means that the hostname guard is enabled for everyone */
+    fetchHostnameGuardTeams: Set<number> | null
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
@@ -647,7 +651,6 @@ export interface ClickHouseEvent extends BaseEvent {
 interface BaseIngestionEvent {
     eventUuid: string
     event: string
-    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
@@ -655,8 +658,15 @@ interface BaseIngestionEvent {
     elementsList: Element[]
 }
 
-/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
-export type PreIngestionEvent = BaseIngestionEvent
+/** Ingestion event before saving, BaseIngestionEvent without elementsList */
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+}
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export interface PostIngestionEvent extends BaseIngestionEvent {

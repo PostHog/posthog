@@ -20,12 +20,14 @@ import {
     JSONContent,
     Node,
     NotebookNode,
+    NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeWidget,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 
 export type NotebookNodeLogicProps = {
     node: NotebookNode
@@ -33,22 +35,11 @@ export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
-    title: string | ((attributes: CustomNotebookNodeAttributes) => Promise<string>)
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    widgets: NotebookNodeWidget[]
+    settings: NotebookNodeSettings
+    messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
 } & NotebookNodeAttributeProperties<any>
-
-async function renderTitle(
-    title: NotebookNodeLogicProps['title'],
-    attrs: NotebookNodeLogicProps['attributes']
-): Promise<string> {
-    if (typeof attrs.title === 'string' && attrs.title.length > 0) {
-        return attrs.title
-    }
-
-    return title instanceof Function ? await title(attrs) : title
-}
 
 const computeResizeable = (
     resizeable: NotebookNodeLogicProps['resizeable'],
@@ -61,8 +52,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     key(({ nodeId }) => nodeId || 'no-node-id-set'),
     actions({
         setExpanded: (expanded: boolean) => ({ expanded }),
-        setTitle: (title: string) => ({ title }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
+        setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -74,6 +65,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        scrollIntoView: true,
+        setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -86,12 +79,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.startExpanded,
             {
                 setExpanded: (_, { expanded }) => expanded,
-            },
-        ],
-        title: [
-            '',
-            {
-                setTitle: (_, { title }) => title,
             },
         ],
         resizeable: [
@@ -112,12 +99,41 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setNextNode: (_, { node }) => node,
             },
         ],
+        actions: [
+            [] as NotebookNodeAction[],
+            {
+                setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
+            },
+        ],
+        messageListeners: [
+            props.messageListeners as NotebookNodeMessagesListeners,
+            {
+                setMessageListeners: (_, { listeners }) => listeners,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        settings: [(_, p) => [p.settings], (settings) => settings],
+
+        sendMessage: [
+            (s) => [s.messageListeners],
+            (messageListeners) => {
+                return <T extends keyof NotebookNodeMessages>(
+                    message: T,
+                    payload: NotebookNodeMessages[T]
+                ): boolean => {
+                    if (!messageListeners[message]) {
+                        return false
+                    }
+
+                    messageListeners[message]?.(payload)
+                    return true
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -153,6 +169,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
         },
 
+        scrollIntoView: () => {
+            values.editor?.scrollToPosition(props.getPos())
+        },
+
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
@@ -160,11 +180,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
             const insertionPosition = props.getPos()
-            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+            values.notebookLogic.actions.insertReplayCommentByTimestamp({
                 timestamp,
                 sessionRecordingId,
-                insertionPosition
-            )
+                knownStartingPosition: insertionPosition,
+                nodeId: props.nodeId,
+            })
         },
 
         setExpanded: ({ expanded }) => {
@@ -183,11 +204,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
-        const renderedTitle = await renderTitle(logic.props.title, logic.props.attributes)
-        logic.actions.setTitle(renderedTitle)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
-        logic.actions.updateAttributes({ title: renderedTitle })
     }),
 
     beforeUnmount((logic) => {

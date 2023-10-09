@@ -2,24 +2,48 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
-import api from 'lib/api'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
 } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
+import { useEffect } from 'react'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = props.attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading } = useValues(earlyAccessFeatureLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        const flagId = (earlyAccessFeature as EarlyAccessFeatureType).feature_flag?.id
+
+        setActions(
+            flagId
+                ? [
+                      {
+                          text: 'View feature flag',
+                          icon: <IconFlag />,
+                          onClick: () => insertAfter(buildFlagContent(flagId)),
+                      },
+                  ]
+                : []
+        )
+    }, [earlyAccessFeature])
+
+    useEffect(() => {
+        props.updateAttributes({
+            title: earlyAccessFeature.name
+                ? `Early Access Management: ${earlyAccessFeature.name}`
+                : 'Early Access Management',
+        })
+    }, [earlyAccessFeature?.name])
 
     return (
         <div>
@@ -80,24 +104,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttribute
                         )}
                     </>
                 ) : null}
-
-                <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        onClick={() => {
-                            insertAfter(
-                                buildFlagContent(
-                                    (earlyAccessFeature as EarlyAccessFeatureType).feature_flag?.id || 'new'
-                                )
-                            )
-                        }}
-                    >
-                        View Feature Flag
-                    </LemonButton>
-                </div>
             </BindLogic>
         </div>
     )
@@ -109,18 +115,7 @@ type NotebookNodeEarlyAccessAttributes = {
 
 export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNodeEarlyAccessAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
-    title: async (attributes) => {
-        const mountedEarlyAccessFeatureLogic = earlyAccessFeatureLogic.findMounted({ id: attributes.id })
-        let title = mountedEarlyAccessFeatureLogic?.values.earlyAccessFeature.name || null
-        if (title === null) {
-            const retrievedEarlyAccessFeature: EarlyAccessFeatureType = await api.earlyAccessFeatures.get(attributes.id)
-            if (retrievedEarlyAccessFeature) {
-                title = retrievedEarlyAccessFeature.name
-            }
-        }
-
-        return title ? `Early Access Management: ${title}` : 'Early Access Management'
-    },
+    defaultTitle: 'Early Access Management',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.earlyAccessFeature(attrs.id),

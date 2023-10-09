@@ -98,7 +98,7 @@ export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
-// TODO: Deprecated; should be removed once backend is updated
+/** @deprecated: should be removed once backend is updated */
 export enum ShownAsValue {
     VOLUME = 'Volume',
     STICKINESS = 'Stickiness',
@@ -148,6 +148,9 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
+    SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
+    WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
+    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
@@ -155,7 +158,6 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
-    SURVEYS_MULTIPLE_CHOICE: 'surveys-multiple-choice', // owner: @liyiy
     CS_DASHBOARDS: 'cs-dashboards', // owner: @pauldambra
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
@@ -166,6 +168,11 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
+    SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
+    SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
+    SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
+    PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -174,7 +181,7 @@ export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
 export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
     [AvailableFeature.ZAPIER]: LicensePlan.Scale,
     [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
-    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.SOCIAL_SSO]: LicensePlan.Scale,
     [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
     [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
     [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,

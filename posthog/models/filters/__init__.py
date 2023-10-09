@@ -19,3 +19,5 @@ __all__ = [
 AnyFilter: TypeAlias = (
     Filter | PathFilter | RetentionFilter | StickinessFilter | SessionRecordingsFilter | PropertiesTimelineFilter
 )
+
+AnyInsightFilter: TypeAlias = Filter | PathFilter | RetentionFilter | StickinessFilter

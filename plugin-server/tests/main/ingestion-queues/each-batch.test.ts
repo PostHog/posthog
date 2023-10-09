@@ -39,7 +39,6 @@ jest.mock('./../../../src/worker/ingestion/utils')
 const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
-    ip: '127.0.0.1',
     teamId: 2,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
@@ -214,7 +213,11 @@ describe('eachBatchX', () => {
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
-                queue.pluginsServer.organizationManager
+                queue.pluginsServer.organizationManager,
+                new Set(),
+                queue.pluginsServer.appMetrics,
+                undefined,
+                queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true

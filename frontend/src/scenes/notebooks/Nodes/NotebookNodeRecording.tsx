@@ -5,7 +5,11 @@ import {
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    SessionRecordingPlayerMode,
+    getCurrentPlayerTime,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { useEffect } from 'react'
@@ -16,6 +20,8 @@ import {
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -32,14 +38,67 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
         noInspector: noInspector,
     }
 
+    const { expanded } = useValues(notebookNodeLogic)
+    const {
+        setActions,
+        insertAfter,
+        insertReplayCommentByTimestamp,
+        setMessageListeners,
+        setExpanded,
+        scrollIntoView,
+    } = useActions(notebookNodeLogic)
+
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
-    const { expanded } = useValues(notebookNodeLogic)
+    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
     useEffect(() => {
         loadRecordingMeta()
     }, [])
     // TODO Only load data when in view...
+
+    useEffect(() => {
+        const person = sessionPlayerMetaData?.person
+        setActions([
+            {
+                text: 'Comment',
+                icon: <IconComment />,
+                onClick: () => {
+                    const time = getCurrentPlayerTime(recordingLogicProps) * 1000
+
+                    insertReplayCommentByTimestamp(time, id)
+                },
+            },
+            person
+                ? {
+                      text: `View ${asDisplay(person)}`,
+                      icon: <IconPerson />,
+                      onClick: () => {
+                          insertAfter({
+                              type: NotebookNodeType.Person,
+                              attrs: {
+                                  id: String(person.distinct_ids[0]),
+                              },
+                          })
+                      },
+                  }
+                : undefined,
+        ])
+    }, [sessionPlayerMetaData?.person?.id])
+
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ time }) => {
+                if (!expanded) {
+                    setExpanded(true)
+                }
+                setPlay()
+
+                seekToTime(time)
+                scrollIntoView()
+            },
+        })
+    }, [])
 
     return !expanded ? (
         <div>
@@ -77,7 +136,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    title: 'Session replay',
+    defaultTitle: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -97,13 +156,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    widgets: [
-        {
-            key: 'settings',
-            label: 'Settings',
-            Component: Settings,
-        },
-    ],
+    settings: Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

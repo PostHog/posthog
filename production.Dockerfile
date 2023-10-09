@@ -1,7 +1,7 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# PostHog has sunset support for self-hosted K8s deployments. 
+# PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
@@ -167,6 +167,10 @@ RUN groupadd -g 1000 posthog && \
     useradd -u 999 -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
+
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist

@@ -25,7 +25,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, PROPERTY_MATH_FUNCTIONS
+from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
 Probability = float
 
@@ -41,16 +41,18 @@ class Variant:
     absolute_exposure: int
 
 
-def uses_count_per_user_aggregation(filter: Filter):
-    entities = filter.entities
-    count_per_actor_keys = COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
-    return any(entity.math in count_per_actor_keys for entity in entities)
+def uses_math_aggregation_by_user_or_property_value(filter: Filter):
+    # sync with frontend: https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/experiments/experimentLogic.tsx#L662
+    # the selector experimentCountPerUserMath
 
-
-def uses_count_per_property_value_aggregation(filter: Filter):
     entities = filter.entities
-    count_per_prop_value_keys = PROPERTY_MATH_FUNCTIONS.keys()
-    return any(entity.math in count_per_prop_value_keys for entity in entities)
+    math_keys = ALL_SUPPORTED_MATH_FUNCTIONS
+
+    # 'sum' doesn't need special handling, we can have custom exposure for sum filters
+    if "sum" in math_keys:
+        math_keys.remove("sum")
+
+    return any(entity.math in math_keys for entity in entities)
 
 
 class ClickhouseTrendExperimentResult:
@@ -89,14 +91,11 @@ class ClickhouseTrendExperimentResult:
                 experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
-        count_per_user_aggregation = uses_count_per_user_aggregation(filter)
-        count_per_property_value_aggregation = uses_count_per_property_value_aggregation(filter)
+        uses_math_aggregation = uses_math_aggregation_by_user_or_property_value(filter)
 
         query_filter = filter.shallow_clone(
             {
-                "display": TRENDS_CUMULATIVE
-                if not (count_per_user_aggregation or count_per_property_value_aggregation)
-                else TRENDS_LINEAR,
+                "display": TRENDS_CUMULATIVE if not uses_math_aggregation else TRENDS_LINEAR,
                 "date_from": start_date_in_project_timezone,
                 "date_to": end_date_in_project_timezone,
                 "explicit_date": True,
@@ -107,7 +106,7 @@ class ClickhouseTrendExperimentResult:
             }
         )
 
-        if count_per_user_aggregation or count_per_property_value_aggregation:
+        if uses_math_aggregation:
             # A trend experiment can have only one metric, so take the first one to calculate exposure
             # We copy the entity to avoid mutating the original filter
             entity = query_filter.shallow_clone({}).entities[0]
@@ -213,9 +212,7 @@ class ClickhouseTrendExperimentResult:
         exposure_counts = {}
         exposure_ratios = {}
 
-        if uses_count_per_user_aggregation(self.query_filter) or uses_count_per_property_value_aggregation(
-            self.query_filter
-        ):
+        if uses_math_aggregation_by_user_or_property_value(self.query_filter):
             filtered_exposure_results = [
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
             ]

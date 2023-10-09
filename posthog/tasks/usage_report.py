@@ -16,6 +16,7 @@ from typing import (
 )
 
 import requests
+from retry import retry
 import structlog
 from dateutil import parser
 from django.conf import settings
@@ -27,6 +28,7 @@ from sentry_sdk import capture_exception
 
 from posthog import version_requirement
 from posthog.celery import app
+from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import FlagRequestType
@@ -45,6 +47,15 @@ logger = structlog.get_logger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 TableSizes = TypedDict("TableSizes", {"posthog_event": int, "posthog_sessionrecordingevent": int})
+
+
+CH_BILLING_SETTINGS = {
+    "max_execution_time": 5 * 60,  # 5 minutes
+}
+
+QUERY_RETRIES = 3
+QUERY_RETRY_DELAY = 1
+QUERY_RETRY_BACKOFF = 2
 
 
 @dataclasses.dataclass
@@ -90,6 +101,9 @@ class UsageReportCounters:
     event_explorer_api_bytes_read: int
     event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
+    # Surveys
+    survey_responses_count_in_period: int
+    survey_responses_count_in_month: int
 
 
 # Instance metadata to be included in oveall report
@@ -314,18 +328,22 @@ def capture_event(
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> List[Tuple[int, int]]:
@@ -348,11 +366,14 @@ def get_teams_with_billable_event_count_in_period(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -363,11 +384,14 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -377,11 +401,14 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
         GROUP BY lib, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -391,11 +418,14 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
         GROUP BY event, team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return results
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
@@ -418,24 +448,30 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
         GROUP BY team_id
     """,
         {"previous_begin": previous_begin, "begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
         FROM session_replay_events
         GROUP BY team_id
-    """
+    """,
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
@@ -461,11 +497,14 @@ def get_teams_with_hogql_metric(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
     return result
 
 
 @timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> List[Tuple[int, int]]:
@@ -490,9 +529,33 @@ def get_teams_with_feature_flag_requests_count_in_period(
             "validity_token": validity_token,
             "target_event": target_event,
         },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
     )
 
     return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_survey_responses_count_in_period(
+    begin: datetime,
+    end: datetime,
+) -> List[Tuple[int, int]]:
+
+    results = sync_execute(
+        """
+        SELECT team_id, COUNT() as count
+        FROM events
+        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
 
 
 @app.task(ignore_result=True, max_retries=0)
@@ -518,6 +581,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.survey_responses_count_in_period > 0
     )
 
 
@@ -678,6 +742,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
             query_types=["EventsQuery"],
             access_method="personal_api_key",
         ),
+        teams_with_survey_responses_count_in_period=get_teams_with_survey_responses_count_in_period(
+            period_start, period_end
+        ),
+        teams_with_survey_responses_count_in_month=get_teams_with_survey_responses_count_in_period(
+            period_start.replace(day=1), period_end
+        ),
     )
 
 
@@ -746,6 +816,8 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
         event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+        survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+        survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
     )
 
 

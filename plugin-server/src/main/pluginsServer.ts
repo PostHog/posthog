@@ -11,13 +11,14 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
+import { createHub, createKafkaClient, createKafkaProducerWrapper, createStatsdClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createRedisPool, delay } from '../utils/utils'
+import { delay } from '../utils/utils'
+import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
@@ -339,6 +340,14 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
+            const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+            const appMetrics =
+                hub?.appMetrics ??
+                new AppMetrics(
+                    KafkaProducerWrapper,
+                    serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+                    serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+                )
 
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
@@ -347,6 +356,7 @@ export async function startPluginsServer(
                     teamManager: teamManager,
                     organizationManager: organizationManager,
                     serverConfig: serverConfig,
+                    appMetrics: appMetrics,
                     statsd: statsd,
                 })
 
@@ -403,6 +413,7 @@ export async function startPluginsServer(
             } = await startSessionRecordingEventsConsumerV1({
                 teamManager: teamManager,
                 kafkaConfig: serverConfig,
+                kafkaProducerConfig: serverConfig,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
@@ -420,29 +431,20 @@ export async function startPluginsServer(
             const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
             const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-            const redisPool = hub?.db.redisPool ?? createRedisPool(recordingConsumerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngesterV2(serverConfig, postgres, s3, redisPool)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, postgres, s3)
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
 
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = async () => {
-                    // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.
-                    if (!hub?.db.redisPool) {
-                        await redisPool.drain()
-                        await redisPool.clear()
-                    }
-
-                    await ingester.stop()
-                }
+                stopSessionRecordingBlobConsumer = () => ingester.stop()
                 joinSessionRecordingBlobConsumer = () => batchConsumer.join()
-                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+                healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
         }
 
