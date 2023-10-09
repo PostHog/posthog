@@ -270,9 +270,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                                         ?.toLowerCase()
                                                                         .includes('<script') && (
                                                                         <LemonBanner type="warning">
-                                                                            Scripts won't run in the survey popup. Use
-                                                                            the API question mode to run your own
-                                                                            scripts in surveys.
+                                                                            Scripts won't run in the survey popup and
+                                                                            we'll remove these on save. Use the API
+                                                                            question mode to run your own scripts in
+                                                                            surveys.
                                                                         </LemonBanner>
                                                                     )}
                                                             </>
