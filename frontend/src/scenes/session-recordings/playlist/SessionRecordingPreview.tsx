@@ -203,7 +203,7 @@ export function SessionRecordingPreview({
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
                             <PinnedIndicator pinnedCount={recording.pinned_count} />
-                            <div className="truncate font-medium text-primary ph-no-capture">
+                            <div className="truncate font-medium text-link ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
                         </div>
