@@ -181,11 +181,11 @@
         }
     }
 
-    .NotebookNodeSettings__widgets {
-        &__content {
-            max-height: calc(100vh - 220px);
-            overflow: auto;
-        }
+    .NotebookSidebar__settings {
+        // &__content {
+        //     max-height: calc(100vh - 220px);
+        //     overflow: auto;
+        // }
     }
 
     .LemonTable__content > table > thead {

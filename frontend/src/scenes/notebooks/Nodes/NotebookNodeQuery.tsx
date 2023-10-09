@@ -15,7 +15,6 @@ import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import NotebookSidebar from '../Notebook/NotebookSidebar'
-import { IconEyeVisible } from 'lib/lemon-ui/icons'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -100,8 +99,6 @@ type NotebookNodeQueryAttributes = {
 export const Settings = ({
     attributes,
     updateAttributes,
-    close,
-    selectNode,
 }: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
     const { query } = attributes
 
@@ -139,48 +136,11 @@ export const Settings = ({
     }
 
     return (
-        <NotebookSidebar.Widgets>
-            <NotebookSidebar.Widget
-                label="Meme"
-                actions={
-                    <>
-                        <LemonButton icon={<IconEyeVisible />} size="small" status="primary" onClick={selectNode} />
-                        <LemonButton size="small" status="primary" onClick={close}>
-                            Done
-                        </LemonButton>
-                    </>
-                }
-            >
-                {attributes.query.kind === NodeKind.SavedInsightNode ? (
-                    <div className="p-3 space-y-2">
-                        <div className="text-lg font-semibold">Insight created outside of this notebook</div>
-                        <div>
-                            Changes made to the original insight will be reflected in the notebook. Or you can detach
-                            from the insight to make changes independently in the notebook.
-                        </div>
-
-                        <div className="space-y-2">
-                            <LemonButton
-                                center={true}
-                                type="secondary"
-                                fullWidth
-                                className="flex flex-1"
-                                to={urls.insightEdit(attributes.query.shortId)}
-                            >
-                                Edit the insight
-                            </LemonButton>
-                            <LemonButton
-                                center={true}
-                                fullWidth
-                                type="secondary"
-                                className="flex flex-1"
-                                onClick={detachSavedInsight}
-                            >
-                                Detach from insight
-                            </LemonButton>
-                        </div>
-                    </div>
-                ) : (
+        <NotebookSidebar.Settings>
+            {attributes.query.kind === NodeKind.SavedInsightNode ? (
+                <SavedInsightSettings shortId={attributes.query.shortId} detach={detachSavedInsight} />
+            ) : (
+                <NotebookSidebar.Widget label={`Editing '${attributes.title}'`}>
                     <div className="p-3">
                         <Query
                             query={modifiedQuery}
@@ -196,9 +156,38 @@ export const Settings = ({
                             }}
                         />
                     </div>
-                )}
-            </NotebookSidebar.Widget>
-        </NotebookSidebar.Widgets>
+                </NotebookSidebar.Widget>
+            )}
+        </NotebookSidebar.Settings>
+    )
+}
+
+const SavedInsightSettings = ({ shortId, detach }: { shortId: InsightShortId; detach: () => void }): JSX.Element => {
+    return (
+        <NotebookSidebar.Widget label="Saved Insight">
+            <div className="p-3 space-y-2">
+                <div className="text-lg font-semibold">Insight created outside of this notebook</div>
+                <div>
+                    Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                    insight to make changes independently in the notebook.
+                </div>
+
+                <div className="space-y-2">
+                    <LemonButton
+                        center={true}
+                        type="secondary"
+                        fullWidth
+                        className="flex flex-1"
+                        to={urls.insightEdit(shortId)}
+                    >
+                        Edit the insight
+                    </LemonButton>
+                    <LemonButton center={true} fullWidth type="secondary" className="flex flex-1" onClick={detach}>
+                        Detach from insight
+                    </LemonButton>
+                </div>
+            </div>
+        </NotebookSidebar.Widget>
     )
 }
 
