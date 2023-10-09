@@ -352,9 +352,13 @@ class TestPrinter(BaseTest):
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
     def test_alias_keywords(self):
-        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword")
-        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword")
-        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword")
+        self._assert_expr_error(
+            "1 as team_id", '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword'
+        )
+        self._assert_expr_error("1 as true", '"true" cannot be an alias or identifier, as it\'s a reserved keyword')
+        self._assert_select_error(
+            "select 1 as team_id from events", '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword'
+        )
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",

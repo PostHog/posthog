@@ -777,7 +777,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
         if alias.lower() in RESERVED_KEYWORDS:
-            raise SyntaxException(f"Alias '{alias}' is a reserved keyword")
+            raise SyntaxException(f'"{alias}" cannot be an alias or identifier, as it\'s a reserved keyword')
         table = self.visit(ctx.tableExpr())
         if isinstance(table, ast.JoinExpr):
             table.alias = alias
