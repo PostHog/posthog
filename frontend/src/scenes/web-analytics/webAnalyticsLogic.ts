@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import { NodeKind, QuerySchema, WebAnalyticsFilters } from '~/queries/schema'
+import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 interface Layout {
@@ -13,13 +13,13 @@ export interface WebDashboardTile {
     layout: Layout
 }
 
-export const initialWebAnalyticsFilter = [] as WebAnalyticsFilters
+export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect({}),
     actions({
-        setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsFilters) => ({ webAnalyticsFilters }),
+        setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -42,7 +42,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebOverviewStatsQuery,
-                            filters: webAnalyticsFilters,
+                            properties: webAnalyticsFilters,
                         },
                     },
                 },
@@ -55,7 +55,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebTopPagesQuery,
-                            filters: webAnalyticsFilters,
+                            properties: webAnalyticsFilters,
                         },
                     },
                 },
@@ -68,7 +68,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.WebTopSourcesQuery,
-                            filters: webAnalyticsFilters,
+                            properties: webAnalyticsFilters,
                         },
                     },
                 },

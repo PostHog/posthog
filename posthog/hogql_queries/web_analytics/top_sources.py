@@ -1,7 +1,7 @@
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.ctes import SESSION_CTE
@@ -16,7 +16,11 @@ class WebTopSourcesQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("session_query"):
-            session_query = parse_select(SESSION_CTE, timings=self.timings)
+            session_query = parse_select(
+                SESSION_CTE,
+                timings=self.timings,
+                placeholders={"session_where": self.session_where(), "session_having": self.session_having()},
+            )
         with self.timings.measure("top_sources_query"):
             top_sources_query = parse_select(
                 """
@@ -54,3 +58,19 @@ LIMIT 10
     @cached_property
     def query_date_range(self):
         return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
+
+    def session_where(self):
+        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
+        return parse_expr(
+            "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+            placeholders={
+                "date_from": self.query_date_range.date_from_as_hogql(),
+                "date_to": self.query_date_range.date_to_as_hogql(),
+            },
+        )
+
+    def session_having(self):
+        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
+        return parse_expr(
+            "min_timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
+        )

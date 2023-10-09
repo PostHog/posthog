@@ -2,9 +2,10 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebTopClicksQuery, WebTopClicksQueryResponse
 
@@ -25,15 +26,22 @@ FROM
     events
 WHERE
     event == '$autocapture'
-AND events.timestamp >= now() - INTERVAL 7 DAY
+AND events.timestamp >= {date_from}
+AND events.timestamp < {date_to}
 AND events.properties.$event_type = 'click'
 AND el_text IS NOT NULL
+AND ({event_properties})
 GROUP BY
     el_text
 ORDER BY total_clicks DESC
 LIMIT 10
                 """,
                 timings=self.timings,
+                placeholders={
+                    "event_properties": self.event_properties(),
+                    "date_from": self.query_date_range.date_from_as_hogql(),
+                    "date_to": self.query_date_range.date_to_as_hogql(),
+                },
             )
         return top_sources_query
 
@@ -52,3 +60,6 @@ LIMIT 10
     @cached_property
     def query_date_range(self):
         return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
+
+    def event_properties(self) -> ast.Expr:
+        return property_to_expr(self.query.properties, team=self.team)

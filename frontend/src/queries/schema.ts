@@ -534,7 +534,7 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
-export type WebAnalyticsFilters = EventPropertyFilter[]
+export type WebAnalyticsPropertyFilters = EventPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
@@ -542,7 +542,7 @@ export interface WebAnalyticsQueryBase {
 
 export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewStatsQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebOverviewStatsQueryResponse
 }
 
@@ -553,7 +553,7 @@ export interface WebOverviewStatsQueryResponse extends QueryResponse {
 }
 export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopSourcesQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopSourcesQueryResponse
 }
 export interface WebTopSourcesQueryResponse extends QueryResponse {
@@ -564,7 +564,7 @@ export interface WebTopSourcesQueryResponse extends QueryResponse {
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopClicksQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
@@ -575,7 +575,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 
 export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopPagesQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopPagesQueryResponse
 }
 export interface WebTopPagesQueryResponse extends QueryResponse {

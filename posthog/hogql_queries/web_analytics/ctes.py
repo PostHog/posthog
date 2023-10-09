@@ -50,12 +50,11 @@ FROM
     events
 WHERE
     session_id IS NOT NULL
-AND
-    events.timestamp >= now() - INTERVAL 8 DAY
+    AND ({session_where})
 GROUP BY
     events.properties.`$session_id`
 HAVING
-    min_timestamp >= now() - INTERVAL 7 DAY
+    ({session_having})
     """
 
 PATHNAME_CTE = """
@@ -67,8 +66,8 @@ FROM
     events
 WHERE
     (event = '$pageview')
-    AND events.timestamp >= now() - INTERVAL 7 DAY
-GROUP BY pathname
+    AND ({pathname_where})
+    GROUP BY pathname
 """
 
 PATHNAME_SCROLL_CTE = """
@@ -84,6 +83,6 @@ FROM
     events
 WHERE
     (event = '$pageview' OR event = '$pageleave') AND events.properties.`$prev_pageview_pathname` IS NOT NULL
-    AND events.timestamp >= now() - INTERVAL 7 DAY
+    AND ({pathname_scroll_where})
 GROUP BY pathname
 """
