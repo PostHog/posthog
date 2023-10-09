@@ -398,11 +398,11 @@ export interface InsightsQueryBase extends Node {
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type TrendsFilter = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
 
 export interface TrendsQueryResponse extends QueryResponse {
-    result: Record<string, any>[]
+    results: Record<string, any>[]
 }
 
 export interface TrendsQuery extends InsightsQueryBase {
@@ -467,7 +467,7 @@ export interface PathsQuery extends InsightsQueryBase {
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days'
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
@@ -480,13 +480,13 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
 export interface QueryResponse {
-    result: unknown
+    results: unknown
     timings?: QueryTiming[]
     is_cached?: boolean
     last_refresh?: string
@@ -494,7 +494,7 @@ export interface QueryResponse {
 }
 
 export interface LifecycleQueryResponse extends QueryResponse {
-    result: Record<string, any>[]
+    results: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {
@@ -521,7 +521,7 @@ export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
 }
 
 export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -531,7 +531,7 @@ export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     response?: WebTopSourcesQueryResponse
 }
 export interface WebTopSourcesQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -542,7 +542,7 @@ export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }
@@ -553,7 +553,7 @@ export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
     response?: WebTopPagesQueryResponse
 }
 export interface WebTopPagesQueryResponse extends QueryResponse {
-    result: unknown[]
+    results: unknown[]
     types?: unknown[]
     columns?: unknown[]
 }

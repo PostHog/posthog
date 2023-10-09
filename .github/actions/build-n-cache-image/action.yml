@@ -33,6 +33,7 @@ runs:
               load: ${{ inputs.load }}
               tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
+              build-args: COMMIT_HASH=${{ github.sha }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
 
@@ -45,5 +46,6 @@ runs:
               file: production-unit.Dockerfile
               tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64
+              build-args: COMMIT_HASH=${{ github.sha }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}

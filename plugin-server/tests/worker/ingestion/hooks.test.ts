@@ -491,8 +491,9 @@ describe('hooks', () => {
                 {} as any,
                 {} as any,
                 new Set([hook.team_id]), // Hostname guard enabled
-                // mock object with queueError function as no-op
-                { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as AppMetrics
+                { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
+                undefined,
+                20000
             )
         })
 
@@ -517,7 +518,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
-                timeout: 10000,
+                timeout: 20000,
             })
         })
 
@@ -556,7 +557,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
-                timeout: 10000,
+                timeout: 20000,
             })
         })
 

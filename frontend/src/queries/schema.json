@@ -1334,9 +1334,6 @@
                 "show_values_on_series": {
                     "type": "boolean"
                 },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
-                },
                 "toggledLifecycles": {
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
@@ -1424,7 +1421,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -1437,7 +1434,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "LifecycleToggle": {
@@ -2022,10 +2019,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ShownAsValue": {
-            "enum": ["Volume", "Stickiness", "Lifecycle"],
-            "type": "string"
-        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2051,9 +2044,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 }
             },
             "type": "object"
@@ -2197,9 +2187,6 @@
                 "show_values_on_series": {
                     "type": "boolean"
                 },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
-                },
                 "smoothing_intervals": {
                     "type": "number"
                 }
@@ -2288,7 +2275,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -2301,7 +2288,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebAnalyticsFilters": {},
@@ -2341,7 +2328,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2356,7 +2343,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopClicksQuery": {
@@ -2395,7 +2382,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2410,7 +2397,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopPagesQuery": {
@@ -2449,7 +2436,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2464,7 +2451,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "WebTopSourcesQuery": {
@@ -2503,7 +2490,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2518,7 +2505,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         }
     }

@@ -377,6 +377,84 @@
               ]
           }
       ],
+      "log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "console_logs_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "batch_export_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
       "raw_session_replay_events": [
           {
               "key": "session_id",
@@ -989,6 +1067,84 @@
                   "is_identified",
                   "pdi"
               ]
+          }
+      ],
+      "log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "console_logs_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "batch_export_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [

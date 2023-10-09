@@ -9,7 +9,7 @@ from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 
-class TestQuery(ClickhouseTestMixin, APIBaseTest):
+class TestLifecycleHogQLQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
@@ -98,7 +98,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_lifecycle_query(date_from, date_to, IntervalType.day)
 
-        statuses = [res["status"] for res in response.result]
+        statuses = [res["status"] for res in response.results]
         self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
 
         self.assertEqual(
@@ -280,7 +280,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "status": "dormant",
                 },
             ],
-            response.result,
+            response.results,
         )
 
     def test_events_query_whole_range(self):

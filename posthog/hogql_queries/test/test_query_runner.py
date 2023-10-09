@@ -25,7 +25,7 @@ class QueryRunnerTest(BaseTest):
             query_type = query_class
 
             def calculate(self) -> QueryResponse:
-                return QueryResponse(result=list())
+                return QueryResponse(results=list())
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)

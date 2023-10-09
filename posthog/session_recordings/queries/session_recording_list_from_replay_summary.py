@@ -279,6 +279,7 @@ class SessionIdEventsQuery(EventQuery):
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
+        {groups_query}
         -- sometimes we have to join on persons so we can access e.g. person_props in filters
         {persons_join}
         PREWHERE
@@ -365,6 +366,17 @@ class SessionIdEventsQuery(EventQuery):
             params=params,
         )
 
+    def _get_groups_query(self) -> Tuple[str, Dict]:
+        try:
+            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+        except ImportError:
+            # if EE not available then we use a no-op version
+            from posthog.queries.groups_join_query import GroupsJoinQuery
+
+        return GroupsJoinQuery(
+            self._filter, self._team_id, self._column_optimizer, person_on_events_mode=self._person_on_events_mode
+        ).get_join_query()
+
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     @cached_property
@@ -397,6 +409,8 @@ class SessionIdEventsQuery(EventQuery):
         event_filters_params = event_filters.params
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
+        groups_query, groups_params = self._get_groups_query()
+
         # these will be applied to the events table,
         # so we only want property filters that make sense in that context
         prop_query, prop_params = self._get_prop_groups(
@@ -427,6 +441,7 @@ class SessionIdEventsQuery(EventQuery):
                 provided_session_ids_clause=provided_session_ids_clause,
                 persons_join=persons_join,
                 persons_sub_query=persons_sub_query,
+                groups_query=groups_query,
             ),
             {
                 **base_params,
@@ -436,6 +451,7 @@ class SessionIdEventsQuery(EventQuery):
                 **event_filters_params,
                 **prop_params,
                 **persons_select_params,
+                **groups_params,
             },
         )
 
