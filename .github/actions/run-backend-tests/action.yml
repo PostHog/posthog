@@ -75,7 +75,7 @@ runs:
           run: |
               pip install -r requirements.txt -r requirements-dev.txt
 
-        - name: Install local hogql-parser
+        - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'
           shell: bash
           # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
