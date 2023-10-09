@@ -118,6 +118,7 @@ export const Settings = ({
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
+            modifiedQuery.showHeader = true
         }
 
         return modifiedQuery

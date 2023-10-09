@@ -185,6 +185,19 @@
         > .LemonWidget__content {
             max-height: calc(100vh - 220px);
             overflow: auto;
+
+            .ant-card-head {
+                padding: 0;
+                border-bottom: 0;
+
+                .ant-card-head-title {
+                    padding: 0;
+                }
+            }
+
+            .ant-card-body {
+                padding: 0;
+            }
         }
     }
 
