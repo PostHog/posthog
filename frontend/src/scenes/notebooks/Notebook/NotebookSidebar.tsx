@@ -3,8 +3,6 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { notebookLogic } from './notebookLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconEyeVisible } from 'lib/lemon-ui/icons'
 import { NotebookHistory } from './NotebookHistory'
 
 export const NotebookSidebar = (): JSX.Element | null => {
@@ -30,34 +28,41 @@ export const NotebookSidebar = (): JSX.Element | null => {
 }
 
 const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element | null => {
-    const { setEditingNodeId } = useActions(notebookLogic)
-    const { widgets, nodeAttributes } = useValues(logic)
+    const { nodeAttributes, settings: Settings } = useValues(logic)
     const { updateAttributes, selectNode } = useActions(logic)
+    const { setEditingNodeId } = useActions(notebookLogic)
 
-    return (
-        <div className="NotebookNodeSettings__widgets space-y-2 w-full">
-            {widgets.map(({ key, label, Component }) => (
-                <Component key={key} attributes={nodeAttributes} updateAttributes={updateAttributes} />
-            ))}
-        </div>
-    )
+    return Settings ? (
+        <Settings
+            attributes={nodeAttributes}
+            updateAttributes={updateAttributes}
+            close={() => setEditingNodeId(null)}
+            selectNode={selectNode}
+        />
+    ) : null
 }
 
-export const NotebookSidebarWidget = ({ label, children }: { label: string; children: React.ReactNode }) => {
+const NotebookSidebarWidgets = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    return <div className="NotebookNodeSettings__widgets space-y-2 w-full">{children}</div>
+}
+
+export const NotebookSidebarWidget = ({
+    label,
+    actions,
+    children,
+}: {
+    label: string
+    actions: JSX.Element
+    children: JSX.Element
+}): JSX.Element => {
     return (
-        <LemonWidget
-            title={label ?? `Editing '${nodeAttributes.title}'`}
-            collapsible={false}
-            actions={
-                <>
-                    <LemonButton icon={<IconEyeVisible />} size="small" status="primary" onClick={() => selectNode()} />
-                    <LemonButton size="small" status="primary" onClick={() => setEditingNodeId(null)}>
-                        Done
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="NotebookNodeSettings__widgets__content">{children}</div>
+        <LemonWidget title={label} collapsible={false} actions={actions}>
+            {children}
         </LemonWidget>
     )
 }
+
+NotebookSidebar.Widgets = NotebookSidebarWidgets
+NotebookSidebar.Widget = NotebookSidebarWidget
+
+export default NotebookSidebar
