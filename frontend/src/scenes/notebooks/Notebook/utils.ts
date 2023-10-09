@@ -78,6 +78,7 @@ export interface NotebookEditor {
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
     scrollToSelection: () => void
+    scrollToPosition: (position: number) => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4

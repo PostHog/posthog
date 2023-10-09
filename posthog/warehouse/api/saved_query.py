@@ -1,3 +1,4 @@
+from django.conf import settings
 from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
@@ -69,8 +70,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             if isinstance(err, ValueError) or isinstance(err, HogQLException):
                 error = str(err)
                 raise exceptions.ValidationError(detail=f"Invalid query: {error}")
-            else:
-                raise exceptions.ValidationError(detail=f"Unexpected f{err.__class__.__name__}")
+            elif not settings.DEBUG:
+                # We don't want to accidentally expose too much data via errors
+                raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
 

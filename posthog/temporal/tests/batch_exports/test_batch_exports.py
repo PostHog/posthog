@@ -252,7 +252,58 @@ async def test_get_rows_count_can_exclude_events(client):
 
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
-    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events)
+    row_count = await get_rows_count(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+    )
+    assert row_count == 5000
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_rows_count_can_include_events(client):
+    """Test the count of rows returned by get_rows_count can include events."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": f"test-{i}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
+            "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
+        }
+        for i in range(10000)
+    ]
+    # Duplicate everything
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    # Include the latter half of events.
+    include_events = (f"test-{i}" for i in range(5000, 10000))
+    row_count = await get_rows_count(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+    )
     assert row_count == 5000
 
 
@@ -415,10 +466,76 @@ async def test_get_results_iterator_can_exclude_events(client):
 
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events)
+    iter_ = get_results_iterator(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+    )
     rows = [row for row in iter_]
 
     all_expected = sorted(events[:5000], key=operator.itemgetter("event"))
+    all_result = sorted(rows, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_result)
+    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
+
+    for expected, result in zip(all_expected, all_result):
+        for key, value in result.items():
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
+            # Some keys will be missing from result, so let's only check the ones we have.
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_results_iterator_can_include_events(client):
+    """Test the rows returned by get_results_iterator can include events."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": f"test-{i}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
+            "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "",
+            "set": None,
+            "set_once": None,
+        }
+        for i in range(10000)
+    ]
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    # Include the latter half of events.
+    include_events = (f"test-{i}" for i in range(5000, 10000))
+    iter_ = get_results_iterator(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+    )
+    rows = [row for row in iter_]
+
+    all_expected = sorted(events[5000:], key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_result)

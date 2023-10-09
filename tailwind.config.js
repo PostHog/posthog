@@ -139,13 +139,13 @@ module.exports = {
         // 'gridAutoColumns', // The grid-auto-columns utilities like auto-cols-min
         // 'gridAutoFlow', // The grid-auto-flow utilities like grid-flow-dense
         // 'gridAutoRows', // The grid-auto-rows utilities like auto-rows-min
-        // 'gridColumn', // The grid-column utilities like col-span-6
-        // 'gridColumnEnd', // The grid-column-end utilities like col-end-7
-        // 'gridColumnStart', // The grid-column-start utilities like col-start-7
-        // 'gridRow', // The grid-row utilities like row-span-3
-        // 'gridRowEnd', // The grid-row-end utilities like row-end-4
-        // 'gridRowStart', // The grid-row-start utilities like row-start-4
-        // 'gridTemplateColumns', // The grid-template-columns utilities like grid-cols-7
+        'gridColumn', // The grid-column utilities like col-span-6
+        'gridColumnEnd', // The grid-column-end utilities like col-end-7
+        'gridColumnStart', // The grid-column-start utilities like col-start-7
+        'gridRow', // The grid-row utilities like row-span-3
+        'gridRowEnd', // The grid-row-end utilities like row-end-4
+        'gridRowStart', // The grid-row-start utilities like row-start-4
+        'gridTemplateColumns', // The grid-template-columns utilities like grid-cols-7
         // 'gridTemplateRows', // The grid-template-rows utilities like grid-rows-4
         'height', // The height utilities like h-72
         // 'hueRotate', // The hue-rotate utilities like hue-rotate-30

@@ -124,7 +124,7 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(result=res, timings=response.timings)
+        return LifecycleQueryResponse(results=res, timings=response.timings)
 
     @cached_property
     def query_date_range(self):

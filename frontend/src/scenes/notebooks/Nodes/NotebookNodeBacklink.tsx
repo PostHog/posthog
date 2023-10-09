@@ -68,7 +68,7 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
     } else if (type === TaxonomicFilterGroupType.Cohorts) {
         return urls.cohort(id)
     } else if (type === TaxonomicFilterGroupType.Persons) {
-        return urls.person(id)
+        return urls.personByDistinctId(id)
     } else if (type === TaxonomicFilterGroupType.Insights) {
         return urls.insightView(id as InsightModel['short_id'])
     } else if (type === TaxonomicFilterGroupType.FeatureFlags) {

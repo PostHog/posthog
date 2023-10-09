@@ -6,6 +6,7 @@ import {
     EventsQuery,
     HogQLQuery,
     PersonsNode,
+    PersonsQuery,
     QueryContext,
 } from '~/queries/schema'
 import { useCallback, useState } from 'react'
@@ -28,7 +29,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { isEventsQuery, isHogQlAggregation, isHogQLQuery, taxonomicFilterToHogQl } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQlAggregation,
+    isHogQLQuery,
+    isPersonsQuery,
+    taxonomicEventFilterToHogQL,
+    taxonomicPersonFilterToHogQL,
+} from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -37,7 +45,11 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    extractExpressionComment,
+    getDataNodeDefaultColumns,
+    removeExpressionComment,
+} from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
@@ -55,12 +67,13 @@ interface DataTableProps {
     cachedResults?: AnyResponseType
 }
 
-const groupTypes = [
+const eventGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
+const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
 
 let uniqueNode = 0
 
@@ -121,6 +134,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
 
+    const groupTypes = isPersonsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const hogQLTable = isPersonsQuery(query.source) ? 'persons' : 'events'
+
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
@@ -144,7 +160,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             },
             sorter: undefined, // using custom sorting code
             more:
-                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) ? (
+                !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -156,15 +172,20 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     // Typecasting to a query type with select and order_by fields.
                                     // The actual query may or may not be an events query.
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = source.orderBy?.[0] === key
                                     const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
@@ -172,9 +193,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         ...query,
                                         source: {
                                             ...source,
-                                            select: source.select
+                                            select: columns
                                                 .map((s, i) => (i === index ? hogQl : s))
-                                                .filter((c) => (isAggregation ? c !== '*' : true)),
+                                                .filter((c) =>
+                                                    isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                                ),
                                             orderBy:
                                                 isOrderBy || isDescOrderBy
                                                     ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
@@ -183,10 +206,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         <LemonDivider />
-                        {canSort ? (
+                        {canSort && key !== 'person.$delete' ? (
                             <>
                                 <LemonButton
                                     fullWidth
@@ -230,56 +252,64 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     setQuery({
                                         ...query,
                                         source: {
                                             ...source,
-                                            select: [
-                                                ...(source.select || []).slice(0, index),
-                                                hogQl,
-                                                ...(source.select || []).slice(index),
-                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
-                                        } as EventsQuery,
+                                            select: [...columns.slice(0, index), hogQl, ...columns.slice(index)].filter(
+                                                (c) => (isAggregation ? c !== '*' && c !== 'person.$delete' : true)
+                                            ),
+                                        } as EventsQuery | PersonsQuery,
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
+                            groupTypes={groupTypes}
+                            hogQLTable={hogQLTable}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                const hogQl = isPersonsQuery(query.source)
+                                    ? taxonomicPersonFilterToHogQL(g, v)
+                                    : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const source = query.source as EventsQuery
+                                    const columns = getDataNodeDefaultColumns(source)
                                     setQuery?.({
                                         ...query,
                                         source: {
                                             ...source,
                                             select: [
-                                                ...(source.select || []).slice(0, index + 1),
+                                                ...columns.slice(0, index + 1),
                                                 hogQl,
-                                                ...(source.select || []).slice(index + 1),
-                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
-                                        } as EventsQuery,
+                                                ...columns.slice(index + 1),
+                                            ].filter((c) =>
+                                                isAggregation ? c !== '*' && c !== 'person.$delete' : true
+                                            ),
+                                        } as EventsQuery | PersonsQuery,
                                     })
                                 }
                             }}
-                            groupTypes={groupTypes}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>
@@ -336,7 +366,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery) =>
+            setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -382,6 +413,14 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
+    if (showOpenEditorButton && !isReadOnly) {
+        if (inlineEditorButtonOnRow === 1) {
+            firstRowRight.push(<OpenEditorButton query={query} />)
+        } else if (inlineEditorButtonOnRow === 2) {
+            secondRowRight.push(<OpenEditorButton query={query} />)
+        }
+    }
+
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -394,9 +433,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
                         </div>
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
@@ -405,9 +441,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             {secondRowLeft}
                             {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {secondRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (

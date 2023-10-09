@@ -1,5 +1,5 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { Editor } from '@tiptap/core'
+import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 
@@ -15,7 +15,19 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     }
 
     return (
-        <BubbleMenu editor={editor} tippyOptions={{}}>
+        <BubbleMenu
+            editor={editor}
+            shouldShow={({ editor, view, state, from, to }) => {
+                const hasEditorFocus = view.hasFocus()
+                const isTextBlock = isTextSelection(state.selection)
+
+                if (!hasEditorFocus || !editor.isEditable || !isTextBlock) {
+                    return false
+                }
+
+                return state.doc.textBetween(from, to).length > 0
+            }}
+        >
             <div className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-1">
                 {editor.isActive('link') ? (
                     <>

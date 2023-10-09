@@ -1218,7 +1218,8 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
         if timezone.now() - start_time > max_timeout:
             child_states = []
             child: AsyncResult
-            for child in task.children:
+            children = task.children or []
+            for child in children:
                 child_states.append(child.state)
                 # this child should not be retried...
                 if child.state in ["PENDING", "STARTED"]:
@@ -1235,6 +1236,7 @@ async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[dateti
                 ready=task.ready(),
                 successful=task.successful(),
                 failed=task.failed(),
+                task_state=task.state,
                 child_states=child_states,
                 timeout=max_timeout,
                 start_time=start_time,

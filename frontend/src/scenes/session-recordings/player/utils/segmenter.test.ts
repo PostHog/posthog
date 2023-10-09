@@ -31,7 +31,9 @@ describe('segmenter', () => {
         ])
     })
 
-    it('inserts gaps', () => {
+    it('inserts gaps inclusively', () => {
+        // NOTE: It is important that the segments are "inclusive" of the start and end timestamps as the player logic
+        // depends on this to choose which segment should be played next
         const start = dayjs('2023-01-01T00:00:00.000Z')
         const end = dayjs('2023-01-01T00:10:00.000Z')
 
@@ -44,32 +46,7 @@ describe('segmenter', () => {
 
         const segments = createSegments(snapshots, start, end)
 
-        expect(segments).toEqual([
-            {
-                kind: 'window',
-                startTimestamp: 1672531200000,
-                windowId: 'A',
-                isActive: true,
-                endTimestamp: 1672531200100,
-                durationMs: 100,
-            },
-            {
-                durationMs: 599798,
-                endTimestamp: 1672531799899,
-                isActive: false,
-                kind: 'gap',
-                startTimestamp: 1672531200101,
-                windowId: undefined,
-            },
-            {
-                kind: 'window',
-                startTimestamp: 1672531799900,
-                windowId: 'B',
-                isActive: false,
-                endTimestamp: 1672531800000,
-                durationMs: 100,
-            },
-        ])
+        expect(segments).toMatchSnapshot()
     })
 
     it('includes inactive events in the active segment until a threshold', () => {
@@ -86,31 +63,6 @@ describe('segmenter', () => {
 
         const segments = createSegments(snapshots, start, end)
 
-        expect(segments).toEqual([
-            {
-                kind: 'window',
-                startTimestamp: start.valueOf(),
-                windowId: 'A',
-                isActive: true,
-                endTimestamp: start.valueOf() + 4000,
-                durationMs: 4000,
-            },
-            {
-                kind: 'gap',
-                startTimestamp: start.valueOf() + 4000 + 1,
-                endTimestamp: start.valueOf() + 6000 - 1,
-                windowId: 'A',
-                isActive: false,
-                durationMs: 1998,
-            },
-            {
-                kind: 'window',
-                startTimestamp: start.valueOf() + 6000,
-                windowId: 'A',
-                isActive: false,
-                endTimestamp: end.valueOf(),
-                durationMs: 594000,
-            },
-        ])
+        expect(segments).toMatchSnapshot()
     })
 })

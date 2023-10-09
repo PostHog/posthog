@@ -1,12 +1,11 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
@@ -15,20 +14,26 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    PropertyFilterType,
+    PropertyOperator,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Summary } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
-    // TODO: survey results logic
-    // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
@@ -151,10 +156,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
-                                                    <span>{capitalizeFirstLetter(survey.questions[0].type)}</span>
-                                                    <span className="card-secondary mt-4">Question</span>
+                                                    <span>
+                                                        {survey.questions.length > 1
+                                                            ? 'Multiple questions'
+                                                            : capitalizeFirstLetter(survey.questions[0].type)}
+                                                    </span>
+                                                    <span className="card-secondary mt-4">
+                                                        {pluralize(
+                                                            survey.questions.length,
+                                                            'Question',
+                                                            'Questions',
+                                                            false
+                                                        )}
+                                                    </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <span key={idx}>{q.question}</span>
+                                                        <li key={idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
@@ -186,45 +202,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
-                                            <div className="border rounded p-4 w-full">
-                                                {survey.type !== SurveyType.API ? (
-                                                    showSurveyAppWarning && (
-                                                        <div className="flex flex-col">
-                                                            <div className="flex gap-2 items-start">
-                                                                1. Add the following option to your PostHog instance:
-                                                            </div>
-                                                            <CodeSnippet language={Language.JavaScript} wrap>
-                                                                {OPT_IN_SNIPPET}
-                                                            </CodeSnippet>
-                                                            <div className="flex items-center">
-                                                                2.{' '}
-                                                                <LemonButton
-                                                                    onClick={() =>
-                                                                        surveyPlugin?.id && editPlugin(surveyPlugin.id)
-                                                                    }
-                                                                >
-                                                                    Enable and save the surveys app
-                                                                </LemonButton>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                ) : (
-                                                    <span className="font-medium">
-                                                        See the documentation below on API survey setup.
-                                                    </span>
-                                                )}
-                                                <div>
-                                                    Need more information?{' '}
-                                                    <a
-                                                        data-attr="survey-doc-link"
-                                                        target="_blank"
-                                                        rel="noopener"
-                                                        href="https://posthog.com/docs/surveys/manual"
-                                                    >
-                                                        Check the docs <IconOpenInNew />
-                                                    </a>
+                                            {survey.type === SurveyType.API && (
+                                                <div className="border rounded p-4">
+                                                    <div className="w-full flex flex-row gap-1 items-center">
+                                                        Learn how to set up API surveys{' '}
+                                                        <Link
+                                                            data-attr="survey-doc-link"
+                                                            target="_blank"
+                                                            to="https://posthog.com/docs/surveys/implementing-custom-surveys"
+                                                            targetBlankIcon
+                                                        >
+                                                            in the docs
+                                                        </Link>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
                                                     <SurveyAppearance
@@ -269,11 +261,18 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyMetricsQueries,
         surveyRatingQuery,
         surveyMultipleChoiceQuery,
+        currentQuestionIndexAndType,
+        surveyUserStats,
+        surveyUserStatsLoading,
     } = useValues(surveyLogic)
+    const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
+            {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            )}
             {surveyMetricsQueries && (
                 <div className="flex flex-row gap-4 mb-4">
                     <div className="flex-1">
@@ -284,20 +283,39 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     </div>
                 </div>
             )}
-            {survey.questions[0].type === SurveyQuestionType.Rating && (
-                <div className="mb-4">
-                    <Query query={surveyRatingQuery} />
-                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] && survey.questions[0].scale === 10 && (
-                        <>
-                            <LemonDivider className="my-4" />
-                            <h2>NPS Score</h2>
-                            <SurveyNPSResults survey={survey as Survey} />
-                        </>
-                    )}
+            {survey.questions.length > 1 && (
+                <div className="mb-4 max-w-80">
+                    <LemonSelect
+                        dropdownMatchSelectWidth
+                        fullWidth
+                        onChange={(idx) => {
+                            setCurrentQuestionIndexAndType(idx, survey.questions[idx].type)
+                        }}
+                        options={[
+                            ...survey.questions.map((q: SurveyQuestion, idx: number) => ({
+                                label: q.question,
+                                value: idx,
+                            })),
+                        ]}
+                        value={currentQuestionIndexAndType.idx}
+                    />
                 </div>
             )}
-            {(survey.questions[0].type === SurveyQuestionType.SingleChoice ||
-                survey.questions[0].type === SurveyQuestionType.MultipleChoice) && (
+            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating && (
+                <div className="mb-4">
+                    <Query query={surveyRatingQuery} />
+                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
+                        (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
+                            <>
+                                <LemonDivider className="my-4" />
+                                <h2>NPS Score</h2>
+                                <SurveyNPSResults survey={survey as Survey} />
+                            </>
+                        )}
+                </div>
+            )}
+            {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
+                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
                 <div className="mb-4">
                     <Query query={surveyMultipleChoiceQuery} />
                 </div>
@@ -306,11 +324,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         </>
     )
 }
-
-const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
-    api_host: 'YOUR API HOST',
-    opt_in_site_apps: true // <--- Add this line
-})`
 
 function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
     return (
