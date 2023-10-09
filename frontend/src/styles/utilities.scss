@@ -1035,6 +1035,10 @@ $decorations: underline, overline, line-through, no-underline;
     box-shadow: var(--shadow-elevation);
 }
 
+.shadow-xl {
+    box-shadow: var(--shadow);
+}
+
 @each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
     .object-#{$fitOption} {
         object-fit: string.unquote($fitOption);

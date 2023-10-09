@@ -6,13 +6,15 @@ import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 
 import { commandBarLogic } from './commandBarLogic'
 import { BarStatus } from './types'
-import '../CommandPalette/index.scss'
 
 const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
     <div
-        className="fixed top-0 left-0 w-full h-full flex flex-col items-center"
+        className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center"
         // eslint-disable-next-line react/forbid-dom-props
-        style={{ zIndex: 'var(--z-command-palette)' }}
+        style={{
+            zIndex: 'var(--z-command-palette)',
+            background: 'color-mix(in srgb, var(--bg-light) 75%, transparent)',
+        }}
     >
         {children}
     </div>
@@ -23,7 +25,7 @@ const CommandBarContainer = forwardRef<HTMLDivElement, { children?: React.ReactN
     ref
 ): JSX.Element {
     return (
-        <div className="bg-white p-4" ref={ref}>
+        <div className="w-full h-160 max-w-lg bg-bg-light rounded overflow-hidden shadow-xl flex flex-col" ref={ref}>
             {children}
         </div>
     )
