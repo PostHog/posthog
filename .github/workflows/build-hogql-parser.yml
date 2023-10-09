@@ -12,13 +12,34 @@ on:
             - hogql_parser/**
             - .github/workflows/build-hogql-parser.yml
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
+    check-version:
+        name: Check version legitimacy
+        runs-on: ubuntu-22.04
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Compare versions
+              shell: bash
+              run: |
+                  published=$(curl -fSsl https://pypi.org/pypi/hogql-parser/json | jq -r '.info.version')
+                  local=$(python hogql_parser/setup.py --version)
+                  if [[ "$published" == "$local" ]]; then
+                      echo "Version $local is already published on PyPI"
+                      exit 1
+                  fi
+
     build-wheels:
         name: Build wheels on ${{ matrix.os }}
+        needs: check-version
+        # if: github.ref == 'refs/heads/master' TODO: Only build on master once the containers build on ARM
         runs-on: ${{ matrix.os }}
-        timeout-minutes: 120
+        timeout-minutes: 120 # The Linux ARM builds are painfully slow
         strategy:
-            fail-fast: false
             matrix:
                 os: [ubuntu-22.04, macos-12]
 
@@ -29,7 +50,7 @@ jobs:
               if: runner.os == 'Linux'
               uses: docker/setup-qemu-action@v3
               with:
-                  platforms: all
+                  platforms: linux/arm64
 
             - uses: actions/setup-python@v3
 
