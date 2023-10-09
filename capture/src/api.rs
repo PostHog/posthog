@@ -34,6 +34,8 @@ pub enum CaptureError {
 
     #[error("request holds no event")]
     EmptyBatch,
+    #[error("event submitted with an empty event name")]
+    MissingEventName,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
 
@@ -58,6 +60,7 @@ impl IntoResponse for CaptureError {
             CaptureError::RequestDecodingError(_)
             | CaptureError::RequestParsingError(_)
             | CaptureError::EmptyBatch
+            | CaptureError::MissingEventName
             | CaptureError::MissingDistinctId
             | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError => (StatusCode::BAD_REQUEST, self.to_string()),

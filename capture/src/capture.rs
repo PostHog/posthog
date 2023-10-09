@@ -89,12 +89,20 @@ pub fn process_single_event(
             _ => return Err(CaptureError::MissingDistinctId),
         },
     };
+    if event.event.is_empty() {
+        return Err(CaptureError::MissingEventName);
+    }
+
+    let data = serde_json::to_string(&event).map_err(|e| {
+        tracing::error!("failed to encode data field: {}", e);
+        CaptureError::NonRetryableSinkError
+    })?;
 
     Ok(ProcessedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: distinct_id.to_string(),
         ip: context.client_ip.clone(),
-        data: String::from("hallo I am some data 😊"),
+        data,
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
@@ -158,6 +166,10 @@ mod tests {
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::new(),
+                timestamp: None,
+                offset: None,
+                set: Default::default(),
+                set_once: Default::default(),
             },
             RawEvent {
                 token: None,
@@ -165,6 +177,10 @@ mod tests {
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::from([(String::from("token"), json!("hello"))]),
+                timestamp: None,
+                offset: None,
+                set: Default::default(),
+                set_once: Default::default(),
             },
         ];
 
@@ -181,6 +197,10 @@ mod tests {
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::new(),
+                timestamp: None,
+                offset: None,
+                set: Default::default(),
+                set_once: Default::default(),
             },
             RawEvent {
                 token: None,
@@ -188,6 +208,10 @@ mod tests {
                 uuid: None,
                 event: String::new(),
                 properties: HashMap::from([(String::from("token"), json!("goodbye"))]),
+                timestamp: None,
+                offset: None,
+                set: Default::default(),
+                set_once: Default::default(),
             },
         ];
 

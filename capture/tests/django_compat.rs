@@ -71,7 +71,6 @@ impl EventSink for MemorySink {
 }
 
 #[tokio::test]
-#[ignore]
 async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let file = File::open(REQUESTS_DUMP_FILE_NAME)?;
     let reader = BufReader::new(file);
@@ -107,6 +106,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         if !case.ip.is_empty() {
             req = req.header("X-Forwarded-For", case.ip);
         }
+
         let res = req.send().await;
         assert_eq!(
             res.status(),
@@ -140,16 +140,38 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
                     OffsetDateTime::parse(value.as_str().expect("empty"), &Iso8601::DEFAULT)?;
                 *value = Value::String(sent_at.format(&Rfc3339)?)
             }
+            if let Some(expected_data) = expected.get_mut("data") {
+                // Data is a serialized JSON map. Unmarshall both and compare them,
+                // instead of expecting the serialized bytes to be equal
+                let expected_props: Value =
+                    serde_json::from_str(expected_data.as_str().expect("not str"))?;
+                let found_props: Value = serde_json::from_str(&message.data)?;
+                let match_config =
+                    assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
+                if let Err(e) =
+                    assert_json_matches_no_panic(&expected_props, &found_props, match_config)
+                {
+                    println!(
+                        "data field mismatch at line {}, event {}: {}",
+                        line_number, event_number, e
+                    );
+                    mismatches += 1;
+                } else {
+                    *expected_data = json!(&message.data)
+                }
+            }
+
             if let Some(object) = expected.as_object_mut() {
                 // site_url is unused in the pipeline now, let's drop it
                 object.remove("site_url");
             }
+
             let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
             if let Err(e) =
                 assert_json_matches_no_panic(&json!(expected), &json!(message), match_config)
             {
                 println!(
-                    "mismatch at line {}, event {}: {}",
+                    "record mismatch at line {}, event {}: {}",
                     line_number, event_number, e
                 );
                 mismatches += 1;

@@ -37,12 +37,26 @@ pub struct EventFormData {
 
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
-    #[serde(alias = "$token", alias = "api_key")]
+    #[serde(
+        alias = "$token",
+        alias = "api_key",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub distinct_id: Option<String>,
     pub uuid: Option<Uuid>,
     pub event: String,
+    #[serde(default)]
     pub properties: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
+    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<HashMap<String, Value>>,
+    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
+    pub set_once: Option<HashMap<String, Value>>,
 }
 
 #[derive(Deserialize)]
@@ -51,14 +65,14 @@ enum RawRequest {
     /// Batch of events
     Batch(Vec<RawEvent>),
     /// Single event
-    One(RawEvent),
+    One(Box<RawEvent>),
 }
 
 impl RawRequest {
     pub fn events(self) -> Vec<RawEvent> {
         match self {
             RawRequest::Batch(events) => events,
-            RawRequest::One(event) => vec![event],
+            RawRequest::One(event) => vec![*event],
         }
     }
 }
