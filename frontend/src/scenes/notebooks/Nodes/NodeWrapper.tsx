@@ -32,8 +32,8 @@ import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
-    NotebookNodeWidget,
     CustomNotebookNodeAttributes,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
@@ -54,7 +54,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     autoHideMetadata?: boolean
     /** Expand the node if the component is clicked */
     expandOnClick?: boolean
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
 }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>({
@@ -74,7 +74,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     getPos,
     attributes,
     updateAttributes,
-    widgets = [],
+    settings = null,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
@@ -91,7 +91,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         notebookLogic: mountedNotebookLogic,
         getPos,
         resizeable: resizeableOrGenerator,
-        widgets,
+        settings,
         startExpanded,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
@@ -183,7 +183,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 
                                                 {isEditable ? (
                                                     <>
-                                                        {widgets.length > 0 ? (
+                                                        {settings ? (
                                                             <LemonButton
                                                                 onClick={() =>
                                                                     setEditingNodeId(
@@ -259,7 +259,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
