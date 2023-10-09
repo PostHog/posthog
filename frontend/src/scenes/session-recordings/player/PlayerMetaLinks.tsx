@@ -98,10 +98,9 @@ export function PlayerMetaLinks(): JSX.Element {
 
                     {logicProps.setPinned ? (
                         <LemonButton
-                            onClick={() => {
-                                logicProps.setPinned?.(!logicProps.pinned)
-                            }}
+                            onClick={() => logicProps.setPinned?.(!logicProps.pinned)}
                             size="small"
+                            tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
                             icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}
                         />
                     ) : (

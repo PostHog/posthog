@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { objectClean, objectsEqual, toParams } from 'lib/utils'
+import { objectClean, objectsEqual } from 'lib/utils'
 import {
     AnyPropertyFilter,
     PropertyFilterType,
@@ -241,22 +241,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } as SessionRecordingsResponse,
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
-                    const paramsDict = {
+                    const params = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
                     }
 
                     if (direction === 'older') {
-                        paramsDict['date_to'] =
-                            values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
+                        params['date_to'] = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
                     }
 
                     if (direction === 'newer') {
-                        paramsDict['date_from'] = values.sessionRecordings[0]?.start_time
+                        params['date_from'] = values.sessionRecordings[0]?.start_time
                     }
-
-                    const params = toParams(paramsDict)
 
                     await breakpoint(100) // Debounce for lots of quick filter changes
 
@@ -288,20 +285,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     // props.pinnedRecordings can be strings or objects.
                     // If objects we can simply use them, if strings we need to fetch them
 
-                    let recordings = props.pinnedRecordings?.filter(
-                        (x) => typeof x !== 'string'
-                    ) as SessionRecordingType[]
-                    const recordingIds = props.pinnedRecordings?.filter((x) => typeof x === 'string') as string[]
+                    const pinnedRecordings = props.pinnedRecordings ?? []
 
-                    if (recordingIds) {
-                        // TODO: This is broken - we don't return only certain session_ids for some reason....
-                        const fetchedRecordings = await api.recordings.list(
-                            toParams({
-                                filters: {
-                                    session_ids: recordingIds,
-                                },
-                            })
-                        )
+                    let recordings = pinnedRecordings.filter((x) => typeof x !== 'string') as SessionRecordingType[]
+                    const recordingIds = pinnedRecordings.filter((x) => typeof x === 'string') as string[]
+
+                    if (recordingIds.length) {
+                        const fetchedRecordings = await api.recordings.list({
+                            session_ids: recordingIds,
+                        })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
                     }

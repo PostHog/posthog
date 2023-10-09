@@ -153,6 +153,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
+    # We don't use this
+    queryset = SessionRecording.objects.none()
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
@@ -522,7 +524,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         recordings = recordings + list(persisted_recordings)
 
         remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
+        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
