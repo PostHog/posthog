@@ -60,7 +60,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
@@ -105,13 +104,22 @@ export const Settings = ({
         const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
-            modifiedQuery.showReload = false
-            modifiedQuery.showElapsedTime = false
+
+            modifiedQuery.showReload = true
+            modifiedQuery.showElapsedTime = true
+            modifiedQuery.showTimings = true
+
             modifiedQuery.embedded = true
+            modifiedQuery.showActions = true
+
+            modifiedQuery.showDateRange = true
+            modifiedQuery.showEventFilter = true
+            modifiedQuery.showSearch = true
+            modifiedQuery.showPropertyFilter = true
+            modifiedQuery.showColumnConfigurator = true
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
