@@ -49,6 +49,13 @@ runs:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
+        - name: Determine if hogql-parser has changed compared to master
+          shell: bash
+          id: hogql-parser-diff
+          run: |
+              changed=$(git diff --quiet HEAD master -- hogql_parser/ && echo "false" || echo "true")
+              echo "::set-output name=changed::$changed"
+
         - name: Install SAML (python3-saml) dependencies
           shell: bash
           run: |
@@ -69,18 +76,20 @@ runs:
               pip install -r requirements.txt -r requirements-dev.txt
 
         - name: Install local hogql-parser
+          if: steps.hogql-parser-diff.outputs.changed == 'true'
           shell: bash
-          # This is not cached currently, as it's important to build the current HEAD version (we can't just look at
-          # requirements.txt, which only has the published version) and caching just one package is not worth the effort
+          # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+          # changed (as requirements.txt only has the published version)
           run: |
               sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
               unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
               cmake .
               DESTDIR=out make install
-              cp -r out/usr/local/include/antlr4-runtime /usr/include/
-              cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
-              ldconfig
+              sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
+              sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
+              sudo ldconfig
+              cd ..
               pip install ./hogql_parser
 
         - name: Set up needed files
