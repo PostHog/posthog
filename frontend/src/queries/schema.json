@@ -1334,9 +1334,6 @@
                 "show_values_on_series": {
                     "type": "boolean"
                 },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
-                },
                 "toggledLifecycles": {
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
@@ -2022,10 +2019,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ShownAsValue": {
-            "enum": ["Volume", "Stickiness", "Lifecycle"],
-            "type": "string"
-        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2051,9 +2044,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 }
             },
             "type": "object"
@@ -2196,9 +2186,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 },
                 "smoothing_intervals": {
                     "type": "number"

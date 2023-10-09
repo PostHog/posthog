@@ -29,14 +29,12 @@ from posthog.schema import (
     RetentionPeriod,
     RetentionType,
     SessionPropertyFilter,
-    ShownAsValue,
     StepOrderValue,
     TrendsFilter,
     FunnelsFilter,
     RetentionFilter,
     PathsFilter,
     StickinessFilter,
-    LifecycleFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -994,7 +992,6 @@ class TestFilterToQuery(BaseTest):
                 aggregation_axis_prefix="pre",
                 aggregation_axis_postfix="post",
                 formula="A + B",
-                shown_as=ShownAsValue.Volume,
                 display=ChartDisplayType.ActionsAreaGraph,
             ),
         )
@@ -1173,7 +1170,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True, shown_as=ShownAsValue.Stickiness),
+            StickinessFilter(compare=True),
         )
 
     def test_lifecycle_filter(self):
@@ -1186,7 +1183,5 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.lifecycleFilter,
-            LifecycleFilter(
-                shown_as=ShownAsValue.Lifecycle,
-            ),
+            None,
         )

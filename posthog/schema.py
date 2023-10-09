@@ -407,12 +407,6 @@ class SessionPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class ShownAsValue(str, Enum):
-    Volume = "Volume"
-    Stickiness = "Stickiness"
-    Lifecycle = "Lifecycle"
-
-
 class StepOrderValue(str, Enum):
     strict = "strict"
     unordered = "unordered"
@@ -428,7 +422,6 @@ class StickinessFilter(BaseModel):
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
 
 
 class TimeToSeeDataSessionsQueryResponse(BaseModel):
@@ -453,7 +446,6 @@ class TrendsFilter(BaseModel):
     show_legend: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
 
@@ -658,7 +650,6 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     show_values_on_series: Optional[bool] = None
-    shown_as: Optional[ShownAsValue] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None
 
 

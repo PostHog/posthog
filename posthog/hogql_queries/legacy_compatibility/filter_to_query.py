@@ -309,7 +309,6 @@ def _insight_filter(filter: Dict):
                 aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
                 aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
                 formula=filter.get("formula"),
-                shown_as=filter.get("shown_as"),
                 display=clean_display(filter.get("display")),
                 show_values_on_series=filter.get("show_values_on_series"),
                 show_percent_stack_view=filter.get("show_percent_stack_view"),
@@ -379,7 +378,6 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
-                shown_as=filter.get("shown_as"),
                 # toggledLifecycles=filter.get('toggledLifecycles'),
                 show_values_on_series=filter.get("show_values_on_series"),
             )
@@ -388,7 +386,6 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "stickinessFilter": StickinessFilter(
                 compare=filter.get("compare"),
-                shown_as=filter.get("shown_as"),
                 # show_legend=filter.get('show_legend'),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 show_values_on_series=filter.get("show_values_on_series"),
