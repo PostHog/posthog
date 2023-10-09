@@ -81,6 +81,8 @@ class PostgresInsertInputs:
     has_self_signed_cert: bool = False
     schema: str = "public"
     port: int = 5432
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @activity.defn
@@ -102,6 +104,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
@@ -119,6 +123,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
         with postgres_connection(inputs) as connection:
             with connection.cursor() as cursor:
@@ -239,6 +245,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             has_self_signed_cert=inputs.has_self_signed_cert,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         try:
@@ -254,6 +262,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                         # Raised on errors that are related to database operation.
                         # For example: unexpected disconnect, database or other object not found.
                         "OperationalError"
+                        # The schema name provided is invalid (usually because it doesn't exist).
+                        "InvalidSchemaName"
+                        # Missing permissions to, e.g., insert into table.
+                        "InsufficientPrivilege"
                     ],
                 ),
             )

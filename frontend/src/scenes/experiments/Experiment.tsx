@@ -64,6 +64,7 @@ export function Experiment(): JSX.Element {
         props,
         aggregationLabel,
         groupTypes,
+        experimentMissing,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -145,7 +146,7 @@ export function Experiment(): JSX.Element {
         return <Skeleton active />
     }
 
-    if (!experiment && experimentId !== 'new') {
+    if (experimentMissing) {
         return <NotFound object="experiment" />
     }
 

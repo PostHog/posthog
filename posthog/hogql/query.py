@@ -2,7 +2,7 @@ from typing import Dict, Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLSettings
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -24,7 +24,7 @@ def execute_hogql_query(
     filters: Optional[HogQLFilters] = None,
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
-    settings: Optional[HogQLSettings] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
     default_limit: Optional[int] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> HogQLQueryResponse:
@@ -111,7 +111,7 @@ def execute_hogql_query(
             timings=timings,
         )
         clickhouse_sql = print_ast(
-            select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLSettings()
+            select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLGlobalSettings()
         )
 
     timings_dict = timings.to_dict()

@@ -651,7 +651,6 @@ export interface ClickHouseEvent extends BaseEvent {
 interface BaseIngestionEvent {
     eventUuid: string
     event: string
-    ip: string | null
     teamId: TeamId
     distinctId: string
     properties: Properties
@@ -659,8 +658,15 @@ interface BaseIngestionEvent {
     elementsList: Element[]
 }
 
-/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
-export type PreIngestionEvent = BaseIngestionEvent
+/** Ingestion event before saving, BaseIngestionEvent without elementsList */
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+}
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export interface PostIngestionEvent extends BaseIngestionEvent {

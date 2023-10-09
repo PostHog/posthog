@@ -60,9 +60,20 @@ HAVING
 
 PATHNAME_CTE = """
 SELECT
+    events.properties.`$pathname` AS pathname,
+    count() as total_pageviews,
+    uniq(events.person_id) as unique_visitors -- might want to use person id? have seen a small number of pages where unique > total
+FROM
+    events
+WHERE
+    (event = '$pageview')
+    AND events.timestamp >= now() - INTERVAL 7 DAY
+GROUP BY pathname
+"""
+
+PATHNAME_SCROLL_CTE = """
+SELECT
     events.properties.`$prev_pageview_pathname` AS pathname,
-    countIf(events.event == '$pageview') as total_pageviews,
-    COUNT(DISTINCT events.properties.distinct_id) as unique_visitors, -- might want to use person id? have seen a small number of pages where unique > total
     avg(CASE
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) IS NULL THEN NULL
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 100

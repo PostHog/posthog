@@ -98,7 +98,7 @@ export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
-// TODO: Deprecated; should be removed once backend is updated
+/** @deprecated: should be removed once backend is updated */
 export enum ShownAsValue {
     VOLUME = 'Volume',
     STICKINESS = 'Stickiness',
@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
+    HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
@@ -169,7 +170,9 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
+    SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
+    PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
