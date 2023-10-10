@@ -24,16 +24,16 @@ export function NotebookPopoverCard(): JSX.Element | null {
 
     const editable = visibility !== 'hidden' && !notebook?.is_template
 
-    if (droppedResource) {
-        return null
-    }
-
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',
     })
 
     const contentWidthHasEffect = useMemo(() => fullScreen && size === 'medium', [fullScreen, size])
+
+    if (droppedResource) {
+        return null
+    }
 
     return (
         <div ref={ref} className="NotebookPopover__content__card">
