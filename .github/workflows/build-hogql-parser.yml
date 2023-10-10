@@ -20,6 +20,8 @@ jobs:
     check-version:
         name: Check version legitimacy
         runs-on: ubuntu-22.04
+        outputs:
+            parser_any_changed: ${{ steps.changed-files-yaml.outputs.parser_any_changed }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -51,6 +53,7 @@ jobs:
         needs: check-version
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
+        if: ${{ needs.check-version.outputs.parser_any_changed == 'true' }}
         strategy:
             matrix:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
