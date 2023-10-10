@@ -1,5 +1,5 @@
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
-from django.db import models
+from django.db.models import Value, CharField
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -18,17 +18,19 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         q = request.GET.get("q", "").strip()
 
         vector = SearchVector("name", "description")
-        query = SearchQuery(q)
+        query = SearchQuery(":* & ".join(q.split()).strip() + ":*", search_type="raw")
         q1 = Dashboard.objects.annotate(
-            rank=SearchRank(vector, query), type=models.Value("dashboard", output_field=models.CharField())
-        ).filter(rank__gt=0.0)
+            rank=SearchRank(vector, query, cover_density=True, normalization=Value(1)),
+            type=Value("dashboard", output_field=CharField()),
+        ).filter(rank__gt=0.0, team=self.team)
         q2 = FeatureFlag.objects.annotate(
-            rank=SearchRank(SearchVector("name"), query),
-            type=models.Value("feature_flag", output_field=models.CharField()),
-        ).filter(rank__gt=0.0)
+            rank=SearchRank(SearchVector("name"), query, cover_density=True, normalization=Value(1)),
+            type=Value("feature_flag", output_field=CharField()),
+        ).filter(rank__gt=0.0, team=self.team)
         q3 = q1 = Experiment.objects.annotate(
-            rank=SearchRank(vector, query), type=models.Value("experiment", output_field=models.CharField())
-        ).filter(rank__gt=0.0)
+            rank=SearchRank(vector, query, cover_density=True, normalization=Value(1)),
+            type=Value("experiment", output_field=CharField()),
+        ).filter(rank__gt=0.0, team=self.team)
 
         q = q1.union(q2, q3).order_by("-rank")
         # having rank > 0
@@ -36,4 +38,4 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         counts = {"dashboard": q1.count(), "feature_flag": q2.count(), "experiment": q3.count()}
 
-        return Response({"results": d, "counts": counts})
+        return Response({"results": d, "counts": counts, "sql": str(q.query)})
