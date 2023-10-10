@@ -31,6 +31,7 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
+import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -65,6 +66,7 @@ export function Editor({
             CustomDocument,
             StarterKit.configure({
                 document: false,
+                gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
@@ -98,6 +100,7 @@ export function Editor({
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
+            NodeGapInsertionExtension,
         ],
         content: initialContent,
         editorProps: {
