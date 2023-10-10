@@ -158,7 +158,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                                 {isEditable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
                                                 )}
-                                                <span className="flex-1 cursor-pointer">{title}</span>
+                                                <span>{title}</span>
                                             </div>
 
                                             <div className="flex space-x-1">
