@@ -2,6 +2,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL } from 'lib/utils'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
@@ -28,7 +29,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 return state.doc.textBetween(from, to).length > 0
             }}
         >
-            <div className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-1">
+            <div className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-0.5">
                 {editor.isActive('link') ? (
                     <>
                         <LemonInput
@@ -39,7 +40,13 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                             className="border-0"
                             autoFocus
                         />
-                        <LemonButton onClick={openLink} icon={<IconOpenInNew />} status="primary" size="small" />
+                        <LemonButton
+                            onClick={openLink}
+                            icon={<IconOpenInNew />}
+                            status="primary"
+                            size="small"
+                            disabledReason={!isURL(href) && 'Enter a URL.'}
+                        />
                         <LemonButton
                             onClick={() => editor.chain().focus().unsetMark('link').run()}
                             icon={<IconDelete />}
