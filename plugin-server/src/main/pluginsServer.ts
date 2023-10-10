@@ -89,9 +89,9 @@ export async function startPluginsServer(
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
-    let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
-    let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
-    let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
+    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
+    let analyticsEventsIngestionHistoricalConsumer: IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
