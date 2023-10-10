@@ -1249,33 +1249,38 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_property_access_with_arrays_zero_index_error(self):
             query = f"SELECT properties.something[0] FROM events"
-            with self.assertRaises(SyntaxException) as e:
+            with self.assertRaisesMessage(
+                SyntaxException, "SQL indexes start from one, not from zero. E.g: array[1]"
+            ) as e:
                 self._select(query)
-            self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
             self.assertEqual(e.exception.start, 7)
             self.assertEqual(e.exception.end, 30)
 
         def test_property_access_with_tuples_zero_index_error(self):
             query = f"SELECT properties.something.0 FROM events"
-            with self.assertRaises(SyntaxException) as e:
+            with self.assertRaisesMessage(
+                SyntaxException, "SQL indexes start from one, not from zero. E.g: array[1]"
+            ) as e:
                 self._select(query)
-            self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
             self.assertEqual(e.exception.start, 7)
             self.assertEqual(e.exception.end, 29)
 
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
-            with self.assertRaises(SyntaxException) as e:
+            with self.assertRaisesMessage(
+                SyntaxException, '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword'
+            ) as e:
                 self._select(query)
-            self.assertEqual(str(e.exception), '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword')
             self.assertEqual(e.exception.start, 7)
             self.assertEqual(e.exception.end, 16)
 
-        def test_parser_error_start_end(self):
-            query = "SELECT person.id as true FROM events"
-            with self.assertRaises(HogQLException) as e:
+        def test_malformed_sql(self):
+            query = "SELEC 2"
+            with self.assertRaisesMessage(
+                SyntaxException, "mismatched input 'SELEC' expecting {SELECT, WITH, '('}"
+            ) as e:
                 self._select(query)
-            self.assertEqual(e.exception.start, 7)
-            self.assertEqual(e.exception.end, 24)
+            self.assertEqual(e.exception.start, 0)
+            self.assertEqual(e.exception.end, 7)
 
     return TestParser
