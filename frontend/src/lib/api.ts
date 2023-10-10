@@ -1306,6 +1306,10 @@ const api = {
             return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
         },
 
+        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().recording(recordingId).withAction('persist').create()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },

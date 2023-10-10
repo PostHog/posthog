@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 import json
 from typing import Any, List, Type, cast
+from django.conf import settings
 
 import posthoganalytics
 from dateutil import parser
@@ -250,13 +251,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
+        if not settings.EE_AVAILABLE:
+            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
 
-        recording.deleted = True
-        recording.save()
+        # Indicates it is not yet persisted
+        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
+        if recording.storage == "object_storage":
+            recording.save()
 
-        return Response({"success": True}, status=204)
+        return Response({"success": True})
 
     def _snapshots_v2(self, request: request.Request):
         """

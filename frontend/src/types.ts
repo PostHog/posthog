@@ -1034,7 +1034,7 @@ export interface SessionRecordingType {
     console_warn_count?: number
     console_error_count?: number
     /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
+    storage?: 'object_storage_lts' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {

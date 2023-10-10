@@ -160,6 +160,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
+        persistRecording: true,
+        maybePersistRecording: true,
     }),
     reducers(() => ({
         filters: [
@@ -313,6 +315,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.loadedFromBlobStorage
             )
         },
+
+        maybePersistRecording: () => {
+            if (values.sessionPlayerMetaDataLoading) {
+                return
+            }
+
+            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
+                actions.persistRecording()
+            }
+        },
     })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
@@ -327,6 +339,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 breakpoint()
 
                 return response
+            },
+
+            persistRecording: async (_, breakpoint) => {
+                if (!values.sessionPlayerMetaData) {
+                    return null
+                }
+                breakpoint(100)
+                await api.recordings.persist(props.sessionRecordingId)
+
+                return {
+                    ...values.sessionPlayerMetaData,
+                    storage: 'object_storage_lts',
+                }
             },
         },
         sessionPlayerSnapshotData: [

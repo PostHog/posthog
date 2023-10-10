@@ -562,6 +562,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_persist_session_recording(self):
+        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.json()["storage"] == "object_storage"
+        # Trying to delete same recording again returns 404
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/1/persist")
+        assert response.json()["success"]
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.json()["storage"] == "object_storage_lts"
+
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
