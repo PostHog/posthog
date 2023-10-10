@@ -6,7 +6,7 @@ import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../types'
+import { Hub, PipelineEvent, WorkerMethods } from '../../types'
 import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -59,11 +59,6 @@ export class KafkaJSIngestionConsumer {
         // references to queue.workerMethods buried deep in the codebase
         // #onestepatatime
         this.workerMethods = {
-            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
-                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
-            },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
@@ -226,11 +221,6 @@ export class IngestionConsumer {
         // references to queue.workerMethods buried deep in the codebase
         // #onestepatatime
         this.workerMethods = {
-            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
-                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
-            },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'

@@ -18,7 +18,6 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
     },
     "uuid": "0187d7c7-61b7-0000-d6a1-59b207080ac0",
   },
-  "pinnedCount": 0,
   "segments": [
     {
       "durationMs": 11868,
@@ -51,7 +50,6 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
     },
     "uuid": "0187d7c7-61b7-0000-d6a1-59b207080ac0",
   },
-  "pinnedCount": 0,
   "segments": [
     {
       "durationMs": 7255,
@@ -2131,7 +2129,6 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata only by
     },
     "uuid": "0187d7c7-61b7-0000-d6a1-59b207080ac0",
   },
-  "pinnedCount": 0,
   "segments": [
     {
       "durationMs": 11868,

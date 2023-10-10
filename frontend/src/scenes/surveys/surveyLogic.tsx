@@ -35,6 +35,7 @@ import {
     NEW_SURVEY,
     NewSurvey,
 } from './constants'
+import { sanitize } from 'dompurify'
 
 export interface SurveyLogicProps {
     id: string | 'new'
@@ -95,6 +96,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         archiveSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
+        setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -111,11 +113,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 return { ...NEW_SURVEY }
             },
-            createSurvey: async (surveyPayload) => {
-                return await api.surveys.create(surveyPayload)
+            createSurvey: async (surveyPayload: Partial<Survey>) => {
+                return await api.surveys.create(sanitizeQuestions(surveyPayload))
             },
-            updateSurvey: async (surveyPayload) => {
-                return await api.surveys.update(props.id, surveyPayload)
+            updateSurvey: async (surveyPayload: Partial<Survey>) => {
+                return await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
@@ -306,6 +308,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
                     return { ...state, [`question_${payload?.questionIndex}`]: true }
                 },
+            },
+        ],
+        writingHTMLDescription: [
+            false,
+            {
+                setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
     }),
@@ -563,3 +571,19 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
 ])
+
+function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
+    if (!surveyPayload.questions) {
+        return surveyPayload
+    }
+    return {
+        ...surveyPayload,
+        questions: surveyPayload.questions?.map((rawQuestion) => {
+            return {
+                ...rawQuestion,
+                description: sanitize(rawQuestion.description || ''),
+                question: sanitize(rawQuestion.question || ''),
+            }
+        }),
+    }
+}

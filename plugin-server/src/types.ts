@@ -476,7 +476,6 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
