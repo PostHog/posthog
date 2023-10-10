@@ -16,7 +16,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     loaders({
         searchResults: [
-            {} as SearchResults,
+            { results: [], counts: { dashboard: null, experiment: null, feature_flag: null } } as SearchResults,
             {
                 setSearchQuery: async ({ query }) => {
                     const result = await api.get(`api/projects/@current/search?q=${query}`)
