@@ -17,11 +17,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.AddField(
-                    model_name="organization",
-                    name="never_drop_data",
-                    field=models.BooleanField(blank=True, default=False, null=True),
-                ),
+                # This operation was done manually in 352
             ],
         ),
     ]
