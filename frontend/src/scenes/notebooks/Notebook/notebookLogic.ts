@@ -282,6 +282,7 @@ export const notebookLogic = kea<notebookLogicType>([
     selectors({
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
+        notebookLoaded: [(s) => [s.notebook], (notebook): boolean => !!notebook],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
             (notebook, localContent, previewContent): JSONContent => {
@@ -480,6 +481,9 @@ export const notebookLogic = kea<notebookLogicType>([
 
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
+        },
+        setEditor: () => {
+            values.editor?.setContent(values.content)
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,

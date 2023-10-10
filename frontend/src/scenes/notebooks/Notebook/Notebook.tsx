@@ -16,6 +16,7 @@ import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 
 export type NotebookProps = {
     shortId: string
@@ -27,15 +28,26 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { notebookLoaded, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
+    useWhyDidIRender('Notebook', {
+        notebookLoaded,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        shortId,
+        editable,
+        initialAutofocus,
+    })
+
     useEffect(() => {
-        if (!notebook && !notebookLoading) {
+        if (!notebookLoaded && !notebookLoading) {
             loadNotebook()
         }
     }, [])
@@ -58,16 +70,16 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
     if (conflictWarningVisible) {
         return <NotebookConflictWarning />
-    } else if (!notebook && notebookLoading) {
+    } else if (!notebookLoaded && notebookLoading) {
         return <NotebookLoadingState />
-    } else if (!notebook) {
+    } else if (!notebookLoaded) {
         return <NotFound object="notebook" />
     }
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {notebook.is_template && (
+                {false && (
                     <LemonBanner
                         type="info"
                         className="my-4"
@@ -81,7 +93,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 )}
 
                 <NotebookHistoryWarning />
-                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
                         className="my-4"
@@ -99,7 +111,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor
-                            initialContent={content}
+                            initialContent={{}}
                             onCreate={setEditor}
                             onUpdate={onEditorUpdate}
                             onSelectionUpdate={onEditorSelectionUpdate}
