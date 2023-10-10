@@ -1,7 +1,13 @@
+import { useValues, useActions } from 'kea'
+
 import { LemonInput } from '@posthog/lemon-ui'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { searchBarLogic } from './searchBarLogic'
+
 const SearchBar = (): JSX.Element => {
+    const { searchQuery } = useValues(searchBarLogic)
+    const { setSearchQuery } = useActions(searchBarLogic)
     return (
         <div className="border-b">
             <LemonInput
@@ -10,6 +16,8 @@ const SearchBar = (): JSX.Element => {
                 fullWidth
                 suffix={<KeyboardShortcut escape muted />}
                 autoFocus
+                value={searchQuery}
+                onChange={setSearchQuery}
             />
         </div>
     )
