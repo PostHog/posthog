@@ -192,6 +192,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                             ]}
                                                         />
                                                     </Field>
+                                                    {survey.questions.length > 1 && (
+                                                        <Field name="optional" className="my-2">
+                                                            <LemonCheckbox
+                                                                label="Optional"
+                                                                checked={!!question.optional}
+                                                            />
+                                                        </Field>
+                                                    )}
                                                     <Field name="question" label="Question">
                                                         <LemonInput value={question.question} />
                                                     </Field>

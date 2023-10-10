@@ -2159,7 +2159,7 @@ export interface SurveyAppearance {
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
-    required?: boolean
+    optional?: boolean
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
