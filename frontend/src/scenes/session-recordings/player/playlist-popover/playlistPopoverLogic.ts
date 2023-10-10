@@ -185,14 +185,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                     })),
                 ]
 
-                // TODO: Do we care about this...
-                // // If props.playlistShortId exists put it at the beginning of the list
-                // if (playlistShortId) {
-                //     results = results.sort((a, b) =>
-                //         a.playlist.short_id == playlistShortId ? -1 : b.playlist.short_id == playlistShortId ? 1 : 0
-                //     )
-                // }
-
                 return results
             },
         ],
