@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
@@ -16,10 +16,6 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 
-export const silentFailuresAsyncHandlers = new Counter({
-    name: 'async_handlers_silent_failure',
-    help: 'Number silent failures from async handlers.',
-})
 const pipelineStepCompletionCounter = new Counter({
     name: 'events_pipeline_step_executed_total',
     help: 'Number of events that have completed the step',
@@ -58,18 +54,23 @@ class StepErrorNoRetry extends Error {
     }
 }
 
+export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
+    const runner = new EventPipelineRunner(hub, event)
+    return runner.runEventPipeline(event)
+}
+
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PipelineEvent | ProcessedPluginEvent
+    originalEvent: PipelineEvent
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
     private delayAcks: boolean
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
         this.hub = hub
-        this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
+        this.originalEvent = event
 
         // TODO: remove after successful rollout
         this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
@@ -87,6 +88,7 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.originalEvent = event
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {

@@ -2,11 +2,11 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
-import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
+import { Hub, PipelineEvent } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
-import { EventPipelineResult } from '../../../worker/ingestion/event-pipeline/runner'
+import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
@@ -46,7 +46,7 @@ export async function eachBatchParallelIngestion(
     overflowMode: IngestionOverflowMode
 ): Promise<void> {
     async function eachMessage(event: PipelineEvent, queue: IngestionConsumer): Promise<IngestResult> {
-        return ingestEvent(queue.pluginsServer, queue.workerMethods, event)
+        return ingestEvent(queue.pluginsServer, event)
     }
 
     const batchStartTimer = new Date()
@@ -236,7 +236,6 @@ export async function eachBatchParallelIngestion(
 
 async function ingestEvent(
     server: Hub,
-    workerMethods: WorkerMethods,
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<EventPipelineResult> {
@@ -247,7 +246,8 @@ async function ingestEvent(
     server.statsd?.increment('kafka_queue_ingest_event_hit', {
         pipeline: 'runEventPipeline',
     })
-    const result = await workerMethods.runEventPipeline(event)
+
+    const result = await runEventPipeline(server, event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
     countAndLogEvents()
