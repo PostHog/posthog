@@ -370,7 +370,14 @@ function InsightCardInternal(
                         }
                         setAreDetailsShown={setAreDetailsShown}
                     />
-                ) : null}
+                ) : (
+                    <div className="flex justify-between items-center h-full">
+                        <InsightErrorState
+                            excludeDetail
+                            title="Missing 'filters.insight' property, can't display insight"
+                        />
+                    </div>
+                )}
             </BindLogic>
             {showResizeHandles && (
                 <>
