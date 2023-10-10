@@ -39,6 +39,7 @@ export type NotebookNodeLogicProps = {
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
+    defaultTitle?: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -118,6 +119,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         settings: [(_, p) => [p.settings], (settings) => settings],
+        defaultTitle: [(_, p) => [p.defaultTitle], (x) => x],
 
         sendMessage: [
             (s) => [s.messageListeners],

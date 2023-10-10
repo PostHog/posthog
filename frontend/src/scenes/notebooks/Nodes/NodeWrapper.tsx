@@ -92,6 +92,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         resizeable: resizeableOrGenerator,
         settings,
         startExpanded,
+        defaultTitle,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
