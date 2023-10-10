@@ -52,6 +52,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -271,10 +272,10 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
-        doNotLoad: true,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightLogicProps)
     )
@@ -292,7 +293,7 @@ function InsightCardInternal(
             empty = true
         }
     }
-    if (insightLoading) {
+    if (insightLoading || insightDataLoading) {
         loading = true
     }
 
