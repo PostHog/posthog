@@ -44,12 +44,23 @@ class SessionRecordingsMixin(BaseParamMixin):
 
     @cached_property
     def session_ids(self) -> Optional[List[str]]:
+        # Can be ['a', 'b'] or "['a', 'b']" or "a,b"
         session_ids_str = self._data.get(SESSION_RECORDINGS_FILTER_IDS, None)
+
         if session_ids_str is None:
             return None
 
-        recordings_ids = json.loads(session_ids_str)
-        if isinstance(recordings_ids, list) and all(isinstance(recording_id, str) for recording_id in recordings_ids):
+        if isinstance(session_ids_str, list):
+            recordings_ids = session_ids_str
+        elif isinstance(session_ids_str, str):
+            if session_ids_str.startswith("["):
+                recordings_ids = json.loads(session_ids_str)
+            else:
+                recordings_ids = session_ids_str.split(",")
+
+        if all(isinstance(recording_id, str) for recording_id in recordings_ids):
             # Sort for stable queries
             return sorted(recordings_ids)
-        return None
+
+        # If the property is at all present, we assume that the user wants to filter by it
+        return []

@@ -1,7 +1,6 @@
 from typing import Any, List, Optional, Literal
 
 from django.db import models
-from django.db.models import Count
 from django.dispatch import receiver
 
 from posthog.celery import ee_persist_single_recording
@@ -59,7 +58,6 @@ class SessionRecording(UUIDModel):
     viewed: Optional[bool] = False
     person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
-    pinned_count: int = 0
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -148,7 +146,10 @@ class SessionRecording(UUIDModel):
 
     @property
     def storage(self):
-        return "object_storage_lts" if self.object_storage_path else "clickhouse"
+        if self._state.adding:
+            return "object_storage"
+
+        return "object_storage_lts"
 
     def load_person(self) -> Optional[Person]:
         if self.person:
@@ -195,9 +196,7 @@ class SessionRecording(UUIDModel):
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
         try:
-            return SessionRecording.objects.annotate(pinned_count=Count("playlist_items")).get(
-                session_id=session_id, team=team
-            )
+            return SessionRecording.objects.get(session_id=session_id, team=team)
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
 
@@ -207,9 +206,7 @@ class SessionRecording(UUIDModel):
 
         recordings_by_id = {
             recording.session_id: recording
-            for recording in SessionRecording.objects.filter(session_id__in=session_ids, team=team)
-            .annotate(pinned_count=Count("playlist_items"))
-            .all()
+            for recording in SessionRecording.objects.filter(session_id__in=session_ids, team=team).all()
         }
 
         recordings = []

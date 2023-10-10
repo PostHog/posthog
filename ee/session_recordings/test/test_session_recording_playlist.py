@@ -207,7 +207,6 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
-        assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.list_objects")
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
@@ -313,11 +312,9 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
         assert session_recording_obj_1
-        assert session_recording_obj_1.pinned_count == 1
 
         session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
         assert session_recording_obj_2
-        assert session_recording_obj_2.pinned_count == 2
 
         # Delete playlist items
         result = self.client.delete(
