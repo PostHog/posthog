@@ -15,20 +15,25 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def list(self, request: Request, **kw) -> HttpResponse:
+        q = request.GET.get("q", "").strip()
+
         vector = SearchVector("name", "description")
-        query = SearchQuery("metric")
+        query = SearchQuery(q)
         q1 = Dashboard.objects.annotate(
             rank=SearchRank(vector, query), type=models.Value("dashboard", output_field=models.CharField())
-        )
+        ).filter(rank__gt=0.0)
         q2 = FeatureFlag.objects.annotate(
             rank=SearchRank(SearchVector("name"), query),
             type=models.Value("feature_flag", output_field=models.CharField()),
-        )
+        ).filter(rank__gt=0.0)
         q3 = q1 = Experiment.objects.annotate(
-            rank=SearchRank(vector, query), type=models.Value("dashboard", output_field=models.CharField())
-        )
+            rank=SearchRank(vector, query), type=models.Value("experiment", output_field=models.CharField())
+        ).filter(rank__gt=0.0)
 
         q = q1.union(q2, q3).order_by("-rank")
         # having rank > 0
+        d = q.values("type", "pk", "rank", "name")
 
-        return Response({"ranked": q.values("type", "pk", "rank")})
+        counts = {"dashboard": q1.count(), "feature_flag": q2.count(), "experiment": q3.count()}
+
+        return Response({"results": d, "counts": counts})
