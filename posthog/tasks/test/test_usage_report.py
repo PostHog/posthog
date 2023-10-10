@@ -629,7 +629,7 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("TRUNCATE TABLE system.query_log")
 
         execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).run()
+        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
         sync_execute("SYSTEM FLUSH LOGS")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
