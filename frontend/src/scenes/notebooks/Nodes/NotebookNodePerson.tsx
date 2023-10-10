@@ -1,9 +1,9 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { PersonDisplay, TZLabel } from '@posthog/apps-common'
+import { PersonIcon, TZLabel } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,6 +11,9 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeViewProps } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import clsx from 'clsx'
+import { NodeKind } from '~/queries/schema'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = props.attributes
@@ -18,7 +21,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
-    // const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
 
     const title = person ? `Person: ${asDisplay(person)}` : 'Person'
 
@@ -28,17 +31,38 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
         }, 0)
     }, [title])
 
-    // useEffect(() => {
-    //     setActions([
-    //         {
-    //             text: "Events",
-    //             onClick: () => {
-    //                 insertAfter({
-    //                     type: NotebookNodeType.Events,
-    //                 })
-    //         }
-    //     ])
-    // }, [person])
+    useEffect(() => {
+        setActions([
+            {
+                text: 'Events',
+                onClick: () => {
+                    setExpanded(false)
+                    insertAfter({
+                        type: NotebookNodeType.Query,
+                        attrs: {
+                            title: `Events for ${title}`,
+                            query: {
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: [
+                                        '*',
+                                        'event',
+                                        'person',
+                                        'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+                                        'properties.$lib',
+                                        'timestamp',
+                                    ],
+                                    personId: person?.uuid,
+                                    after: '-24h',
+                                },
+                            },
+                        },
+                    })
+                },
+            },
+        ])
+    }, [person])
 
     useEffect(() => {
         props.updateAttributes({
@@ -46,16 +70,57 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
         })
     }, [person])
 
+    const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+    const iconProperties = person?.properties || {}
+
+    const propertyIcons = (
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-4 ph-no-capture">
+            {!personLoading ? (
+                iconPropertyKeys.map((property) => {
+                    let value = iconProperties?.[property]
+                    if (property === '$device_type') {
+                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+                    }
+
+                    let tooltipValue = value
+                    if (property === '$geoip_country_code') {
+                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+                    }
+
+                    return (
+                        <PropertyIcon
+                            key={property}
+                            className={'text-muted-alt'}
+                            property={property}
+                            value={value}
+                            tooltipTitle={() => (
+                                <div className="text-center">
+                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
+                                </div>
+                            )}
+                        />
+                    )
+                })
+            ) : (
+                <LemonSkeleton className="w-18 my-1" />
+            )}
+        </div>
+    )
+
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className="p-4 flex-0 flex gap-2 justify-between">
+            <div className={clsx('p-4 flex-0 flex gap-2 justify-between ', !expanded && 'cursor-pointer')}>
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <>
-                        <span className="font-semibold">
-                            <PersonDisplay withIcon person={person} noLink noPopover />
-                        </span>
+                        <div className="flex gap-2">
+                            <PersonIcon person={person} size="xl" />
+                            <div>
+                                <div className="font-semibold">{asDisplay(person)}</div>
+                                <div>{propertyIcons}</div>
+                            </div>
+                        </div>
 
                         {person ? (
                             <div>
