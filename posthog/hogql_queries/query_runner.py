@@ -74,7 +74,10 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
+    query: Dict[str, Any] | RunnableQueryNode,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    default_limit: Optional[int] = None,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -90,6 +93,12 @@ def get_query_runner(
         from .insights.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "EventsQuery":
+        from .events_query_runner import EventsQueryRunner
+
+        return EventsQueryRunner(
+            query=cast(PersonsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+        )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
 
