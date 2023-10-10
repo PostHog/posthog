@@ -365,7 +365,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "storage": "clickhouse",
+            "storage": "object_storage",
         }
 
     def test_get_default_limit_of_chunks(self):
