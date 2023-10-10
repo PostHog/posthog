@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Message, MessageHeader } from 'node-rdkafka-acosom'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
@@ -90,9 +90,11 @@ export async function eachBatchParallelIngestion(
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
-                        captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
-                            overflowDistinctId: distinct_id,
-                        })
+                        processingPromises.push(
+                            captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
+                                overflowDistinctId: distinct_id,
+                            })
+                        )
                     }
                 }
 

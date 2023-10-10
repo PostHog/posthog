@@ -23,7 +23,7 @@ import {
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeWidget,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
@@ -36,9 +36,10 @@ export type NotebookNodeLogicProps = {
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    widgets: NotebookNodeWidget[]
+    settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
+    defaultTitle: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -65,6 +66,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        toggleEditing: true,
         scrollIntoView: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
     }),
@@ -116,7 +118,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        settings: [(_, p) => [p.settings], (settings) => settings],
+        defaultTitle: [(_, p) => [p.defaultTitle], (title) => title],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -199,6 +202,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
+        },
+        toggleEditing: () => {
+            props.notebookLogic.actions.setEditingNodeId(
+                props.notebookLogic.values.editingNodeId === props.nodeId ? null : props.nodeId
+            )
         },
     })),
 

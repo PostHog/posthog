@@ -103,7 +103,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     return !expanded ? (
         <div>
             {sessionPlayerMetaData ? (
-                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+                <SessionRecordingPreview recording={sessionPlayerMetaData} />
             ) : (
                 <SessionRecordingPreviewSkeleton />
             )}
@@ -156,13 +156,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    widgets: [
-        {
-            key: 'settings',
-            label: 'Settings',
-            Component: Settings,
-        },
-    ],
+    settings: Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

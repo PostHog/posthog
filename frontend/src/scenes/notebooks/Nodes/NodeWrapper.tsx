@@ -32,8 +32,8 @@ import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
     NotebookNodeViewProps,
-    NotebookNodeWidget,
     CustomNotebookNodeAttributes,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
@@ -54,7 +54,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     autoHideMetadata?: boolean
     /** Expand the node if the component is clicked */
     expandOnClick?: boolean
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
 }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>({
@@ -74,11 +74,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     getPos,
     attributes,
     updateAttributes,
-    widgets = [],
+    settings = null,
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
-    const { setEditingNodeId } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -91,12 +90,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
         notebookLogic: mountedNotebookLogic,
         getPos,
         resizeable: resizeableOrGenerator,
-        widgets,
+        settings,
         startExpanded,
+        defaultTitle,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
-    const { setExpanded, deleteNode } = useActions(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -183,13 +183,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 
                                                 {isEditable ? (
                                                     <>
-                                                        {widgets.length > 0 ? (
+                                                        {settings ? (
                                                             <LemonButton
-                                                                onClick={() =>
-                                                                    setEditingNodeId(
-                                                                        editingNodeId === nodeId ? null : nodeId
-                                                                    )
-                                                                }
+                                                                onClick={() => toggleEditing()}
                                                                 size="small"
                                                                 icon={<IconFilter />}
                                                                 active={editingNodeId === nodeId}
@@ -259,7 +255,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    widgets?: NotebookNodeWidget[]
+    settings?: NotebookNodeSettings
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 

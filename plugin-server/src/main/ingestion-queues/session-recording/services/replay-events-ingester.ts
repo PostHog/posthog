@@ -1,11 +1,11 @@
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
@@ -176,7 +176,8 @@ export class ReplayEventsIngester {
     }
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
+        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
 

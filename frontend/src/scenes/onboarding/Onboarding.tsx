@@ -4,15 +4,13 @@ import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { SDKs } from './sdks/SDKs'
-import { OnboardingProductIntro } from './OnboardingProductIntro'
 import { ProductKey } from '~/types'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
-import { teamLogic } from 'scenes/teamLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 
@@ -24,8 +22,8 @@ export const scene: SceneExport = {
 /**
  * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
  */
-const OnboardingWrapper = ({ children, onStart }: { children: React.ReactNode; onStart?: () => void }): JSX.Element => {
-    const { currentOnboardingStepNumber, shouldShowBillingStep } = useValues(onboardingLogic)
+const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
@@ -46,49 +44,50 @@ const OnboardingWrapper = ({ children, onStart }: { children: React.ReactNode; o
     }
 
     const createAllSteps = (): void => {
-        const ProductIntro = <OnboardingProductIntro product={product} onStart={onStart} />
-        const OtherProductsStep = <OnboardingOtherProductsStep />
         let steps = []
         if (Array.isArray(children)) {
-            steps = [ProductIntro, ...children]
+            steps = [...children]
         } else {
-            steps = [ProductIntro, children as JSX.Element]
+            steps = [children as JSX.Element]
         }
         if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} />
+            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.BILLING} />
             steps = [...steps, BillingStep]
         }
-        steps = [...steps, OtherProductsStep]
+        if (shouldShowOtherProductsStep) {
+            const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
+            steps = [...steps, OtherProductsStep]
+        }
         setAllSteps(steps)
     }
 
-    return (allSteps[currentOnboardingStepNumber - 1] as JSX.Element) || <></>
+    return (currentOnboardingStep as JSX.Element) || <></>
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs usersAction="collecting events" sdkInstructionMap={ProductAnalyticsSDKInstructions} />
-            <OnboardingVerificationStep listeningForName="event" teamPropertyToVerify="ingested_event" />
+            <SDKs
+                usersAction="collecting events"
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                stepKey={OnboardingStepKey.SDKS}
+            />
+            <OnboardingVerificationStep
+                listeningForName="event"
+                teamPropertyToVerify="ingested_event"
+                stepKey={OnboardingStepKey.VERIFY}
+            />
         </OnboardingWrapper>
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { updateCurrentTeam } = useActions(teamLogic)
     return (
-        <OnboardingWrapper
-            onStart={() => {
-                updateCurrentTeam({
-                    session_recording_opt_in: true,
-                    capture_console_log_opt_in: true,
-                    capture_performance_opt_in: true,
-                })
-            }}
-        >
+        <OnboardingWrapper>
             <SDKs
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
     )
@@ -97,9 +96,10 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs
-                usersAction="loading flags"
+                usersAction="loading flags & experiments"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
     )
