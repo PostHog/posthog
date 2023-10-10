@@ -16,6 +16,13 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     def list(self, request: Request, **kw) -> HttpResponse:
         q = request.GET.get("q", "").strip()
+        if len(q) == 0:
+            return Response(
+                {
+                    "results": [],
+                    "counts": {"dashboard": None, "feature_flag": None, "experiment": None},
+                }
+            )
 
         vector = SearchVector("name", "description")
         query = SearchQuery(":* & ".join(q.split()).strip() + ":*", search_type="raw")
