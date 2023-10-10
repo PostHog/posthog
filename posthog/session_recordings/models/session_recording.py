@@ -147,7 +147,10 @@ class SessionRecording(UUIDModel):
 
     @property
     def storage(self):
-        return "object_storage_lts" if self.object_storage_path else "clickhouse"
+        if self._state.adding:
+            return "object_storage"
+
+        return "object_storage_lts"
 
     def load_person(self) -> Optional[Person]:
         if self.person:
