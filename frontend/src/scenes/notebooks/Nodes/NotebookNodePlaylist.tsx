@@ -16,6 +16,7 @@ import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/Sess
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { IconComment } from 'lib/lemon-ui/icons'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, pinned, nodeId } = props.attributes
@@ -56,7 +57,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
             activeSessionRecording
                 ? [
                       {
-                          text: 'Pin replay',
+                          text: 'View replay',
                           onClick: () => {
                               insertAfter({
                                   type: NotebookNodeType.Recording,
@@ -68,6 +69,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
                       },
                       {
                           text: 'Comment',
+                          icon: <IconComment />,
                           onClick: () => {
                               if (activeSessionRecording.id) {
                                   insertReplayCommentByTimestamp(0, activeSessionRecording.id)

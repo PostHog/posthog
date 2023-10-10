@@ -97,10 +97,6 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                             }
                                         >
                                             {playlist.name || playlist.derived_name}
-
-                                            {/* {logicProps.playlistLogic?.values.logicProps === playlist.short_id && (
-                                                <span className="text-muted-alt italic text-sm ml-1">(current)</span>
-                                            )} */}
                                         </LemonButton>
 
                                         <LemonButton

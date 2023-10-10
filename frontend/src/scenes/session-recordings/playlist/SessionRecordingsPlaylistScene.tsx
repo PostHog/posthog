@@ -151,7 +151,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         filters={playlist.filters}
                         onFiltersChange={setFilters}
                         onPinnedChange={onPinnedChange}
-                        pinnedRecordings={pinnedRecordings?.results}
+                        pinnedRecordings={pinnedRecordings ?? []}
                     />
                 </div>
             ) : null}

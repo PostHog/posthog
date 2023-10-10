@@ -215,13 +215,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
-        # Optimisation step if passed to speed up retrieval of CH data
-        if not recording.start_time:
-            recording_start_time = (
-                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
-            )
-            recording.start_time = recording_start_time
-
         loaded = recording.load_metadata()
 
         if not loaded:
@@ -426,13 +419,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         posthoganalytics.capture(
             self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
         )
-
-        # Optimisation step if passed to speed up retrieval of CH data
-        if not recording.start_time:
-            recording_start_time = (
-                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
-            )
-            recording.start_time = recording_start_time
 
         try:
             recording.load_snapshots(limit, offset)
