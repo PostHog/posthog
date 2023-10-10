@@ -159,7 +159,7 @@ jobs:
               env:
                   # Installing a version of ANTLR compatible with what's Homebrew as of October 2023 (version 4.13),
                   # as apt-get is quite out of date. The same version as here is in hogql_parser/pyproject.toml
-                  ANTLR_VERSION: '4.13.1'
+                  ANTLR_VERSION: '4.13.0'
 
             - name: Check if hogql-parser versions are in sync
               shell: bash

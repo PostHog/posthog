@@ -82,7 +82,7 @@ runs:
           # changed (as requirements.txt only has the published version)
           run: |
               sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
-              curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+              curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.0-source.zip --output antlr4-source.zip
               unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
               cmake .
               DESTDIR=out make install
