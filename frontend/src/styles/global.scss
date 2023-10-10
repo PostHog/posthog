@@ -702,6 +702,10 @@ body {
         z-index: var(--z-ant-select-dropdown);
     }
 
+    .ant-popconfirm {
+        z-index: var(--z-bottom-notice);
+    }
+
     .ant-card-bordered {
         border-color: var(--border);
     }

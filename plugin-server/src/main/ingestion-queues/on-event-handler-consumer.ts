@@ -94,7 +94,8 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         organizationManager,
         new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
         appMetrics,
-        statsd
+        statsd,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 

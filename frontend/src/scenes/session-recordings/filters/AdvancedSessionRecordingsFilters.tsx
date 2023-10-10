@@ -4,23 +4,16 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import {
-    EntityTypes,
-    FilterType,
-    FilterableLogLevel,
-    RecordingDurationFilter,
-    RecordingFilters,
-    PropertyFilterType,
-} from '~/types'
+import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
 import { LemonButtonWithDropdown, LemonCheckbox, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useDebounce } from 'use-debounce'
+import { groupsModel } from '~/models/groupsModel'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -35,18 +28,13 @@ export const AdvancedSessionRecordingsFilters = ({
     setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
 }): JSX.Element => {
-    const { currentTeam } = useValues(teamLogic)
-
-    const hasGroupFilters = (currentTeam?.test_account_filters || [])
-        .map((x) => x.type)
-        .includes(PropertyFilterType.Group)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <div className="space-y-2">
             <TestAccountFilter
                 filters={filters}
                 onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                disabledReason={hasGroupFilters ? 'Session replay does not support group filters' : false}
             />
 
             <LemonLabel>Time and duration</LemonLabel>
@@ -103,6 +91,7 @@ export const AdvancedSessionRecordingsFilters = ({
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    ...groupsTaxonomicTypes,
                 ]}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{

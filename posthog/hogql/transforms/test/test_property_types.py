@@ -91,7 +91,7 @@ class TestPropertyTypes(BaseTest):
             f"WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi "
             "ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT "
             "argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), person.version) AS properties___tickets, "
-            f"person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS events__pdi__person "
+            f"person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person "
             f"ON equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)
@@ -107,7 +107,7 @@ class TestPropertyTypes(BaseTest):
             f"AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (SELECT "
             f"argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), "
             f"person.version) AS properties___provided_timestamp, person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) "
-            f"GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS events__pdi__person ON "
+            f"GROUP BY person.id HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON "
             f"equals(events__pdi.person_id, events__pdi__person.id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000"
         )
         self.assertEqual(printed, expected)

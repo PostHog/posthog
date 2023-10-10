@@ -11,7 +11,6 @@ import {
 } from '~/queries/utils'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import equal from 'fast-deep-equal'
-import { ShownAsValue } from 'lib/constants'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
@@ -77,18 +76,6 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdown
-    } else {
-        return undefined
-    }
-}
-
-export const getShownAs = (query: InsightQueryNode): ShownAsValue | undefined => {
-    if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.shown_as
-    } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.shown_as
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.shown_as
     } else {
         return undefined
     }

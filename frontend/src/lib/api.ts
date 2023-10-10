@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
+    BatchExportLogEntry,
     CohortType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
@@ -541,6 +542,10 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id)
     }
 
+    public batchExportLogs(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExport(id, teamId).addPathComponent('logs')
+    }
+
     public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
@@ -551,6 +556,14 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    public batchExportRunLogs(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
     // Request finalization
@@ -1184,6 +1197,65 @@ const api = {
             const response = await new ApiRequest()
                 .projectsDetail(currentTeamId || undefined)
                 .pluginLogs(pluginConfigId)
+                .withQueryString(params)
+                .get()
+
+            return response.results
+        },
+    },
+
+    batchExportLogs: {
+        async search(
+            batchExportId: string,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: BatchExportLogEntry | null = null,
+            leadingEntry: BatchExportLogEntry | null = null
+        ): Promise<BatchExportLogEntry[]> {
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
+                },
+                true
+            )
+
+            const response = await new ApiRequest()
+                .batchExportLogs(batchExportId, currentTeamId || undefined)
+                .withQueryString(params)
+                .get()
+
+            return response.results
+        },
+    },
+
+    batchExportRunLogs: {
+        async search(
+            batchExportId: string,
+            batchExportRunId: string,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: BatchExportLogEntry | null = null,
+            leadingEntry: BatchExportLogEntry | null = null
+        ): Promise<BatchExportLogEntry[]> {
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
+                },
+                true
+            )
+
+            const response = await new ApiRequest()
+                .batchExportRunLogs(batchExportId, batchExportRunId, currentTeamId || undefined)
                 .withQueryString(params)
                 .get()
 

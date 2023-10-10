@@ -122,9 +122,20 @@ def sentry_init() -> None:
         sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
+        release = None
+        try:
+            # Docker containers should have a commit.txt file in the base directory with the git
+            # commit hash used to generate them.
+            with open("commit.txt") as f:
+                release = f.read()
+        except:
+            # The release isn't required, it's just nice to have.
+            pass
+
         sentry_sdk.init(
             send_default_pii=send_pii,
             dsn=os.environ["SENTRY_DSN"],
+            release=release,
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
             request_bodies="always" if send_pii else "never",
             sample_rate=1.0,

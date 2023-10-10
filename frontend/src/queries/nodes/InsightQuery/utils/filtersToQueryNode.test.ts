@@ -319,7 +319,6 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
                     formula: 'A+B',
-                    shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
                 breakdown: {
@@ -486,7 +485,6 @@ describe('filtersToQueryNode', () => {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,
                 },
             }
@@ -507,7 +505,6 @@ describe('filtersToQueryNode', () => {
             const query: Partial<LifecycleQuery> = {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
                     toggledLifecycles: ['new', 'dormant'],
                 },
             }
@@ -643,9 +640,6 @@ describe('filtersToQueryNode', () => {
                     },
                 ],
                 interval: 'day',
-                lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
-                },
             }
             expect(result).toEqual(query)
         })

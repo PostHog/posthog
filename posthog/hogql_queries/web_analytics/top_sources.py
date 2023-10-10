@@ -32,7 +32,7 @@ WHERE
 GROUP BY blended_source
 
 ORDER BY total_pageviews DESC
-LIMIT 100
+LIMIT 10
                 """,
                 timings=self.timings,
                 placeholders={"session_query": session_query},
@@ -48,7 +48,7 @@ LIMIT 100
         )
 
         return WebTopSourcesQueryResponse(
-            columns=response.columns, result=response.results, timings=response.timings, types=response.types
+            columns=response.columns, results=response.results, timings=response.timings, types=response.types
         )
 
     @cached_property

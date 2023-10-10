@@ -413,6 +413,7 @@ export async function startPluginsServer(
             } = await startSessionRecordingEventsConsumerV1({
                 teamManager: teamManager,
                 kafkaConfig: serverConfig,
+                kafkaProducerConfig: serverConfig,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
                 consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
                 consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,

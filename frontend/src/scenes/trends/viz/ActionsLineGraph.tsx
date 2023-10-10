@@ -24,7 +24,6 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        shownAs,
         showValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
@@ -84,19 +83,18 @@ export function ActionsLineGraph({
                           const urls = urlsForDatasets(crossDataset, index)
 
                           if (urls?.length) {
-                              const title =
-                                  shownAs === 'Stickiness' ? (
+                              const title = isStickiness ? (
+                                  <>
+                                      <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                  </>
+                              ) : (
+                                  (label: string) => (
                                       <>
-                                          <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                          {label} on{' '}
+                                          <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
                                       </>
-                                  ) : (
-                                      (label: string) => (
-                                          <>
-                                              {label} on{' '}
-                                              <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
-                                          </>
-                                      )
                                   )
+                              )
 
                               openPersonsModal({
                                   urls,

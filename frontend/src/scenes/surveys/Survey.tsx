@@ -36,6 +36,7 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { defaultSurveyFieldValues, defaultSurveyAppearance, NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -46,8 +47,13 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { isEditingSurvey } = useValues(surveyLogic)
+    const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
     const showSurveyForm = id === 'new' || isEditingSurvey
+
+    if (surveyMissing) {
+        return <NotFound object="survey" />
+    }
+
     return (
         <div>
             {!id ? (
@@ -186,6 +192,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                             ]}
                                                         />
                                                     </Field>
+                                                    {survey.questions.length > 1 && (
+                                                        <Field name="optional" className="my-2">
+                                                            <LemonCheckbox
+                                                                label="Optional"
+                                                                checked={!!question.optional}
+                                                            />
+                                                        </Field>
+                                                    )}
                                                     <Field name="question" label="Question">
                                                         <LemonInput value={question.question} />
                                                     </Field>
@@ -332,7 +346,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             className="w-max"
                             icon={<IconPlus />}
                             onClick={() => {
-                                setSurveyValue('questions', [...survey.questions, { ...defaultSurveyFieldValues.open }])
+                                setSurveyValue('questions', [
+                                    ...survey.questions,
+                                    { ...defaultSurveyFieldValues.open.questions[0] },
+                                ])
                             }}
                         >
                             Add question

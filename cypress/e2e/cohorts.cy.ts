@@ -52,5 +52,24 @@ describe('Cohorts', () => {
             cy.url().should('include', '/cohorts/')
             cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
         })
+
+        // back into cohort
+        cy.get('tbody').contains('Test Cohort').click()
+
+        // duplicate cohort (dynamic)
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('.Popover__content').contains('Duplicate as dynamic cohort').click()
+        cy.get('.Toastify__toast-body').contains('View cohort').click()
+
+        // duplicate cohort (static)
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('.Popover__content').contains('Duplicate as static cohort').click()
+        cy.get('.Toastify__toast-body').contains('View cohort').click()
+
+        // delete cohort
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('.Popover__content').contains('Delete cohort').click()
+        cy.clickNavMenu('cohorts')
+        cy.get('tbody').should('not.have.text', 'Test Cohort (dynamic copy) (static copy)')
     })
 })
