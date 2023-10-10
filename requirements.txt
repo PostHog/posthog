@@ -301,6 +301,8 @@ multidict==6.0.2
     #   yarl
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
+nh3==0.2.14
+    # via -r requirements.in
 numpy==1.23.3
     # via
     #   -r requirements.in
