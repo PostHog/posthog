@@ -161,9 +161,9 @@ export const defaultPageviewPropertyEntityFilter = (
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
-    filters?: RecordingFilters
     updateSearchParams?: boolean
     autoPlay?: boolean
+    filters?: RecordingFilters
     onFiltersChange?: (filters: RecordingFilters) => void
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void

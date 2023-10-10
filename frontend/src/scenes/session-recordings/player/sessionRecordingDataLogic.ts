@@ -151,7 +151,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
-        addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshotsV1: (nextUrl?: string) => ({ nextUrl }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadRecordingSnapshots: true,
@@ -161,6 +160,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
+        persistRecording: true,
+        maybePersistRecording: true,
     }),
     reducers(() => ({
         filters: [
@@ -314,6 +315,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.loadedFromBlobStorage
             )
         },
+
+        maybePersistRecording: () => {
+            if (values.sessionPlayerMetaDataLoading) {
+                return
+            }
+
+            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
+                actions.persistRecording()
+            }
+        },
     })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
@@ -329,14 +340,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 return response
             },
-            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+
+            persistRecording: async (_, breakpoint) => {
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
+                breakpoint(100)
+                await api.recordings.persist(props.sessionRecordingId)
 
                 return {
                     ...values.sessionPlayerMetaData,
-                    pinned_count: Math.max(values.sessionPlayerMetaData.pinned_count ?? 0 + diffCount, 0),
+                    storage: 'object_storage_lts',
                 }
             },
         },
@@ -589,7 +603,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durationMs,
                 fullyLoaded
             ): SessionPlayerData => ({
-                pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
                 end,

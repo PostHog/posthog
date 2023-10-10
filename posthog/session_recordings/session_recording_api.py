@@ -2,12 +2,12 @@ from datetime import datetime, timedelta
 
 import json
 from typing import Any, List, Type, cast
+from django.conf import settings
 
 import posthoganalytics
-from dateutil import parser
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Count, Prefetch
+from django.db.models import Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -93,7 +93,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
-            "pinned_count",
         ]
 
         read_only_fields = [
@@ -113,7 +112,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
-            "pinned_count",
         ]
 
 
@@ -240,6 +238,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording.save()
 
         return Response({"success": True}, status=204)
+
+    @action(methods=["POST"], detail=True)
+    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
+
+        if not settings.EE_AVAILABLE:
+            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
+
+        # Indicates it is not yet persisted
+        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
+        if recording.storage == "object_storage":
+            recording.save()
+
+        return Response({"success": True})
 
     def _snapshots_v2(self, request: request.Request):
         """
@@ -499,11 +511,9 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
         sorted_session_ids = sorted(all_session_ids)
 
-        persisted_recordings_queryset = (
-            SessionRecording.objects.filter(team=team, session_id__in=sorted_session_ids)
-            .exclude(object_storage_path=None)
-            .annotate(pinned_count=Count("playlist_items"))
-        )
+        persisted_recordings_queryset = SessionRecording.objects.filter(
+            team=team, session_id__in=sorted_session_ids
+        ).exclude(object_storage_path=None)
 
         persisted_recordings = persisted_recordings_queryset.all()
 
