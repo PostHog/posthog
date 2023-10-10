@@ -154,19 +154,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                 ) : (
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
-                                            <LemonButton
-                                                onClick={() => setExpanded(!expanded)}
-                                                size="small"
-                                                status="primary-alt"
-                                                className="flex-1"
-                                                icon={
-                                                    isEditable ? (
-                                                        <IconDragHandle className="cursor-move text-base shrink-0" />
-                                                    ) : undefined
-                                                }
-                                            >
+                                            <div className="flex items-center gap-1">
+                                                {isEditable && (
+                                                    <IconDragHandle className="cursor-move text-base shrink-0" />
+                                                )}
                                                 <span className="flex-1 cursor-pointer">{title}</span>
-                                            </LemonButton>
+                                            </div>
 
                                             <div className="flex space-x-1">
                                                 {parsedHref && (
