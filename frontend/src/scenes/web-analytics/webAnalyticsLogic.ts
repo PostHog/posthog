@@ -8,10 +8,25 @@ interface Layout {
     colSpan?: number
     rowSpan?: number
 }
-export interface WebDashboardTile {
-    query: QuerySchema
+
+interface BaseTile {
     layout: Layout
 }
+
+interface QueryTile extends BaseTile {
+    title?: string
+    query: QuerySchema
+}
+
+interface TabsTile extends BaseTile {
+    tabs: {
+        title: string
+        linkText: string
+        query: QuerySchema
+    }
+}
+
+export type WebDashboardTile = QueryTile | TabsTile
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
@@ -47,6 +62,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
+                    title: 'Which pages do your users visit most?',
                     layout: {
                         colSpan: 6,
                     },
@@ -60,6 +76,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
+                    title: 'Where do your users come from?',
                     layout: {
                         colSpan: 6,
                     },
@@ -73,6 +90,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
+                    title: 'Unique users over the last week',
                     layout: {
                         colSpan: 6,
                     },
@@ -103,6 +121,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
+                    title: 'Where are your users located?',
                     layout: {
                         colSpan: 6,
                     },
