@@ -151,7 +151,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
-        addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshotsV1: (nextUrl?: string) => ({ nextUrl }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadRecordingSnapshots: true,
@@ -328,16 +327,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 breakpoint()
 
                 return response
-            },
-            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
-                if (!values.sessionPlayerMetaData) {
-                    return null
-                }
-
-                return {
-                    ...values.sessionPlayerMetaData,
-                    pinned_count: Math.max(values.sessionPlayerMetaData.pinned_count ?? 0 + diffCount, 0),
-                }
             },
         },
         sessionPlayerSnapshotData: [
@@ -589,7 +578,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durationMs,
                 fullyLoaded
             ): SessionPlayerData => ({
-                pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
                 end,

@@ -248,6 +248,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return Response({"success": True}, status=204)
 
+    @action(methods=["POST"], detail=True)
+    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        recording.deleted = True
+        recording.save()
+
+        return Response({"success": True}, status=204)
+
     def _snapshots_v2(self, request: request.Request):
         """
         This will eventually replace the snapshots endpoint below.

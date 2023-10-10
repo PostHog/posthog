@@ -689,7 +689,6 @@ export interface SessionPlayerSnapshotData {
 }
 
 export interface SessionPlayerData {
-    pinnedCount: number
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
@@ -1031,8 +1030,6 @@ export interface SessionRecordingType {
     /** count of all mouse activity in the recording, not just clicks */
     mouse_activity_count?: number
     start_url?: string
-    /** Count of number of playlists this recording is pinned to. **/
-    pinned_count?: number
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
