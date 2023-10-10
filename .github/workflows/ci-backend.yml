@@ -166,7 +166,7 @@ jobs:
               run: |
                   local=$(python hogql_parser/setup.py --version)
                   required=$(grep 'hogql-parser' requirements.txt | cut -d "=" -f3)
-                  if [[ "$required" == "$local" ]]; then
+                  if [[ "$required" != "$local" ]]; then
                       echo "Version $required of hogql-parser specified in requirements.txt is not the same as $local in hogql_parser/setup.py"
                       echo "This needs to be resolved before this PR is merged"
                       echo "If $local is not yet available on PyPI, wait for the \"Release hogql-parser\" workflow to finish"
