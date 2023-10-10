@@ -214,7 +214,11 @@ export function SessionRecordingPreview({
                             recording={recording}
                             iconClassnames={iconClassnames}
                         />
-                        <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
+                        <TZLabel
+                            className="overflow-hidden text-ellipsis text-xs"
+                            time={recording.start_time}
+                            placement="right"
+                        />
                     </div>
 
                     <FirstURL startUrl={recording.start_url} />
