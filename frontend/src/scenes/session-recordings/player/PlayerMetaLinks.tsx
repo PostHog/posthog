@@ -14,7 +14,7 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, deleteRecording, maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
@@ -98,7 +98,14 @@ export function PlayerMetaLinks(): JSX.Element {
 
                     {logicProps.setPinned ? (
                         <LemonButton
-                            onClick={() => logicProps.setPinned?.(!logicProps.pinned)}
+                            onClick={() => {
+                                if (nodeLogic && !logicProps.pinned) {
+                                    // If we are in a node, then pinning should persist the recording
+                                    maybePersistRecording()
+                                }
+
+                                logicProps.setPinned?.(!logicProps.pinned)
+                            }}
                             size="small"
                             tooltip={logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'}
                             icon={logicProps.pinned ? <IconPinFilled /> : <IconPinOutline />}

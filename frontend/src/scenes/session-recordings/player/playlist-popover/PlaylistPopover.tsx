@@ -13,7 +13,7 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
 export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
-    const { sessionRecordingId, logicProps, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -23,12 +23,13 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
         allPlaylists,
         currentPlaylistsLoading,
         modifyingPlaylist,
+        pinnedCount,
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
 
     return (
-        <IconWithCount count={sessionPlayerData.pinnedCount ?? 0} showZero={false}>
+        <IconWithCount showZero={false} count={pinnedCount}>
             <Popover
                 visible={showPlaylistPopover}
                 onClickOutside={() => setShowPlaylistPopover(false)}

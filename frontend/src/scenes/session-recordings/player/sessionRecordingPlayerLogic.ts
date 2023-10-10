@@ -122,6 +122,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadRecordingSnapshotsSuccess',
                 'loadRecordingSnapshotsFailure',
                 'loadRecordingMetaSuccess',
+                'maybePersistRecording',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],

@@ -1,4 +1,4 @@
-import { kea, props, path, key, actions, reducers, selectors, listeners, connect } from 'kea'
+import { kea, props, path, key, actions, reducers, selectors, listeners, connect, afterMount } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
@@ -13,8 +13,6 @@ import { forms } from 'kea-forms'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
@@ -24,8 +22,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         actions: [
             sessionRecordingPlayerLogic(props),
             ['setPause'],
-            sessionRecordingDataLogic(props),
-            ['addDiffToRecordingMetaPinnedCount'],
             eventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
         ],
@@ -38,10 +34,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         removeFromPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopover: (show: boolean) => ({ show }),
-        updateRecordingsPinnedCounts: (
-            diffCount: number,
-            playlistShortId?: SessionRecordingPlaylistType['short_id']
-        ) => ({ diffCount, playlistShortId }),
     })),
     loaders(({ values, props, actions }) => ({
         playlists: {
@@ -144,22 +136,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 actions.setPause()
             }
         },
-
-        addToPlaylistSuccess: ({ payload }) => {
-            actions.updateRecordingsPinnedCounts(1, payload?.playlist?.short_id)
-        },
-
-        removeFromPlaylistSuccess: ({ payload }) => {
-            actions.updateRecordingsPinnedCounts(-1, payload?.playlist?.short_id)
-        },
-
-        updateRecordingsPinnedCounts: ({ diffCount, playlistShortId }) => {
-            actions.addDiffToRecordingMetaPinnedCount(diffCount)
-            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            if (!!playlistShortId && sessionRecordingsPlaylistSceneLogic.isMounted({ shortId: playlistShortId })) {
-                sessionRecordingsPlaylistSceneLogic({ shortId: playlistShortId }).actions.loadPinnedRecordings()
-            }
-        },
     })),
     selectors(() => ({
         allPlaylists: [
@@ -188,5 +164,10 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 return results
             },
         ],
+        pinnedCount: [(s) => [s.currentPlaylists], (currentPlaylists) => currentPlaylists.length],
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadPlaylistsForRecording()
+    }),
 ])
