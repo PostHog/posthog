@@ -65,6 +65,7 @@ export function Editor({
             CustomDocument,
             StarterKit.configure({
                 document: false,
+                gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
