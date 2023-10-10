@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
+import LibrdKafkaError from 'node-rdkafka/lib/error'
 
 import { defaultConfig } from '../../../../src/config/config'
 import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v1'

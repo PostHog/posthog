@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException, captureMessage } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
