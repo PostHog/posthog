@@ -39,7 +39,7 @@ export type NotebookNodeLogicProps = {
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
-    defaultTitle?: string
+    defaultTitle: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
