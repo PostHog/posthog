@@ -10,7 +10,6 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -260,6 +259,9 @@ class EventsQueryRunner(QueryRunner):
         return ["*"] if len(self.query.select) == 0 else self.query.select
 
     def limit(self) -> int:
+        # importing locally so we could override in a test
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+
         # adding +1 to the limit to check if there's a "next page" after the requested results
         return (
             min(
