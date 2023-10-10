@@ -5,10 +5,9 @@ from typing import Any, List, Type, cast
 from django.conf import settings
 
 import posthoganalytics
-from dateutil import parser
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Count, Prefetch
+from django.db.models import Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
