@@ -24,7 +24,10 @@ import {
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
+
+jest.mock('../../../src/worker/plugins/run')
 
 jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
     const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
@@ -138,32 +141,33 @@ describe('eachBatchX', () => {
                 pluginConfigsPerTeam: new Map(),
             },
             workerMethods: {
-                runAppsOnEventPipeline: jest.fn(),
-                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })
 
     describe('eachBatchAppsOnEventHandlers', () => {
-        it('calls runAppsOnEventPipeline when useful', async () => {
+        it('calls runOnEvent when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
-            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
-                ...event,
-                properties: {
-                    $ip: '127.0.0.1',
-                },
-            })
+            // TODO fix to jest spy on the actual function
+            expect(runOnEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    uuid: 'uuid1',
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                })
+            )
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers_on_event',
                 expect.any(Date)
             )
         })
-        it('skip runAppsOnEventPipeline when no pluginconfig for team', async () => {
+        it('skip runOnEvent when no pluginconfig for team', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.clear()
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
-            expect(queue.workerMethods.runAppsOnEventPipeline).not.toHaveBeenCalled()
+            expect(runOnEvent).not.toHaveBeenCalled()
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_async_handlers_on_event',
                 expect.any(Date)
@@ -179,13 +183,15 @@ describe('eachBatchX', () => {
                 createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
                 queue
             )
-            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
-                ...event,
-                elementsList: [{ attributes: {}, order: 0, tag_name: 'random' }],
-                properties: {
-                    $ip: '127.0.0.1',
-                },
-            })
+            expect(runOnEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    uuid: 'uuid1',
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                    elements: [{ attributes: {}, order: 0, tag_name: 'random' }],
+                })
+            )
         })
         it('skips elements parsing when not useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
@@ -197,12 +203,15 @@ describe('eachBatchX', () => {
                 createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
                 queue
             )
-            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
-                ...event,
-                properties: {
-                    $ip: '127.0.0.1',
-                },
-            })
+            expect(runOnEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    uuid: 'uuid1',
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                    elements: [],
+                })
+            )
         })
     })
 
