@@ -1,4 +1,4 @@
-import { AdminClient, CODES, GlobalConfig, IAdminClient, LibrdKafkaError } from 'node-rdkafka-acosom'
+import { AdminClient, CODES, GlobalConfig, IAdminClient, LibrdKafkaError } from 'node-rdkafka'
 
 import { status } from '../utils/status'
 

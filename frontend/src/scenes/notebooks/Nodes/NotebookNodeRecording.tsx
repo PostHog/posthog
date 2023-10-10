@@ -103,7 +103,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     return !expanded ? (
         <div>
             {sessionPlayerMetaData ? (
-                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+                <SessionRecordingPreview recording={sessionPlayerMetaData} />
             ) : (
                 <SessionRecordingPreviewSkeleton />
             )}

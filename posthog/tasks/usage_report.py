@@ -542,7 +542,6 @@ def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
 ) -> List[Tuple[int, int]]:
-
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count

@@ -6,7 +6,7 @@ import { convertPropertyGroupToProperties, deleteWithUndo, genericOperatorMap } 
 import { getKeyMapping } from 'lib/taxonomy'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
