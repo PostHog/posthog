@@ -197,12 +197,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     },
     href: (attrs) =>
         attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
-    widgets: [
-        {
-            key: 'settings',
-            Component: Settings,
-        },
-    ],
+    settings: Settings,
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
         getAttributes: async (match) => {

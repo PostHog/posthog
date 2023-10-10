@@ -65,7 +65,15 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
             )
 
         if interval == "every 5 minutes":
-            feature_enabled.assert_called_once_with("high-frequency-batch-exports", str(team.uuid))
+            feature_enabled.assert_called_once_with(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                },
+                send_feature_flag_events=False,
+            )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -179,4 +187,12 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(cli
                 batch_export_data,
             )
             assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-            feature_enabled.assert_called_once_with("high-frequency-batch-exports", str(team.uuid))
+            feature_enabled.assert_called_once_with(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                },
+                send_feature_flag_events=False,
+            )

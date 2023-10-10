@@ -2159,7 +2159,7 @@ export interface SurveyAppearance {
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
-    required?: boolean
+    optional?: boolean
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -3211,7 +3211,7 @@ export type BatchExportConfiguration = {
     id: string
     name: string
     destination: BatchExportDestination
-    interval: 'hour' | 'day'
+    interval: 'hour' | 'day' | 'every 5 minutes'
     created_at: string
     start_at: string | null
     end_at: string | null
