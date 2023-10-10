@@ -31,10 +31,10 @@ class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
             top_sources_query = parse_select(
                 """
 SELECT
-    pathname.$pathname as pathname,
-    pathname.total_pageviews as total_pageviews,
-    pathname.unique_visitors as unique_visitors,
-    bounce_rate.bounce_rate as bounce_rate,
+    pathname.$pathname as "context.columns.pathname",
+    pathname.total_pageviews as "Views",
+    pathname.unique_visitors as "Visitors",
+    bounce_rate.bounce_rate as "context.columns.bounce_rate",
     scroll_data.scroll_gt80_percentage as scroll_gt80_percentage,
     scroll_data.average_scroll_percentage as average_scroll_percentage
 FROM
@@ -56,7 +56,7 @@ LEFT OUTER JOIN
 ON
     pathname.$pathname = scroll_data.$pathname
 ORDER BY
-    total_pageviews DESC
+    "Views" DESC
 LIMIT 10
                 """,
                 timings=self.timings,

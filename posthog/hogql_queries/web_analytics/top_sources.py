@@ -21,17 +21,17 @@ class WebTopSourcesQueryRunner(WebAnalyticsQueryRunner):
             top_sources_query = parse_select(
                 """
 SELECT
-    blended_source,
-    count(num_pageviews) as total_pageviews,
-    count(DISTINCT person_id) as unique_visitors,
-    avg(is_bounce) AS bounce_rate
+    blended_source as "Source",
+    count(num_pageviews) as "Views",
+    count(DISTINCT person_id) as "Visitors",
+    avg(is_bounce) AS "context.columns.bounce_rate"
 FROM
     {session_query}
 WHERE
-    blended_source IS NOT NULL
-GROUP BY blended_source
+    "Source" IS NOT NULL
+GROUP BY "Source"
 
-ORDER BY total_pageviews DESC
+ORDER BY "Views" DESC
 LIMIT 10
                 """,
                 timings=self.timings,

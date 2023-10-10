@@ -1583,6 +1583,19 @@ export function isNumeric(x: any): boolean {
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
 }
 
+export function isNull<T>(arg: T | null): arg is null {
+    return arg === null
+}
+export function isNotNull<T>(arg: T): arg is Exclude<T, null> {
+    return arg !== null
+}
+export function isNil<T>(arg: T | null | undefined): arg is null | undefined {
+    return arg === null || arg === undefined
+}
+export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
+    return arg !== null && arg !== undefined
+}
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365

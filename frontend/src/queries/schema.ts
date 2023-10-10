@@ -23,6 +23,7 @@ import {
     InsightShortId,
     EventPropertyFilter,
 } from '~/types'
+import { ComponentType } from 'react'
 
 /**
  * PostHog Query Schema definition.
@@ -703,7 +704,9 @@ export interface QueryContext {
     emptyStateDetail?: string
 }
 
+export type QueryContextColumnComponent = ComponentType<{ record: any; columnName: string; value: any }>
+
 interface QueryContextColumn {
     title?: string
-    render?: (props: { record: any }) => JSX.Element
+    render?: QueryContextColumnComponent
 }

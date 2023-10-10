@@ -2,7 +2,8 @@ import { actions, connect, kea, listeners, path, reducers, selectors, sharedList
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { isNotNil } from 'lib/utils'
 
 interface Layout {
     colSpan?: number
@@ -35,12 +36,50 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     connect({}),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
+        togglePropertyFilter: (key: string, value: string) => ({ key, value }),
     }),
     reducers({
         webAnalyticsFilters: [
             initialWebAnalyticsFilter,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
+                togglePropertyFilter: (oldPropertyFilters, { key, value }) => {
+                    if (oldPropertyFilters.some((f) => f.key === key && f.operator === PropertyOperator.Exact)) {
+                        return oldPropertyFilters
+                            .map((f) => {
+                                if (f.key !== key || f.operator !== PropertyOperator.Exact) {
+                                    return f
+                                }
+                                const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
+                                let newValue: (string | number)[]
+                                if (oldValue.includes(value)) {
+                                    // If there are multiple values for this filter, reduce that to just the one being clicked
+                                    if (oldValue.length > 1) {
+                                        newValue = [value]
+                                    } else {
+                                        return null
+                                    }
+                                } else {
+                                    newValue = [...oldValue, value]
+                                }
+                                return {
+                                    type: PropertyFilterType.Event,
+                                    key,
+                                    operator: PropertyOperator.Exact,
+                                    value: newValue,
+                                } as const
+                            })
+                            .filter(isNotNil)
+                    } else {
+                        const newFilter: EventPropertyFilter = {
+                            type: PropertyFilterType.Event,
+                            key,
+                            value,
+                            operator: PropertyOperator.Exact,
+                        }
+                        return [...oldPropertyFilters, newFilter]
+                    }
+                },
             },
         ],
     }),

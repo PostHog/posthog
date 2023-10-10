@@ -4,6 +4,52 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { QueryContext, QueryContextColumnComponent } from '~/queries/schema'
+import { useCallback } from 'react'
+
+const PercentageCell: QueryContextColumnComponent = ({ value }) => {
+    if (typeof value === 'number') {
+        return (
+            <div className="w-full text-right">
+                <span className="flex-1 text-right">{`${(value * 100).toFixed(1)}%`}</span>
+            </div>
+        )
+    } else {
+        return null
+    }
+}
+
+const ClickablePropertyCell: QueryContextColumnComponent = (props) => {
+    const { columnName, value } = props
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    let propertyName: string
+    switch (columnName) {
+        case 'pathname':
+            propertyName = '$pathname'
+            break
+        default:
+            return null
+    }
+
+    const onClick = useCallback(() => {
+        togglePropertyFilter(propertyName, value)
+    }, [togglePropertyFilter, propertyName, value])
+
+    return <a onClick={onClick}>{value}</a>
+}
+
+const queryContext: QueryContext = {
+    columns: {
+        bounce_rate: {
+            title: 'Bounce Rate',
+            render: PercentageCell,
+        },
+        pathname: {
+            title: 'Path',
+            render: ClickablePropertyCell,
+        },
+    },
+}
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     const { tiles, webAnalyticsFilters } = useValues(webAnalyticsLogic)
@@ -28,7 +74,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 } min-h-100 flex flex-col`}
                             >
                                 {title && <h2>{title}</h2>}
-                                <Query query={query} readOnly={true} />
+                                <Query query={query} readOnly={true} context={queryContext} />
                             </div>
                         )
                     } else {
