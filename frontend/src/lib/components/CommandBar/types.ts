@@ -8,7 +8,9 @@ export type ResultTypes = 'dashboard' | 'experiment' | 'feature_flag'
 
 export type ResultTypesWithAll = ResultTypes | 'all'
 
-export type SearchResults = {
-    results: { pk: number; type: ResultTypes; name: string | null }[]
+export type SearchResult = { pk: number; type: ResultTypes; name: string | null }
+
+export type SearchResponse = {
+    results: SearchResult[]
     counts: Record<ResultTypes, number | null>
 }

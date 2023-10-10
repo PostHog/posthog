@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { searchBarLogicType } from './searchBarLogicType'
-import { SearchResults } from './types'
+import { SearchResponse } from './types'
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
@@ -16,7 +16,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     loaders({
         searchResults: [
-            { results: [], counts: { dashboard: null, experiment: null, feature_flag: null } } as SearchResults,
+            { results: [], counts: { dashboard: null, experiment: null, feature_flag: null } } as SearchResponse,
             {
                 setSearchQuery: async ({ query }) => {
                     const result = await api.get(`api/projects/@current/search?q=${query}`)

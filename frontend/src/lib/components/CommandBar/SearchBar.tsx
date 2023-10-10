@@ -5,6 +5,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { searchBarLogic } from './searchBarLogic'
 import SearchBarTab from './SearchBarTab'
+import SearchResult from './SearchResult'
 import { ResultTypesWithAll } from './types'
 
 const SearchBar = (): JSX.Element => {
@@ -27,7 +28,7 @@ const SearchBar = (): JSX.Element => {
             </div>
             <div className="grow">
                 {searchResults.results?.map((r) => (
-                    <div key={`${r.type}_${r.pk}`}>{JSON.stringify(r, null, 2)}</div>
+                    <SearchResult key={`${r.type}_${r.pk}`} result={r} />
                 ))}
             </div>
             {searchResults.counts && (
