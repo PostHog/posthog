@@ -45,7 +45,7 @@ import {
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { QueryContext } from '~/queries/schema'
+import { InsightQueryNode, QueryContext } from '~/queries/schema'
 import { InsightMeta } from './InsightMeta'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -186,7 +186,7 @@ export function FilterBasedCardContent({
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
-    const query = filtersToQueryNode(insight.filters)
+    const query: InsightQueryNode = filtersToQueryNode(insight.filters)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
         key: insightVizDataNodeKey(insightProps),
@@ -351,7 +351,7 @@ function InsightCardInternal(
                             <QueriesUnsupportedHere />
                         )}
                     </div>
-                ) : (
+                ) : insight.filters?.insight ? (
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
@@ -370,7 +370,7 @@ function InsightCardInternal(
                         }
                         setAreDetailsShown={setAreDetailsShown}
                     />
-                )}
+                ) : null}
             </BindLogic>
             {showResizeHandles && (
                 <>
