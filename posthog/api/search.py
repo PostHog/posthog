@@ -19,16 +19,16 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         query = SearchQuery("metric")
         q1 = Dashboard.objects.annotate(
             rank=SearchRank(vector, query), type=models.Value("dashboard", output_field=models.CharField())
-        ).order_by("-rank")
+        )
         q2 = FeatureFlag.objects.annotate(
             rank=SearchRank(SearchVector("name"), query),
             type=models.Value("feature_flag", output_field=models.CharField()),
-        ).order_by("-rank")
+        )
         q3 = q1 = Experiment.objects.annotate(
             rank=SearchRank(vector, query), type=models.Value("dashboard", output_field=models.CharField())
-        ).order_by("-rank")
+        )
 
-        q = q1.union(q2, q3)
+        q = q1.union(q2, q3).order_by("-rank")
         # having rank > 0
 
         return Response({"ranked": q.values("type", "pk", "rank")})
