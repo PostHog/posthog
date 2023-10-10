@@ -45,8 +45,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('is true if after API call is made there are no results', async () => {
                 await expectLogic(logic, () => {
-                    // load is called on mount
-                    // logic.actions.loadSessionRecordings()
                     logic.actions.setSelectedRecordingId('abc')
                 })
                     .toDispatchActionsInAnyOrder(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
@@ -55,8 +53,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('is false after API call error', async () => {
                 await expectLogic(logic, () => {
-                    // load is called on mount
-                    // logic.actions.loadSessionRecordings()
                     logic.actions.loadSessionRecordingsFailure('abc')
                 }).toMatchValues({ shouldShowEmptyState: false })
             })
