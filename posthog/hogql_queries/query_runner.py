@@ -145,7 +145,7 @@ class QueryRunner(ABC):
         # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    def run(self, refresh_requested: bool) -> CachedQueryResponse:
+    def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
         cache_key = self._cache_key()
         tag_queries(cache_key=cache_key)
 
