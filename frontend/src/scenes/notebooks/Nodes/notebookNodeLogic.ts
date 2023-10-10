@@ -39,6 +39,7 @@ export type NotebookNodeLogicProps = {
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
+    defaultTitle: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -65,6 +66,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        toggleEditing: true,
         scrollIntoView: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
     }),
@@ -117,6 +119,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         settings: [(_, p) => [p.settings], (settings) => settings],
+        defaultTitle: [(_, p) => [p.defaultTitle], (title) => title],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -199,6 +202,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
+        },
+        toggleEditing: () => {
+            props.notebookLogic.actions.setEditingNodeId(
+                props.notebookLogic.values.editingNodeId === props.nodeId ? null : props.nodeId
+            )
         },
     })),
 
