@@ -16,6 +16,7 @@ import {
     SurveyQuestionType,
     SurveyType,
     SurveyUrlMatchType,
+    RatingSurveyQuestion,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, InsightVizNode, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -170,6 +171,46 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         },
+        surveyRatingResults: {
+            loadSurveyRatingResults: async ({
+                questionIndex,
+                question,
+            }: {
+                questionIndex: number
+                question: RatingSurveyQuestion
+            }): Promise<{ [key: string]: number[] }> => {
+                const { survey } = values
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const surveyResponseField =
+                    questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        FROM events
+                        WHERE event = 'survey sent' 
+                            AND properties.$survey_id = '${props.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        GROUP BY survey_response
+                    `,
+                }
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+
+                const resultArr = new Array(question.scale).fill(0)
+                results?.forEach(([value, count]) => {
+                    resultArr[value - 1] = count
+                })
+
+                return { ...values.surveyRatingResults, [`question_${questionIndex}`]: resultArr }
+            },
+        },
     })),
     listeners(({ actions }) => ({
         createSurveySuccess: ({ survey }) => {
@@ -257,6 +298,14 @@ export const surveyLogic = kea<surveyLogicType>([
             { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
             {
                 setCurrentQuestionIndexAndType: (_, { idx, type }) => ({ idx, type }),
+            },
+        ],
+        surveyRatingResultsReady: [
+            {},
+            {
+                loadSurveyRatingResultsSuccess: (state, { payload }) => {
+                    return { ...state, [`question_${payload?.questionIndex}`]: true }
+                },
             },
         ],
     }),
