@@ -16,7 +16,6 @@ import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/Sess
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
 
 const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { filters, pinned, nodeId } = props.attributes
@@ -45,7 +44,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         [playerKey, filters, pinned]
     )
 
-    const { expanded } = useValues(notebookNodeLogic)
     const { setActions, insertAfter, insertReplayCommentByTimestamp, setMessageListeners, scrollIntoView } =
         useActions(notebookNodeLogic)
 
@@ -96,11 +94,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
         })
     }, [])
 
-    if (!expanded) {
-        // TODO: this isn't so informative as an empty state. Could we do better?
-        return <div className="p-4">{summarizePlaylistFilters(filters, {})} </div>
-    }
-
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
 
@@ -147,7 +140,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
         return urls.replay(undefined, attrs.filters)
     },
     resizeable: true,
-    startExpanded: true,
+    expandable: false,
     attributes: {
         filters: {
             default: undefined,
