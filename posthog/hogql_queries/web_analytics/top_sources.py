@@ -1,12 +1,8 @@
-from django.utils.timezone import datetime
-
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.ctes import SESSION_CTE
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebTopSourcesQuery, WebTopSourcesQueryResponse
 
 
@@ -53,24 +49,4 @@ LIMIT 10
 
         return WebTopSourcesQueryResponse(
             columns=response.columns, results=response.results, timings=response.timings, types=response.types
-        )
-
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
-
-    def session_where(self):
-        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
-        return parse_expr(
-            "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
-            placeholders={
-                "date_from": self.query_date_range.date_from_as_hogql(),
-                "date_to": self.query_date_range.date_to_as_hogql(),
-            },
-        )
-
-    def session_having(self):
-        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
-        return parse_expr(
-            "min_timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
         )

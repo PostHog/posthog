@@ -48,7 +48,7 @@ class AggregationFinder(TraversingVisitor):
 
 
 def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list],
+    property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
     scope: Literal["event", "person"] = "event",
 ) -> ast.Expr:
@@ -63,6 +63,8 @@ def property_to_expr(
         return ast.And(exprs=properties)
     elif isinstance(property, Property):
         pass
+    elif isinstance(property, ast.Expr):
+        return property
     elif (
         isinstance(property, PropertyGroup)
         or isinstance(property, PropertyGroupFilter)

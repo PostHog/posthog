@@ -1,12 +1,8 @@
-from django.utils.timezone import datetime
-
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.ctes import SESSION_CTE, PATHNAME_CTE, PATHNAME_SCROLL_CTE
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebTopPagesQuery, WebTopPagesQueryResponse
 
 
@@ -23,19 +19,19 @@ class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
             )
         with self.timings.measure("pathname_query"):
             pathname_query = parse_select(
-                PATHNAME_CTE, timings=self.timings, placeholders={"pathname_where": self.pathname_where()}
+                PATHNAME_CTE, timings=self.timings, placeholders={"pathname_where": self.events_where()}
             )
         with self.timings.measure("pathname_scroll_query"):
             pathname_scroll_query = parse_select(
                 PATHNAME_SCROLL_CTE,
                 timings=self.timings,
-                placeholders={"pathname_scroll_where": self.pathname_scroll_where()},
+                placeholders={"pathname_scroll_where": self.events_where()},
             )
         with self.timings.measure("top_pages_query"):
             top_sources_query = parse_select(
                 """
 SELECT
-    pathname.pathname as pathname,
+    pathname.$pathname as pathname,
     pathname.total_pageviews as total_pageviews,
     pathname.unique_visitors as unique_visitors,
     bounce_rate.bounce_rate as bounce_rate,
@@ -46,19 +42,19 @@ FROM
 LEFT OUTER JOIN
     (
         SELECT
-            session.earliest_pathname,
+            session.entry_pathname,
             avg(session.is_bounce) as bounce_rate
         FROM
             {session_query} AS session
         GROUP BY
-            session.earliest_pathname
+            session.entry_pathname
     ) AS bounce_rate
 ON
-    pathname.pathname = bounce_rate.earliest_pathname
+    pathname.$pathname = bounce_rate.entry_pathname
 LEFT OUTER JOIN
     {pathname_scroll_query} AS scroll_data
 ON
-    pathname.pathname = scroll_data.pathname
+    pathname.$pathname = scroll_data.$pathname
 ORDER BY
     total_pageviews DESC
 LIMIT 10
@@ -82,36 +78,4 @@ LIMIT 10
 
         return WebTopPagesQueryResponse(
             columns=response.columns, results=response.results, timings=response.timings, types=response.types
-        )
-
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
-
-    def session_where(self):
-        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
-        return parse_expr(
-            "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
-            placeholders={
-                "date_from": self.query_date_range.date_from_as_hogql(),
-                "date_to": self.query_date_range.date_to_as_hogql(),
-            },
-        )
-
-    def session_having(self):
-        # TODO needs to consider some session properties, e.g. what to do with utm parameters?
-        return parse_expr(
-            "min_timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-        )
-
-    def pathname_where(self):
-        # TODO needs to apply filters
-        return parse_expr(
-            "events.timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-        )
-
-    def pathname_scroll_where(self):
-        # TODO needs to apply filters
-        return parse_expr(
-            "events.timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
         )
