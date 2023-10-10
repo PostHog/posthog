@@ -106,3 +106,21 @@ jobs:
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@release/v1
+
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+
+            - name: Update hogql-parser in requirements
+              shell: bash
+              run: |
+                  local=$(python hogql_parser/setup.py --version)
+                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.in
+                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.txt
+
+            - uses: EndBug/add-and-commit@v9
+              with:
+                  add: '["requirements.in", "requirements.txt"]'
+                  message: 'Use new hogql-parser version'
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
