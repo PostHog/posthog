@@ -93,7 +93,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
-            "pinned_count",
         ]
 
         read_only_fields = [
@@ -113,7 +112,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
-            "pinned_count",
         ]
 
 
@@ -525,11 +523,9 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
         sorted_session_ids = sorted(all_session_ids)
 
-        persisted_recordings_queryset = (
-            SessionRecording.objects.filter(team=team, session_id__in=sorted_session_ids)
-            .exclude(object_storage_path=None)
-            .annotate(pinned_count=Count("playlist_items"))
-        )
+        persisted_recordings_queryset = SessionRecording.objects.filter(
+            team=team, session_id__in=sorted_session_ids
+        ).exclude(object_storage_path=None)
 
         persisted_recordings = persisted_recordings_queryset.all()
 

@@ -345,7 +345,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
-            "pinned_count": 0,
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -525,7 +524,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.assertEqual(len(response_data["results"]), 0)
 
     def test_regression_encoded_emojis_dont_crash(self):
-
         Person.objects.create(
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
