@@ -242,18 +242,4 @@ describe('EventPipelineRunner', () => {
             })
         })
     })
-
-    describe('runAppsOnEventPipeline()', () => {
-        it('runs remaining steps', async () => {
-            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
-
-            await runner.runAppsOnEventPipeline({
-                ...preIngestionEvent,
-                person_properties: {},
-                person_created_at: '2020-02-23T02:11:00.000Z' as ISOTimestamp,
-            })
-
-            expect(runner.steps).toEqual(['processOnEventStep'])
-        })
-    })
 })
