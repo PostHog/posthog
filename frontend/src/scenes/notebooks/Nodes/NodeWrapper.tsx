@@ -78,6 +78,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
 }: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
+    const { setTextSelection } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -220,7 +221,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                             </ErrorBoundary>
                         </div>
                         {isEditable && actions.length ? (
-                            <div className="NotebookNode__actions">
+                            <div
+                                className="NotebookNode__actions"
+                                // UX improvement so that the actions don't get in the way of the cursor
+                                onClick={() => setTextSelection(getPos() + 1)}
+                            >
                                 {actions.map((x, i) => (
                                     <LemonButton
                                         key={i}
