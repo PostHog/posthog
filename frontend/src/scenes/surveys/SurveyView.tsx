@@ -30,7 +30,7 @@ import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Summary } from './surveyViewViz'
+import { RatingQuestionBarChart, Summary } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
@@ -264,6 +264,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         currentQuestionIndexAndType,
         surveyUserStats,
         surveyUserStatsLoading,
+        surveyRatingResults,
+        surveyRatingResultsReady,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -271,9 +273,24 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     return (
         <>
             {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                <>
+                    <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                    {survey.questions.map((question, i) => {
+                        if (question.type === 'rating') {
+                            return (
+                                <RatingQuestionBarChart
+                                    key={`survey-q-${i}`}
+                                    surveyRatingResults={surveyRatingResults}
+                                    surveyRatingResultsReady={surveyRatingResultsReady}
+                                    questionIndex={i}
+                                    question={question}
+                                />
+                            )
+                        }
+                    })}
+                </>
             )}
-            {surveyMetricsQueries && (
+            {surveyMetricsQueries && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
                 <div className="flex flex-row gap-4 mb-4">
                     <div className="flex-1">
                         <Query query={surveyMetricsQueries.surveysShown} />
@@ -283,7 +300,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     </div>
                 </div>
             )}
-            {survey.questions.length > 1 && (
+            {survey.questions.length > 1 && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
                 <div className="mb-4 max-w-80">
                     <LemonSelect
                         dropdownMatchSelectWidth
@@ -301,19 +318,21 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     />
                 </div>
             )}
-            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating && (
-                <div className="mb-4">
-                    <Query query={surveyRatingQuery} />
-                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
-                        (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
-                            <>
-                                <LemonDivider className="my-4" />
-                                <h2>NPS Score</h2>
-                                <SurveyNPSResults survey={survey as Survey} />
-                            </>
-                        )}
-                </div>
-            )}
+            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating &&
+                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                    <div className="mb-4">
+                        <Query query={surveyRatingQuery} />
+                        {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
+                            (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale ===
+                                10 && (
+                                <>
+                                    <LemonDivider className="my-4" />
+                                    <h2>NPS Score</h2>
+                                    <SurveyNPSResults survey={survey as Survey} />
+                                </>
+                            )}
+                    </div>
+                )}
             {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
                 currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
                 <div className="mb-4">

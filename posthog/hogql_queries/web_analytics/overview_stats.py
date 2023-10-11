@@ -22,8 +22,8 @@ class WebOverviewStatsQueryRunner(WebAnalyticsQueryRunner):
             overview_stats_query = parse_select(
                 """
 SELECT
-    uniq(if(timestamp >= {mid} AND timestamp < {end}, events.distinct_id, NULL)) AS current_week_unique_users,
-    uniq(if(timestamp >= {start} AND timestamp < {mid}, events.distinct_id, NULL)) AS previous_week_unique_users,
+    uniq(if(timestamp >= {mid} AND timestamp < {end}, events.person_id, NULL)) AS current_week_unique_users,
+    uniq(if(timestamp >= {start} AND timestamp < {mid}, events.person_id, NULL)) AS previous_week_unique_users,
 
     uniq(if(timestamp >= {mid} AND timestamp < {end}, events.properties.$session_id, NULL)) AS current_week_unique_sessions,
     uniq(if(timestamp >= {start} AND timestamp < {mid}, events.properties.$session_id, NULL)) AS previous_week_unique_sessions,

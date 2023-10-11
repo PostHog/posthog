@@ -129,7 +129,6 @@ describe('sessionRecordingDataLogic', () => {
                         start: undefined,
                         end: undefined,
                         durationMs: 0,
-                        pinnedCount: 0,
                         segments: [],
                         person: null,
                         snapshotsByWindowId: {},

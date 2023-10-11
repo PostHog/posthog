@@ -19,16 +19,15 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const id = props.attributes.id
-    const noInspector: boolean = props.attributes.noInspector
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
+    const { id, noInspector } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -103,7 +102,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
     return !expanded ? (
         <div>
             {sessionPlayerMetaData ? (
-                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+                <SessionRecordingPreview recording={sessionPlayerMetaData} />
             ) : (
                 <SessionRecordingPreviewSkeleton />
             )}
@@ -156,13 +155,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    widgets: [
-        {
-            key: 'settings',
-            label: 'Settings',
-            Component: Settings,
-        },
-    ],
+    settings: Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

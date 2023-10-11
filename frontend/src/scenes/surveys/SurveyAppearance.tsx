@@ -24,6 +24,7 @@ import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sanitize } from 'dompurify'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -270,7 +271,12 @@ function BaseAppearance({
                 </div>
                 <div className="question-textarea-wrapper">
                     <div className="survey-question">{question}</div>
-                    {description && <div className="description">{description}</div>}
+                    {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
+                    They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
+                    you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
+                    {description && (
+                        <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                    )}
                     {type === SurveyQuestionType.Open && (
                         <textarea
                             style={{

@@ -23,7 +23,7 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
             render: function RoleNameRender(_, role) {
                 return (
                     <div
-                        className="row-name text-primary cursor-pointer"
+                        className="row-name text-link cursor-pointer"
                         onClick={() => {
                             setRoleInFocus(role)
                         }}
