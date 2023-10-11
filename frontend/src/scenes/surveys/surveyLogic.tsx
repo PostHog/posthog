@@ -52,6 +52,14 @@ export interface SurveyUserStats {
     sent: number
 }
 
+export interface SurveyRatingResults {
+    [key: string]: number[]
+}
+
+export interface SurveyRatingResultsReady {
+    [key: string]: boolean
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),

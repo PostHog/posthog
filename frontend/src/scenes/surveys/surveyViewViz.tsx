@@ -1,5 +1,5 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import { surveyLogic, SurveyUserStats } from './surveyLogic'
+import { surveyLogic, SurveyRatingResults, SurveyRatingResultsReady, SurveyUserStats } from './surveyLogic'
 import { useActions, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { GraphType } from '~/types'
@@ -155,8 +155,8 @@ export function RatingQuestionBarChart({
 }: {
     questionIndex: number
     question: RatingSurveyQuestion
-    surveyRatingResults: any
-    surveyRatingResultsReady: any
+    surveyRatingResults: SurveyRatingResults
+    surveyRatingResultsReady: SurveyRatingResultsReady
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
 
