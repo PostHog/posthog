@@ -224,6 +224,7 @@ export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
+    hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
 }
