@@ -307,6 +307,8 @@ class OrganizationInvite(UUIDModel):
     def validate(
         self, *, user: Optional["User"] = None, email: Optional[str] = None, request_path: Optional[str] = None
     ) -> None:
+        from .user import User
+
         _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
