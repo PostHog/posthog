@@ -71,7 +71,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             <LemonButton
                 type="secondary"
                 data-attr="events-table-column-selector"
-                icon={<IconTuning style={{ color: 'var(--primary)' }} />}
+                icon={<IconTuning />}
                 onClick={showModal}
             >
                 Configure columns

@@ -29,6 +29,9 @@
                 content: attr(data-placeholder);
                 float: left;
                 color: rgba(0, 0, 0, 0.2);
+                [theme='dark'] & {
+                    color: rgba(255, 255, 255, 0.2);
+                }
                 pointer-events: none;
                 height: 0;
             }

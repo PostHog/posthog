@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -48,7 +48,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ logicKey: 'projectHomepage' })
+    const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({ logicKey: 'projectHomepage' })
     const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
