@@ -1512,9 +1512,13 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
 test.each([
     { events: [], expectedTimestamps: [] },
     { events: [{ without: 'timestamp property' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: undefined } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: null } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 'what about a string' } as unknown as RRWebEvent], expectedTimestamps: [] },
     // we have seen negative timestamps from clients 🙈
     { events: [{ timestamp: -1 } as unknown as RRWebEvent], expectedTimestamps: [] },
-    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.000'] },
+    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 1 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.001'] },
 ])('timestamps from rrweb events', ({ events, expectedTimestamps }) => {
     const actual = getTimestampsFrom(events)
     expect(actual).toEqual(expectedTimestamps)

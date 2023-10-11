@@ -400,9 +400,11 @@ export const gatherConsoleLogEvents = (
 export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
     events
         // from millis expects a number and handles unexpected input gracefully so we have to do some filtering
-        // before converting to a DateTime
-        // TODO we don't really want to support timestamps of 0
-        .filter((e) => e?.timestamp >= 0)
+        // since we're accepting input over the API and have seen very unexpected values in the past
+        // we want to be very careful here before converting to a DateTime
+        // TODO we don't really want to support timestamps of 1,
+        //  but we don't currently filter out based on date of RRWebEvents being too far in the past
+        .filter((e) => (e?.timestamp || -1) > 0)
         .map((e) => DateTime.fromMillis(e.timestamp))
         .filter((e) => e.isValid)
         .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
