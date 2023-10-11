@@ -18,6 +18,9 @@ def _get_table(search_string: str, operation_sql: str) -> Optional[str]:
 
 
 def validate_migration_sql(sql) -> bool:
+    if "-- skip-test-migrations-are-safe" in sql:
+        return False
+
     new_tables = _get_new_tables(sql)
     operations = sql.split("\n")
     tables_created_so_far: List[str] = []

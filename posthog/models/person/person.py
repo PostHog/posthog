@@ -119,7 +119,7 @@ class PersonOverrideMapping(models.Model):
         ]
 
     id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     uuid = models.UUIDField()
 
 
@@ -138,7 +138,6 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
@@ -148,7 +147,7 @@ class PersonOverride(models.Model):
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
-    old_person_id: models.ForeignKey = models.ForeignKey(
+    old_person_id: models.OneToOneField = models.OneToOneField(
         "PersonOverrideMapping",
         db_column="old_person_id",
         related_name="person_override_old",
