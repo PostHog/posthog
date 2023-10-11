@@ -77,6 +77,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <>
                                 <LemonButton
                                     type="secondary"
+                                    data-attr="cancel-feature"
                                     onClick={() => {
                                         if (isEditingFeature) {
                                             editFeature(false)
@@ -92,6 +93,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"
+                                    data-attr="save-feature"
                                     onClick={() => {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
