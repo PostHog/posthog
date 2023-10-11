@@ -171,37 +171,39 @@ export function RatingQuestionBarChart({
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
-                    <div className="text-xl font-bold mb-4">{question.question}</div>
-                    <div className="relative h-40">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <LineGraph
-                                labelGroupType={1}
-                                data-attr="survey-rating"
-                                type={GraphType.Bar}
-                                hideAnnotations={true}
-                                formula="-"
-                                tooltip={{
-                                    showHeader: false,
-                                    hideColorCol: true,
-                                }}
-                                datasets={[
-                                    {
-                                        id: 1,
-                                        label: 'Number of responses',
-                                        barPercentage: 0.7,
-                                        minBarLength: 2,
-                                        data: surveyRatingResults[`question_${questionIndex}`],
-                                        backgroundColor: '#1d4aff',
-                                        hoverBackgroundColor: '#1d4aff',
-                                    },
-                                ]}
-                                labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
-                                    (n) => n
-                                )}
-                            />
-                        </BindLogic>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className=" h-50 border rounded pt-6 pb-2 px-2">
+                        <div className="relative h-full w-full">
+                            <BindLogic logic={insightLogic} props={insightProps}>
+                                <LineGraph
+                                    labelGroupType={1}
+                                    data-attr="survey-rating"
+                                    type={GraphType.Bar}
+                                    hideAnnotations={true}
+                                    formula="-"
+                                    tooltip={{
+                                        showHeader: false,
+                                        hideColorCol: true,
+                                    }}
+                                    datasets={[
+                                        {
+                                            id: 1,
+                                            label: 'Number of responses',
+                                            barPercentage: 0.7,
+                                            minBarLength: 2,
+                                            data: surveyRatingResults[`question_${questionIndex}`],
+                                            backgroundColor: '#1d4aff',
+                                            hoverBackgroundColor: '#1d4aff',
+                                        },
+                                    ]}
+                                    labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
+                                        (n) => n
+                                    )}
+                                />
+                            </BindLogic>
+                        </div>
                     </div>
-                    <div className="flex flex-row justify-between">
+                    <div className="flex flex-row justify-between mt-1">
                         <div className="text-muted-alt">{question.lowerBoundLabel}</div>
                         <div className="text-muted-alt">{question.upperBoundLabel}</div>
                     </div>
