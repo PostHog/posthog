@@ -28,7 +28,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebookLoaded, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate } = useValues(logic)
+    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -36,7 +36,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     useWhyDidIRender('Notebook', {
-        notebookLoaded,
+        notebook,
         notebookLoading,
         editor,
         conflictWarningVisible,
@@ -44,10 +44,11 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         shortId,
         editable,
         initialAutofocus,
+        content,
     })
 
     useEffect(() => {
-        if (!notebookLoaded && !notebookLoading) {
+        if (notebook && !notebookLoading) {
             loadNotebook()
         }
     }, [])
@@ -70,16 +71,16 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
 
     if (conflictWarningVisible) {
         return <NotebookConflictWarning />
-    } else if (!notebookLoaded && notebookLoading) {
+    } else if (!notebook && notebookLoading) {
         return <NotebookLoadingState />
-    } else if (!notebookLoaded) {
+    } else if (!notebook) {
         return <NotFound object="notebook" />
     }
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {isTemplate && (
+                {notebook.is_template && (
                     <LemonBanner
                         type="info"
                         className="my-4"
@@ -111,6 +112,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor
+                            initialContent={content}
                             onCreate={setEditor}
                             onUpdate={onEditorUpdate}
                             onSelectionUpdate={onEditorSelectionUpdate}

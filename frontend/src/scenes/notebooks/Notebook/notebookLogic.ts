@@ -280,11 +280,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors({
-        // NOTE: We should try and select individual properties wherever possible to avoid expensive re-renders
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
-        notebookLoaded: [(s) => [s.notebook], (notebook): boolean => !!notebook],
-        isTemplate: [(s) => [s.notebook], (notebook): boolean => !!notebook?.is_template],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
             (notebook, localContent, previewContent): JSONContent => {
