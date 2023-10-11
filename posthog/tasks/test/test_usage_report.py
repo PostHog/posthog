@@ -18,6 +18,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
@@ -633,10 +634,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
 
-        from posthog.models.event.events_query import run_events_query
-
         execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
         sync_execute("SYSTEM FLUSH LOGS")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
