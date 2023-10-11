@@ -6,7 +6,7 @@ import SearchResult from './SearchResult'
 
 const SearchResults = (): JSX.Element => {
     const { searchResults, activeResultIndex, keyboardResultIndex, maxIndex } = useValues(searchBarLogic)
-    const { onArrowUp, onArrowDown } = useActions(searchBarLogic)
+    const { onArrowUp, onArrowDown, openActiveResult } = useActions(searchBarLogic)
 
     useEventListener('keydown', (event) => {
         if (!searchResults) {
@@ -14,11 +14,7 @@ const SearchResults = (): JSX.Element => {
         }
 
         if (event.key === 'Enter') {
-            // const result = commandSearchResults[activeResultIndex]
-            // // const isExecutable = !!result.executor
-            // // if (isExecutable) {
-            // //     executeResult(result)
-            // // }
+            openActiveResult()
         } else if (event.key === 'ArrowDown') {
             event.preventDefault()
             onArrowDown(activeResultIndex, maxIndex)
@@ -32,7 +28,7 @@ const SearchResults = (): JSX.Element => {
         <div className="grow overscroll-none overflow-y-auto">
             {searchResults?.map((result, index) => (
                 <SearchResult
-                    key={`${result.type}_${result.pk}`}
+                    key={`${result.type}_${result.result_id}`}
                     result={result}
                     resultIndex={index}
                     focused={index === activeResultIndex}

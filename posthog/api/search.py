@@ -1,6 +1,7 @@
 import re
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
-from django.db.models import Model, Value, CharField
+from django.db.models import Model, Value, CharField, F
+from django.db.models.functions import Cast
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -48,10 +49,15 @@ def process_query(query: str):
 def class_queryset(klass: type[Model], team: Team, query: str):
     """Builds a queryset for the class."""
     type = class_to_type(klass)
-    values = ["type", "pk", "name"]
+    values = ["type", "result_id", "name"]
 
     qs = klass.objects.filter(team=team)
     qs = qs.annotate(type=Value(type, output_field=CharField()))
+
+    if type == "insight":
+        qs = qs.annotate(result_id=F("short_id"))
+    else:
+        qs = qs.annotate(result_id=Cast("pk", CharField()))
 
     if query:
         qs = qs.annotate(rank=SearchRank(SearchVector("name"), SearchQuery(process_query(query), search_type="raw")))

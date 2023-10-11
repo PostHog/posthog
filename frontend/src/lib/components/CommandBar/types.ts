@@ -8,7 +8,7 @@ export type ResultType = 'action' | 'cohort' | 'insight' | 'dashboard' | 'experi
 
 export type ResultTypeWithAll = ResultType | 'all'
 
-export type SearchResult = { pk: number; type: ResultType; name: string | null }
+export type SearchResult = { result_id: string; type: ResultType; name: string | null }
 
 export type SearchResponse = {
     results: SearchResult[]

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useActions } from 'kea'
 
 import { resultTypeToName } from './constants'
-import { searchBarLogic } from './searchBarLogic'
+import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
 
 type SearchResultProps = {
@@ -13,7 +13,7 @@ type SearchResultProps = {
 }
 
 const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { onMouseEnterResult, onMouseLeaveResult } = useActions(searchBarLogic)
+    const { onMouseEnterResult, onMouseLeaveResult, openActiveResult } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -35,9 +35,7 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 onMouseLeaveResult()
             }}
             onClick={() => {
-                // if (isExecutable) {
-                //     executeResult(result)
-                // }
+                openActiveResult()
             }}
             ref={ref}
         >
@@ -45,10 +43,8 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 <span className="text-muted-3000 text-xs">{resultTypeToName[result.type]}</span>
                 <span className="text-text-3000">{result.name}</span>
                 <span className="text-trace-3000 text-xs">
-                    app.posthog.com/
-                    <span className="text-muted-3000">
-                        {result.type}/{result.pk}
-                    </span>
+                    {location.host}
+                    <span className="text-muted-3000">{urlForResult(result)}</span>
                 </span>
             </div>
         </div>

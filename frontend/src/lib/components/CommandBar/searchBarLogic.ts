@@ -1,19 +1,27 @@
-import { kea, path, actions, reducers, selectors, defaults } from 'kea'
+import { kea, path, actions, reducers, selectors, listeners, connect } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
+import { InsightShortId } from '~/types'
+import { commandBarLogic } from './commandBarLogic'
 
 import type { searchBarLogicType } from './searchBarLogicType'
-import { ResultTypeWithAll, SearchResponse } from './types'
+import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
+    connect({
+        actions: [commandBarLogic, ['hideCommandBar']],
+    }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
         onArrowUp: (activeIndex: number) => ({ activeIndex }),
         onArrowDown: (activeIndex, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
+        openActiveResult: true,
     }),
     loaders({
         searchResponse: [
@@ -30,23 +38,15 @@ export const searchBarLogic = kea<searchBarLogicType>([
         keyboardResultIndex: [
             0,
             {
-                // setInput: () => 0,
-                // executeResult: () => 0,
-                // activateFlow: () => 0,
-                // backFlow: () => 0,
-                onArrowUp: (previousIndex, { activeIndex }) => (activeIndex > 0 ? activeIndex - 1 : 0),
-                onArrowDown: (previousIndex, { activeIndex, maxIndex }) => {
-                    console.debug('onArrowDown', maxIndex)
-                    // selectors.maxIndex !== null && ,
-                    return activeIndex < maxIndex ? activeIndex + 1 : 0
-                },
+                setSearchQuery: () => 0,
+                openActiveResult: () => 0,
+                onArrowUp: (_, { activeIndex }) => (activeIndex > 0 ? activeIndex - 1 : 0),
+                onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
             },
         ],
         hoverResultIndex: [
             null as number | null,
             {
-                // activateFlow: () => null,
-                // backFlow: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
@@ -64,4 +64,30 @@ export const searchBarLogic = kea<searchBarLogicType>([
             (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex ?? keyboardResultIndex,
         ],
     }),
+    listeners(({ values, actions }) => ({
+        openActiveResult: () => {
+            const result = values.searchResults[values.activeResultIndex]
+            router.actions.push(urlForResult(result))
+            actions.hideCommandBar()
+        },
+    })),
 ])
+
+export const urlForResult = (result: SearchResult): string => {
+    switch (result.type) {
+        case 'action':
+            return urls.action(result.result_id)
+        case 'cohort':
+            return urls.cohort(result.result_id)
+        case 'dashboard':
+            return urls.dashboard(result.result_id)
+        case 'experiment':
+            return urls.experiment(result.result_id)
+        case 'feature_flag':
+            return urls.featureFlag(result.result_id)
+        case 'insight':
+            return urls.insightView(result.result_id as InsightShortId)
+        default:
+            throw new Error(`No action for type '${result.type}' defined.`)
+    }
+}
