@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -813,13 +813,13 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
-        timestamp = datetime(2020, 1, 9, 12)
-        produce_replay_summary(
-            team_id=self.team.pk,
-            session_id="s1",
-            distinct_id="u1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
+        create_session_recording_events(
+            self.team.pk,
+            datetime(2020, 1, 9, 12),
+            "u1",
+            "s1",
+            use_recording_table=False,
+            use_replay_table=True,
         )
 
         people = self.client.get(

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 
 
 class DataGenerator:
@@ -72,15 +72,13 @@ class DataGenerator:
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())
         for data in self.snapshots:
-            timestamp = data["timestamp"]
-            distinct_id = data["distinct_id"]
-            session_id = data["session_id"]
-            produce_replay_summary(
+            create_session_recording_events(
                 team_id=self.team.pk,
-                session_id=session_id,
-                distinct_id=distinct_id,
-                first_timestamp=timestamp,
-                last_timestamp=timestamp,
+                timestamp=data["timestamp"],
+                distinct_id=data["distinct_id"],
+                session_id=data["session_id"],
+                window_id=data["window_id"],
+                snapshots=[data["snapshot_data"]],
             )
 
     def add_if_not_contained(self, array, value):

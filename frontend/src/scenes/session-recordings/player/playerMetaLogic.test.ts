@@ -5,7 +5,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import { useMocks } from '~/mocks/jest'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -18,8 +18,7 @@ describe('playerMetaLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/session_recordings/:id/snapshots/': (_, res, ctx) =>
-                    res(ctx.text(snapshotsAsJSONLines())),
+                '/api/projects/:team/session_recordings/:id/snapshots/': recordingSnapshotsJson,
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,

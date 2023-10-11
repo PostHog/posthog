@@ -27,7 +27,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.test.test_factory import create_snapshot
 from posthog.tasks.usage_report import (
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
@@ -225,55 +225,49 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             # recordings in period  - 5 sessions with 5 snapshots each
             for i in range(1, 6):
                 for _ in range(0, 5):
-                    session_id = str(i)
-                    timestamp = now() - relativedelta(hours=12)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=session_id,
+                    create_snapshot(
+                        has_full_snapshot=True,
                         distinct_id=distinct_id,
-                        first_timestamp=timestamp,
-                        last_timestamp=timestamp,
+                        session_id=str(i),
+                        timestamp=now() - relativedelta(hours=12),
+                        team_id=self.org_1_team_2.id,
                     )
 
             # recordings out of period  - 5 sessions with 5 snapshots each
             for i in range(1, 11):
                 for _ in range(0, 5):
-                    id1 = str(i + 10)
-                    timestamp1 = now() - relativedelta(hours=48)
-                    produce_replay_summary(
-                        team_id=self.org_1_team_2.id,
-                        session_id=id1,
+                    create_snapshot(
+                        has_full_snapshot=True,
                         distinct_id=distinct_id,
-                        first_timestamp=timestamp1,
-                        last_timestamp=timestamp1,
+                        session_id=str(i + 10),
+                        timestamp=now() - relativedelta(hours=48),
+                        team_id=self.org_1_team_2.id,
                     )
 
             # ensure there is a recording that starts before the period and ends during the period
             # report is going to be for "yesterday" relative to the test so...
             start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
             session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
-            timestamp2 = start_of_day - relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
+            create_snapshot(
+                has_full_snapshot=True,
                 distinct_id=distinct_id,
-                first_timestamp=timestamp2,
-                last_timestamp=timestamp2,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day - relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
             )
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
+            create_snapshot(
+                has_full_snapshot=False,
                 distinct_id=distinct_id,
-                first_timestamp=start_of_day,
-                last_timestamp=start_of_day,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day,
+                team_id=self.org_1_team_2.id,
             )
-            timestamp3 = start_of_day + relativedelta(hours=1)
-            produce_replay_summary(
-                team_id=self.org_1_team_2.id,
-                session_id=session_that_will_not_match,
+            create_snapshot(
+                has_full_snapshot=False,
                 distinct_id=distinct_id,
-                first_timestamp=timestamp3,
-                last_timestamp=timestamp3,
+                session_id=session_that_will_not_match,
+                timestamp=start_of_day + relativedelta(hours=1),
+                team_id=self.org_1_team_2.id,
             )
             _create_event(
                 distinct_id=distinct_id,
