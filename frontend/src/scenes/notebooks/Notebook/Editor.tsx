@@ -37,13 +37,11 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor({
-    initialContent,
     onCreate,
     onUpdate,
     onSelectionUpdate,
     placeholder,
 }: {
-    initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     onSelectionUpdate: () => void
@@ -99,7 +97,6 @@ export function Editor({
             SlashCommandsExtension,
             BacklinkCommandsExtension,
         ],
-        content: initialContent,
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current

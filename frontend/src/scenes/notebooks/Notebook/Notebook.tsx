@@ -28,7 +28,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebookLoaded, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { notebookLoaded, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -79,7 +79,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {false && (
+                {isTemplate && (
                     <LemonBanner
                         type="info"
                         className="my-4"
@@ -111,7 +111,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor
-                            initialContent={{}}
                             onCreate={setEditor}
                             onUpdate={onEditorUpdate}
                             onSelectionUpdate={onEditorSelectionUpdate}
