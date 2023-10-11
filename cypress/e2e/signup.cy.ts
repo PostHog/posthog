@@ -74,10 +74,7 @@ describe('Signup', () => {
         cy.get('.Toastify [data-attr="error-toast"]').contains('Inactive social login session.')
     })
 
-    // skip this because it seems to be missing necessary setup feature flag, preflight cloud check...
-    it.skip('Shows redirect notice if redirecting for maintenance', () => {
-        cy.visit('/logout')
-        cy.location('pathname').should('include', '/login')
+    it('Shows redirect notice if redirecting for maintenance', () => {
         cy.intercept('https://app.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
@@ -85,10 +82,20 @@ describe('Signup', () => {
                 })
             )
         )
-        cy.visit('/signup?maintenanceRedirect=true')
-        cy.get('.Toastify__toast-body').should(
-            'contain',
-            `You have been redirected to signup on our US instance while we perform maintenance on our other instance.`
-        )
+
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
+
+        cy.visit('/signup?maintenanceRedirect=true', {
+            onLoad(win: Cypress.AUTWindow) {
+                win.POSTHOG_APP_CONTEXT.preflight.cloud = true
+            },
+        })
+
+        cy.get('[data-attr="info-toast"]')
+            .contains(
+                `You've been redirected to signup on our US instance while we perform maintenance on our other instance.`
+            )
+            .should('be.visible')
     })
 })

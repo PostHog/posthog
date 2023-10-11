@@ -414,6 +414,10 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
     return typeof candidate === 'object' && candidate !== null
 }
