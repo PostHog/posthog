@@ -42,18 +42,33 @@ class HeartbeatDetails(typing.NamedTuple):
     schedule_id: str
     start_at: str
     end_at: str
+    wait_start_at: str
 
-    def make_activity_heartbeat(
-        self, heartbeat_timeout: dt.timedelta, factor: int = 2
-    ) -> collections.abc.Coroutine[typing.Any, typing.Any, None]:
-        """Return a coroutine that hearbeats with these HeartbeatDetails."""
+    def make_activity_heartbeat_while_running(
+        self, function_to_run: collections.abc.Callable, heartbeat_timeout: dt.timedelta, factor: int = 2
+    ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
+        """Return a callable that returns a coroutine that hearbeats with these HeartbeatDetails.
+
+        The returned callable wraps 'function_to_run' while heartbeatting 'factor' times for every
+        'heartbeat_timeout'.
+        """
 
         async def heartbeat() -> None:
             """Heartbeat factor times every heartbeat_timeout."""
             await asyncio.sleep(heartbeat_timeout.total_seconds() / factor)
             temporalio.activity.heartbeat(self)
 
-        return heartbeat()
+        async def heartbeat_while_running(*args, **kwargs):
+            """Wrap 'function_to_run' to asynchronously heartbeat while awaiting."""
+            heartbeat_task = asyncio.create_task(heartbeat())
+
+            try:
+                await function_to_run(*args, **kwargs)
+            finally:
+                heartbeat_task.cancel()
+                await asyncio.wait([heartbeat_task])
+
+        return heartbeat_while_running
 
 
 @temporalio.activity.defn
@@ -76,13 +91,32 @@ async def backfill_schedule(inputs: BackfillBatchExportInputs) -> None:
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
+
+    heartbeat_timeout = temporalio.activity.info().heartbeat_timeout
+
+    details = temporalio.activity.info().heartbeat_details
+
+    if details:
+        # If we receive details from a previous run, it means we were restarted for some reason.
+        # Let's not double-backfill and instead wait for any outstanding runs.
+        last_activity_details = details[0]
+
+        details = HeartbeatDetails(
+            schedule_id=inputs.schedule_id,
+            start_at=last_activity_details.start_at,
+            end_at=last_activity_details.end_at,
+            wait_start_at=last_activity_details.wait_start_at,
+        )
+
+        await wait_for_schedule_backfill_in_range_with_heartbeat(details, client, heartbeat_timeout, inputs.wait_delay)
+
+        # Update start_at to resume from the end of the period we just waited for
+        start_at = dt.datetime.fromisoformat(last_activity_details.end_at)
+
     handle = client.get_schedule_handle(inputs.schedule_id)
 
     frequency = await get_schedule_frequency(handle)
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
-
-    heartbeat_timeout = temporalio.activity.info().heartbeat_timeout
-    heartbeat_task = None
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
         utcnow = dt.datetime.utcnow()
@@ -94,23 +128,38 @@ async def backfill_schedule(inputs: BackfillBatchExportInputs) -> None:
         )
         await handle.backfill(backfill)
 
-        if heartbeat_timeout:
-            details = HeartbeatDetails(
-                schedule_id=inputs.schedule_id,
-                start_at=backfill_start_at.isoformat(),
-                end_at=backfill_end_at.isoformat(),
-            )
+        details = HeartbeatDetails(
+            schedule_id=inputs.schedule_id,
+            start_at=backfill_start_at.isoformat(),
+            end_at=backfill_end_at.isoformat(),
+            wait_start_at=utcnow.isoformat(),
+        )
 
-            heartbeat_task = asyncio.create_task(details.make_activity_heartbeat(heartbeat_timeout))
+        await wait_for_schedule_backfill_in_range_with_heartbeat(details, client, heartbeat_timeout, inputs.wait_delay)
 
-        try:
-            await wait_for_schedule_backfill_in_range(
-                client, inputs.schedule_id, backfill_start_at, backfill_end_at, utcnow, inputs.wait_delay
-            )
-        finally:
-            if heartbeat_task:
-                heartbeat_task.cancel()
-                await asyncio.wait([heartbeat_task])
+
+async def wait_for_schedule_backfill_in_range_with_heartbeat(
+    heartbeat_details: HeartbeatDetails,
+    client: temporalio.client.Client,
+    heartbeat_timeout: dt.timedelta | None = None,
+    wait_delay: float = 5.0,
+):
+    """Decide if heartbeating is required while waiting for a backfill in range to finish."""
+    if heartbeat_timeout:
+        wait_func = heartbeat_details.make_activity_heartbeat_while_running(
+            wait_for_schedule_backfill_in_range, heartbeat_timeout=heartbeat_timeout
+        )
+    else:
+        wait_func = wait_for_schedule_backfill_in_range
+
+    await wait_func(
+        client,
+        heartbeat_details.schedule_id,
+        dt.datetime.fromisoformat(heartbeat_details.start_at),
+        dt.datetime.fromisoformat(heartbeat_details.end_at),
+        dt.datetime.fromisoformat(heartbeat_details.wait_start_at),
+        wait_delay,
+    )
 
 
 async def wait_for_schedule_backfill_in_range(
@@ -119,7 +168,7 @@ async def wait_for_schedule_backfill_in_range(
     start_at: dt.datetime,
     end_at: dt.datetime,
     now: dt.datetime,
-    delay: float = 5.0,
+    wait_delay: float = 5.0,
 ) -> None:
     """Wait for a Temporal Schedule backfill in a date range to be finished.
 
@@ -137,9 +186,14 @@ async def wait_for_schedule_backfill_in_range(
         f'AND StartTime >= "{now.isoformat()}"'
     )
 
+    workflows = [workflow async for workflow in client.list_workflows(query=query)]
+
+    if workflows and check_workflow_executions_not_running(workflows) is True:
+        return
+
     done = False
     while not done:
-        await asyncio.sleep(delay)
+        await asyncio.sleep(wait_delay)
 
         workflows = [workflow async for workflow in client.list_workflows(query=query)]
 
@@ -193,7 +247,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
         logger = get_batch_exports_logger(inputs=inputs)
-        logger.info("Starting Backfill for Schedule %s: %s - %s", inputs.schedule_id, inputs.start_at, inputs.end_at)
+        logger.info("Starting Backfill for BatchExport %s: %s - %s", inputs.schedule_id, inputs.start_at, inputs.end_at)
 
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(
             team_id=inputs.team_id,
