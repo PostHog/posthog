@@ -1,4 +1,3 @@
-import { Link } from '@posthog/lemon-ui'
 import { FeatureFlagFilters, Survey, SurveyQuestionType, SurveyType, SurveyUrlMatchType } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
@@ -149,12 +148,12 @@ export const NEW_SURVEY: NewSurvey = {
 }
 
 export enum SurveyTemplateTypes {
-    Interview = 'User Interview',
-    NPS = 'Net Promoter Score (NPS)',
-    CSAT = 'Customer Satisfaction Score (CSAT)',
-    CES = 'Customer Effort Score (CES)',
-    CCR = 'Customer Churn Rate (CCR)',
-    Superhuman = 'Product Market Fit (Superhuman)',
+    Interview = 'User interview',
+    NPS = 'Net promoter score (NPS)',
+    CSAT = 'Customer satisfaction score (CSAT)',
+    CES = 'Customer effort score (CES)',
+    CCR = 'Customer churn rate (CCR)',
+    Superhuman = 'Product-market fit (Superhuman)',
 }
 
 export const defaultSurveyTemplates = [
@@ -168,11 +167,7 @@ export const defaultSurveyTemplates = [
                 link: 'https://calendly.com/',
             },
         ],
-        description: (
-            <>
-                Send users straight to your calendar. 
-            </>
-        ),
+        description: <>Send users straight to your calendar.</>,
     },
     {
         type: SurveyTemplateTypes.NPS,
@@ -187,8 +182,7 @@ export const defaultSurveyTemplates = [
                 upperBoundLabel: 'Very likely',
             },
         ],
-        description:
-            "Get an industry-recognized benchmark.",
+        description: 'Get an industry-recognized benchmark.',
     },
     {
         type: SurveyTemplateTypes.Superhuman,
@@ -199,8 +193,7 @@ export const defaultSurveyTemplates = [
                 choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
             },
         ],
-        description:
-            "If 40% say 'very disappointed', you're at product-market fit.",
+        description: "If 40% say 'very disappointed', you're at product-market fit.",
     },
     {
         type: SurveyTemplateTypes.CSAT,
@@ -215,8 +208,7 @@ export const defaultSurveyTemplates = [
                 upperBoundLabel: 'Very satisfied',
             },
         ],
-        description:
-            'Works best after a checkout or support flow.',
+        description: 'Works best after a checkout or support flow.',
     },
     {
         type: SurveyTemplateTypes.CES,
@@ -231,8 +223,7 @@ export const defaultSurveyTemplates = [
                 upperBoundLabel: 'Very easy',
             },
         ],
-        description:
-            'Works well with churn surveys.',
+        description: 'Works well with churn surveys.',
     },
     {
         type: SurveyTemplateTypes.CCR,
@@ -252,7 +243,6 @@ export const defaultSurveyTemplates = [
                 question: "Anything else you'd like to share?",
             },
         ],
-        description:
-            "Find out if it was something you said.",
+        description: 'Find out if it was something you said.',
     },
 ]

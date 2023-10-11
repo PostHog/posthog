@@ -78,11 +78,8 @@ export function Surveys(): JSX.Element {
                 }
                 buttons={
                     <>
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
-                            New survey
-                        </LemonButton>
-                        <LemonButton type="primary" to={urls.surveyTemplates()} data-attr="survey-templates">
-                            Create from template
+                        <LemonButton type="primary" to={urls.surveyTemplates()} data-attr="new-survey">
+                            New
                         </LemonButton>
                         <LemonButton
                             type="secondary"

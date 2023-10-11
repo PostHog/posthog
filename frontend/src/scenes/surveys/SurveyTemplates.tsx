@@ -5,6 +5,9 @@ import { SurveyQuestion } from '~/types'
 import './SurveyTemplates.scss'
 import { useActions } from 'kea'
 import { surveyTemplatesLogic } from './surveyTemplatesLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -15,15 +18,23 @@ export function SurveyTemplates(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-row flex-wrap gap-6 ml-8 mt-6">
+            <PageHeader
+                title={'New survey'}
+                buttons={
+                    <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
+                        Create blank survey
+                    </LemonButton>
+                }
+            />
+            <div className="flex flex-row flex-wrap gap-10 ml-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
                         <div
-                            className="flex flex-col items-center max-w-100"
+                            className="flex flex-col items-center"
                             key={idx}
                             onClick={(template) => openSurveyTemplate(template)}
                         >
-                            <span className="mb-2">
+                            <span className="mb-2 text-md">
                                 <b>{template.type}</b>
                             </span>
                             <div className="SurveyTemplateContainer">
@@ -32,7 +43,7 @@ export function SurveyTemplates(): JSX.Element {
                                         key={idx}
                                         type={template.questions[0].type}
                                         question={template.questions[0].question}
-                                        appearance={{}}
+                                        appearance={{ whiteLabel: true }}
                                         surveyQuestionItem={template.questions[0] as SurveyQuestion}
                                         onAppearanceChange={() => {}}
                                         readOnly
