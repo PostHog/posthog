@@ -31,8 +31,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { openSurveysSettingsDialog } from './SurveySettings'
 import { SurveyQuestionLabel } from './constants'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -61,8 +59,6 @@ export function Surveys(): JSX.Element {
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const { currentTeam } = useValues(teamLogic)
     const surveysPopupDisabled = currentTeam && !currentTeam?.surveys_opt_in
 
@@ -120,27 +116,26 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                 ]}
             />
-            {featureFlags[FEATURE_FLAGS.SURVEYS_SITE_APP_DEPRECATION] && (
-                <div className="space-y-2">
-                    <VersionCheckerBanner />
+            <div className="space-y-2">
+                <VersionCheckerBanner />
 
-                    {surveysPopupDisabled ? (
-                        <LemonBanner
-                            type="warning"
-                            action={{
-                                type: 'secondary',
-                                icon: <IconSettings />,
-                                onClick: () => openSurveysSettingsDialog(),
-                                children: 'Configure',
-                            }}
-                        >
-                            {usingSurveysSiteApp
-                                ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
-                                : 'Survey popups are currently disabled for this project.'}
-                        </LemonBanner>
-                    ) : null}
-                </div>
-            )}
+                {surveysPopupDisabled ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            type: 'secondary',
+                            icon: <IconSettings />,
+                            onClick: () => openSurveysSettingsDialog(),
+                            children: 'Configure',
+                        }}
+                        className="mb-2"
+                    >
+                        {usingSurveysSiteApp
+                            ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
+                            : 'Survey popups are currently disabled for this project.'}
+                    </LemonBanner>
+                ) : null}
+            </div>
 
             <>
                 {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
