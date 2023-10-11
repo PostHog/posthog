@@ -2,6 +2,8 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Optional
 
+from django.db import IntegrityError
+
 from posthog.constants import INSIGHT_TRENDS, PAGEVIEW_EVENT, RETENTION_FIRST_TIME, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
@@ -553,101 +555,107 @@ class HedgeboxMatrix(Matrix):
         )
 
         # InsightViewed
-        InsightViewed.objects.bulk_create(
-            (
-                InsightViewed(
-                    team=team,
-                    user=user,
-                    insight=insight,
-                    last_viewed_at=(
-                        self.now - dt.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
-                    ),
-                )
-                for insight in Insight.objects.filter(team=team)
+        try:
+            InsightViewed.objects.bulk_create(
+                (
+                    InsightViewed(
+                        team=team,
+                        user=user,
+                        insight=insight,
+                        last_viewed_at=(
+                            self.now - dt.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
+                        ),
+                    )
+                    for insight in Insight.objects.filter(team=team)
+                ),
             )
-        )
+        except IntegrityError:
+            pass  # This can happen if demo data generation is re-run for the same project
 
         # Feature flags
-        new_signup_page_flag = FeatureFlag.objects.create(
-            team=team,
-            key=FILE_PREVIEWS_FLAG_KEY,
-            name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "type": "person",
-                                "value": [
-                                    "mark.s@hedgebox.net",
-                                    "helly.r@hedgebox.net",
-                                    "irving.b@hedgebox.net",
-                                    "dylan.g@hedgebox.net",
-                                ],
-                                "operator": "exact",
-                            }
-                        ]
-                    }
-                ]
-            },
-            created_by=user,
-            created_at=self.now - dt.timedelta(days=15),
-        )
-
-        # Experiments
-        new_signup_page_flag = FeatureFlag.objects.create(
-            team=team,
-            key=NEW_SIGNUP_PAGE_FLAG_KEY,
-            name="New sign-up flow",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                        {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+        try:
+            new_signup_page_flag = FeatureFlag.objects.create(
+                team=team,
+                key=FILE_PREVIEWS_FLAG_KEY,
+                name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": [
+                                        "mark.s@hedgebox.net",
+                                        "helly.r@hedgebox.net",
+                                        "irving.b@hedgebox.net",
+                                        "dylan.g@hedgebox.net",
+                                    ],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
                     ]
                 },
-            },
-            created_by=user,
-            created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
-        )
-        Experiment.objects.create(
-            team=team,
-            name="New sign-up flow",
-            description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
-            feature_flag=new_signup_page_flag,
-            created_by=user,
-            filters={
-                "events": [
-                    {
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [
-                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact"}
-                        ],
+                created_by=user,
+                created_at=self.now - dt.timedelta(days=15),
+            )
+
+            # Experiments
+            new_signup_page_flag = FeatureFlag.objects.create(
+                team=team,
+                key=NEW_SIGNUP_PAGE_FLAG_KEY,
+                name="New sign-up flow",
+                filters={
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                            {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                        ]
                     },
-                    {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
-                ],
-                "actions": [],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-            },
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                    {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
-                ],
-                "recommended_sample_size": int(len(self.clusters) * 0.274),
-                "recommended_running_time": None,
-                "minimum_detectable_effect": 1,
-            },
-            start_date=self.new_signup_page_experiment_start,
-            end_date=self.new_signup_page_experiment_end,
-            created_at=new_signup_page_flag.created_at,
-        )
+                },
+                created_by=user,
+                created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
+            )
+            Experiment.objects.create(
+                team=team,
+                name="New sign-up flow",
+                description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
+                feature_flag=new_signup_page_flag,
+                created_by=user,
+                filters={
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [
+                                {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact"}
+                            ],
+                        },
+                        {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
+                    ],
+                    "actions": [],
+                    "display": "FunnelViz",
+                    "insight": "FUNNELS",
+                    "interval": "day",
+                    "funnel_viz_type": "steps",
+                    "filter_test_accounts": True,
+                },
+                parameters={
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                        {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
+                    ],
+                    "recommended_sample_size": int(len(self.clusters) * 0.274),
+                    "recommended_running_time": None,
+                    "minimum_detectable_effect": 1,
+                },
+                start_date=self.new_signup_page_experiment_start,
+                end_date=self.new_signup_page_experiment_end,
+                created_at=new_signup_page_flag.created_at,
+            )
+        except IntegrityError:
+            pass  # This can happen if demo data generation is re-run for the same project
