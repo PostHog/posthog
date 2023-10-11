@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.models import Dashboard, FeatureFlag, Experiment, Team
+from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team
 
 
 class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -22,7 +22,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         # empty queryset to union things onto it
         qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(team=self.team).none()
 
-        for klass in (Dashboard, Experiment, FeatureFlag):
+        for klass in (Action, Cohort, Insight, Dashboard, Experiment, FeatureFlag):
             klass_qs, type = class_queryset(klass, team=self.team, query=query)
             qs = qs.union(klass_qs)
             counts[type] = klass_qs.count()
