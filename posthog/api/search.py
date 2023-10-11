@@ -17,15 +17,17 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     def list(self, request: Request, **kw) -> HttpResponse:
         query = request.GET.get("q", "").strip()
+        counts = {}
 
         # empty queryset to union things onto it
         qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(team=self.team).none()
 
         for klass in (Dashboard, Experiment, FeatureFlag):
-            klass_qs = class_queryset(klass, team=self.team, query=query)
+            klass_qs, type = class_queryset(klass, team=self.team, query=query)
             qs = qs.union(klass_qs)
+            counts[type] = klass_qs.count()
 
-        return Response({"results": qs})
+        return Response({"results": qs, "counts": counts})
 
 
 UNSAFE_CHARACTERS = r"[\'&|!<>():]"
@@ -58,7 +60,7 @@ def class_queryset(klass: type[Model], team: Team, query: str):
         values.append("rank")
 
     qs = qs.values(*values)
-    return qs
+    return qs, type
 
 
 def class_to_type(klass: type[Model]):
