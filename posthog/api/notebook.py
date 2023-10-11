@@ -277,11 +277,14 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
 
                         presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
 
-                        # We try to parse the match as a number in case as it will be an ID
                         try:
-                            match = int(match)
+                            # We try to parse the match as a number, as query params are always strings,
+                            # but an id could be an integer and wouldn't match
+                            if isinstance(match, str):  # because mypy
+                                match = int(match)
                         except (ValueError, TypeError):
                             pass
+
                         id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
