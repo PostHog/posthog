@@ -9,22 +9,25 @@ type SearchResultProps = {
     result: SearchResultType
     resultIndex: number
     focused: boolean
+    keyboardFocused: boolean
 }
 
-const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
+const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
     const { onMouseEnterResult, onMouseLeaveResult } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    // useEffect(() => {
-    //     if (focused) {
-    //         ref.current?.scrollIntoView()
-    //     }
-    // }, [focused])
+    useEffect(() => {
+        if (keyboardFocused) {
+            ref.current?.scrollIntoView()
+        }
+    }, [keyboardFocused])
 
     return (
         <div
-            className="w-full pl-3 pr-2 bg-secondary-3000 hover:bg-secondary-3000-hover border-b cursor-pointer"
+            className={`w-full pl-3 pr-2 ${
+                focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
+            } border-b cursor-pointer`}
             onMouseEnter={() => {
                 onMouseEnterResult(resultIndex)
             }}

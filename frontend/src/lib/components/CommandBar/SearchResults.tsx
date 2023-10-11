@@ -5,10 +5,14 @@ import { searchBarLogic } from './searchBarLogic'
 import SearchResult from './SearchResult'
 
 const SearchResults = (): JSX.Element => {
-    const { searchResults, activeResultIndex } = useValues(searchBarLogic)
+    const { searchResults, activeResultIndex, keyboardResultIndex, maxIndex } = useValues(searchBarLogic)
     const { onArrowUp, onArrowDown } = useActions(searchBarLogic)
 
     useEventListener('keydown', (event) => {
+        if (!searchResults) {
+            return
+        }
+
         if (event.key === 'Enter') {
             // const result = commandSearchResults[activeResultIndex]
             // // const isExecutable = !!result.executor
@@ -17,10 +21,10 @@ const SearchResults = (): JSX.Element => {
             // // }
         } else if (event.key === 'ArrowDown') {
             event.preventDefault()
-            onArrowDown()
+            onArrowDown(activeResultIndex, maxIndex)
         } else if (event.key === 'ArrowUp') {
             event.preventDefault()
-            onArrowUp()
+            onArrowUp(activeResultIndex)
         }
     })
 
@@ -32,6 +36,7 @@ const SearchResults = (): JSX.Element => {
                     result={result}
                     resultIndex={index}
                     focused={index === activeResultIndex}
+                    keyboardFocused={index === keyboardResultIndex}
                 />
             ))}
         </div>

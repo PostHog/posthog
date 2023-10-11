@@ -8,25 +8,24 @@ import { ResultTypeWithAll, SearchResponse } from './types'
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
-    actions(() => ({
+    actions({
         setSearchQuery: (query: string) => ({ query }),
-        onArrowUp: true,
-        onArrowDown: true,
+        onArrowUp: (activeIndex: number) => ({ activeIndex }),
+        onArrowDown: (activeIndex, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
-    })),
+    }),
     loaders({
         searchResponse: [
             null as SearchResponse | null,
             {
                 setSearchQuery: async ({ query }) => {
-                    const result = await api.get(`api/projects/@current/search?q=${query}`)
-                    return result
+                    return await api.get(`api/projects/@current/search?q=${query}`)
                 },
             },
         ],
     }),
-    reducers(({ values }) => ({
+    reducers({
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         keyboardResultIndex: [
             0,
@@ -35,9 +34,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 // executeResult: () => 0,
                 // activateFlow: () => 0,
                 // backFlow: () => 0,
-                onArrowUp: (previousIndex) => (previousIndex > 0 ? previousIndex - 1 : 0),
-                onArrowDown: (previousIndex) =>
-                    values.maxIndex !== null && previousIndex < values.maxIndex ? previousIndex + 1 : 0,
+                onArrowUp: (previousIndex, { activeIndex }) => (activeIndex > 0 ? activeIndex - 1 : 0),
+                onArrowDown: (previousIndex, { activeIndex, maxIndex }) => {
+                    console.debug('onArrowDown', maxIndex)
+                    // selectors.maxIndex !== null && ,
+                    return activeIndex < maxIndex ? activeIndex + 1 : 0
+                },
             },
         ],
         hoverResultIndex: [
@@ -52,16 +54,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
             },
         ],
         activeTab: ['all' as ResultTypeWithAll, {}],
-    })),
-    selectors(() => ({
+    }),
+    selectors({
         searchResults: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.results],
         searchCounts: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.counts],
-        maxIndex: [(s) => [s.searchResults], (searchResults) => (searchResults ? searchResults.length : null)],
+        maxIndex: [(s) => [s.searchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
         activeResultIndex: [
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => {
-                return hoverResultIndex ?? keyboardResultIndex
-            },
+            (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex ?? keyboardResultIndex,
         ],
-    })),
+    }),
 ])
