@@ -2,10 +2,10 @@ import { ResultTypeWithAll } from './types'
 
 export const resultTypeToName: Record<ResultTypeWithAll, string> = {
     all: 'All',
-    action: 'Action',
-    cohort: 'Cohort',
-    dashboard: 'Dashboard',
-    experiment: 'Experiment',
-    feature_flag: 'Feature Flag',
-    insight: 'Insight',
+    action: 'Actions',
+    cohort: 'Cohorts',
+    dashboard: 'Dashboards',
+    experiment: 'Experiments',
+    feature_flag: 'Feature Flags',
+    insight: 'Insights',
 }
