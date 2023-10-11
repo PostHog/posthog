@@ -71,14 +71,17 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     const { tiles, webAnalyticsFilters } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
     return (
-        <div className="space-y-4 my-4">
-            <PropertyFilters
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
-                propertyFilters={webAnalyticsFilters}
-                pageKey={'web-analytics'}
-            />
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div>
+            <div className="sticky top-0 bg-white z-10 pt-2">
+                <PropertyFilters
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
+                    propertyFilters={webAnalyticsFilters}
+                    pageKey={'web-analytics'}
+                />
+                <div className={'bg-border h-px w-full mt-2'} />
+            </div>
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
                 {tiles.map((tile, i) => {
                     if ('query' in tile) {
                         const { query, title, layout } = tile
