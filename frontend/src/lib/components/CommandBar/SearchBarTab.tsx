@@ -1,8 +1,8 @@
 import { resultTypeToName } from './constants'
-import { ResultTypesWithAll } from './types'
+import { ResultTypeWithAll } from './types'
 
 type SearchBarTabProps = {
-    type: ResultTypesWithAll
+    type: ResultTypeWithAll
     isFirst: boolean
     active: boolean
     count?: number | null

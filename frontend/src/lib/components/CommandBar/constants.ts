@@ -1,6 +1,6 @@
-import { ResultTypesWithAll } from './types'
+import { ResultTypeWithAll } from './types'
 
-export const resultTypeToName: Record<ResultTypesWithAll, string> = {
+export const resultTypeToName: Record<ResultTypeWithAll, string> = {
     all: 'All',
     action: 'Action',
     cohort: 'Cohort',

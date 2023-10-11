@@ -4,13 +4,13 @@ export enum BarStatus {
     SHOW_ACTIONS = 'show_actions',
 }
 
-export type ResultTypes = 'action' | 'cohort' | 'insight' | 'dashboard' | 'experiment' | 'feature_flag'
+export type ResultType = 'action' | 'cohort' | 'insight' | 'dashboard' | 'experiment' | 'feature_flag'
 
-export type ResultTypesWithAll = ResultTypes | 'all'
+export type ResultTypeWithAll = ResultType | 'all'
 
-export type SearchResult = { pk: number; type: ResultTypes; name: string | null }
+export type SearchResult = { pk: number; type: ResultType; name: string | null }
 
 export type SearchResponse = {
     results: SearchResult[]
-    counts: Record<ResultTypes, number | null>
+    counts: Record<ResultType, number | null>
 }
