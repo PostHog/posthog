@@ -79,7 +79,7 @@ runs:
           if: steps.hogql-parser-diff.outputs.changed == 'true'
           shell: bash
           # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
-          # changed (as requirements.txt only has the published version)
+          # changed (requirements.txt has the already-published version)
           run: |
               sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.0-source.zip --output antlr4-source.zip

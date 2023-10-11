@@ -16,23 +16,23 @@
   VISIT(RULE) {                                                     \
     throw HogQLNotImplementedException("Unsupported rule: " #RULE); \
   }
-#define HANDLE_HOGQL_EXCEPTION(TYPE)                                                                              \
-  (const HogQL##TYPE& e) {                                                                                        \
-    PyObject* error_type = PyObject_GetAttrString(state->errors_module, #TYPE);                                   \
-    if (!error_type) {                                                                                            \
-      return NULL;                                                                                                \
-    }                                                                                                             \
-    string err_what = e.what();                                                                                   \
+#define HANDLE_HOGQL_EXCEPTION(TYPE)                                                                             \
+  (const HogQL##TYPE& e) {                                                                                       \
+    PyObject* error_type = PyObject_GetAttrString(state->errors_module, #TYPE);                                  \
+    if (!error_type) {                                                                                           \
+      return NULL;                                                                                               \
+    }                                                                                                            \
+    string err_what = e.what();                                                                                  \
     PyObject* py_err = PyObject_CallObject(error_type, Py_BuildValue("(s#)", err_what.data(), err_what.size())); \
-    if (!py_err) {                                                                                                \
-      Py_DECREF(error_type);                                                                                      \
-      return NULL;                                                                                                \
-    }                                                                                                             \
-    PyObject_SetAttrString(py_err, "start", PyLong_FromSize_t(e.start));                                          \
-    PyObject_SetAttrString(py_err, "end", PyLong_FromSize_t(e.end));                                              \
-    PyErr_SetObject(error_type, py_err);                                                                          \
-    Py_DECREF(error_type);                                                                                        \
-    return NULL;                                                                                                  \
+    if (!py_err) {                                                                                               \
+      Py_DECREF(error_type);                                                                                     \
+      return NULL;                                                                                               \
+    }                                                                                                            \
+    PyObject_SetAttrString(py_err, "start", PyLong_FromSize_t(e.start));                                         \
+    PyObject_SetAttrString(py_err, "end", PyLong_FromSize_t(e.end));                                             \
+    PyErr_SetObject(error_type, py_err);                                                                         \
+    Py_DECREF(error_type);                                                                                       \
+    return NULL;                                                                                                 \
   }
 
 using namespace std;
@@ -64,21 +64,6 @@ PyObject* X_PyList_FromStrings(const vector<string>& items) {
 }
 
 // PARSING AND AST CONVERSION
-
-// Conventions:
-// 1. If any child rule results in an AST node, so must the parent rule - once in Python land, always in Python land.
-//    E.g. it doesn't make sense to create a vector<PyObject*>, that should just be a PyObject* (a Python list).
-// 2. Stay out of Python land as long as possible. E.g. avoid using PyObjects* for bools or strings.
-//    Do use Python for parsing numbers though - that way we don't need to consider integer overflow.
-// 3. REMEMBER TO Py_DECREF AND Py_INCREF. Otherwise there will be memory leaks or segfaults.
-// 4. For Py_None, Py_True, and Py_False, just wrap them in Py_NewRef().
-// 5. In Py_BuildValue tend towards use of `N` (which does not increment the refcount) over `O` (which does).
-//    That's because we mostly use new values and not borrowed ones - but this is not a hard rule.
-// 6. Use the `auto` type for HogQLParser:: and HogQLLexer:: values. Otherwise it's clearer for the type to be explicit.
-
-// To understand how Py_BuildValue, PyArg_ParseTuple, and PyArg_ParseTupleAndKeywords formats work,
-// (for instance, what does `s`, `s#`, `i` or `N` mean) read this:
-// https://docs.python.org/3/c-api/arg.html
 
 class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
  private:
@@ -164,6 +149,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (node.has_value() && node.type() == typeid(PyObject*)) {
       PyObject* py_node = any_cast<PyObject*>(node);
       if (py_node && is_ast_node_instance(py_node)) {
+        // FIXME: This is leak, because the value argument is not decref'd. Fix for all PyObject_SetAttrString calls.
         PyObject_SetAttrString(py_node, "start", PyLong_FromSize_t(start));
         PyObject_SetAttrString(py_node, "end", PyLong_FromSize_t(stop + 1));
       }
@@ -246,7 +232,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectUnionStmt) {
-    // Using a vector of PyObjects atypically here, because this is a precursor to flattened_queries
+    // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
     vector<PyObject*> select_queries;
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
     select_queries.reserve(select_stmt_with_parens_ctxs.size());
@@ -575,7 +561,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(FrameStart) { return visit(ctx->winFrameBound()); }
 
   VISIT(FrameBetween) {
-    return Py_BuildValue("OO", visitAsPyObject(ctx->winFrameBound(0)), visitAsPyObject(ctx->winFrameBound(1)));
+    return Py_BuildValue("NN", visitAsPyObject(ctx->winFrameBound(0)), visitAsPyObject(ctx->winFrameBound(1)));
   }
 
   VISIT(WinFrameBound) {

@@ -25,7 +25,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  fetch-depth: 0
+                  fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
 
             - name: Check if hogql_parser/ has changed
               id: changed-files-yaml
