@@ -6,7 +6,7 @@ import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
@@ -15,8 +15,11 @@ import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
-    const { id } = props.attributes
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
+    const { id } = attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading } = useValues(earlyAccessFeatureLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
@@ -38,7 +41,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeEarlyAccessAttribute
     }, [earlyAccessFeature])
 
     useEffect(() => {
-        props.updateAttributes({
+        updateAttributes({
             title: earlyAccessFeature.name
                 ? `Early Access Management: ${earlyAccessFeature.name}`
                 : 'Early Access Management',

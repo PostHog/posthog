@@ -8,7 +8,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildCodeExampleContent } from './NotebookNodeFlagCodeExample'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -17,8 +17,8 @@ import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JSX.Element => {
-    const { id } = props.attributes
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
+    const { id } = attributes
     const {
         featureFlag,
         featureFlagLoading,
@@ -36,7 +36,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeFlagAttributes>): JS
     )
 
     useEffect(() => {
-        props.updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+        updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
 
         setActions([
             {

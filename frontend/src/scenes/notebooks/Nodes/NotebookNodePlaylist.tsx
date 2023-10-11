@@ -11,15 +11,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { SessionRecordingsFilters } from 'scenes/session-recordings/filters/SessionRecordingsFilters'
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>): JSX.Element => {
-    const { filters, pinned, nodeId } = props.attributes
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
+    const { filters, pinned, nodeId } = attributes
     const playerKey = `notebook-${nodeId}`
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
@@ -29,13 +32,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePlaylistAttributes>)
             updateSearchParams: false,
             autoPlay: false,
             onFiltersChange: (newFilters: RecordingFilters) => {
-                props.updateAttributes({
+                updateAttributes({
                     filters: newFilters,
                 })
             },
             pinnedRecordings: pinned,
             onPinnedChange(recording, isPinned) {
-                props.updateAttributes({
+                updateAttributes({
                     pinned: isPinned
                         ? [...(pinned || []), String(recording.id)]
                         : pinned?.filter((id) => id !== recording.id),
