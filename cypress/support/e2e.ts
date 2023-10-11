@@ -6,7 +6,9 @@ import { decideResponse } from '../fixtures/api/decide'
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
-} catch {}
+} catch {
+    // do nothing
+}
 
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
 // From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
@@ -27,6 +29,7 @@ beforeEach(() => {
             decideResponse({
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
+                surveys: true,
                 'auto-redirect': true,
                 notebooks: true,
             })

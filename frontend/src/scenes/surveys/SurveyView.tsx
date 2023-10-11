@@ -74,7 +74,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     Archive
                                                 </LemonButton>
                                             )}
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
+                                            <LemonButton
+                                                status="danger"
+                                                data-attr="delete-survey"
+                                                fullWidth
+                                                onClick={() => deleteSurvey(id)}
+                                            >
                                                 Delete survey
                                             </LemonButton>
                                         </>
@@ -84,6 +89,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 {!survey.start_date ? (
                                     <LemonButton
                                         type="primary"
+                                        data-attr="launch-survey"
                                         onClick={() => {
                                             launchSurvey()
                                         }}
