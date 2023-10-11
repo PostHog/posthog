@@ -8,9 +8,16 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import EventPropertyFilter, WebTopSourcesQuery, WebTopClicksQuery, WebTopPagesQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    WebTopSourcesQuery,
+    WebTopClicksQuery,
+    WebTopPagesQuery,
+    WebOverviewStatsQuery,
+)
 
 WebQueryNode = Union[
+    WebOverviewStatsQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
     WebTopPagesQuery,
