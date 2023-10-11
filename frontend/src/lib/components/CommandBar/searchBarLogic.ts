@@ -15,8 +15,18 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
     })),
+    loaders({
+        searchResponse: [
+            null as SearchResponse | null,
+            {
+                setSearchQuery: async ({ query }) => {
+                    const result = await api.get(`api/projects/@current/search?q=${query}`)
+                    return result
+                },
+            },
+        ],
+    }),
     reducers(({ values }) => ({
-        searchResponse: [null], // TODO: Hack to get kea selectors based on searchResponse working
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         keyboardResultIndex: [
             0,
@@ -54,15 +64,4 @@ export const searchBarLogic = kea<searchBarLogicType>([
             },
         ],
     })),
-    loaders({
-        searchResponse: [
-            null as SearchResponse | null,
-            {
-                setSearchQuery: async ({ query }) => {
-                    const result = await api.get(`api/projects/@current/search?q=${query}`)
-                    return result
-                },
-            },
-        ],
-    }),
 ])
