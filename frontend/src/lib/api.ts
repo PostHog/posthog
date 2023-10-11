@@ -1293,14 +1293,21 @@ const api = {
     },
 
     recordings: {
-        async list(params: string): Promise<SessionRecordingsResponse> {
-            return await new ApiRequest().recordings().withQueryString(params).get()
+        async list(params: Record<string, any>): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
-        async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).get()
+        async get(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any> = {}
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+        },
+
+        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -1360,12 +1367,12 @@ const api = {
 
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingsResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
-                .withQueryString(params)
+                .withQueryString(toParams(params))
                 .get()
         },
 

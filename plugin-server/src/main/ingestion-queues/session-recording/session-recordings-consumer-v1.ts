@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException, captureMessage } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
@@ -11,9 +11,15 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../../config/kafka-topics'
 import { startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
-import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../kafka/producer'
+import {
+    createKafkaProducer,
+    disconnectProducer,
+    flushProducer,
+    KafkaProducerConfig,
+    produce,
+} from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, Team } from '../../../types'
 import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
@@ -30,6 +36,7 @@ import { eventDroppedCounter } from '../metrics'
 export const startSessionRecordingEventsConsumerV1 = async ({
     teamManager,
     kafkaConfig,
+    kafkaProducerConfig,
     consumerMaxBytes,
     consumerMaxBytesPerPartition,
     consumerMaxWaitMs,
@@ -39,6 +46,7 @@ export const startSessionRecordingEventsConsumerV1 = async ({
 }: {
     teamManager: TeamManager
     kafkaConfig: KafkaConfig
+    kafkaProducerConfig: KafkaProducerConfig
     consumerMaxBytes: number
     consumerMaxBytesPerPartition: number
     consumerMaxWaitMs: number
@@ -72,7 +80,8 @@ export const startSessionRecordingEventsConsumerV1 = async ({
     status.info('🔁', 'Starting session recordings consumer')
 
     const connectionConfig = createRdConnectionConfigFromEnvVars(kafkaConfig)
-    const producer = await createKafkaProducer(connectionConfig)
+    const producerConfig = createRdProducerConfigFromEnvVars(kafkaProducerConfig)
+    const producer = await createKafkaProducer(connectionConfig, producerConfig)
 
     const eachBatchWithContext = eachBatch({
         teamManager,

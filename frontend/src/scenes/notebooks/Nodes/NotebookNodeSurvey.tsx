@@ -6,7 +6,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
@@ -16,8 +16,8 @@ import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
-    const { id } = props.attributes
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
+    const { id } = attributes
     const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
@@ -38,7 +38,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
     }, [survey])
 
     useEffect(() => {
-        props.updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
+        updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
     }, [survey.name])
 
     return (

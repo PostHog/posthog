@@ -1317,5 +1317,5 @@
             { "type": 3, "data": { "source": 2, "type": 6, "id": 33 }, "timestamp": 1682952392745 }
         ]
     },
-    "storage": "clickhouse"
+    "storage": "object_storage"
 }

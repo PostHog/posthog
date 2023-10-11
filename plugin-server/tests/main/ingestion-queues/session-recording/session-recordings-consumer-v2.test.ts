@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'

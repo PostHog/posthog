@@ -18,7 +18,7 @@ import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } fr
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { JSONContent, NotebookEditor } from './utils'
+import { EditorRange, JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -102,6 +102,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeId?: string
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTextSelection: (selection: number | EditorRange) => ({ selection }),
     }),
     reducers({
         localContent: [
@@ -481,6 +482,9 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },
+        setEditor: () => {
+            values.editor?.setContent(values.content)
+        },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
@@ -507,6 +511,12 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         setEditingNodeId: () => {
             values.editingNodeLogic?.actions.selectNode()
+        },
+
+        setTextSelection: ({ selection }) => {
+            queueMicrotask(() => {
+                values.editor?.setTextSelection(selection)
+            })
         },
     })),
 ])

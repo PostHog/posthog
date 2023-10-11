@@ -38,10 +38,10 @@ export function SlackIntegration(): JSX.Element {
     return (
         <div>
             <p>
-                Integrate with Slack directly to get more advanced options such as sending webhook events to{' '}
-                <b>different channels</b> and <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack
-                channels of your choice. Guidance on integrating with Slack available{' '}
-                <a href="https://posthog.com/docs/integrate/third-party/slack">in our docs</a>.
+                Integrate with Slack directly to get more advanced options such as{' '}
+                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
+                Guidance on integrating with Slack available{' '}
+                <a href="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">in our docs</a>.
             </p>
 
             <p>

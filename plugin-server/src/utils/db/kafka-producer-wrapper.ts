@@ -1,5 +1,5 @@
 import { Message, ProducerRecord } from 'kafkajs'
-import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka-acosom'
+import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
