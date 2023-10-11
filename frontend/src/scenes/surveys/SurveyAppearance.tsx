@@ -29,7 +29,7 @@ interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    surveyQuestionItem: SurveyQuestion
     description?: string | null
     link?: string | null
     readOnly?: boolean
@@ -100,7 +100,7 @@ export function SurveyAppearance({
 
     return (
         <>
-            <h3 className="mb-4 text-center">Preview</h3>
+            {!readOnly && <h3 className="mb-4 text-center">Preview</h3>}
             {!hideSubmittedSurvey && (
                 <>
                     {type === SurveyQuestionType.Rating && (
