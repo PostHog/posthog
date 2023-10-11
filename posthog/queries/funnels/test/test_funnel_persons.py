@@ -9,7 +9,7 @@ from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -443,7 +443,14 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
-        create_session_recording_events(self.team.pk, datetime(2021, 1, 3, 0, 0, 0), "user_1", "s2")
+        timestamp = datetime(2021, 1, 3, 0, 0, 0)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s2",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         # First event, but no recording
         filter = Filter(
