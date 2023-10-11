@@ -16,7 +16,7 @@
 # endpoints are for a very specific purpose and we want to make sure that any
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
-
+import os
 from typing import Callable, Dict, List, Literal, cast, get_args
 
 import amqp.exceptions
@@ -116,6 +116,7 @@ def readyz(request: HttpRequest):
         "kafka_connected": is_kafka_connected,
         "celery_broker": is_celery_broker_connected,
         "cache": is_cache_backend_connected,
+        "http": is_http_not_shutting_down,
     }
 
     conditional_checks = {}
@@ -258,6 +259,14 @@ def is_cache_backend_connected() -> bool:
         return False
 
     return True
+
+
+def is_http_not_shutting_down() -> bool:
+    """
+    Checks if we are shutting down by looking for the existence of a sentinal file
+    which is created in the kubernetes preStop hook
+    """
+    return not os.path.isfile("/tmp/posthog_prestop")
 
 
 def healthcheck_middleware(get_response: Callable[[HttpRequest], HttpResponse]):
