@@ -1,5 +1,5 @@
 import { actions, kea, path } from 'kea'
-import { surveyTemplatesLogicType } from './surveyTemplatesLogicType'
+import type { surveyTemplatesLogicType } from './surveyTemplatesLogicType'
 import { actionToUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
