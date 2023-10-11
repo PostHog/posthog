@@ -28,7 +28,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
         useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -44,7 +44,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         shortId,
         editable,
         initialAutofocus,
-        content,
     })
 
     useEffect(() => {
@@ -112,7 +111,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor
-                            initialContent={content}
                             onCreate={setEditor}
                             onUpdate={onEditorUpdate}
                             onSelectionUpdate={onEditorSelectionUpdate}

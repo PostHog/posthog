@@ -42,13 +42,11 @@ export function Editor({
     onUpdate,
     onSelectionUpdate,
     placeholder,
-    initialContent,
 }: {
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     onSelectionUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
-    initialContent: JSONContent
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
     const logic = insertionSuggestionsLogic()
@@ -102,7 +100,6 @@ export function Editor({
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
         ],
-        content: initialContent,
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
