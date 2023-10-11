@@ -38,17 +38,17 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor({
-    initialContent,
     onCreate,
     onUpdate,
     onSelectionUpdate,
     placeholder,
+    initialContent,
 }: {
-    initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     onSelectionUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
+    initialContent: JSONContent
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
     const logic = insertionSuggestionsLogic()

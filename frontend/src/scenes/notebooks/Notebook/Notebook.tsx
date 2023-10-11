@@ -16,6 +16,7 @@ import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 
 export type NotebookProps = {
     shortId: string
@@ -25,7 +26,7 @@ export type NotebookProps = {
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
     const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
@@ -34,8 +35,20 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
+    useWhyDidIRender('Notebook', {
+        notebook,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        shortId,
+        editable,
+        initialAutofocus,
+        content,
+    })
+
     useEffect(() => {
-        if (!notebook && !notebookLoading) {
+        if (notebook && !notebookLoading) {
             loadNotebook()
         }
     }, [])
@@ -81,7 +94,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                 )}
 
                 <NotebookHistoryWarning />
-                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
                         className="my-4"

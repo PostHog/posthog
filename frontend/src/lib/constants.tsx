@@ -129,6 +129,7 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', // TODO: Rolled out, unflag
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
+    DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth

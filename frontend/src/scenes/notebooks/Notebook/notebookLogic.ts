@@ -482,6 +482,9 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },
+        setEditor: () => {
+            values.editor?.setContent(values.content)
+        },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
