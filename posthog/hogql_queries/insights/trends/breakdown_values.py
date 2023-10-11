@@ -42,7 +42,6 @@ class BreakdownValues:
             """,
             placeholders={
                 "events_where": self._where_filter(),
-                "team_id": ast.Constant(value=self.team.pk),
                 "select_field": select_field,
             },
         )
@@ -60,7 +59,6 @@ class BreakdownValues:
     def _where_filter(self) -> ast.Expr:
         filters: List[ast.Expr] = []
 
-        filters.append(parse_expr("team_id = {team_id}", placeholders={"team_id": ast.Constant(value=self.team.pk)}))
         filters.append(parse_expr("notEmpty(e.person_id)"))
         filters.extend(
             [

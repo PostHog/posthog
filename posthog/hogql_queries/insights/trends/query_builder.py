@@ -165,9 +165,6 @@ class TrendsQueryBuilder:
         series = self.series
         filters: List[ast.Expr] = []
 
-        # Team ID
-        filters.append(parse_expr("team_id = {team_id}", placeholders={"team_id": ast.Constant(value=self.team.pk)}))
-
         # Dates
         filters.extend(
             [
