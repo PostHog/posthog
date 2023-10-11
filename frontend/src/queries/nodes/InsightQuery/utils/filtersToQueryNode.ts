@@ -257,5 +257,5 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     }
 
     // remove undefined and empty array/objects and return
-    return objectCleanWithEmpty(query as Record<string, any>) as InsightQueryNode
+    return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
 }

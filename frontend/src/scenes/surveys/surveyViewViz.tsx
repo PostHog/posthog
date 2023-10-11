@@ -1,6 +1,16 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import { SurveyUserStats } from './surveyLogic'
+import { surveyLogic, SurveyRatingResults, SurveyRatingResultsReady, SurveyUserStats } from './surveyLogic'
+import { useActions, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { GraphType } from '~/types'
+import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLogicProps, RatingSurveyQuestion } from '~/types'
+import { useEffect } from 'react'
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: `new-survey`,
+}
 
 const formatCount = (count: number, total: number): string => {
     if ((count / total) * 100 < 3) {
@@ -48,8 +58,8 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             {
                                 count: seen,
                                 label: 'Viewed',
-                                classes: `bg-primary rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
-                                style: { width: `${seenPercentage}%` },
+                                classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
+                                style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
                             },
                             {
                                 count: dismissed,
@@ -92,12 +102,12 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                     <div className="w-full flex justify-center">
                         <div className="flex items-center">
                             {[
-                                { count: seen, label: 'Viewed', color: 'bg-primary' },
-                                { count: dismissed, label: 'Dismissed', color: 'bg-warning' },
-                                { count: sent, label: 'Submitted', color: 'bg-success' },
-                            ].map(({ count, label, color }) => (
+                                { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
+                                { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
+                                { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
+                            ].map(({ count, label, style }) => (
                                 <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                    <div className={`w-3 h-3 rounded-full mr-2 ${color}`} />
+                                    <div className="w-3 h-3 rounded-full mr-2" style={style} />
                                     <span className="font-semibold text-muted-alt">{`${label} (${(
                                         (count / total) *
                                         100
@@ -119,19 +129,85 @@ export function Summary({
     surveyUserStats: SurveyUserStats
     surveyUserStatsLoading: boolean
 }): JSX.Element {
-    if (!surveyUserStats) {
-        return <></>
-    }
-
     return (
-        <div className="mb-4">
+        <div className="mb-4 mt-2">
             {surveyUserStatsLoading ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : (
                 <>
-                    <UsersCount surveyUserStats={surveyUserStats} />
-                    <UsersStackedBar surveyUserStats={surveyUserStats} />
+                    {!surveyUserStats ? null : (
+                        <>
+                            <UsersCount surveyUserStats={surveyUserStats} />
+                            <UsersStackedBar surveyUserStats={surveyUserStats} />
+                        </>
+                    )}
                 </>
+            )}
+        </div>
+    )
+}
+
+export function RatingQuestionBarChart({
+    questionIndex,
+    question,
+    surveyRatingResults,
+    surveyRatingResultsReady,
+}: {
+    questionIndex: number
+    question: RatingSurveyQuestion
+    surveyRatingResults: SurveyRatingResults
+    surveyRatingResultsReady: SurveyRatingResultsReady
+}): JSX.Element {
+    const { loadSurveyRatingResults } = useActions(surveyLogic)
+
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex, question })
+    }, [question])
+
+    return (
+        <div className="mb-4">
+            {!surveyRatingResultsReady[`question_${questionIndex}`] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : (
+                <div className="mb-8">
+                    <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className=" h-50 border rounded pt-6 pb-2 px-2">
+                        <div className="relative h-full w-full">
+                            <BindLogic logic={insightLogic} props={insightProps}>
+                                <LineGraph
+                                    labelGroupType={1}
+                                    data-attr="survey-rating"
+                                    type={GraphType.Bar}
+                                    hideAnnotations={true}
+                                    formula="-"
+                                    tooltip={{
+                                        showHeader: false,
+                                        hideColorCol: true,
+                                    }}
+                                    datasets={[
+                                        {
+                                            id: 1,
+                                            label: 'Number of responses',
+                                            barPercentage: 0.7,
+                                            minBarLength: 2,
+                                            data: surveyRatingResults[`question_${questionIndex}`],
+                                            backgroundColor: '#1d4aff',
+                                            hoverBackgroundColor: '#1d4aff',
+                                        },
+                                    ]}
+                                    labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
+                                        (n) => n
+                                    )}
+                                />
+                            </BindLogic>
+                        </div>
+                    </div>
+                    <div className="flex flex-row justify-between mt-1">
+                        <div className="text-muted-alt">{question.lowerBoundLabel}</div>
+                        <div className="text-muted-alt">{question.upperBoundLabel}</div>
+                    </div>
+                </div>
             )}
         </div>
     )

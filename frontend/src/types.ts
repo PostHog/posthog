@@ -665,16 +665,8 @@ export interface SessionRecordingSnapshotSource {
 }
 
 export interface SessionRecordingSnapshotResponse {
-    // Future interface
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
-
-    // legacy interface
-    next?: string
-    // When loaded from S3
-    blob_keys?: string[]
-    // When loaded from Clickhouse (legacy)
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -684,12 +676,10 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
-    next?: string
     blob_keys?: string[]
 }
 
 export interface SessionPlayerData {
-    pinnedCount: number
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
@@ -1031,13 +1021,11 @@ export interface SessionRecordingType {
     /** count of all mouse activity in the recording, not just clicks */
     mouse_activity_count?: number
     start_url?: string
-    /** Count of number of playlists this recording is pinned to. **/
-    pinned_count?: number
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
     /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
+    storage?: 'object_storage_lts' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {

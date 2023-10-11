@@ -7,13 +7,13 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { LemonButton, LemonDivider, LemonDropdown } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 
-interface TZLabelRawProps {
+export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
     time: string | dayjs.Dayjs
     showSeconds?: boolean
     formatDate?: string
@@ -26,7 +26,7 @@ interface TZLabelRawProps {
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
-}: Pick<TZLabelRawProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
+}: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
@@ -86,7 +86,8 @@ function TZLabelRaw({
     showPopover = true,
     noStyles = false,
     className,
-}: TZLabelRawProps): JSX.Element {
+    ...dropdownProps
+}: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
 
     const format = useCallback(() => {
@@ -120,9 +121,10 @@ function TZLabelRaw({
     if (showPopover) {
         return (
             <LemonDropdown
-                trigger="hover"
                 placement="top"
                 showArrow
+                {...dropdownProps}
+                trigger="hover"
                 overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
             >
                 {innerContent}

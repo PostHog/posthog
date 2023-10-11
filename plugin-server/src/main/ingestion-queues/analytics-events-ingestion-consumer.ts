@@ -1,5 +1,5 @@
 import { EachBatchPayload } from 'kafkajs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 

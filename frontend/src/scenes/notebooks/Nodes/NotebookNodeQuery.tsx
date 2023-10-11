@@ -5,7 +5,7 @@ import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -26,8 +26,11 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const { query } = props.attributes
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+    const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
 
@@ -53,14 +56,13 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
             title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
         }
 
-        props.updateAttributes({ title: title })
+        updateAttributes({ title: title })
     }, [query])
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
@@ -86,7 +88,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={props.attributes.nodeId} readOnly={true} />
+            <Query query={modifiedQuery} uniqueKey={nodeId} readOnly={true} />
         </div>
     )
 }
@@ -105,13 +107,22 @@ export const Settings = ({
         const modifiedQuery = { ...query, full: false }
 
         if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
-            modifiedQuery.showReload = false
+
+            modifiedQuery.showReload = true
             modifiedQuery.showElapsedTime = false
+            modifiedQuery.showTimings = false
+
             modifiedQuery.embedded = true
+            modifiedQuery.showActions = true
+
+            modifiedQuery.showDateRange = true
+            modifiedQuery.showEventFilter = true
+            modifiedQuery.showSearch = true
+            modifiedQuery.showPropertyFilter = true
+            modifiedQuery.showColumnConfigurator = true
         }
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {

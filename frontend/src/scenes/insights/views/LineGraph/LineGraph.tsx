@@ -44,6 +44,7 @@ export function ensureTooltipElement(): HTMLElement {
         tooltipEl = document.createElement('div')
         tooltipEl.id = 'InsightTooltipWrapper'
         tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.style.display = 'none'
         document.body.appendChild(tooltipEl)
     }
     return tooltipEl
@@ -215,6 +216,7 @@ export interface LineGraphProps {
     showValueOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    hideAnnotations?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -245,6 +247,7 @@ export function LineGraph_({
     showValueOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    hideAnnotations,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -272,7 +275,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal
+    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
@@ -432,6 +435,7 @@ export function LineGraph_({
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
+                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -520,8 +524,8 @@ export function LineGraph_({
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = tooltipClientTop + 'px'
-                        tooltipEl.style.left = tooltipClientLeft + 'px'
+                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
+                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
                     },
                 },
                 ...(!isBar

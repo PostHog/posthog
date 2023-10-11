@@ -149,7 +149,6 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 person: values.sessionRecording.person || undefined,
                 start_time: dayjs(snapshots[0].timestamp).toISOString(),
                 end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
-                pinned_count: 0,
             })
         },
     })),

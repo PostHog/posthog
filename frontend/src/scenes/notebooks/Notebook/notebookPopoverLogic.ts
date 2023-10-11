@@ -15,8 +15,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPopoverLogic']),
     actions({
         setFullScreen: (full: boolean) => ({ full }),
-        selectNotebook: (id: string) => ({ id }),
-        setInitialAutofocus: (position: EditorFocusPosition) => ({ position }),
+        selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
         setVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
         startDropMode: true,
@@ -47,10 +46,9 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             },
         ],
         initialAutofocus: [
-            null as EditorFocusPosition,
+            'start' as EditorFocusPosition,
             {
-                selectNotebook: () => null,
-                setInitialAutofocus: (_, { position }) => position,
+                selectNotebook: (_, { autofocus }) => autofocus ?? 'start',
             },
         ],
         elementRef: [

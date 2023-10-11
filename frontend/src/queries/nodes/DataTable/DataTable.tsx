@@ -373,40 +373,44 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
 
     const firstRowLeft = [
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange query={query.source} setQuery={setQuerySource} />
+            <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
-            <EventName query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
-            <PersonsSearch query={query.source as PersonsNode} setQuery={setQuerySource} />
+            <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
-            <EventPropertyFilters query={query.source as EventsQuery} setQuery={setQuerySource} />
+            <EventPropertyFilters key="event-property" query={query.source as EventsQuery} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
-            <PersonPropertyFilters query={query.source as PersonsNode} setQuery={setQuerySource} />
+            <PersonPropertyFilters
+                key="person-property"
+                query={query.source as PersonsNode}
+                setQuery={setQuerySource}
+            />
         ) : null,
     ].filter((x) => !!x)
 
     const firstRowRight = [
         showSavedQueries && sourceFeatures.has(QueryFeature.savedEventsQueries) ? (
-            <SavedQueries query={query} setQuery={setQuery} />
+            <SavedQueries key="saved-queries" query={query} setQuery={setQuery} />
         ) : null,
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? <Reload /> : null,
-        showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime showTimings={showTimings} /> : null,
+        showReload ? <Reload key="reload" /> : null,
+        showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
+        showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
-            <ColumnConfigurator query={query} setQuery={setQuery} />
+            <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
-        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+        showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
@@ -437,10 +441,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
-                        <div className="flex gap-4 items-center">
-                            {secondRowLeft}
-                            {secondRowLeft.length > 0 && secondRowRight.length > 0 ? <div className="flex-1" /> : null}
-                            {secondRowRight}
+                        <div className="flex gap-4 justify-between flex-wrap">
+                            <div className="flex gap-4 items-center">{secondRowLeft}</div>
+                            <div className="flex gap-4 items-center">{secondRowRight}</div>
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (

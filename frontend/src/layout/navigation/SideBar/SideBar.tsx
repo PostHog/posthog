@@ -164,33 +164,27 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
 
-                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
-                        <div className="SideBar__heading">Feature Management</div>
-                    )}
+                    <div className="SideBar__heading">Feature Management</div>
 
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
                     {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
-                    {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
-                        <PageButton
-                            icon={<IconRocketLaunch />}
-                            identifier={Scene.EarlyAccessFeatures}
-                            title={'Early Access Management'}
-                            to={urls.earlyAccessFeatures()}
-                        />
-                    )}
+                    <PageButton
+                        icon={<IconRocketLaunch />}
+                        identifier={Scene.EarlyAccessFeatures}
+                        title={'Early Access Management'}
+                        to={urls.earlyAccessFeatures()}
+                    />
 
-                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
-                        <PageButton
-                            icon={<IconSurveys />}
-                            identifier={Scene.Surveys}
-                            title={'Surveys'}
-                            to={urls.surveys()}
-                            highlight="beta"
-                        />
-                    )}
+                    <PageButton
+                        icon={<IconSurveys />}
+                        identifier={Scene.Surveys}
+                        title={'Surveys'}
+                        to={urls.surveys()}
+                        highlight="beta"
+                    />
 
                     {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS] && (
                         <PageButton

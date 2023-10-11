@@ -45,7 +45,7 @@
             margin-right: 2px;
             margin-bottom: 2px;
             cursor: pointer;
-            color: var(--primary);
+            color: var(--link);
             background: var(--side);
             border-color: var(--side);
             &.taxonomic-count-zero {
@@ -54,8 +54,8 @@
             }
             &.taxonomic-pill-active {
                 color: #fff;
-                background: var(--primary);
-                border-color: var(--primary);
+                background: var(--link);
+                border-color: var(--link);
             }
         }
     }

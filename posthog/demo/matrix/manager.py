@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import (
@@ -69,8 +69,6 @@ class MatrixManager:
                     organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
                 )
                 team = self.create_team(organization)
-            if self.print_steps:
-                print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
@@ -106,6 +104,8 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
+        if self.print_steps:
+            print(f"Saving simulated data...")
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
             does_clickhouse_data_need_saving = not self._is_demo_data_pre_saved()
@@ -127,7 +127,10 @@ class MatrixManager:
     def _save_analytics_data(self, data_team: Team):
         sim_persons = self.matrix.people
         bulk_group_type_mappings = []
+        if len(self.matrix.groups.keys()) + self.matrix.group_type_index_offset > 5:
+            raise ValueError("Too many group types! The maximum for a project is 5.")
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
+            group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
                 GroupTypeMapping(team=data_team, group_type_index=group_type_index, group_type=group_type)
             )
@@ -135,7 +138,10 @@ class MatrixManager:
                 self._save_sim_group(
                     data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
-        GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
+        try:
+            GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
+        except IntegrityError as e:
+            print(f"SKIPPING GROUP TYPE MAPPING CREATION: {e}")
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
         # We need to wait a bit for data just queued into Kafka to show up in CH
@@ -202,6 +208,7 @@ class MatrixManager:
         # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
+        pre_existing_id_count = PersonDistinctId.objects.filter(team_id=target_team_id).count()
         clickhouse_distinct_ids = query_with_columns(
             SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
             list_params,
@@ -211,9 +218,14 @@ class MatrixManager:
         bulk_person_distinct_ids = []
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
-            bulk_person_distinct_ids.append(
-                PersonDistinctId(team_id=target_team_id, person_id=bulk_persons[person_uuid].pk, **row)
-            )
+            try:
+                bulk_person_distinct_ids.append(
+                    PersonDistinctId(team_id=target_team_id, person_id=bulk_persons[person_uuid].pk, **row)
+                )
+            except KeyError:
+                pre_existing_id_count -= 1
+        if pre_existing_id_count > 0:
+            print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
         clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
@@ -221,7 +233,10 @@ class MatrixManager:
         for row in clickhouse_groups:
             group_properties = json.loads(row.pop("group_properties", "{}"))
             bulk_groups.append(Group(team_id=target_team_id, version=0, group_properties=group_properties, **row))
-        Group.objects.bulk_create(bulk_groups)
+        try:
+            Group.objects.bulk_create(bulk_groups)
+        except IntegrityError as e:
+            print(f"SKIPPING GROUP CREATION: {e}")
 
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
