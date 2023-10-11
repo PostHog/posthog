@@ -14,6 +14,7 @@ import {
     IconGauge,
     IconLive,
     IconMessages,
+    IconNotebook,
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
@@ -100,6 +101,19 @@ function Pages(): JSX.Element {
             {currentTeam && (
                 <>
                     <LemonDivider />
+                    <PageButton
+                        icon={<IconNotebook />}
+                        identifier={Scene.Notebooks}
+                        to={urls.notebooks()}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            to: urls.notebook('new'),
+                            tooltip: 'New notebook',
+                            identifier: Scene.Notebook,
+                            onClick: hideSideBarMobile,
+                        }}
+                        highlight="beta"
+                    />
                     <PageButton
                         icon={<IconGauge />}
                         identifier={Scene.Dashboards}
