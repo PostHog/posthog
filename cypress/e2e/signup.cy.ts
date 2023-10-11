@@ -8,7 +8,7 @@ describe('Signup', () => {
         cy.visit('/signup')
     })
 
-    it('Cannot create acount with existing email', () => {
+    it('Cannot create account with existing email', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()

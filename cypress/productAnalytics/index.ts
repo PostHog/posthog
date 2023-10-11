@@ -16,7 +16,7 @@ export const savedInsights = {
     },
 }
 
-function interceptInsightLoad(insightType: string): string {
+export function interceptInsightLoad(insightType: string): string {
     cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
     cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
     cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
