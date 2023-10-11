@@ -31,6 +31,7 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
+import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -65,6 +66,7 @@ export function Editor({
             CustomDocument,
             StarterKit.configure({
                 document: false,
+                gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
@@ -98,6 +100,7 @@ export function Editor({
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
+            NodeGapInsertionExtension,
         ],
         content: initialContent,
         editorProps: {
@@ -190,6 +193,7 @@ export function Editor({
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
+                setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),

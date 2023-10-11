@@ -2,12 +2,12 @@ from datetime import datetime, timedelta
 
 import json
 from typing import Any, List, Type, cast
+from django.conf import settings
 
 import posthoganalytics
-from dateutil import parser
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Count, Prefetch
+from django.db.models import Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -93,7 +93,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
-            "pinned_count",
         ]
 
         read_only_fields = [
@@ -113,7 +112,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
-            "pinned_count",
         ]
 
 
@@ -153,6 +151,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
+    # We don't use this
+    queryset = SessionRecording.objects.none()
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
@@ -213,13 +213,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
 
-        # Optimisation step if passed to speed up retrieval of CH data
-        if not recording.start_time:
-            recording_start_time = (
-                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
-            )
-            recording.start_time = recording_start_time
-
         loaded = recording.load_metadata()
 
         if not loaded:
@@ -245,6 +238,20 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording.save()
 
         return Response({"success": True}, status=204)
+
+    @action(methods=["POST"], detail=True)
+    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
+
+        if not settings.EE_AVAILABLE:
+            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
+
+        # Indicates it is not yet persisted
+        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
+        if recording.storage == "object_storage":
+            recording.save()
+
+        return Response({"success": True})
 
     def _snapshots_v2(self, request: request.Request):
         """
@@ -425,13 +432,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
         )
 
-        # Optimisation step if passed to speed up retrieval of CH data
-        if not recording.start_time:
-            recording_start_time = (
-                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
-            )
-            recording.start_time = recording_start_time
-
         try:
             recording.load_snapshots(limit, offset)
         except NotImplementedError as e:
@@ -502,6 +502,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     """
 
     all_session_ids = filter.session_ids
+
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
@@ -510,18 +511,16 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
         sorted_session_ids = sorted(all_session_ids)
 
-        persisted_recordings_queryset = (
-            SessionRecording.objects.filter(team=team, session_id__in=sorted_session_ids)
-            .exclude(object_storage_path=None)
-            .annotate(pinned_count=Count("playlist_items"))
-        )
+        persisted_recordings_queryset = SessionRecording.objects.filter(
+            team=team, session_id__in=sorted_session_ids
+        ).exclude(object_storage_path=None)
 
         persisted_recordings = persisted_recordings_queryset.all()
 
         recordings = recordings + list(persisted_recordings)
 
         remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
+        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs

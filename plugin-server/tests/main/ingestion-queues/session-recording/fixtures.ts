@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../../src/config/kafka-topics'
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'

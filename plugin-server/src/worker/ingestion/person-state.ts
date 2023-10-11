@@ -686,7 +686,8 @@ export class PersonState {
 
 export function ageInMonthsLowCardinality(timestamp: DateTime): number {
     const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
-    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB:
+    // https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
     const ageLowCardinality = Math.min(ageInMonths, 50)
     return ageLowCardinality
 }

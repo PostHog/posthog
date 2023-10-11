@@ -181,6 +181,31 @@ New functions called here are:
 > Note:
 > An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
 
+### Patching node-rdkafka
+
+We carry a node-rdkafka patch that adds cooperative rebalancing. To generate this patch:
+
+    # setup a local node-rdkafka clone
+    git clone git@github.com:PostHog/node-rdkafka.git
+    cd node-rdkafka
+    git remote add blizzard git@github.com:Blizzard/node-rdkafka.git
+    git fetch blizzard
+
+    # generate the diff
+    git diff blizzard/master > ~/node-rdkafka.diff
+
+    # in the plugin-server directory, this will output a temporary working directory
+    pnpm patch node-rdkafka@2.17.0
+
+    # enter the temporary directory from the previous command
+    cd /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3
+
+    # if asked, skip any missing files
+    patch -p1 < ~/node-rdkafka.diff
+
+    # in the plugin-server directory, target the temporary directory from the previous command
+    pnpm patch-commit /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3
+
 ## Questions?
 
 ### [Join our Slack community. 🦔](https://posthog.com/slack)

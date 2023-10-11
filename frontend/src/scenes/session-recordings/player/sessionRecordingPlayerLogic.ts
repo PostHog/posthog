@@ -1,18 +1,27 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    AvailableFeature,
-    RecordingSegment,
-    SessionPlayerData,
-    SessionPlayerState,
-    SessionRecordingId,
-    SessionRecordingType,
-} from '~/types'
+import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
@@ -20,10 +29,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import {
-    MatchingEventsMatchType,
-    sessionRecordingsListLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
@@ -37,6 +43,7 @@ import { ReplayPlugin } from 'rrweb/typings/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -70,21 +77,16 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
 }
 
-// This is the basic props used by most sub-logics
-export interface SessionRecordingLogicProps {
-    sessionRecordingId: SessionRecordingId
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
-}
-
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
-    playlistShortId?: string
     matchingEventsMatchType?: MatchingEventsMatchType
-    recordingStartTime?: string
-    nextSessionRecording?: Partial<SessionRecordingType>
+    playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
+    pinned?: boolean
+    setPinned?: (pinned: boolean) => void
 }
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
@@ -120,6 +122,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadRecordingSnapshotsSuccess',
                 'loadRecordingSnapshotsFailure',
                 'loadRecordingMetaSuccess',
+                'maybePersistRecording',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
@@ -331,6 +334,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // Prop references for use by other logics
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
+        playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
         currentPlayerState: [
             (s) => [
@@ -910,19 +914,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            const listLogic =
-                !!props.playlistShortId &&
-                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
-                    ? // On playlist page
-                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
-                    : // In any other context with a list of recordings (recent recordings)
-                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
-
-            if (listLogic) {
-                listLogic.actions.loadAllRecordings()
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
-                listLogic.actions.setSelectedRecordingId(null)
+                props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
                 // On a page that displays a single recording `replay/:id` that doesn't contain a list
                 router.actions.push(urls.replay())
@@ -1055,7 +1050,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 ])
 
-export const getCurrentPlayerTime = (logicProps: SessionRecordingLogicProps): number => {
+export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProps): number => {
     // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
     const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
     return Math.floor(playerTime / 1000)

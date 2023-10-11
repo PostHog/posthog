@@ -139,8 +139,8 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
-    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
+    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -476,7 +476,6 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 

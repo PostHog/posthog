@@ -8,7 +8,7 @@
             "name": "Celery",
             "type": "python",
             "request": "launch",
-            "module": "celery",
+            "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
