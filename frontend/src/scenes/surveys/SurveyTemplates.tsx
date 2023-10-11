@@ -4,17 +4,17 @@ import { defaultSurveyTemplates } from './constants'
 import { SurveyQuestion } from '~/types'
 import './SurveyTemplates.scss'
 import { useActions } from 'kea'
-import { surveyTemplatesLogic } from './surveyTemplatesLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
+import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
 }
 
 export function SurveyTemplates(): JSX.Element {
-    const { openSurveyTemplate } = useActions(surveyTemplatesLogic)
+    const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
 
     return (
         <>
@@ -32,7 +32,9 @@ export function SurveyTemplates(): JSX.Element {
                         <div
                             className="flex flex-col items-center"
                             key={idx}
-                            onClick={(template) => openSurveyTemplate(template)}
+                            onClick={() =>
+                                setSurveyTemplateValues({ name: template.type, questions: template.questions })
+                            }
                         >
                             <span className="mb-2 text-md">
                                 <b>{template.type}</b>

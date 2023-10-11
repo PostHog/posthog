@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors, connect } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
@@ -96,6 +96,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
+        setSurveyTemplateValues: (template: any) => ({ template }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -110,7 +111,11 @@ export const surveyLogic = kea<surveyLogicType>([
                         throw error
                     }
                 }
-                return { ...NEW_SURVEY }
+                if (props.id === 'new' && router.values.hashParams.fromTemplate) {
+                    return values.survey
+                } else {
+                    return { ...NEW_SURVEY }
+                }
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -291,6 +296,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             ...defaultSurveyFieldValues[type].appearance,
                             thankYouMessageHeader,
                         },
+                    }
+                },
+                setSurveyTemplateValues: (state, { template }) => {
+                    return {
+                        ...state,
+                        ...template,
                     }
                 },
             },
@@ -539,6 +550,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setSurveyTemplateValues: () => {
+            const hashParams = router.values.hashParams
+            hashParams['fromTemplate'] = true
+
+            return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
     afterMount(async ({ props, actions }) => {

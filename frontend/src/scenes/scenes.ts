@@ -164,7 +164,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.SurveyTemplates]: {
         projectBased: true,
-        name: 'Survey Templates',
+        name: 'New survey',
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
