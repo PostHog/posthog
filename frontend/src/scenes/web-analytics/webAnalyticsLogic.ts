@@ -101,7 +101,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Which pages do your users visit most?',
+                    title: 'Pages',
                     layout: {
                         colSpan: 6,
                     },
@@ -115,7 +115,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Where do your users come from?',
+                    title: 'Traffic Sources',
                     layout: {
                         colSpan: 6,
                     },
@@ -129,7 +129,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Unique users over the last week',
+                    title: 'Unique users',
                     layout: {
                         colSpan: 6,
                     },
@@ -160,7 +160,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Where are your users located?',
+                    title: 'User locations',
                     layout: {
                         colSpan: 6,
                     },

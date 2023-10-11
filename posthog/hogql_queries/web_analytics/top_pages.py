@@ -32,8 +32,8 @@ class WebTopPagesQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     pathname.$pathname as "context.columns.pathname",
-    pathname.total_pageviews as "Views",
-    pathname.unique_visitors as "Visitors",
+    pathname.total_pageviews as "context.columns.views",
+    pathname.unique_visitors as "context.columns.visitors",
     bounce_rate.bounce_rate as "context.columns.bounce_rate",
     scroll_data.scroll_gt80_percentage as scroll_gt80_percentage,
     scroll_data.average_scroll_percentage as average_scroll_percentage
@@ -56,7 +56,7 @@ LEFT OUTER JOIN
 ON
     pathname.$pathname = scroll_data.$pathname
 ORDER BY
-    "Views" DESC
+    "context.columns.views" DESC
 LIMIT 10
                 """,
                 timings=self.timings,

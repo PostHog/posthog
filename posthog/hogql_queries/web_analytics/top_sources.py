@@ -22,8 +22,8 @@ class WebTopSourcesQueryRunner(WebAnalyticsQueryRunner):
                 """
 SELECT
     blended_source as "Source",
-    count(num_pageviews) as "Views",
-    count(DISTINCT person_id) as "Visitors",
+    count(num_pageviews) as "context.columns.views",
+    count(DISTINCT person_id) as "context.columns.visitors",
     avg(is_bounce) AS "context.columns.bounce_rate"
 FROM
     {session_query}
@@ -31,7 +31,7 @@ WHERE
     "Source" IS NOT NULL
 GROUP BY "Source"
 
-ORDER BY "Views" DESC
+ORDER BY "context.columns.views" DESC
 LIMIT 10
                 """,
                 timings=self.timings,
