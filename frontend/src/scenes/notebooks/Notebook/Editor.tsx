@@ -234,9 +234,11 @@ export function Editor({
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
-            {_editor && <InlineMenu editor={_editor} />}
+            <div className="NotebookEditor">
+                <EditorContent editor={_editor} className="NotebookEditorContent" />
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </div>
         </>
     )
 }

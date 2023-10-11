@@ -7,6 +7,16 @@
         flex: 1;
         width: 100%;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+
+        .NotebookEditorContent {
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
 
         .ProseMirror {
             &-focused {
