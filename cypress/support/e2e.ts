@@ -6,6 +6,7 @@ import { decideResponse } from '../fixtures/api/decide'
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('cypress-terminal-report/src/installLogsCollector')()
+    // eslint-disable-next-line no-empty
 } catch {}
 
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
@@ -75,6 +76,7 @@ Cypress.on('fail', (error: Cypress.CypressError) => {
             ;(win as any).posthog?.capture('e2e_testing_test_failed', { e2e_testing_error_message: error.message })
         })
     }
+    throw error // so the test still fails
 })
 
 const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
