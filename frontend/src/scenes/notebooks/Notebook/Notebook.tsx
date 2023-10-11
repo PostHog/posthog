@@ -48,7 +48,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
     })
 
     useEffect(() => {
-        if (notebook && !notebookLoading) {
+        if (!notebook && !notebookLoading) {
             loadNotebook()
         }
     }, [])

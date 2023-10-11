@@ -27,7 +27,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget = NotebookTarget.Auto,
-    focus: EditorFocusPosition = null,
+    focus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
@@ -38,12 +38,10 @@ export const openNotebook = async (
     }
 
     if (popoverLogic?.values.visibility === 'visible') {
-        popoverLogic?.actions.selectNotebook(notebookId)
+        popoverLogic?.actions.selectNotebook(notebookId, focus)
     } else {
         router.actions.push(urls.notebook(notebookId))
     }
-
-    popoverLogic?.actions.setInitialAutofocus(focus)
 
     const theNotebookLogic = notebookLogic({ shortId: notebookId })
     const unmount = theNotebookLogic.mount()
