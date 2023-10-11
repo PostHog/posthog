@@ -21,6 +21,7 @@ from temporalio.client import (
 from posthog import settings
 from posthog.batch_exports.models import (
     BatchExport,
+    BatchExportBackfill,
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
@@ -372,3 +373,37 @@ async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None
     return await handle.update(
         updater=updater,
     )
+
+
+def create_batch_export_backfill(
+    batch_export_id: UUID,
+    start_at: str,
+    end_at: str,
+    status: str = BatchExportRun.Status.RUNNING,
+):
+    """Create a BatchExportBackfill.
+
+    Args:
+        data_interval_start:
+        data_interval_end:
+    """
+    backfill = BatchExportBackfill(
+        batch_export_id=batch_export_id,
+        status=status,
+        start_at=dt.datetime.fromisoformat(start_at),
+        end_at=dt.datetime.fromisoformat(end_at),
+    )
+    backfill.save()
+
+    return backfill
+
+
+def update_batch_export_backfill_status(backfill_id: UUID, status: str):
+    """Update the status of an BatchExportBackfill with given id.
+
+    Arguments:
+        id: The id of the BatchExportBackfill to update.
+    """
+    updated = BatchExportBackfill.objects.filter(id=backfill_id).update(status=status)
+    if not updated:
+        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
