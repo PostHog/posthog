@@ -2317,7 +2317,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    region: Region
+    region: Region | null
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
