@@ -112,8 +112,8 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
 
             modifiedQuery.showReload = true
-            modifiedQuery.showElapsedTime = true
-            modifiedQuery.showTimings = true
+            modifiedQuery.showElapsedTime = false
+            modifiedQuery.showTimings = false
 
             modifiedQuery.embedded = true
             modifiedQuery.showActions = true
