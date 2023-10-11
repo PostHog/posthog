@@ -16,7 +16,6 @@ from datetime import timedelta
 
 
 def before_send_transaction(event, hint):
-    return event
     url_string = event.get("request", {}).get("url")
     if url_string and "decide" in url_string:
         DECIDE_SAMPLE_RATE = 0.00001  # 0.001%
