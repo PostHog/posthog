@@ -352,7 +352,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
-            "pinned_count": 0,
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -373,6 +372,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
+            "storage": "object_storage",
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
@@ -461,6 +461,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Trying to delete same recording again returns 404
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_persist_session_recording(self):
+        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.json()["storage"] == "object_storage"
+        # Trying to delete same recording again returns 404
+        response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/1/persist")
+        assert response.json()["success"]
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.json()["storage"] == "object_storage_lts"
 
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")

@@ -1,9 +1,6 @@
 import { useActions, useValues } from 'kea'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingType } from '~/types'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { SessionPlayerState } from '~/types'
 import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
@@ -11,10 +8,6 @@ import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'
 import clsx from 'clsx'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-
-export interface PlayerFrameOverlayProps extends SessionRecordingPlayerLogicProps {
-    nextSessionRecording?: Partial<SessionRecordingType>
-}
 
 const PlayerFrameOverlayContent = ({
     currentPlayerState,
@@ -82,7 +75,7 @@ const PlayerFrameOverlayContent = ({
 }
 
 export function PlayerFrameOverlay(): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const [interrupted, setInterrupted] = useState(false)
@@ -95,7 +88,13 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
+            {playlistLogic ? (
+                <PlayerUpNext
+                    playlistLogic={playlistLogic}
+                    interrupted={interrupted}
+                    clearInterrupted={() => setInterrupted(false)}
+                />
+            ) : undefined}
         </div>
     )
 }

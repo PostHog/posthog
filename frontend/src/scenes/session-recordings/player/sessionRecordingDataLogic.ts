@@ -127,7 +127,6 @@ const generateRecordingReportDurations = (
 
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
-    recordingStartTime?: string
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
@@ -145,7 +144,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
-        addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadRecordingSnapshots: true,
         loadRecordingSnapshotsSuccess: true,
@@ -154,6 +152,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
+        persistRecording: true,
+        maybePersistRecording: true,
     }),
     reducers(() => ({
         filters: [
@@ -261,6 +261,16 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 10
             )
         },
+
+        maybePersistRecording: () => {
+            if (values.sessionPlayerMetaDataLoading) {
+                return
+            }
+
+            if (values.sessionPlayerMetaData?.storage === 'object_storage') {
+                actions.persistRecording()
+            }
+        },
     })),
     loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
@@ -269,23 +279,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
-                const params = toParams({
+                const response = await api.recordings.get(props.sessionRecordingId, {
                     save_view: true,
-                    recording_start_time: props.recordingStartTime,
                 })
-                const response = await api.recordings.get(props.sessionRecordingId, params)
                 breakpoint()
 
                 return response
             },
-            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+
+            persistRecording: async (_, breakpoint) => {
                 if (!values.sessionPlayerMetaData) {
                     return null
                 }
+                breakpoint(100)
+                await api.recordings.persist(props.sessionRecordingId)
 
                 return {
                     ...values.sessionPlayerMetaData,
-                    pinned_count: Math.max(values.sessionPlayerMetaData.pinned_count ?? 0 + diffCount, 0),
+                    storage: 'object_storage_lts',
                 }
             },
         },
@@ -486,7 +497,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 durationMs,
                 fullyLoaded
             ): SessionPlayerData => ({
-                pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
                 end,

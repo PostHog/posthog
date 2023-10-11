@@ -215,6 +215,7 @@ export interface LineGraphProps {
     showValueOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    hideAnnotations?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -245,6 +246,7 @@ export function LineGraph_({
     showValueOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    hideAnnotations,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -272,7 +274,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal
+    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount

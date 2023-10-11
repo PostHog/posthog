@@ -13,7 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { router } from 'kea-router'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { productsLogic } from './productsLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -29,7 +29,7 @@ function OnboardingCompletedButton({
     onboardingUrl: string
     productKey: ProductKey
 }): JSX.Element {
-    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { onSelectProduct } = useActions(productsLogic)
     return (
         <>
             <LemonButton type="secondary" status="muted" to={productUrl}>
@@ -39,7 +39,7 @@ function OnboardingCompletedButton({
                 type="tertiary"
                 status="muted"
                 onClick={() => {
-                    reportOnboardingProductSelected(productKey)
+                    onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)
                 }}
             >
@@ -50,12 +50,12 @@ function OnboardingCompletedButton({
 }
 
 function OnboardingNotCompletedButton({ url, productKey }: { url: string; productKey: ProductKey }): JSX.Element {
-    const { reportOnboardingProductSelected } = useActions(eventUsageLogic)
+    const { onSelectProduct } = useActions(productsLogic)
     return (
         <LemonButton
             type="primary"
             onClick={() => {
-                reportOnboardingProductSelected(productKey)
+                onSelectProduct(productKey)
                 router.actions.push(url)
             }}
         >

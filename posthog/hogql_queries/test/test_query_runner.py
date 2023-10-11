@@ -17,7 +17,7 @@ class TestQuery(BaseModel):
     other_attr: Optional[List[Any]] = []
 
 
-class QueryRunnerTest(BaseTest):
+class TestQueryRunner(BaseTest):
     def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):  # type: ignore
         """Setup required methods and attributes of the abstract base class."""
 
@@ -25,7 +25,7 @@ class QueryRunnerTest(BaseTest):
             query_type = query_class
 
             def calculate(self) -> QueryResponse:
-                return QueryResponse(result=list())
+                return QueryResponse(results=list())
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
