@@ -170,11 +170,7 @@ export const defaultSurveyTemplates = [
         ],
         description: (
             <>
-                User interviews provide a more complete picture into your user's experience because you have the
-                opportunity to ask follow up questions. Find out how to conduct successful user interviews in{' '}
-                <Link to="https://posthog.com/blog/interview-snapshot-guide" targetBlankIcon target="_blank">
-                    our guide here
-                </Link>
+                Send users straight to your calendar. 
             </>
         ),
     },
@@ -192,7 +188,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description:
-            "NPS is primarily a long-term, relational metric that measures how likely a customer is to recommend your product or brand to others. Think of it as a pulse check on your customer's overall satisfaction with the product as a whole.",
+            "Get an industry-recognized benchmark.",
     },
     {
         type: SurveyTemplateTypes.Superhuman,
@@ -204,7 +200,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description:
-            "Ask your users how they would feel if they could no longer use your product. If 40% of your users say they would be 'very disappointed', you've found product market fit.",
+            "If 40% say 'very disappointed', you're at product-market fit.",
     },
     {
         type: SurveyTemplateTypes.CSAT,
@@ -220,7 +216,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description:
-            'CSAT surveys are a great way to measure customer satisfaction for a particular interaction or feature with the product. They are short and easy to answer, making them a great way to get feedback from your users for specific product improvements.',
+            'Works best after a checkout or support flow.',
     },
     {
         type: SurveyTemplateTypes.CES,
@@ -236,7 +232,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description:
-            'CES surveys are used to measure how easy a product or service was to use. Customer effort is a good indicator of customer loyalty, and can be used alongside churn surveys to understand if customer effort impacts churn rates.',
+            'Works well with churn surveys.',
     },
     {
         type: SurveyTemplateTypes.CCR,
@@ -257,6 +253,6 @@ export const defaultSurveyTemplates = [
             },
         ],
         description:
-            "Customer churn can be expensive. Acquiring new customers is often more expensive than retaining existing ones, so it's important to understand why your customers are leaving.",
+            "Find out if it was something you said.",
     },
 ]
