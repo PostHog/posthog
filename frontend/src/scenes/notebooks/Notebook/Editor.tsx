@@ -21,7 +21,7 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 
@@ -32,6 +32,7 @@ import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccess
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
 import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -236,6 +237,11 @@ export function Editor({
         <>
             <div className="NotebookEditor">
                 <EditorContent editor={_editor} className="NotebookEditorContent" />
+                <div className="flex">
+                    <LemonButton size="small" icon={<IconPlus />}>
+                        Add anything
+                    </LemonButton>
+                </div>
                 {_editor && <FloatingSuggestions editor={_editor} />}
                 {_editor && <InlineMenu editor={_editor} />}
             </div>

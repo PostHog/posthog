@@ -126,11 +126,6 @@
     }
 
     &--editable {
-        .NotebookEditor .ProseMirror {
-            // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
-            flex: 1;
-        }
     }
 
     .NotebookSidebar {
