@@ -36,6 +36,7 @@ import {
     createSessionReplayEvent,
     EventsProcessor,
     gatherConsoleLogEvents,
+    getTimestampsFrom,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1506,6 +1507,17 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
             },
         ] as any[])
     }).toThrowError()
+})
+
+test.each([
+    { events: [], expectedTimestamps: [] },
+    { events: [{ without: 'timestamp property' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    // we have seen negative timestamps from clients 🙈
+    { events: [{ timestamp: -1 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.000'] },
+])('timestamps from rrweb events', ({ events, expectedTimestamps }) => {
+    const actual = getTimestampsFrom(events)
+    expect(actual).toEqual(expectedTimestamps)
 })
 
 function consoleMessageFor(payload: any[]) {

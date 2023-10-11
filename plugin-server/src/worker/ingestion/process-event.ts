@@ -397,6 +397,17 @@ export const gatherConsoleLogEvents = (
     return consoleLogEntries
 }
 
+export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
+    events
+        // from millis expects a number and handles unexpected input gracefully so we have to do some filtering
+        // before converting to a DateTime
+        // TODO we don't really want to support timestamps of 0
+        .filter((e) => e?.timestamp >= 0)
+        .map((e) => DateTime.fromMillis(e.timestamp))
+        .filter((e) => e.isValid)
+        .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
+        .sort()
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
@@ -404,13 +415,7 @@ export const createSessionReplayEvent = (
     session_id: string,
     events: RRWebEvent[]
 ) => {
-    const timestamps = events
-        .filter((e) => !!e?.timestamp)
-        .filter((e) => Math.sign(e.timestamp) === 1)
-        .map((e) => DateTime.fromMillis(e.timestamp))
-        .filter((e) => e.isValid)
-        .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
-        .sort()
+    const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
     if (events.length === 0 || timestamps.length === 0) {
