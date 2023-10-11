@@ -4,7 +4,7 @@ export enum BarStatus {
     SHOW_ACTIONS = 'show_actions',
 }
 
-export type ResultTypes = 'dashboard' | 'experiment' | 'feature_flag'
+export type ResultTypes = 'action' | 'cohort' | 'insight' | 'dashboard' | 'experiment' | 'feature_flag'
 
 export type ResultTypesWithAll = ResultTypes | 'all'
 
