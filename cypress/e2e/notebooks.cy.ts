@@ -52,9 +52,9 @@ describe('Notebooks', () => {
 
     it('Can comment on a recording', () => {
         cy.visit(urls.replay())
-        cy.get('[data-attr="notebooks-replay-comment-button"]').click()
+        cy.get('[data-attr="notebooks-add-button"]').click()
 
-        cy.get('.LemonButton').contains('Comment in a new notebook').click()
+        cy.get('.LemonButton').contains('New notebook').click()
 
         cy.get('.Notebook.Notebook--editable').should('be.visible')
         cy.get('.ph-recording.NotebookNode').should('be.visible')
