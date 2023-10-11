@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Dict, List, Optional, TypedDict, Union
 
 SnapshotData = Dict
 WindowId = Optional[str]
@@ -23,15 +23,6 @@ class SessionRecordingEventSummary(TypedDict):
     type: int
     # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
     data: Dict[str, Union[int, str]]
-
-
-class SessionRecordingEvent(TypedDict):
-    timestamp: datetime
-    distinct_id: str
-    session_id: str
-    window_id: str
-    snapshot_data: Dict[str, Any]
-    events_summary: List[SessionRecordingEventSummary]
 
 
 # NOTE: MatchingSessionRecordingEvent is a minimal version of full events that is used to display events matching a filter on the frontend
