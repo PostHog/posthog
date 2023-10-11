@@ -462,14 +462,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_persist_session_recording(self):
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["storage"] == "object_storage"
-        # Trying to delete same recording again returns 404
+
         response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/1/persist")
-        assert response.json()["success"]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["storage"] == "object_storage_lts"
 
     # New snapshot loading method
