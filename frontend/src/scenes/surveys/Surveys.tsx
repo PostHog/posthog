@@ -128,6 +128,7 @@ export function Surveys(): JSX.Element {
                             onClick: () => openSurveysSettingsDialog(),
                             children: 'Configure',
                         }}
+                        className="mb-2"
                     >
                         {usingSurveysSiteApp
                             ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
