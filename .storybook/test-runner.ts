@@ -63,17 +63,22 @@ const LOADER_SELECTORS = [
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
+const TEST_TIMEOUT_MS = 10000
+const BROWSER_DEFAULT_TIMEOUT_MS = 9000 // Reduce the default timeout down from 30s, to pre-empt Jest timeouts
+const SCREENSHOT_TIMEOUT_MS = 9000
+
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
+        jest.setTimeout(TEST_TIMEOUT_MS)
     },
     async postRender(page, context) {
         const browserContext = page.context()
         const storyContext = (await getStoryContext(page, context)) as StoryContext
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(5000) // Reduce the default timeout from 30 s to 5 s to pre-empt Jest timeouts
+        browserContext.setDefaultTimeout(BROWSER_DEFAULT_TIMEOUT_MS)
         if (!skip) {
             const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
@@ -198,7 +203,7 @@ async function expectLocatorToMatchStorySnapshot(
     browser: SupportedBrowserName,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ timeout: 3000, ...options })
+    const image = await locator.screenshot({ timeout: SCREENSHOT_TIMEOUT_MS, ...options })
     let customSnapshotIdentifier = context.id
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`

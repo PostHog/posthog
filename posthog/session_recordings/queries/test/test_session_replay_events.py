@@ -36,7 +36,6 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_metadata(self) -> None:
-
         metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
         assert metadata == {
             "active_seconds": 25.0,

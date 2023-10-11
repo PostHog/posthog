@@ -46,7 +46,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div className="text-primary font-medium">{subscription.title}</div>
+                    <div className="text-link font-medium">{subscription.title}</div>
                     <div className="text-sm text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (

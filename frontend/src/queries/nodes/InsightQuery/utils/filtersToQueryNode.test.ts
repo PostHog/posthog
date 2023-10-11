@@ -281,9 +281,10 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 interval: 'day',
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -308,7 +309,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
                     smoothing_intervals: 1,
@@ -324,6 +325,7 @@ describe('filtersToQueryNode', () => {
                 breakdown: {
                     breakdown_histogram_bin_count: 1,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -362,7 +364,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<FunnelsQuery> = {
+            const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 funnelsFilter: {
                     funnel_viz_type: FunnelVizType.Steps,
@@ -384,6 +386,7 @@ describe('filtersToQueryNode', () => {
                     layout: FunnelLayout.horizontal,
                     hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -403,7 +406,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<RetentionQuery> = {
+            const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
                     retention_type: 'retention_first_time',
@@ -443,7 +446,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<PathsQuery> = {
+            const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
                     path_type: PathType.Screen,
@@ -479,7 +482,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<StickinessQuery> = {
+            const query: StickinessQuery = {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     compare: true,
@@ -487,6 +490,7 @@ describe('filtersToQueryNode', () => {
                     hidden_legend_indexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -502,11 +506,12 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<LifecycleQuery> = {
+            const query: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
                     toggledLifecycles: ['new', 'dormant'],
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
