@@ -7,5 +7,5 @@ export const resultTypeToName: Record<ResultTypesWithAll, string> = {
     dashboard: 'Dashboard',
     experiment: 'Experiment',
     feature_flag: 'Feature Flag',
-    insight: 'insight',
+    insight: 'Insight',
 }
