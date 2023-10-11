@@ -56,10 +56,6 @@ export interface SurveyRatingResults {
     [key: number]: number[]
 }
 
-export interface SurveyRatingResultsReady {
-    [key: string]: boolean
-}
-
 export interface SurveySingleChoiceResults {
     [key: number]: {
         labels: string[]
@@ -68,7 +64,7 @@ export interface SurveySingleChoiceResults {
     }
 }
 
-export interface SurveySingleChoiceResultsReady {
+export interface QuestionResultsReady {
     [key: string]: boolean
 }
 

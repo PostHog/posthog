@@ -2,9 +2,8 @@ import { LemonTable } from '@posthog/lemon-ui'
 import {
     surveyLogic,
     SurveyRatingResults,
-    SurveyRatingResultsReady,
+    QuestionResultsReady,
     SurveySingleChoiceResults,
-    SurveySingleChoiceResultsReady,
     SurveyUserStats,
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -162,7 +161,7 @@ export function RatingQuestionBarChart({
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
-    surveyRatingResultsReady: SurveyRatingResultsReady
+    surveyRatingResultsReady: QuestionResultsReady
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
@@ -228,7 +227,7 @@ export function SingleChoiceQuestionPieChart({
 }: {
     questionIndex: number
     surveySingleChoiceResults: SurveySingleChoiceResults
-    surveySingleChoiceResultsReady: SurveySingleChoiceResultsReady
+    surveySingleChoiceResultsReady: QuestionResultsReady
 }): JSX.Element {
     const { loadSurveySingleChoiceResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
@@ -256,16 +255,6 @@ export function SingleChoiceQuestionPieChart({
     useEffect(() => {
         loadSurveySingleChoiceResults({ questionIndex })
     }, [question])
-
-    const legendItems = []
-    for (let i = 0; i < 20; i++) {
-        legendItems.push(
-            <div className="flex items-center mr-6">
-                <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: colors[i % colors.length] }} />
-                <span className="font-semibold text-muted-alt">Maybe</span>
-            </div>
-        )
-    }
 
     return (
         <div className="mb-4">
