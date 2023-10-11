@@ -231,11 +231,10 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
         three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
 
-        for id in [session_one, session_two]:
-            # can't immediately switch playlists to replay table
+        for session_id in [session_one, session_two]:
             produce_replay_summary(
                 team_id=self.team.id,
-                session_id=id,
+                session_id=session_id,
                 distinct_id="123",
                 first_timestamp=three_days_ago,
                 last_timestamp=three_days_ago,
