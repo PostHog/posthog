@@ -72,7 +72,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
     return (
         <div>
-            <div className="sticky top-0 bg-white z-10 pt-2">
+            <div className="sticky top-0 bg-white z-20 pt-2">
                 <PropertyFilters
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
