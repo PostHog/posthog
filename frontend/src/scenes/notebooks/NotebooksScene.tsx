@@ -1,7 +1,7 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import './NotebookScene.scss'
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { urls } from 'scenes/urls'
 
@@ -13,7 +13,14 @@ export function NotebooksScene(): JSX.Element {
     return (
         <div className="space-y-4">
             <PageHeader
-                title="Notebooks"
+                title={
+                    <div className="flex items-center gap-2">
+                        Notebooks
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </div>
+                }
                 buttons={
                     <LemonButton data-attr={'new-notebook'} to={urls.notebook('new')} type="primary">
                         New notebook
