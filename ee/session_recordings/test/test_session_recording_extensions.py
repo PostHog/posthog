@@ -16,7 +16,6 @@ from ee.session_recordings.session_recording_extensions import (
 from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -45,33 +44,18 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    def create_snapshot(self, session_id, timestamp):
-        team_id = self.team.pk
-
-        snapshot = {
-            "timestamp": timestamp.timestamp() * 1000,
-            "has_full_snapshot": 1,
-            "type": 2,
-            "data": {"source": 0, "href": long_url},
-        }
-
-        # can't immediately switch playlists to replay table
-        create_session_recording_events(
-            team_id=team_id,
-            distinct_id="distinct_id_1",
-            timestamp=timestamp,
-            session_id=session_id,
-            window_id="window_1",
-            snapshots=[snapshot],
-            use_recording_table=False,
-            use_replay_table=True,
-        )
-
     def test_does_not_persist_too_recent_recording(self):
         recording = SessionRecording.objects.create(
             team=self.team, session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}"
         )
-        self.create_snapshot(recording.session_id, recording.created_at)
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=recording.session_id,
+            distinct_id="distinct_id_1",
+            first_timestamp=recording.created_at,
+            last_timestamp=recording.created_at,
+        )
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
 

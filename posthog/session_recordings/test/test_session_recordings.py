@@ -19,7 +19,6 @@ from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -66,15 +65,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         if snapshot_data:
             snapshot.update(snapshot_data)
 
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=team_id,
-            distinct_id=distinct_id,
-            timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=[snapshot],
-            use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
     def create_snapshots(
@@ -116,15 +112,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 }
             )
 
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=self.team.pk,
-            distinct_id=distinct_id,
-            timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=snapshots,
-            use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
     def test_get_session_recordings(self):
