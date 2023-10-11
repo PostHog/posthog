@@ -33,7 +33,7 @@
         height: 0.125rem;
         width: var(--lemon-tabs-slider-width);
         transform: translateX(var(--lemon-tabs-slider-offset));
-        background: var(--primary);
+        background: var(--link);
         .LemonTabs--transitioning & {
             transition: width 200ms ease, transform 200ms ease;
         }
@@ -48,13 +48,13 @@
         margin-right: 2rem;
     }
     &:hover {
-        color: var(--primary);
+        color: var(--link);
     }
     &:active {
         color: var(--primary-dark);
     }
     &.LemonTabs__tab--active {
-        color: var(--primary);
+        color: var(--link);
         text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
     }
     a {
