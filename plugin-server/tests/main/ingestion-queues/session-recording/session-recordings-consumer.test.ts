@@ -309,6 +309,9 @@ describe('ingester', () => {
                     },
                 ],
             })
+
+            const parsedMessage3 = await ingester.parseKafkaMessage(createMessage([null]), () => Promise.resolve(1))
+            expect(parsedMessage3).toEqual(undefined)
         })
     })
 
