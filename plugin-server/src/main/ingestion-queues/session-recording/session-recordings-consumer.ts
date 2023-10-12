@@ -325,7 +325,7 @@ export class SessionRecordingIngester {
                     invalidEvents,
                     eventsCount: events.length,
                     invalidEventsCount: invalidEvents.length,
-                    messagePayload,
+                    event,
                 },
                 tags: {
                     team_id: teamId,
