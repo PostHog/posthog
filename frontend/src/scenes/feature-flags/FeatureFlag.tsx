@@ -521,17 +521,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     }}
                                                     type="secondary"
                                                 />
-                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
-                                                    <>
-                                                        <LemonButton
-                                                            to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
-                                                            type="secondary"
-                                                        >
-                                                            View Recordings
-                                                        </LemonButton>
-                                                        <LemonDivider vertical />
-                                                    </>
-                                                )}
+                                                <LemonButton
+                                                    to={urls.replay(ReplayTabs.Recent, recordingFilterForFlag)}
+                                                    type="secondary"
+                                                >
+                                                    View Recordings
+                                                </LemonButton>
+                                                <LemonDivider vertical />
                                                 <LemonButton
                                                     data-attr="delete-feature-flag"
                                                     status="danger"

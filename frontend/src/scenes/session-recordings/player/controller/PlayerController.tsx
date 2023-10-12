@@ -93,10 +93,7 @@ export function PlayerController(): JSX.Element {
                             }}
                         >
                             <IconSkipInactivity
-                                className={clsx(
-                                    'text-2xl',
-                                    skipInactivitySetting ? 'text-primary' : 'text-primary-alt'
-                                )}
+                                className={clsx('text-2xl', skipInactivitySetting ? 'text-link' : 'text-primary-alt')}
                                 enabled={skipInactivitySetting}
                             />
                         </LemonButton>
@@ -110,7 +107,7 @@ export function PlayerController(): JSX.Element {
                             }}
                         >
                             <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
                             />
                         </LemonButton>
                     </Tooltip>

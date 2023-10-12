@@ -196,7 +196,7 @@ export function SessionRecordingPreview({
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
-                            <div className="truncate font-medium text-primary ph-no-capture">
+                            <div className="truncate font-medium text-link ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
                         </div>

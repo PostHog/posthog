@@ -8,15 +8,15 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): JSX.Element => {
-    const { id } = props.attributes
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
+    const { id } = attributes
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
@@ -26,12 +26,9 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
     const title = person ? `Person: ${asDisplay(person)}` : 'Person'
 
     useEffect(() => {
-        setTimeout(() => {
-            props.updateAttributes({ title })
-        }, 0)
-    }, [title])
-
-    useEffect(() => {
+        updateAttributes({
+            title,
+        })
         setActions([
             {
                 text: 'Events',
@@ -62,12 +59,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodePersonAttributes>): 
                 },
             },
         ])
-    }, [person])
-
-    useEffect(() => {
-        props.updateAttributes({
-            title: person ? `Person: ${asDisplay(person)}` : 'Person',
-        })
     }, [person])
 
     const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']

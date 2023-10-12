@@ -4,19 +4,19 @@ import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): JSX.Element => {
-    const { file, src, height } = props.attributes
+const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
+    const { file, src, height } = attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
 
     useEffect(() => {
         if (file) {
             if (!file.type) {
-                props.updateAttributes({ file: undefined })
+                updateAttributes({ file: undefined })
                 return
             }
 
@@ -24,7 +24,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): J
 
             uploadFile(file)
                 .then(async (media) => {
-                    props.updateAttributes({
+                    updateAttributes({
                         file: undefined,
                         src: media.image_location,
                     })
@@ -52,7 +52,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeImageAttributes>): J
     const onImageLoad: ReactEventHandler<HTMLImageElement> = (e): void => {
         if (!height) {
             // Set the height value to match the image if it isn't already set
-            props.updateAttributes({
+            updateAttributes({
                 height: Math.min(e.currentTarget.naturalHeight, MAX_DEFAULT_HEIGHT),
             })
         }

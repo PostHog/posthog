@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { ReactNode, useCallback, useRef } from 'react'
+import { memo, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import {
     IconClose,
@@ -31,14 +31,15 @@ import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from '
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     NotebookNodeAttributes,
-    NotebookNodeViewProps,
+    NotebookNodeProps,
     CustomNotebookNodeAttributes,
     NotebookNodeSettings,
 } from '../Notebook/utils'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     nodeType: NotebookNodeType
-    children?: ReactNode
+    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
 
     // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
     defaultTitle: string
@@ -57,27 +58,34 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     settings?: NotebookNodeSettings
 }
 
-function NodeWrapper<T extends CustomNotebookNodeAttributes>({
-    defaultTitle,
-    nodeType,
-    children,
-    selected,
-    href,
-    heightEstimate = '4rem',
-    resizeable: resizeableOrGenerator = true,
-    startExpanded = false,
-    expandable = true,
-    expandOnClick = true,
-    autoHideMetadata = false,
-    minHeight,
-    node,
-    getPos,
-    attributes,
-    updateAttributes,
-    settings = null,
-}: NodeWrapperProps<T> & NotebookNodeViewProps<T>): JSX.Element {
+function NodeWrapper<T extends CustomNotebookNodeAttributes>(
+    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'>
+): JSX.Element {
+    const {
+        defaultTitle,
+        nodeType,
+        Component,
+        selected,
+        href,
+        heightEstimate = '4rem',
+        resizeable: resizeableOrGenerator = true,
+        startExpanded = false,
+        expandable = true,
+        expandOnClick = true,
+        autoHideMetadata = false,
+        minHeight,
+        node,
+        getPos,
+        attributes,
+        updateAttributes,
+        settings = null,
+    } = props
+
+    useWhyDidIRender('NodeWrapper.props', props)
+
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
+    const { setTextSelection } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -97,6 +105,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
     const { setExpanded, deleteNode, toggleEditing } = useActions(nodeLogic)
+
+    useWhyDidIRender('NodeWrapper.logicProps', {
+        resizeable,
+        expanded,
+        actions,
+        setExpanded,
+        deleteNode,
+        toggleEditing,
+        mountedNotebookLogic,
+    })
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -154,19 +172,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                 ) : (
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
-                                            <LemonButton
-                                                onClick={() => setExpanded(!expanded)}
-                                                size="small"
-                                                status="primary-alt"
-                                                className="flex-1"
-                                                icon={
-                                                    isEditable ? (
-                                                        <IconDragHandle className="cursor-move text-base shrink-0" />
-                                                    ) : undefined
-                                                }
-                                            >
-                                                <span className="flex-1 cursor-pointer">{title}</span>
-                                            </LemonButton>
+                                            <div className="flex items-center gap-1">
+                                                {isEditable && (
+                                                    <IconDragHandle className="cursor-move text-base shrink-0" />
+                                                )}
+                                                <span>{title}</span>
+                                            </div>
 
                                             <div className="flex space-x-1">
                                                 {parsedHref && (
@@ -213,14 +224,18 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
                                             onClick={!expanded && expandOnClick ? () => setExpanded(true) : undefined}
                                             onMouseDown={onResizeStart}
                                         >
-                                            {children}
+                                            <Component attributes={attributes} updateAttributes={updateAttributes} />
                                         </div>
                                     </>
                                 )}
                             </ErrorBoundary>
                         </div>
                         {isEditable && actions.length ? (
-                            <div className="NotebookNode__actions">
+                            <div
+                                className="NotebookNode__actions"
+                                // UX improvement so that the actions don't get in the way of the cursor
+                                onClick={() => setTextSelection(getPos() + 1)}
+                            >
                                 {actions.map((x, i) => (
                                     <LemonButton
                                         key={i}
@@ -245,11 +260,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>({
     )
 }
 
-// const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
+const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
-    Component: (props: NotebookNodeViewProps<T>) => JSX.Element | null
+    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
@@ -266,8 +281,9 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     serializedText,
     ...wrapperProps
 }: CreatePostHogWidgetNodeOptions<T>): Node {
-    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeViewProps
+    // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
+        useWhyDidIRender('NodeWrapper(WrappedComponent)', props)
         const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
@@ -279,17 +295,13 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             }, 0)
         }
 
-        const nodeProps: NotebookNodeViewProps<T> = {
+        const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
             attributes,
             updateAttributes,
         }
 
-        return (
-            <NodeWrapper {...nodeProps} {...wrapperProps}>
-                <Component {...nodeProps} />
-            </NodeWrapper>
-        )
+        return <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />
     }
 
     return Node.create({
