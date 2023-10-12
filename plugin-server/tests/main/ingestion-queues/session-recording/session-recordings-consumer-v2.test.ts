@@ -240,6 +240,76 @@ describe('ingester', () => {
                 window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
             })
         })
+
+        it('filters out invalid rrweb events', async () => {
+            const numeric_id = 12345
+
+            const createMessage = ($snapshot_items) => {
+                return {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
+                            distinct_id: String(numeric_id),
+                            ip: '127.0.0.1',
+                            site_url: 'http://127.0.0.1:8000',
+                            data: JSON.stringify({
+                                uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
+                                event: '$snapshot_items',
+                                properties: {
+                                    distinct_id: numeric_id,
+                                    $session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
+                                    $window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
+                                    $snapshot_items: $snapshot_items,
+                                },
+                            }),
+                            token: 'the_token',
+                        })
+                    ),
+                    timestamp: 1,
+                    size: 1,
+                    topic: 'the_topic',
+                    offset: 1,
+                    partition: 1,
+                } satisfies Message
+            }
+
+            const parsedMessage = await ingester.parseKafkaMessage(
+                createMessage([
+                    {
+                        type: 6,
+                        data: {},
+                        timestamp: null,
+                    },
+                ]),
+                () => Promise.resolve(1)
+            )
+            expect(parsedMessage).toEqual(undefined)
+
+            const parsedMessage2 = await ingester.parseKafkaMessage(
+                createMessage([
+                    {
+                        type: 6,
+                        data: {},
+                        timestamp: null,
+                    },
+                    {
+                        type: 6,
+                        data: {},
+                        timestamp: 123,
+                    },
+                ]),
+                () => Promise.resolve(1)
+            )
+            expect(parsedMessage2).toMatchObject({
+                events: [
+                    {
+                        data: {},
+                        timestamp: 123,
+                        type: 6,
+                    },
+                ],
+            })
+        })
     })
 
     describe('offset committing', () => {
