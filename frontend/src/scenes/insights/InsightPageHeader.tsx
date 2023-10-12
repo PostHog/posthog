@@ -26,14 +26,13 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { userLogic } from 'scenes/userLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { teamLogic } from 'scenes/teamLogic'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isInsightVizNode } from '~/queries/utils'
@@ -71,7 +70,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)

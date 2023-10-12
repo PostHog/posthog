@@ -1,9 +1,8 @@
 import './Insight.scss'
 import { useEffect } from 'react'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
-import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { InsightShortId, ItemMode } from '~/types'
 import { InsightsNav } from './InsightNav/InsightsNav'
@@ -30,9 +29,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // insightDataLogic
     const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
-
-    // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
