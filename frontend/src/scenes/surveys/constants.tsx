@@ -147,7 +147,7 @@ export const NEW_SURVEY: NewSurvey = {
     appearance: defaultSurveyAppearance,
 }
 
-export enum SurveyTemplateTypes {
+export enum SurveyTemplateType {
     Interview = 'User interview',
     NPS = 'Net promoter score (NPS)',
     CSAT = 'Customer satisfaction score (CSAT)',
@@ -193,7 +193,7 @@ export const defaultSurveyTemplates = [
                 choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
             },
         ],
-        description: "If 40% say 'very disappointed', you're at product-market fit.",
+        description: "40% 'very disappointed' signals product-market fit.",
     },
     {
         type: SurveyTemplateTypes.CSAT,
