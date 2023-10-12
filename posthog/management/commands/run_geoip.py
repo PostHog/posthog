@@ -1,4 +1,5 @@
 import logging
+from pprint import pprint
 
 from django.contrib.gis.geoip2 import GeoIP2
 from django.core.management.base import BaseCommand
@@ -13,7 +14,7 @@ class Command(BaseCommand):
         parser.add_argument("ip", type=str, help="IP Address")
 
     def handle(self, *args, **options):
-        geoip = GeoIP2(cache=8)
+        geoip = GeoIP2(cache=GeoIP2.MODE_MMAP)
         ip_arg = options.get("ip")
         if not isinstance(ip_arg, str):
             raise ValueError("ip not a string")
@@ -22,7 +23,6 @@ class Command(BaseCommand):
 
         for ip in ips:
             ip = ip.strip()
-            print("----")  # noqa: T201
+            print("----------------------------------------")  # noqa: T201
             print(ip)  # noqa: T201
-            print("Country: ", geoip.country(ip))  # noqa: T201
-            print("City: ", geoip.city(ip))  # noqa: T201
+            pprint(geoip.city(ip))  # noqa: T203
