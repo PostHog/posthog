@@ -40,7 +40,11 @@ export const openNotebook = async (
     if (popoverLogic?.values.visibility === 'visible') {
         popoverLogic?.actions.selectNotebook(notebookId, focus)
     } else {
-        router.actions.push(urls.notebook(notebookId))
+        if (router.values.location.pathname === urls.notebook('new')) {
+            router.actions.replace(urls.notebook(notebookId))
+        } else {
+            router.actions.push(urls.notebook(notebookId))
+        }
     }
 
     const theNotebookLogic = notebookLogic({ shortId: notebookId })

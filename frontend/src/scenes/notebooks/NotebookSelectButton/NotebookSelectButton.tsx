@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { IconJournalPlus, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconNotebook, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
@@ -206,7 +206,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
         <LemonButton
             icon={
                 <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
-                    <IconJournalPlus />
+                    <IconNotebook />
                 </IconWithCount>
             }
             data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
