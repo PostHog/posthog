@@ -50,6 +50,8 @@ import {
     BatchExportRun,
     UserBasicType,
     NotebookNodeResource,
+    AirbyteStripeResourceCreatePayload,
+    AirbyteStripeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -564,6 +566,11 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
+    }
+
+    // Airbyte
+    public airbyteResources(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('airbyte_resources')
     }
 
     // Request finalization
@@ -1561,6 +1568,15 @@ const api = {
             data: Pick<DataWarehouseSavedQuery, 'name' | 'query'>
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
+        },
+    },
+
+    airbyteResources: {
+        async list(): Promise<PaginatedResponse<AirbyteStripeResource>> {
+            return await new ApiRequest().airbyteResources().get()
+        },
+        async create(data: Partial<AirbyteStripeResourceCreatePayload>): Promise<AirbyteStripeResourceCreatePayload> {
+            return await new ApiRequest().airbyteResources().create({ data })
         },
     },
 

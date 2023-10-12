@@ -3136,6 +3136,18 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
+export interface AirbyteStripeResourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface AirbyteStripeResource {
+    id: string
+    source_id: string
+    connection_id: string
+    loading: boolean
+}
+
 export type BatchExportDestinationS3 = {
     type: 'S3'
     config: {
