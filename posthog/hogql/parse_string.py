@@ -30,7 +30,7 @@ def parse_string(text: str) -> str:
     text = text.replace("\\r", "\r")
     text = text.replace("\\n", "\n")
     text = text.replace("\\t", "\t")
-    text = text.replace("\\0", "")  # Null characters are ignored
+    text = text.replace("\\0", "")  # NUL characters are ignored
     text = text.replace("\\a", "\a")
     text = text.replace("\\v", "\v")
     text = text.replace("\\\\", "\\")

@@ -40,7 +40,7 @@ string unquote_string(string text) {
   boost::replace_all(text, "\\r", "\r");
   boost::replace_all(text, "\\t", "\t");
   boost::replace_all(text, "\\v", "\v");
-  boost::replace_all(text, "\\0", "\0");
+  boost::replace_all(text, "\\0", ""); // NUL characters are ignored
   boost::replace_all(text, "\\\\", "\\");
 
   return text;
