@@ -971,7 +971,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         cache.pausedMediaElements = []
         values.player?.replayer?.pause()
         actions.setPlayer(null)
-        cache.unmountConsoleWarns()
+        cache.unmountConsoleWarns?.()
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
