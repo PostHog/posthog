@@ -9,4 +9,15 @@
         height: 270px;
         width: 100%;
     }
+
+    .NotebookNode & {
+        background-color: var(--danger-highlight);
+        margin: 0;
+        max-width: 100%;
+        padding: 1rem;
+
+        .NotFoundComponent__graphic {
+            display: none;
+        }
+    }
 }
