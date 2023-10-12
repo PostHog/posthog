@@ -2,10 +2,12 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import BaseTest
+from django.test import override_settings
 from posthog.utils import PersonOnEventsMode
 
 
 class TestModifiers(BaseTest):
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_create_default_modifiers_for_team_init(self):
         assert self.team.person_on_events_mode == "disabled"
         modifiers = create_default_modifiers_for_team(self.team)
