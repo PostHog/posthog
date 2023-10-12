@@ -310,9 +310,9 @@ export class SessionRecordingIngester {
             })
         }
 
-        const invalidEvents: RRWebEvent[] = []
+        const invalidEvents: any[] = []
         const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
-            if (!event.timestamp) {
+            if (!event || !event.timestamp) {
                 invalidEvents.push(event)
                 return false
             }
