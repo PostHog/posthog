@@ -7,7 +7,14 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery, trimQuotes } from '~/queries/utils'
+import {
+    isEventsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isPersonsQuery,
+    isTimeToSeeDataSessionsQuery,
+    trimQuotes,
+} from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -209,18 +216,25 @@ export function renderColumn(
                 <PersonDisplay noLink withIcon person={personRecord} noPopover />
             </Link>
         )
-    } else if (key === 'person.$delete' && isPersonsNode(query.source)) {
+    } else if (key === 'person' && isPersonsQuery(query.source)) {
+        const personRecord = value as PersonType
+        return (
+            <Link to={urls.personByUUID(personRecord.id ?? '-')}>
+                <PersonDisplay noLink withIcon person={personRecord} noPopover />
+            </Link>
+        )
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const Component = context?.columns?.[trimQuotes(key.substring(16))]?.render
         return Component ? <Component record={record} /> : ''
-    } else if (key === 'id' && isPersonsNode(query.source)) {
+    } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
                 iconStyle={{ color: 'var(--primary)' }}
-                description="person distinct ID"
+                description="person id"
             >
                 {String(value)}
             </CopyToClipboardInline>

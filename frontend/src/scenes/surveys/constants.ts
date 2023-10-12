@@ -35,6 +35,7 @@ export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Open]: {
         questions: [
             {
+                type: SurveyQuestionType.Open,
                 question: 'Give us feedback on our product!',
                 description: '',
             },
@@ -47,6 +48,7 @@ export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Link]: {
         questions: [
             {
+                type: SurveyQuestionType.Link,
                 question: 'Do you want to join our upcoming webinar?',
                 description: '',
             },
@@ -59,6 +61,7 @@ export const defaultSurveyFieldValues = {
     [SurveyQuestionType.Rating]: {
         questions: [
             {
+                type: SurveyQuestionType.Rating,
                 question: 'How likely are you to recommend us to a friend?',
                 description: '',
                 display: 'number',
@@ -74,6 +77,7 @@ export const defaultSurveyFieldValues = {
     [SurveyQuestionType.SingleChoice]: {
         questions: [
             {
+                type: SurveyQuestionType.SingleChoice,
                 question: 'Have you found this tutorial useful?',
                 description: '',
                 choices: ['Yes', 'No'],
@@ -87,6 +91,7 @@ export const defaultSurveyFieldValues = {
     [SurveyQuestionType.MultipleChoice]: {
         questions: [
             {
+                type: SurveyQuestionType.MultipleChoice,
                 question: 'Which types of content would you like to see more of?',
                 description: '',
                 choices: ['Tutorials', 'Customer case studies', 'Product announcements'],

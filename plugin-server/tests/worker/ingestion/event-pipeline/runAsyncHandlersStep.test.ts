@@ -43,7 +43,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('stops processing', async () => {
-        const response = await processOnEventStep(runner, ingestionEvent)
+        const response = await processOnEventStep(runner.hub, ingestionEvent)
 
         expect(response).toEqual(null)
     })
@@ -56,7 +56,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('calls onEvent plugin methods', async () => {
-        await processOnEventStep(runner, ingestionEvent)
+        await processOnEventStep(runner.hub, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
     })

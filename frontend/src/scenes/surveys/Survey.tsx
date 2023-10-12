@@ -15,6 +15,7 @@ import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import EditSurveyOld from './EditSurveyOld'
 import EditSurveyNew from './EditSurveyNew'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -25,8 +26,13 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
-    const { isEditingSurvey } = useValues(surveyLogic)
+    const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
     const showSurveyForm = id === 'new' || isEditingSurvey
+
+    if (surveyMissing) {
+        return <NotFound object="survey" />
+    }
+
     return (
         <div>
             {!id ? (

@@ -201,6 +201,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     ) : null}
                                                     {isInsightVizNode(query) ? (
                                                         <LemonButton
+                                                            data-attr={`${
+                                                                showQueryEditor ? 'hide' : 'show'
+                                                            }-insight-source`}
                                                             status="stealth"
                                                             onClick={() => {
                                                                 // for an existing insight in view mode

@@ -455,9 +455,13 @@ class FeatureFlagMatcher:
                             }
                             condition_eval(is_set_key, is_set_condition)
 
-                    for index, condition in enumerate(feature_flag.conditions):
-                        key = f"flag_{feature_flag.pk}_condition_{index}"
-                        condition_eval(key, condition)
+                    with start_span(
+                        op="parse_feature_flag_conditions",
+                        description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
+                    ):
+                        for index, condition in enumerate(feature_flag.conditions):
+                            key = f"flag_{feature_flag.pk}_condition_{index}"
+                            condition_eval(key, condition)
 
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
@@ -494,6 +498,7 @@ class FeatureFlagMatcher:
                     return self.hash_key_overrides[feature_flag.key]
             return self.distinct_id
         else:
+            # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
             group_key = self.groups.get(group_type_name)  # type: ignore

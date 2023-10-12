@@ -19,7 +19,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -36,7 +36,6 @@ ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
 class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
-
     maxDiff = None
 
     def _create_groups(self):
@@ -1835,7 +1834,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 6)
 
     def test_event_inclusion_exclusion_filters_across_single_person(self):
-
         # P1 for pageview event, screen event, and custom event all together
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 
@@ -3181,23 +3179,21 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 event_uuid="41111111-1111-1111-1111-111111111111",
             ),
         ]
-        create_session_recording_events(
-            self.team.pk,
-            timezone.now(),
-            "p1",
-            "s1",
-            window_id="w1",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="p1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
-        create_session_recording_events(
-            self.team.pk,
-            timezone.now(),
-            "p1",
-            "s3",
-            window_id="w3",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp1 = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s3",
+            distinct_id="p1",
+            first_timestamp=timestamp1,
+            last_timestamp=timestamp1,
         )
 
         # User with path matches, but no recordings
@@ -3328,14 +3324,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        create_session_recording_events(
-            self.team.pk,
-            timezone.now(),
-            "p1",
-            "s1",
-            window_id="w1",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="p1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         filter = PathFilter(
@@ -3400,14 +3395,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        create_session_recording_events(
-            self.team.pk,
-            timezone.now(),
-            "p1",
-            "s1",
-            window_id="w1",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="p1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         # No matching events for dropoff

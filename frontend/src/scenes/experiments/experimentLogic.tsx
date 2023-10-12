@@ -104,6 +104,7 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     })),
     actions({
+        setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
             draft,
@@ -196,6 +197,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
+            },
+        ],
+        experimentMissing: [
+            false,
+            {
+                setExperimentMissing: () => true,
             },
         ],
         editingExistingExperiment: [
@@ -541,12 +548,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         )
                         return response as Experiment
                     } catch (error: any) {
-                        if (error.status === 404) {
-                            throw error
-                        } else {
-                            lemonToast.error(`Failed to load experiment ${props.experimentId}`)
-                            throw new Error(`Failed to load experiment ${props.experimentId}`)
-                        }
+                        actions.setExperimentMissing()
+                        throw error
                     }
                 }
                 return NEW_EXPERIMENT

@@ -82,7 +82,7 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                     {!isEditingBillingLimit ? (
                         <>
                             <div
-                                className={clsx('cursor-pointer', customLimitUsd && 'text-primary')}
+                                className={clsx('cursor-pointer', customLimitUsd && 'text-link')}
                                 onClick={() => setIsEditingBillingLimit(true)}
                             >
                                 ${customLimitUsd}

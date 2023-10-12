@@ -6,7 +6,7 @@ type HoqQLPropertyInfoProps = {
 
 export const HoqQLPropertyInfo = ({ value }: HoqQLPropertyInfoProps): JSX.Element => {
     return (
-        <span title={value} className="font-mono text-primary text-xs">
+        <span title={value} className="font-mono text-link text-xs">
             {midEllipsis(value, 60)}
         </span>
     )

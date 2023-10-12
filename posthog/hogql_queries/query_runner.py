@@ -22,6 +22,8 @@ from posthog.schema import (
     WebTopClicksQuery,
     WebTopPagesQuery,
     WebOverviewStatsQuery,
+    PersonsQuery,
+    EventsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -44,10 +46,12 @@ class QueryResponse(BaseModel, Generic[DataT]):
     model_config = ConfigDict(
         extra="forbid",
     )
-    result: DataT
+    results: DataT
     timings: Optional[List[QueryTiming]] = None
     types: Optional[List[Tuple[str, str]]] = None
     columns: Optional[List[str]] = None
+    hogql: Optional[str] = None
+    hasMore: Optional[bool] = None
 
 
 class CachedQueryResponse(QueryResponse):
@@ -62,6 +66,8 @@ class CachedQueryResponse(QueryResponse):
 RunnableQueryNode = Union[
     TrendsQuery,
     LifecycleQuery,
+    EventsQuery,
+    PersonsQuery,
     WebOverviewStatsQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
@@ -70,7 +76,10 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
+    query: Dict[str, Any] | RunnableQueryNode,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    default_limit: Optional[int] = None,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -86,6 +95,16 @@ def get_query_runner(
         from .insights.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "EventsQuery":
+        from .events_query_runner import EventsQueryRunner
+
+        return EventsQueryRunner(
+            query=cast(EventsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+        )
+    if kind == "PersonsQuery":
+        from .persons_query_runner import PersonsQueryRunner
+
+        return PersonsQueryRunner(query=cast(PersonsQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "WebOverviewStatsQuery":
         from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 
@@ -121,10 +140,12 @@ class QueryRunner(ABC):
             self.query = self.query_type.model_validate(query)
 
     @abstractmethod
-    def calculate(self) -> QueryResponse:
+    def calculate(self) -> BaseModel:
+        # The returned model should have a structure similar to QueryResponse.
+        # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    def run(self, refresh_requested: bool) -> CachedQueryResponse:
+    def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
         cache_key = self._cache_key()
         tag_queries(cache_key=cache_key)
 
@@ -140,7 +161,7 @@ class QueryRunner(ABC):
             else:
                 QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="miss").inc()
 
-        fresh_response_dict = self.calculate().model_dump()
+        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(

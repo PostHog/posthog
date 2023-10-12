@@ -29,13 +29,12 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.schema import HogQLQuery, HogQLMetadata
 from posthog.utils import refresh_requested_by_client
 
 QUERY_WITH_RUNNER = [
@@ -45,6 +44,10 @@ QUERY_WITH_RUNNER = [
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
+]
+QUERY_WITH_RUNNER_NO_CACHE = [
+    "EventsQuery",
+    "PersonsQuery",
 ]
 
 
@@ -218,10 +221,9 @@ def process_query(
         refresh_requested = refresh_requested_by_client(request) if request else False
         query_runner = get_query_runner(query_json, team)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "EventsQuery":
-        events_query = EventsQuery.model_validate(query_json)
-        events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _unwrap_pydantic_dict(events_response)
+    elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
+        query_runner = get_query_runner(query_json, team)
+        return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.model_validate(query_json)
         values = (

@@ -36,6 +36,7 @@ import {
     createSessionReplayEvent,
     EventsProcessor,
     gatherConsoleLogEvents,
+    getTimestampsFrom,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -1407,6 +1408,31 @@ const sessionReplayEventTestCases: {
     {
         snapshotData: {
             events_summary: [
+                // a negative timestamp is ignored
+                { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: -922167545571, type: 3, data: { source: 2 }, windowId: '1' },
+            ],
+        },
+        expected: {
+            click_count: 3,
+            keypress_count: 0,
+            mouse_activity_count: 3,
+            first_url: null,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:15.000',
+            active_milliseconds: 1,
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 217,
+            event_count: 3,
+            message_count: 1,
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
                 // three windows with 1 second, 2 seconds, and 3 seconds of activity
                 // even though they overlap they should be summed separately
                 { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
@@ -1481,6 +1507,20 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
             },
         ] as any[])
     }).toThrowError()
+})
+
+test.each([
+    { events: [], expectedTimestamps: [] },
+    { events: [{ without: 'timestamp property' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: undefined } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: null } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 'what about a string' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    // we have seen negative timestamps from clients 🙈
+    { events: [{ timestamp: -1 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 1 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.001'] },
+])('timestamps from rrweb events', ({ events, expectedTimestamps }) => {
+    expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
 })
 
 function consoleMessageFor(payload: any[]) {

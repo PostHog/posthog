@@ -3,9 +3,8 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { EarlyAccessFeatureType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const EARLY_ACCESS_FEATURE_RESULT = [
     {
@@ -125,6 +124,12 @@ const meta: Meta = {
                     next: null,
                     previous: null,
                 },
+                '/api/projects/:team_id/early-access-feature/not-found/': [
+                    404,
+                    {
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/early-access-feature/:flagId/':
                     EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
             },
@@ -133,7 +138,6 @@ const meta: Meta = {
 }
 export default meta
 export function FeaturesList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.earlyAccessFeatures())
     }, [])
@@ -141,9 +145,15 @@ export function FeaturesList(): JSX.Element {
 }
 
 export function NewFeatureFlag(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.EARLY_ACCESS_FEATURE])
     useEffect(() => {
         router.actions.push(urls.earlyAccessFeature('new'))
+    }, [])
+    return <App />
+}
+
+export function NotFoundEarlyAccess(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.earlyAccessFeature('not-found'))
     }, [])
     return <App />
 }

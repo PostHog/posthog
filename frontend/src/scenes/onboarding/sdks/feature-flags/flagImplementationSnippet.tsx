@@ -5,13 +5,18 @@ import { SDKKey } from '~/types'
 export const FlagImplementationSnippet = ({ sdkKey }: { sdkKey: SDKKey }): JSX.Element => {
     return (
         <>
-            <h3>Basic implementation</h3>
+            <h3>Basic flag implementation</h3>
             <CodeInstructions
                 options={OPTIONS}
                 selectedLanguage={sdkKey}
                 showAdvancedOptions={false}
                 showFooter={false}
             />
+            <h3>Running experiments</h3>
+            <p>
+                Experiments run on top of our feature flags. Once you've implemented the flag in your code, you you'll
+                run an A/B test by creating a new experiment in the PostHog dashboard.
+            </p>
         </>
     )
 }

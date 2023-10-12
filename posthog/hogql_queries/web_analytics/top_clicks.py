@@ -31,6 +31,7 @@ AND el_text IS NOT NULL
 GROUP BY
     el_text
 ORDER BY total_clicks DESC
+LIMIT 10
                 """,
                 timings=self.timings,
             )
@@ -45,7 +46,7 @@ ORDER BY total_clicks DESC
         )
 
         return WebTopClicksQueryResponse(
-            columns=response.columns, result=response.results, timings=response.timings, types=response.types
+            columns=response.columns, results=response.results, timings=response.timings, types=response.types
         )
 
     @cached_property
