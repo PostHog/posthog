@@ -20,8 +20,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
@@ -135,7 +133,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -505,7 +502,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
                 s.sessionEventsDataLoading,
-                s.hasAvailableFeature,
             ],
             (
                 sessionPlayerSnapshotData,
