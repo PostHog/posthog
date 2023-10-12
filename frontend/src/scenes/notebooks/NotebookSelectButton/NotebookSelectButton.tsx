@@ -17,8 +17,7 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
-import { LemonDivider, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-import { PersonIcon } from '@posthog/apps-common'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
