@@ -41,24 +41,12 @@ class Breakdown:
 
         return ast.Alias(
             alias="breakdown_value",
-            expr=ast.Field(
-                chain=get_properties_chain(
-                    breakdown_type=self.query.breakdown.breakdown_type,
-                    breakdown_field=self.query.breakdown.breakdown,
-                    group_type_index=self.query.breakdown.breakdown_group_type_index,
-                )
-            ),
+            expr=ast.Field(chain=self._properties_chain),
         )
 
     def events_where_filter(self) -> ast.Expr:
         return ast.CompareOperation(
-            left=ast.Field(
-                chain=get_properties_chain(
-                    breakdown_type=self.query.breakdown.breakdown_type,
-                    breakdown_field=self.query.breakdown.breakdown,
-                    group_type_index=self.query.breakdown.breakdown_group_type_index,
-                )
-            ),
+            left=ast.Field(chain=self._properties_chain),
             op=ast.CompareOperationOp.In,
             right=self._breakdown_values_ast,
         )
@@ -118,24 +106,12 @@ class Breakdown:
                     ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=get_properties_chain(
-                                        breakdown_type=self.query.breakdown.breakdown_type,
-                                        breakdown_field=self.query.breakdown.breakdown,
-                                        group_type_index=self.query.breakdown.breakdown_group_type_index,
-                                    )
-                                ),
+                                left=ast.Field(chain=self._properties_chain),
                                 op=ast.CompareOperationOp.GtEq,
                                 right=ast.Constant(value=lower_bound),
                             ),
                             ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=get_properties_chain(
-                                        breakdown_type=self.query.breakdown.breakdown_type,
-                                        breakdown_field=self.query.breakdown.breakdown,
-                                        group_type_index=self.query.breakdown.breakdown_group_type_index,
-                                    )
-                                ),
+                                left=ast.Field(chain=self._properties_chain),
                                 op=ast.CompareOperationOp.Lt,
                                 right=ast.Constant(value=upper_bound),
                             ),
@@ -149,3 +125,11 @@ class Breakdown:
         multi_if_exprs.append(ast.Constant(value='["",""]'))
 
         return ast.Call(name="multiIf", args=multi_if_exprs)
+
+    @cached_property
+    def _properties_chain(self):
+        return get_properties_chain(
+            breakdown_type=self.query.breakdown.breakdown_type,
+            breakdown_field=self.query.breakdown.breakdown,
+            group_type_index=self.query.breakdown.breakdown_group_type_index,
+        )
