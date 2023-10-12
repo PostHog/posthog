@@ -232,12 +232,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             const localQuery = values.query
                 ? values.query
                 : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
-            if (localQuery && isInsightVizNode(localQuery)) {
-                actions.setQuery({
-                    ...localQuery,
-                    source: { ...(localQuery as InsightVizNode).source, ...querySource },
-                } as Node)
-            }
+
+            actions.setQuery({
+                ...localQuery,
+                source: { ...(localQuery as InsightVizNode).source, ...querySource },
+            } as Node)
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {

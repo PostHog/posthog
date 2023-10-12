@@ -41,10 +41,6 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
         setQuery,
     }
 
-    if (!insightProps.setQuery && setQuery) {
-        insightProps.setQuery = setQuery
-    }
-
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
