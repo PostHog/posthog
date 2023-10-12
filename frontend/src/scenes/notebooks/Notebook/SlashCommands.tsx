@@ -19,13 +19,14 @@ import {
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
-import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
+import { NodeKind } from '~/queries/schema'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 type SlashCommandsProps = {
     mode: 'slash' | 'add'
@@ -243,21 +244,77 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         search: 'sql',
         icon: <InsightSQLIcon noBackground color="currentColor" />,
         command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.DataTableNode,
+                        full: true,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: `select event,
+            person.properties.email,
+            properties.$browser,
+            count()
+        from events
+        where {filters} -- replaced with global date and property filters
+        and person.properties.email is not null
+    group by event,
+            properties.$browser,
+            person.properties.email
+    order by count() desc
+        limit 100`,
+                            filters: {
+                                dateRange: {
+                                    date_from: '-24h',
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
     },
     {
         title: 'Events',
         search: 'data explore',
         icon: <IconTableChart />,
         command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } }),
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.DataTableNode,
+                        full: true,
+                        source: {
+                            kind: NodeKind.EventsQuery,
+                            select: defaultDataTableColumns(NodeKind.EventsQuery),
+                            properties: [],
+                            after: '-24h',
+                            limit: 100,
+                        },
+                    },
+                },
+            }),
     },
     {
         title: 'Persons',
         search: 'people users',
         icon: <IconCohort />,
         command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
+            chain.insertContent({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    query: {
+                        kind: NodeKind.DataTableNode,
+                        full: true,
+                        columns: defaultDataTableColumns(NodeKind.PersonsNode),
+                        source: {
+                            kind: NodeKind.PersonsNode,
+                            properties: [],
+                        },
+                    },
+                },
+            }),
     },
     {
         title: 'Session Replays',

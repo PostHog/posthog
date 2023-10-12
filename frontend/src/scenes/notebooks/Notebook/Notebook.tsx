@@ -79,7 +79,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                         className="my-4"
                         action={{
                             onClick: duplicateNotebook,
-                            children: 'Create notebook',
+                            children: 'Create copy',
                         }}
                     >
                         <b>This is a template.</b> You can create a copy of it to edit and use as your own.

@@ -25,11 +25,13 @@ export const mergeFinalFailuresCounter = new Counter({
 export const mergeTxnAttemptCounter = new Counter({
     name: 'person_merge_txn_attempt_total',
     help: 'Number of person merge attempts.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
 
 export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
+    labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
 
 // used to prevent identify from being used with generic IDs
@@ -152,8 +154,10 @@ export class PersonState {
         return await this.updatePersonProperties(person)
     }
 
+    /**
+     * @returns [Person, boolean that indicates if properties were already handled or not]
+     */
     private async createOrGetPerson(): Promise<[Person, boolean]> {
-        // returns: person, properties were already handled or not
         let person = await this.db.fetchPerson(this.teamId, this.distinctId)
         if (person) {
             return [person, false]
@@ -477,7 +481,14 @@ export class PersonState {
         createdAt: DateTime,
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
-        mergeTxnAttemptCounter.inc()
+        mergeTxnAttemptCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(this.poEEmbraceJoin),
+            })
+            .inc()
 
         const result: [ProducerRecord[], Person] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
@@ -518,7 +529,14 @@ export class PersonState {
             }
         )
 
-        mergeTxnSuccessCounter.inc()
+        mergeTxnSuccessCounter
+            .labels({
+                call: this.event.event, // $identify, $create_alias or $merge_dangerously
+                oldPersonIdentified: String(otherPerson.is_identified),
+                newPersonIdentified: String(mergeInto.is_identified),
+                poEEmbraceJoin: String(this.poEEmbraceJoin),
+            })
+            .inc()
         return result
     }
 
