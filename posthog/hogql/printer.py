@@ -996,10 +996,6 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
-        elif isinstance(node.type, ast.CallType):
-            return_type = node.type.return_type
-            if isinstance(return_type, ast.ConstantType) and not isinstance(return_type, ast.UnknownType):
-                return False
 
         # we don't know if it's nullable, so we assume it can be
         return True
