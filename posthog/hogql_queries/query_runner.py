@@ -23,6 +23,7 @@ from posthog.schema import (
     WebTopPagesQuery,
     WebOverviewStatsQuery,
     PersonsQuery,
+    EventsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -64,8 +65,9 @@ class CachedQueryResponse(QueryResponse):
 
 RunnableQueryNode = Union[
     TrendsQuery,
-    PersonsQuery,
     LifecycleQuery,
+    EventsQuery,
+    PersonsQuery,
     WebOverviewStatsQuery,
     WebTopSourcesQuery,
     WebTopClicksQuery,
@@ -74,7 +76,10 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
+    query: Dict[str, Any] | RunnableQueryNode,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    default_limit: Optional[int] = None,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -90,6 +95,12 @@ def get_query_runner(
         from .insights.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "EventsQuery":
+        from .events_query_runner import EventsQueryRunner
+
+        return EventsQueryRunner(
+            query=cast(EventsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+        )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
 
@@ -134,7 +145,7 @@ class QueryRunner(ABC):
         # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    def run(self, refresh_requested: bool) -> CachedQueryResponse:
+    def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
         cache_key = self._cache_key()
         tag_queries(cache_key=cache_key)
 

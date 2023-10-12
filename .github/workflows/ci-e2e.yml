@@ -49,6 +49,7 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
+                        - cypress/**
 
     # Job that lists and chunks spec file names and caches node modules
     chunks:
@@ -211,7 +212,10 @@ jobs:
             - name: Wait for PostHog
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: iFaxity/wait-on-action@v1
+              # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
+              # so pointing to v1.1.0 to remove warnings about node version with v1
+              # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
+              uses: iFaxity/wait-on-action@v1.1.0
               timeout-minutes: 3
               with:
                   verbose: true
@@ -221,12 +225,16 @@ jobs:
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: cypress-io/github-action@v5
+              uses: cypress-io/github-action@v6
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.chunk }}
                   install: false
+              env:
+                  E2E_TESTING: 1
+                  OPT_OUT_CAPTURE: 0
+                  GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3

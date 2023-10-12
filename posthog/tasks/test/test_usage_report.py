@@ -18,6 +18,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.event.util import create_event
@@ -27,7 +28,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
-from posthog.session_recordings.test.test_factory import create_snapshot
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
@@ -225,49 +226,55 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             # recordings in period  - 5 sessions with 5 snapshots each
             for i in range(1, 6):
                 for _ in range(0, 5):
-                    create_snapshot(
-                        has_full_snapshot=True,
-                        distinct_id=distinct_id,
-                        session_id=str(i),
-                        timestamp=now() - relativedelta(hours=12),
+                    session_id = str(i)
+                    timestamp = now() - relativedelta(hours=12)
+                    produce_replay_summary(
                         team_id=self.org_1_team_2.id,
+                        session_id=session_id,
+                        distinct_id=distinct_id,
+                        first_timestamp=timestamp,
+                        last_timestamp=timestamp,
                     )
 
             # recordings out of period  - 5 sessions with 5 snapshots each
             for i in range(1, 11):
                 for _ in range(0, 5):
-                    create_snapshot(
-                        has_full_snapshot=True,
-                        distinct_id=distinct_id,
-                        session_id=str(i + 10),
-                        timestamp=now() - relativedelta(hours=48),
+                    id1 = str(i + 10)
+                    timestamp1 = now() - relativedelta(hours=48)
+                    produce_replay_summary(
                         team_id=self.org_1_team_2.id,
+                        session_id=id1,
+                        distinct_id=distinct_id,
+                        first_timestamp=timestamp1,
+                        last_timestamp=timestamp1,
                     )
 
             # ensure there is a recording that starts before the period and ends during the period
             # report is going to be for "yesterday" relative to the test so...
             start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
             session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
-            create_snapshot(
-                has_full_snapshot=True,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day - relativedelta(hours=1),
+            timestamp2 = start_of_day - relativedelta(hours=1)
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=timestamp2,
+                last_timestamp=timestamp2,
             )
-            create_snapshot(
-                has_full_snapshot=False,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day,
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=start_of_day,
+                last_timestamp=start_of_day,
             )
-            create_snapshot(
-                has_full_snapshot=False,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day + relativedelta(hours=1),
+            timestamp3 = start_of_day + relativedelta(hours=1)
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=timestamp3,
+                last_timestamp=timestamp3,
             )
             _create_event(
                 distinct_id=distinct_id,
@@ -627,10 +634,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
 
-        from posthog.models.event.events_query import run_events_query
-
         execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
         sync_execute("SYSTEM FLUSH LOGS")
 
         period = get_previous_day(at=now() + relativedelta(days=1))

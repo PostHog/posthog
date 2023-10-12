@@ -1,14 +1,14 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { querySceneLogicType } from './querySceneLogicType'
+import type { debugSceneLogicType } from './debugSceneLogicType'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { stringifiedExamples } from '~/queries/examples'
 
-const DEFAULT_QUERY: string = stringifiedExamples['Events']
+const DEFAULT_QUERY: string = stringifiedExamples['HogQLRaw']
 
-export const querySceneLogic = kea<querySceneLogicType>([
-    path(['scenes', 'query', 'querySceneLogic']),
+export const debugSceneLogic = kea<debugSceneLogicType>([
+    path(['scenes', 'query', 'debugSceneLogic']),
     actions({
         setQuery: (query: string) => ({ query: query }),
     }),

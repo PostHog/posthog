@@ -8,14 +8,12 @@ import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
     ChartDisplayType,
-    PluginType,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
     SurveyQuestionType,
-    SurveyType,
     SurveyUrlMatchType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
@@ -23,11 +21,9 @@ import { DataTableNode, InsightVizNode, HogQLQuery, NodeKind } from '~/queries/s
 import { hogql } from '~/queries/utils'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     defaultSurveyFieldValues,
     SURVEY_EVENT_NAME,
@@ -87,12 +83,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [
-            pluginsLogic,
-            ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins'],
-            enabledFlagLogic,
-            ['featureFlags as enabledFlags'],
-        ],
+        values: [enabledFlagLogic, ['featureFlags as enabledFlags']],
     })),
     actions({
         setSurveyMissing: true,
@@ -358,7 +349,10 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
-                    return { ...state, [`${payload?.questionIndex}`]: true }
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
                 },
             },
         ],
@@ -366,7 +360,10 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveySingleChoiceResultsSuccess: (state, { payload }) => {
-                    return { ...state, [`${payload?.questionIndex}`]: true }
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
                 },
             },
         ],
@@ -393,26 +390,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
                 ...(survey?.name ? [{ name: survey.name }] : []),
             ],
-        ],
-        surveyPlugin: [
-            (s) => [s.installedPlugins],
-            (installedPlugins: PluginType[]): PluginType | undefined => {
-                // TODO: add more sturdy check for the survey plugin
-                return installedPlugins.find((plugin) => plugin.name === 'Surveys app')
-            },
-        ],
-        showSurveyAppWarning: [
-            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading, s.enabledFlags],
-            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean, enabledFlags): boolean => {
-                return (
-                    !enabledFlags[FEATURE_FLAGS.SURVEYS_SITE_APP_DEPRECATION] &&
-                    !!(
-                        survey.type !== SurveyType.API &&
-                        !pluginsLoading &&
-                        !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
-                    )
-                )
-            },
         ],
         surveyResponseProperty: [
             (s) => [s.currentQuestionIndexAndType],

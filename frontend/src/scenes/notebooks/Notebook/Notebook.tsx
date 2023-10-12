@@ -1,9 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
-import { sampleOne } from 'lib/utils'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -24,16 +23,11 @@ export type NotebookProps = {
     initialAutofocus?: EditorFocusPosition
 }
 
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
-
 export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
-        useActions(logic)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
-
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     useWhyDidIRender('Notebook', {
         notebook,
@@ -44,11 +38,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         shortId,
         editable,
         initialAutofocus,
-        content,
     })
 
     useEffect(() => {
-        if (notebook && !notebookLoading) {
+        if (!notebook && !notebookLoading) {
             loadNotebook()
         }
     }, [])
@@ -111,23 +104,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                 <div className="flex flex-1 justify-center">
                     <NotebookSidebar />
                     <ErrorBoundary>
-                        <Editor
-                            initialContent={content}
-                            onCreate={setEditor}
-                            onUpdate={onEditorUpdate}
-                            onSelectionUpdate={onEditorSelectionUpdate}
-                            placeholder={({ node }: { node: any }) => {
-                                if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                    return `Untitled - maybe.. "${headingPlaceholder}"`
-                                }
-
-                                if (node.type.name === 'heading') {
-                                    return `Heading ${node.attrs.level}`
-                                }
-
-                                return ''
-                            }}
-                        />
+                        <Editor />
                     </ErrorBoundary>
                 </div>
             </div>

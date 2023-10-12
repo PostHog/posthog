@@ -262,7 +262,7 @@ export function SingleChoiceQuestionPieChart({
 
     useEffect(() => {
         loadSurveySingleChoiceResults({ questionIndex })
-    }, [question])
+    }, [questionIndex])
 
     return (
         <div className="mb-4">
