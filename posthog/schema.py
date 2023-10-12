@@ -228,6 +228,13 @@ class HogQLNotice(BaseModel):
     start: Optional[float] = None
 
 
+class HogQLQueryModifiers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    personsOnEventsMode: Optional[str] = None
+
+
 class IntervalType(str, Enum):
     hour = "hour"
     day = "day"
@@ -644,6 +651,7 @@ class HogQLQueryResponse(BaseModel):
     clickhouse: Optional[str] = None
     columns: Optional[List] = None
     hogql: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: Optional[str] = None
     results: Optional[List] = None
     timings: Optional[List[QueryTiming]] = None
@@ -917,6 +925,7 @@ class HogQLQuery(BaseModel):
     )
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(

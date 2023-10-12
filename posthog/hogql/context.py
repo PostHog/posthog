@@ -2,8 +2,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Any
 
 from posthog.hogql.timings import HogQLTimings
-from posthog.utils import PersonOnEventsMode
-from posthog.schema import HogQLNotice
+from posthog.schema import HogQLNotice, HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -29,8 +28,6 @@ class HogQLContext:
     values: Dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Do we need to join the persons table or not. Has effect if within_non_hogql_query = True
-    person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.V1_ENABLED
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -44,6 +41,8 @@ class HogQLContext:
     notices: List["HogQLNotice"] = field(default_factory=list)
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
+    # Modifications requested by the HogQL client
+    modifiers: HogQLQueryModifiers = field(default_factory=HogQLQueryModifiers)
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
