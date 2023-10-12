@@ -446,7 +446,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         affectedUsers: [
-            {},
+            { 0: -1 },
             {
                 setAffectedUsers: (state, { index, count }) => ({
                     ...state,
@@ -801,7 +801,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     effectiveRolloutPercentage = 100
                 }
 
-                if (affectedUsers[index] === -1 || totalUsers === -1 || !totalUsers) {
+                if (
+                    affectedUsers[index] === -1 ||
+                    totalUsers === -1 ||
+                    !totalUsers ||
+                    affectedUsers[index] === undefined
+                ) {
                     return effectiveRolloutPercentage
                 }
 

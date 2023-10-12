@@ -412,6 +412,11 @@ class _Printer(Visitor):
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
 
+        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
+        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
+        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+            not_nullable = True
+
         constant_lambda = None
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
@@ -991,6 +996,7 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
+
         # we don't know if it's nullable, so we assume it can be
         return True
 

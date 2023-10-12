@@ -12,7 +12,9 @@
     custom naming conventions 🙌
 */
 
-// TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
+// TODO: Support the screen breakpoint versions like md:foo
+// The problem is CSS file size, which could be solved by using Tailwind directly.
+// See the Grid section, which has breakpoint support, to add it for something in this file.
 @each $space in $tiny_spaces {
     .space-y-#{escape-number($space)} {
         & > * + * {
@@ -125,6 +127,25 @@
             padding-#{$side}: #{$space * 0.25}rem;
         }
     }
+}
+
+.w-px {
+    width: 1px;
+}
+.h-px {
+    height: 1px;
+}
+.min-w-px {
+    min-width: 1px;
+}
+.max-w-px {
+    max-width: 1px;
+}
+.min-h-px {
+    min-height: 1px;
+}
+.max-h-px {
+    max-height: 1px;
 }
 
 @each $name, $size in $screens {
@@ -643,99 +664,113 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 // Grid Template Columns
-@for $i from 1 through 12 {
-    .grid-cols-#{$i} {
-        grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
-    }
-}
-.grid-cols-none {
-    grid-template-columns: none;
-}
+@each $name,
+    $size
+        in map-merge(
+            (
+                'base': null,
+            ),
+            $screens
+        )
+{
+    $prefix: if($name == 'base', '', $name + '\\:');
 
-// Grid Column Start/End
-.col-auto {
-    grid-column: auto;
-}
+    @include screen($size) {
+        @for $i from 1 through 12 {
+            .#{$prefix}grid-cols-#{$i} {
+                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
+            }
+        }
+        .#{$prefix}grid-cols-none {
+            grid-template-columns: none;
+        }
 
-@for $i from 1 through 12 {
-    .col-span-#{$i} {
-        grid-column: span #{$i} / span #{$i};
-    }
-}
-.col-span-full {
-    grid-column: 1 / -1;
-}
+        // Grid Column Start/End
+        .#{$prefix}col-auto {
+            grid-column: auto;
+        }
 
-@for $i from 1 through 13 {
-    .col-start-#{$i} {
-        grid-column-start: #{$i};
-    }
-}
-.col-start-auto {
-    grid-column-start: auto;
-}
+        @for $i from 1 through 12 {
+            .#{$prefix}col-span-#{$i} {
+                grid-column: span #{$i} / span #{$i};
+            }
+        }
+        .#{$prefix}col-span-full {
+            grid-column: 1 / -1;
+        }
 
-@for $i from 1 through 13 {
-    .col-end-#{$i} {
-        grid-column-end: #{$i};
-    }
-}
-.col-end-auto {
-    grid-column-end: auto;
-}
+        @for $i from 1 through 13 {
+            .#{$prefix}col-start-#{$i} {
+                grid-column-start: #{$i};
+            }
+        }
+        .#{$prefix}col-start-auto {
+            grid-column-start: auto;
+        }
 
-// Grid Row Start/End
-.row-auto {
-    grid-row: auto;
-}
+        @for $i from 1 through 13 {
+            .#{$prefix}col-end-#{$i} {
+                grid-column-end: #{$i};
+            }
+        }
+        .#{$prefix}col-end-auto {
+            grid-column-end: auto;
+        }
 
-@for $i from 1 through 6 {
-    .row-span-#{$i} {
-        grid-row: span #{$i} / span #{$i};
-    }
-}
-.row-span-full {
-    grid-row: 1 / -1;
-}
+        // Grid Row Start/End
+        .#{$prefix}row-auto {
+            grid-row: auto;
+        }
 
-@for $i from 1 through 7 {
-    .row-start-#{$i} {
-        grid-row-start: #{$i};
-    }
-}
-.row-start-auto {
-    grid-row-start: auto;
-}
+        @for $i from 1 through 6 {
+            .#{$prefix}row-span-#{$i} {
+                grid-row: span #{$i} / span #{$i};
+            }
+        }
+        .#{$prefix}row-span-full {
+            grid-row: 1 / -1;
+        }
 
-@for $i from 1 through 7 {
-    .row-end-#{$i} {
-        grid-row-end: #{$i};
-    }
-}
-.row-end-auto {
-    grid-row-end: auto;
-}
+        @for $i from 1 through 7 {
+            .#{$prefix}row-start-#{$i} {
+                grid-row-start: #{$i};
+            }
+        }
+        .#{$prefix}row-start-auto {
+            grid-row-start: auto;
+        }
 
-// Gap
-@each $space in $all_spaces {
-    .gap-#{escape-number($space)} {
-        gap: #{$space * 0.25}rem;
+        @for $i from 1 through 7 {
+            .#{$prefix}row-end-#{$i} {
+                grid-row-end: #{$i};
+            }
+        }
+        .#{$prefix}row-end-auto {
+            grid-row-end: auto;
+        }
+
+        // Gap
+        @each $space in $all_spaces {
+            .#{$prefix}gap-#{escape-number($space)} {
+                gap: #{$space * 0.25}rem;
+            }
+            .#{$prefix}gap-x-#{escape-number($space)} {
+                column-gap: #{$space * 0.25}rem;
+            }
+            .#{$prefix}gap-y-#{escape-number($space)} {
+                row-gap: #{$space * 0.25}rem;
+            }
+        }
+        .#{$prefix}gap-px {
+            gap: 1px;
+        }
+        .#{$prefix}gap-x-px {
+            column-gap: 1px;
+        }
+        .#{$prefix}gap-y-px {
+            row-gap: 1px;
+        }
     }
-    .gap-x-#{escape-number($space)} {
-        column-gap: #{$space * 0.25}rem;
-    }
-    .gap-y-#{escape-number($space)} {
-        row-gap: #{$space * 0.25}rem;
-    }
-}
-.gap-px {
-    gap: 1px;
-}
-.gap-x-px {
-    column-gap: 1px;
-}
-.gap-y-px {
-    row-gap: 1px;
 }
 
 // Typography

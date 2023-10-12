@@ -1468,7 +1468,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0), ifNull(less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), 0))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SELECT events.event, events.distinct_id FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0), less(toTimeZone(events.timestamp, %(hogql_val_3)s), toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
             self.assertEqual(len(response.results), 0)
 

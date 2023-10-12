@@ -7,7 +7,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState, useEffect } from 'react'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
 import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -24,20 +23,18 @@ import {
     SurveyType,
 } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
 import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { RatingQuestionBarChart, Summary } from './surveyViewViz'
+import { Summary, RatingQuestionBarChart, SingleChoiceQuestionPieChart } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
+    const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { editPlugin } = useActions(pluginsLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
@@ -120,14 +117,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    {!surveyLoading && showSurveyAppWarning && (
-                        <LemonBanner type="error">
-                            Surveys requires the{' '}
-                            <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be
-                            enabled. You also need to make sure you have the "opt_in_site_apps" setting in your PostHog
-                            initialization code.
-                        </LemonBanner>
-                    )}
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -266,6 +255,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
+        surveySingleChoiceResults,
+        surveySingleChoiceResultsReady,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -276,14 +267,22 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 <>
                     <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
                     {survey.questions.map((question, i) => {
-                        if (question.type === 'rating') {
+                        if (question.type === SurveyQuestionType.Rating) {
                             return (
                                 <RatingQuestionBarChart
                                     key={`survey-q-${i}`}
                                     surveyRatingResults={surveyRatingResults}
                                     surveyRatingResultsReady={surveyRatingResultsReady}
                                     questionIndex={i}
-                                    question={question}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.SingleChoice) {
+                            return (
+                                <SingleChoiceQuestionPieChart
+                                    key={`survey-q-${i}`}
+                                    surveySingleChoiceResults={surveySingleChoiceResults}
+                                    surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                    questionIndex={i}
                                 />
                             )
                         }
@@ -322,15 +321,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
                     <div className="mb-4">
                         <Query query={surveyRatingQuery} />
-                        {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
-                            (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale ===
-                                10 && (
-                                <>
-                                    <LemonDivider className="my-4" />
-                                    <h2>NPS Score</h2>
-                                    <SurveyNPSResults survey={survey as Survey} />
-                                </>
-                            )}
+                        {(survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
+                            <>
+                                <LemonDivider className="my-4" />
+                                <h2>NPS Score</h2>
+                                <SurveyNPSResults survey={survey as Survey} />
+                            </>
+                        )}
                     </div>
                 )}
             {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||

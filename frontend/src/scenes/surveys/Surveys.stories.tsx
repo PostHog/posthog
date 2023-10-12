@@ -1,8 +1,7 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { Meta } from '@storybook/react'
@@ -184,7 +183,6 @@ const meta: Meta = {
 }
 export default meta
 export function SurveysList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.surveys())
     }, [])
@@ -192,7 +190,6 @@ export function SurveysList(): JSX.Element {
 }
 
 export function NewSurvey(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.survey('new'))
     }, [])
@@ -200,7 +197,6 @@ export function NewSurvey(): JSX.Element {
 }
 
 export function SurveyView(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
     }, [])
@@ -208,7 +204,6 @@ export function SurveyView(): JSX.Element {
 }
 
 export function SurveyNotFound(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.survey('1234566789'))
     }, [])

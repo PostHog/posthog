@@ -19,7 +19,6 @@ from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -36,6 +35,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         super().setUp()
 
         # Create a new team each time to ensure no clashing between tests
+        # TODO this is pretty slow, we should change assertions so that we don't need it
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
     def create_snapshot(
@@ -65,15 +65,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         if snapshot_data:
             snapshot.update(snapshot_data)
 
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=team_id,
-            distinct_id=distinct_id,
-            timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=[snapshot],
-            use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
     def create_snapshots(
@@ -115,15 +112,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 }
             )
 
-        create_session_recording_events(
+        produce_replay_summary(
             team_id=self.team.pk,
-            distinct_id=distinct_id,
-            timestamp=timestamp,
             session_id=session_id,
-            window_id=window_id,
-            snapshots=snapshots,
-            use_replay_table=use_replay_table,
-            use_recording_table=use_recording_table,
+            distinct_id=distinct_id,
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
     def test_get_session_recordings(self):
@@ -261,14 +255,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
-        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
-        self.create_snapshot("u1", "1", base_time)
-        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
+        session_id_one = "1"
+        session_id_two = "2"
+
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=session_id_one)
+        self.create_snapshot("u1", session_id_one, base_time)
+        self.create_snapshot("u1", session_id_two, base_time + relativedelta(seconds=30))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
 
-        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [("2", False), ("1", True)]
+        assert [(r["id"], r["viewed"]) for r in response_data["results"]] == [
+            (session_id_two, False),
+            (session_id_one, True),
+        ]
 
     def test_setting_viewed_state_of_session_recording(self):
         Person.objects.create(
@@ -368,82 +368,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "storage": "object_storage",
         }
 
-    def test_get_default_limit_of_chunks(self):
-        # TODO import causes circular reference... but we're going to delete this soon so...
-        from posthog.session_recordings.session_recording_api import DEFAULT_RECORDING_CHUNK_LIMIT
-
-        base_time = now()
-        num_snapshots = DEFAULT_RECORDING_CHUNK_LIMIT + 10
-
-        for _ in range(num_snapshots):
-            self.create_snapshot("user", "1", base_time, use_recording_table=True, use_replay_table=False)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
-        response_data = response.json()
-        self.assertEqual(len(response_data["snapshot_data_by_window_id"][""]), DEFAULT_RECORDING_CHUNK_LIMIT)
-
-    def test_get_snapshots_is_compressed(self):
-        base_time = now()
-        num_snapshots = 2  # small contents aren't compressed, needs to be enough data to trigger compression
-
-        for _ in range(num_snapshots):
-            self.create_snapshot("user", "1", base_time, use_recording_table=True)
-
-        custom_headers = {"HTTP_ACCEPT_ENCODING": "gzip"}
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/1/snapshots",
-            data=None,
-            follow=False,
-            secure=False,
-            **custom_headers,
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.headers.get("Content-Encoding", None), "gzip")
-
-    def test_get_snapshots_for_chunked_session_recording(self):
-        # TODO import causes circular reference... but we're going to delete this soon so...
-        from posthog.session_recordings.session_recording_api import DEFAULT_RECORDING_CHUNK_LIMIT
-
-        chunked_session_id = "chunk_id"
-        expected_num_requests = 3
-        num_chunks = 60
-        snapshots_per_chunk = 2
-
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            start_time = now()
-            for index, s in enumerate(range(num_chunks)):
-                self.create_snapshots(
-                    snapshots_per_chunk,
-                    "user",
-                    chunked_session_id,
-                    start_time + relativedelta(minutes=s),
-                    window_id="1" if index % 2 == 0 else "2",
-                    use_recording_table=True,
-                    use_replay_table=False,
-                )
-
-            next_url = f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}/snapshots"
-
-            for i in range(expected_num_requests):
-                response = self.client.get(next_url)
-                response_data = response.json()
-
-                self.assertEqual(
-                    len(response_data["snapshot_data_by_window_id"]["1"]),
-                    snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
-                )
-                self.assertEqual(
-                    len(response_data["snapshot_data_by_window_id"]["2"]),
-                    snapshots_per_chunk * DEFAULT_RECORDING_CHUNK_LIMIT / 2,
-                )
-                if i == expected_num_requests - 1:
-                    self.assertIsNone(response_data["next"])
-                else:
-                    self.assertIsNotNone(response_data["next"])
-
-                next_url = response_data["next"]
-
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
@@ -451,7 +375,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking/snapshots")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
 
     def test_session_recording_with_no_person(self):
         produce_replay_summary(
@@ -523,37 +447,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
             self.assertEqual(len(response_data["results"]), 0)
 
-    def test_regression_encoded_emojis_dont_crash(self):
-        Person.objects.create(
-            team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-        )
-        with freeze_time("2022-01-01T12:00:00.000Z"):
-            self.create_snapshot(
-                "user",
-                "1",
-                now() - relativedelta(days=1),
-                # TODO do we need a version of this that writes to blob storage?
-                snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
-                use_recording_table=True,
-            )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        assert not response_data["next"]
-        assert response_data["snapshot_data_by_window_id"] == {
-            "": [
-                {
-                    "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
-                    "timestamp": 1640952000000.0,
-                    "has_full_snapshot": True,
-                    "type": 2,
-                    "data": {"source": 0},
-                }
-            ]
-        }
-
     def test_delete_session_recording(self):
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
@@ -562,20 +455,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_persist_session_recording(self):
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["storage"] == "object_storage"
-        # Trying to delete same recording again returns 404
+
         response = self.client.post(f"/api/projects/{self.team.id}/session_recordings/1/persist")
-        assert response.json()["success"]
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["storage"] == "object_storage_lts"
 
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_default_response(self, mock_list_objects) -> None:
+    def test_get_snapshots_v2_default_response(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
         mock_list_objects.return_value = [
@@ -610,33 +510,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
 
     @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_upgrade_to_v2_if_stored_recording_requires_it(self, mock_list_objects: MagicMock) -> None:
-        session_id = str(uuid.uuid4())
-        timestamp = round(now().timestamp() * 1000)
-        mock_list_objects.return_value = [
-            f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 10000}-{timestamp - 5000}",
-            f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 5000}-{timestamp}",
-        ]
-
-        # if the recording has been written with a newer version, we have to upgrade to v2
-        SessionRecording.objects.create(team=self.team, session_id=session_id, storage_version="2023-08-01")
-
-        # add an unnecessary param to make sure we maintain params when redirecting
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?some-param=1"
-        )
-        assert response.status_code == status.HTTP_302_FOUND
-        assert (
-            response.headers["Location"]
-            == f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?some-param=1&version=2"
-        )
-
-        mock_list_objects.assert_not_called()
-
-    @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
+    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
 
@@ -662,6 +538,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.side_effect = list_objects_func
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        assert response.status_code == 200
         response_data = response.json()
 
         assert response_data == {
@@ -691,8 +568,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects) -> None:
+    def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects, _mock_exists) -> None:
         session_id = str(uuid.uuid4())
         old_timestamp = round((now() - timedelta(hours=26)).timestamp() * 1000)
 
@@ -713,11 +591,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
 
+    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_blob(
-        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+        self, _mock_requests, mock_presigned_url, mock_get_session_recording, _mock_exists
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -767,13 +646,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand(
-        [
-            (False, 3),
-            (True, 1),
-        ]
-    )
-    def test_get_via_sharing_token(self, use_recording_events: bool, api_version: int) -> None:
+    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    def test_get_via_sharing_token(self, mock_copy_objects: MagicMock) -> None:
+        mock_copy_objects.return_value = 2
+
         other_team = create_team(organization=self.organization)
 
         session_id = str(uuid.uuid4())
@@ -783,7 +659,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 session_id,
                 now() - relativedelta(days=1),
                 team_id=self.team.pk,
-                use_recording_table=use_recording_events,
             )
 
         token = self.client.patch(
@@ -816,9 +691,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "end_time": "2022-12-31T12:00:00Z",
         }
 
-        # if api_version is three then we should request snapshots with version 2
+        # now create a snapshot record that doesn't have a fixed date, as it needs to be within TTL for the request below to complete
+        self.create_snapshot(
+            "user",
+            session_id,
+            now(),
+            team_id=self.team.pk,
+        )
+
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version={api_version-1}"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version=2"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -910,3 +792,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": [event_id]}
+
+    # checks that we 404 without patching the "exists" check
+    # that is patched in other tests or freezing time doesn't work
+    def test_404_when_no_snapshots(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/1/snapshots?version=2",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
