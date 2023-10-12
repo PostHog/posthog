@@ -240,11 +240,11 @@ export class IngestionConsumer {
             topic: this.topic,
             groupId: this.consumerGroupId,
             autoCommit: true,
-            sessionTimeout: 30000,
+            sessionTimeout: this.pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            fetchBatchSize: 500,
+            fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
             topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })

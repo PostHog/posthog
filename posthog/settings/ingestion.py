@@ -30,14 +30,5 @@ PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
     "PARTITION_KEY_BUCKET_REPLENTISH_RATE", type_cast=float, default=1.0
 )
 
-REPLAY_EVENT_MAX_SIZE = get_from_env("REPLAY_EVENT_MAX_SIZE", type_cast=int, default=1024 * 512)  # 512kb
-REPLAY_EVENTS_NEW_CONSUMER_RATIO = get_from_env("REPLAY_EVENTS_NEW_CONSUMER_RATIO", type_cast=float, default=0.0)
-
-if REPLAY_EVENTS_NEW_CONSUMER_RATIO > 1 or REPLAY_EVENTS_NEW_CONSUMER_RATIO < 0:
-    logger.critical(
-        "Environment variable REPLAY_EVENTS_NEW_CONSUMER_RATIO is not between 0 and 1. Setting to 0 to be safe."
-    )
-    REPLAY_EVENTS_NEW_CONSUMER_RATIO = 0
-
-REPLAY_RETENTION_DAYS_MIN = 30
-REPLAY_RETENTION_DAYS_MAX = 90
+REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
+REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)

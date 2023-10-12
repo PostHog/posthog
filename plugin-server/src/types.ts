@@ -77,7 +77,6 @@ export enum PluginServerMode {
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
-    recordings_ingestion = 'recordings-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
@@ -289,7 +288,6 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -937,6 +935,15 @@ export interface RawSessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
+}
+
+/** Raw session replay event row from ClickHouse. */
+export interface RawSessionReplayEvent {
+    min_first_timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    /* TODO what columns do we need */
 }
 
 export interface RawPerformanceEvent {

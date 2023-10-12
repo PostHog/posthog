@@ -35,7 +35,6 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { startSessionRecordingEventsConsumerV1 } from './ingestion-queues/session-recording/session-recordings-consumer-v1'
 import { SessionRecordingIngesterV2 } from './ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
@@ -400,30 +399,6 @@ export async function startPluginsServer(
 
             hub.lastActivity = new Date().valueOf()
             hub.lastActivityType = 'serverStart'
-        }
-
-        if (capabilities.sessionRecordingIngestion) {
-            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const {
-                stop,
-                isHealthy: isSessionRecordingsHealthy,
-                join,
-            } = await startSessionRecordingEventsConsumerV1({
-                teamManager: teamManager,
-                kafkaConfig: serverConfig,
-                kafkaProducerConfig: serverConfig,
-                consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
-                consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-                consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-                consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-                batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-                topicCreationTimeoutMs: serverConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            })
-            stopSessionRecordingEventsConsumer = stop
-            joinSessionRecordingEventsConsumer = join
-            healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {

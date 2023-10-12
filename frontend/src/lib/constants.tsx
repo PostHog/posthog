@@ -130,24 +130,18 @@ export const FEATURE_FLAGS = {
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
-    RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
-    FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-monitoring
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
-    EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
-    SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
-    SURVEYS: 'surveys', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
@@ -163,13 +157,9 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    SURVEY_NPS_RESULTS: 'survey-nps-results', // owner: @liyiy
-    // owner: #team-monitoring
-    SESSION_RECORDING_ALLOW_V1_SNAPSHOTS: 'session-recording-allow-v1-snapshots',
     SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
     HOGQL_INSIGHTS: 'hogql-insights', // owner: @mariusandra
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
-    SURVEYS_SITE_APP_DEPRECATION: 'surveys-site-app-deprecation', // owner: @neilkakkar
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring

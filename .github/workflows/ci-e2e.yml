@@ -49,6 +49,7 @@ jobs:
                         # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
+                        - cypress/**
 
     # Job that lists and chunks spec file names and caches node modules
     chunks:
