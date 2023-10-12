@@ -52,13 +52,15 @@ function NotebooksChoiceList(props: {
                     return (
                         <LemonButton
                             key={i}
-                            icon={
-                                <ProfilePicture
-                                    name={notebook.created_by?.first_name}
-                                    email={notebook.created_by?.email}
-                                    size="md"
-                                    title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
-                                />
+                            sideIcon={
+                                notebook.created_by ? (
+                                    <ProfilePicture
+                                        name={notebook.created_by?.first_name}
+                                        email={notebook.created_by?.email}
+                                        size="md"
+                                        title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
+                                    />
+                                ) : null
                             }
                             fullWidth
                             onClick={() => props.onClick(notebook.short_id)}
