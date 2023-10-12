@@ -95,7 +95,7 @@ type PartitionMetrics = {
     lastKnownCommit?: number
 }
 
-export class SessionRecordingIngesterV2 {
+export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
     sessionHighWaterMarker: OffsetHighWaterMarker
