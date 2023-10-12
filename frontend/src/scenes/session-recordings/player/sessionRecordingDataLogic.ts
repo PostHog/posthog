@@ -20,8 +20,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from '@rrweb/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
@@ -135,7 +133,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -144,10 +141,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadRecordingMeta: true,
         maybeLoadRecordingMeta: true,
-        loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
-        loadRecordingSnapshots: true,
-        loadRecordingSnapshotsSuccess: true,
-        loadRecordingSnapshotsFailure: true,
+        loadRecordingSnapshots: (source?: SessionRecordingSnapshotSource) => ({ source }),
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         reportViewed: true,
@@ -185,15 +179,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingSnapshots: () => {
-            if (values.sessionPlayerSnapshotDataLoading) {
-                return
-            }
-            if (!values.sessionPlayerSnapshotData?.snapshots) {
-                actions.loadRecordingSnapshotsV2()
-            }
             actions.loadEvents()
         },
-        loadRecordingSnapshotsV2Success: () => {
+        loadRecordingSnapshotsSuccess: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
                 // We got only a snapshot response for realtime, and it was empty
@@ -204,15 +192,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return
             }
 
-            actions.loadRecordingSnapshotsSuccess()
-
-            const nextSourceToLoad = sources?.find((s) => !s.loaded)
-
-            if (nextSourceToLoad) {
-                actions.loadRecordingSnapshotsV2(nextSourceToLoad)
-            }
-        },
-        loadRecordingSnapshotsSuccess: () => {
             cache.firstPaintDurationRow = {
                 size: (values.sessionPlayerSnapshotData?.snapshots ?? []).length,
                 duration: Math.round(performance.now() - cache.snapshotsStartTime),
@@ -220,9 +199,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             actions.reportViewed()
             actions.reportUsageIfFullyLoaded()
-        },
-        loadRecordingSnapshotsV2Failure: () => {
-            actions.loadRecordingSnapshotsFailure()
+
+            const nextSourceToLoad = sources?.find((s) => !s.loaded)
+
+            if (nextSourceToLoad) {
+                actions.loadRecordingSnapshots(nextSourceToLoad)
+            }
         },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
@@ -303,7 +285,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
-                loadRecordingSnapshotsV2: async ({ source }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
+                loadRecordingSnapshots: async ({ source }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerSnapshotData
                     }
@@ -514,7 +496,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
                 s.sessionEventsDataLoading,
-                s.hasAvailableFeature,
             ],
             (
                 sessionPlayerSnapshotData,

@@ -108,7 +108,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['user', 'hasAvailableFeature'],
             preflightLogic,
             ['preflight'],
             featureFlagLogic,
@@ -762,15 +762,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
-            // If buffering, toggle is a noop
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
-                return
-            }
             // If paused, start playing
-            if (
-                values.currentPlayerState === SessionPlayerState.PAUSE ||
-                values.currentPlayerState === SessionPlayerState.READY
-            ) {
+            if (values.playingState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
             }
             // If playing, pause
@@ -873,7 +866,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+            if (!values.user?.is_impersonated && !values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
                 openBillingPopupModal({
                     title: 'Unlock recording exports',
                     description:
@@ -896,7 +889,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
 
                 const recordingFile = new File(
-                    [JSON.stringify(payload)],
+                    [JSON.stringify(payload, null, 2)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,
                     { type: 'application/json' }
                 )
