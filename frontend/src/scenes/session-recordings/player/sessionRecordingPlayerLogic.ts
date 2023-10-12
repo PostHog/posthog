@@ -762,15 +762,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
-            // If buffering, toggle is a noop
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
-                return
-            }
             // If paused, start playing
-            if (
-                values.currentPlayerState === SessionPlayerState.PAUSE ||
-                values.currentPlayerState === SessionPlayerState.READY
-            ) {
+            if (values.playingState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
             }
             // If playing, pause
