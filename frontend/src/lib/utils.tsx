@@ -1583,15 +1583,22 @@ export function isNumeric(x: any): boolean {
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
 }
 
-export function isNull<T>(arg: T | null): arg is null {
-    return arg === null
-}
-export function isNotNull<T>(arg: T): arg is Exclude<T, null> {
-    return arg !== null
-}
-export function isNil<T>(arg: T | null | undefined): arg is null | undefined {
-    return arg === null || arg === undefined
-}
+/**
+ * Check if the argument is nullish (null or undefined).
+ *
+ * Useful as a typeguard, e.g. when passed to Array.filter()
+ *
+ * @example
+ * const myList = [1, 2, null]; // type is (number | null)[]
+ *
+ * // using isNotNil
+ * const myFilteredList1 = myList.filter(isNotNil) // type is number[]
+ * const squaredList1 = myFilteredList1.map(x => x * x) // not a type error!
+ *
+ * // compared to:
+ * const myFilteredList2 = myList.filter(x => x != null) // type is (number | null)[]
+ * const squaredList2 = myFilteredList2.map(x => x * x) // Type Error: TS18047: x is possibly null
+ */
 export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
     return arg !== null && arg !== undefined
 }
