@@ -239,10 +239,6 @@ export const defaultSurveyTemplates = [
                     'Other',
                 ],
             },
-            {
-                type: SurveyQuestionType.Open,
-                question: "Anything else you'd like to share?",
-            },
         ],
         description: 'Find out if it was something you said.',
     },

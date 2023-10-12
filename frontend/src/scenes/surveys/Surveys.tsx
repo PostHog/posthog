@@ -8,6 +8,7 @@ import {
     LemonTag,
     LemonTagType,
     Spinner,
+    LemonButtonWithSideAction,
 } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -78,9 +79,25 @@ export function Surveys(): JSX.Element {
                 }
                 buttons={
                     <>
-                        <LemonButton type="primary" to={urls.surveyTemplates()} data-attr="new-survey">
-                            New
-                        </LemonButton>
+                        <LemonButtonWithSideAction
+                            to={urls.surveyTemplates()}
+                            type="primary"
+                            data-attr="new-survey"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-start',
+                                    actionable: true,
+                                    overlay: (
+                                        <LemonButton size="small" to={urls.survey('new')}>
+                                            New from blank
+                                        </LemonButton>
+                                    ),
+                                },
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                        >
+                            New survey
+                        </LemonButtonWithSideAction>
                         <LemonButton
                             type="secondary"
                             icon={<IconSettings />}
