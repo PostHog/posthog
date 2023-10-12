@@ -4,7 +4,6 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ElapsedTime, Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CodeEditor } from 'lib/components/CodeEditors'
@@ -26,8 +25,10 @@ export function HogQLDebug({ query, setQuery }: HogQLDebugProps): JSX.Element {
                 </div>
                 {dataLoading ? (
                     <>
-                        <Spinner />
-                        <ElapsedTime />
+                        <h2>Running query...</h2>
+                        <div className="flex">
+                            Time elapsed: <ElapsedTime />
+                        </div>
                     </>
                 ) : (
                     <>
