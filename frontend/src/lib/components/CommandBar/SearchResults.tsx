@@ -6,7 +6,7 @@ import SearchResult from './SearchResult'
 
 const SearchResults = (): JSX.Element => {
     const { searchResults, activeResultIndex, keyboardResultIndex, maxIndex } = useValues(searchBarLogic)
-    const { onArrowUp, onArrowDown, openActiveResult } = useActions(searchBarLogic)
+    const { onArrowUp, onArrowDown, openResult } = useActions(searchBarLogic)
 
     useEventListener('keydown', (event) => {
         if (!searchResults) {
@@ -15,7 +15,7 @@ const SearchResults = (): JSX.Element => {
 
         if (event.key === 'Enter') {
             event.preventDefault()
-            openActiveResult()
+            openResult(activeResultIndex)
         } else if (event.key === 'ArrowDown') {
             event.preventDefault()
             onArrowDown(activeResultIndex, maxIndex)

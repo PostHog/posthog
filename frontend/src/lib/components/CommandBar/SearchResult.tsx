@@ -13,7 +13,7 @@ type SearchResultProps = {
 }
 
 const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { onMouseEnterResult, onMouseLeaveResult, openActiveResult } = useActions(searchBarLogic)
+    const { onMouseEnterResult, onMouseLeaveResult, openResult } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -35,7 +35,7 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
                 onMouseLeaveResult()
             }}
             onClick={() => {
-                openActiveResult()
+                openResult(resultIndex)
             }}
             ref={ref}
         >

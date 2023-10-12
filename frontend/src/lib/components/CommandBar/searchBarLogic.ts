@@ -21,7 +21,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
-        openActiveResult: true,
+        openResult: (index: number) => ({ index }),
     }),
     loaders({
         searchResponse: [
@@ -39,7 +39,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             0,
             {
                 setSearchQuery: () => 0,
-                openActiveResult: () => 0,
+                openResult: () => 0,
                 onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
             },
@@ -65,8 +65,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        openActiveResult: () => {
-            const result = values.searchResults[values.activeResultIndex]
+        openResult: ({ index }) => {
+            const result = values.searchResults[index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
