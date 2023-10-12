@@ -117,7 +117,7 @@ class TrendsQueryBuilder:
         )
 
         if self._breakdown.enabled:
-            query.select.append(self._breakdown.events_select())
+            query.select.append(self._breakdown.column_expr())
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
         return query
@@ -168,11 +168,11 @@ class TrendsQueryBuilder:
         filters.extend(
             [
                 parse_expr(
-                    "(toTimeZone(timestamp, 'UTC') >= {date_from})",
+                    "timestamp >= {date_from}",
                     placeholders=self.query_date_range.to_placeholders(),
                 ),
                 parse_expr(
-                    "(toTimeZone(timestamp, 'UTC') <= {date_to})",
+                    "timestamp <= {date_to}",
                     placeholders=self.query_date_range.to_placeholders(),
                 ),
             ]

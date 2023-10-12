@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
 from posthog.hogql_queries.insights.trends.utils import series_event_name
@@ -23,41 +23,42 @@ class Breakdown:
         self.query_date_range = query_date_range
 
     @cached_property
-    def enabled(self):
+    def enabled(self) -> bool:
         return self.query.breakdown is not None and self.query.breakdown.breakdown is not None
 
     @cached_property
-    def is_histogram_breakdown(self):
+    def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdown.breakdown_histogram_bin_count is not None
 
-    def placeholders(self):
-        values = self._get_breakdown_buckets_ast() if self.is_histogram_breakdown else self._get_breakdown_values_ast
+    def placeholders(self) -> Dict[str, ast.Expr]:
+        values = self._breakdown_buckets_ast if self.is_histogram_breakdown else self._breakdown_values_ast
 
         return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
 
-    def events_select(self):
+    def column_expr(self) -> ast.Expr:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
         return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["properties", self.query.breakdown.breakdown]))
 
-    def events_where_filter(self):
+    def events_where_filter(self) -> ast.Expr:
         return ast.CompareOperation(
             left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
             op=ast.CompareOperationOp.In,
-            right=self._get_breakdown_values_ast,
+            right=self._breakdown_values_ast,
         )
 
-    def _get_breakdown_buckets_ast(self) -> ast.Array:
+    @cached_property
+    def _breakdown_buckets_ast(self) -> ast.Array:
         buckets = self._get_breakdown_histogram_buckets()
-        values = list(map(lambda t: f"[{t[0]},{t[1]}]", buckets))
+        values = [f"[{t[0]},{t[1]}]" for t in buckets]
         values.append('["",""]')
 
         return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
 
     @cached_property
-    def _get_breakdown_values_ast(self) -> ast.Array:
-        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), self._get_breakdown_values)))
+    def _breakdown_values_ast(self) -> ast.Array:
+        return ast.Array(exprs=[ast.Constant(value=v) for v in self._get_breakdown_values])
 
     @cached_property
     def _get_breakdown_values(self) -> ast.Array:
@@ -79,6 +80,9 @@ class Breakdown:
 
         for i in range(len(values) - 1):
             last_value = i == len(values) - 2
+
+            # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
+            # to ensure it's always slightly greater than the maximum value
             lower_bound = values[i]
             upper_bound = values[i + 1] + 0.01 if last_value else values[i + 1]
             buckets.append((lower_bound, upper_bound))

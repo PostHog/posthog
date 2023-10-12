@@ -73,11 +73,11 @@ class BreakdownValues:
         filters.extend(
             [
                 parse_expr(
-                    "toTimeZone(timestamp, 'UTC') >= {date_from}",
+                    "timestamp >= {date_from}",
                     placeholders=self.query_date_range.to_placeholders(),
                 ),
                 parse_expr(
-                    "toTimeZone(timestamp, 'UTC') <= {date_to}",
+                    "timestamp <= {date_to}",
                     placeholders=self.query_date_range.to_placeholders(),
                 ),
             ]
