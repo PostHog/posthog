@@ -11,7 +11,7 @@
 #include "parser.h"
 #include "string.h"
 
-#define VISIT(RULE) virtual any visit##RULE(HogQLParser::RULE##Context* ctx) override
+#define VISIT(RULE) any visit##RULE(HogQLParser::RULE##Context* ctx) override
 #define VISIT_UNSUPPORTED(RULE)                                     \
   VISIT(RULE) {                                                     \
     throw HogQLNotImplementedException("Unsupported rule: " #RULE); \
@@ -276,6 +276,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (window_clause_ctx) {
       auto window_expr_ctxs = window_clause_ctx->windowExpr();
       auto identifier_ctxs = window_clause_ctx->identifier();
+      if (window_expr_ctxs.size() != identifier_ctxs.size()) {
+        throw HogQLParsingException("WindowClause must have a matching number of window exprs and identifiers");
+      }
       PyObject* window_exprs = PyDict_New();
       PyObject_SetAttrString(select_query, "window_exprs", window_exprs);
       for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
@@ -524,6 +527,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(RatioExpr) {
     auto number_literal_ctxs = ctx->numberLiteral();
 
+    if (number_literal_ctxs.size() > 2) {
+      throw HogQLParsingException("RatioExpr must have at most two number literals");
+    } else if (number_literal_ctxs.size() == 0) {
+      throw HogQLParsingException("RatioExpr must have at least one number literal");
+    }
+  
     auto left_ctx = number_literal_ctxs[0];
     auto right_ctx = ctx->SLASH() && number_literal_ctxs.size() > 1 ? number_literal_ctxs[1] : NULL;
 
