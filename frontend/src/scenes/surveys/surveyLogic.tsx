@@ -10,11 +10,11 @@ import {
     ChartDisplayType,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
     SurveyQuestionType,
     SurveyUrlMatchType,
-    RatingSurveyQuestion,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
 import { DataTableNode, InsightVizNode, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -49,10 +49,18 @@ export interface SurveyUserStats {
 }
 
 export interface SurveyRatingResults {
-    [key: string]: number[]
+    [key: number]: number[]
 }
 
-export interface SurveyRatingResultsReady {
+export interface SurveySingleChoiceResults {
+    [key: number]: {
+        labels: string[]
+        data: number[]
+        total: number
+    }
+}
+
+export interface QuestionResultsReady {
     [key: string]: boolean
 }
 
@@ -175,12 +183,11 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
-                question,
             }: {
                 questionIndex: number
-                question: RatingSurveyQuestion
-            }): Promise<{ [key: string]: number[] }> => {
+            }): Promise<SurveyRatingResults> => {
                 const { survey } = values
+                const question = values.survey.questions[questionIndex] as RatingSurveyQuestion
                 const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
@@ -209,7 +216,44 @@ export const surveyLogic = kea<surveyLogicType>([
                     resultArr[value - 1] = count
                 })
 
-                return { ...values.surveyRatingResults, [`question_${questionIndex}`]: resultArr }
+                return { ...values.surveyRatingResults, [questionIndex]: resultArr }
+            },
+        },
+        surveySingleChoiceResults: {
+            loadSurveySingleChoiceResults: async ({
+                questionIndex,
+            }: {
+                questionIndex: number
+            }): Promise<SurveySingleChoiceResults> => {
+                const { survey } = values
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const surveyResponseField =
+                    questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        FROM events
+                        WHERE event = 'survey sent' 
+                            AND properties.$survey_id = '${props.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        GROUP BY survey_response
+                    `,
+                }
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+
+                const labels = results?.map((r) => r[0])
+                const data = results?.map((r) => r[1])
+                const total = data?.reduce((a, b) => a + b, 0)
+
+                return { ...values.surveySingleChoiceResults, [questionIndex]: { labels, data, total } }
             },
         },
     })),
@@ -305,7 +349,21 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
-                    return { ...state, [`question_${payload?.questionIndex}`]: true }
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
+                },
+            },
+        ],
+        surveySingleChoiceResultsReady: [
+            {},
+            {
+                loadSurveySingleChoiceResultsSuccess: (state, { payload }) => {
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
                 },
             },
         ],

@@ -321,7 +321,12 @@ export class SessionRecordingIngester {
 
         if (invalidEvents.length) {
             captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
-                extra: { events: invalidEvents },
+                extra: {
+                    invalidEvents,
+                    eventsCount: events.length,
+                    invalidEventsCount: invalidEvents.length,
+                    event,
+                },
                 tags: {
                     team_id: teamId,
                     session_id: $session_id,
