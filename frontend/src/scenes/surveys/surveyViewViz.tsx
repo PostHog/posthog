@@ -8,11 +8,11 @@ import {
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { GraphType, MultipleSurveyQuestion } from '~/types'
+import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightLogicProps, RatingSurveyQuestion } from '~/types'
+import { InsightLogicProps, SurveyQuestionType } from '~/types'
 import { useEffect } from 'react'
 
 const insightProps: InsightLogicProps = {
@@ -165,7 +165,11 @@ export function RatingQuestionBarChart({
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const question = survey.questions[questionIndex] as RatingSurveyQuestion
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.Rating) {
+        throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
+    }
 
     useEffect(() => {
         loadSurveyRatingResults({ questionIndex })
@@ -231,7 +235,11 @@ export function SingleChoiceQuestionPieChart({
 }): JSX.Element {
     const { loadSurveySingleChoiceResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const question = survey.questions[questionIndex] as MultipleSurveyQuestion
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.SingleChoice) {
+        throw new Error(`Question type must be ${SurveyQuestionType.SingleChoice}`)
+    }
 
     // Insights colors
     // TODO: make available in Tailwind
@@ -264,8 +272,8 @@ export function SingleChoiceQuestionPieChart({
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className="h-50 border rounded py-4 flex">
-                        <div className="relative h-full w-60">
+                    <div className="h-80 border rounded pt-4 pb-2 flex">
+                        <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <PieChart
                                     labelGroupType={1}
@@ -291,9 +299,18 @@ export function SingleChoiceQuestionPieChart({
                             </BindLogic>
                         </div>
                         <div
-                            className={`h-full pt-4 pb-6 grid grid-cols-${Math.ceil(
-                                surveySingleChoiceResults[questionIndex].data.length / 3
-                            )}`}
+                            className={`grid h-full pl-4 py-${(() => {
+                                const dataLength = surveySingleChoiceResults[questionIndex].data.length
+                                if (dataLength < 5) {
+                                    return 20
+                                } else if (dataLength < 7) {
+                                    return 15
+                                } else if (dataLength < 10) {
+                                    return 10
+                                } else {
+                                    return 5
+                                }
+                            })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
                         >
                             {surveySingleChoiceResults[questionIndex].data.map((count: number, i: number) => {
                                 const { total, labels } = surveySingleChoiceResults[questionIndex]
