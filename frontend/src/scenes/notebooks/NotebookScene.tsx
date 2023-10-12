@@ -15,6 +15,7 @@ import {
     IconExport,
     IconHelpOutline,
     IconNotification,
+    IconShare,
 } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksModel } from '~/models/notebooksModel'
@@ -25,6 +26,7 @@ import './NotebookScene.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
+import { openNotebookShareDialog } from './Notebook/NotebookShare'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -101,6 +103,11 @@ export function NotebookScene(): JSX.Element {
                                         label: 'History',
                                         icon: <IconNotification />,
                                         onClick: () => setShowHistory(!showHistory),
+                                    },
+                                    {
+                                        label: 'Share',
+                                        icon: <IconShare />,
+                                        onClick: () => openNotebookShareDialog({ shortId: notebookId }),
                                     },
                                     !isTemplate && {
                                         label: 'Delete',
