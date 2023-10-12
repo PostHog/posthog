@@ -4,7 +4,7 @@ import './NotebookPopover.scss'
 import { Notebook } from './Notebook'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
@@ -53,7 +53,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         to={urls.notebook(selectedNotebook)}
                         onClick={() => setVisibility('hidden')}
                         status="primary-alt"
-                        icon={<IconLink />}
+                        icon={<IconOpenInNew />}
                         tooltip="Go to Notebook"
                         tooltipPlacement="left"
                     />
