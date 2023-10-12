@@ -64,7 +64,7 @@ def property_to_expr(
     elif isinstance(property, Property):
         pass
     elif isinstance(property, ast.Expr):
-        return property
+        return clone_expr(property)
     elif (
         isinstance(property, PropertyGroup)
         or isinstance(property, PropertyGroupFilter)
