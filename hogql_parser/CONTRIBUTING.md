@@ -34,7 +34,7 @@ If you're new to Python C/C++ extensions, there are some things you must have in
 1. Install libraries:
 
     ```bash
-    brew install boost antlr
+    brew install boost antlr4-cpp-runtime
     ```
 
 1. Install `hogql_parser` by building from local sources:
