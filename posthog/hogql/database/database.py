@@ -33,6 +33,7 @@ from posthog.hogql.database.schema.person_overrides import PersonOverridesTable,
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.utils import PersonOnEventsMode
 
@@ -117,6 +118,9 @@ def create_hogql_database(team_id: int) -> Database:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    for mapping in GroupTypeMapping.objects.filter(team=team):
+        database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         table = database.get_table(view.table)
