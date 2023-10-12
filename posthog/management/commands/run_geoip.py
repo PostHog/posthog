@@ -14,6 +14,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         geoip = GeoIP2(cache=8)
-        ip = options.get("ip")
-        print("Country: ", geoip.country(ip))  # noqa: T201
-        print("City: ", geoip.city(ip))  # noqa: T201
+        ip_arg = options.get("ip")
+        if not isinstance(ip_arg, str):
+            raise ValueError("ip not a string")
+
+        ips = ip_arg.split(",")
+
+        for ip in ips:
+            ip = ip.strip()
+            print("----")  # noqa: T201
+            print(ip)  # noqa: T201
+            print("Country: ", geoip.country(ip))  # noqa: T201
+            print("City: ", geoip.city(ip))  # noqa: T201
