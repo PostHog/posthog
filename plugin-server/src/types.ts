@@ -127,7 +127,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
