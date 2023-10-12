@@ -1,7 +1,7 @@
 from typing import Dict, List, Tuple
 from posthog.hogql import ast
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
-from posthog.hogql_queries.insights.trends.utils import series_event_name
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain, series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
@@ -39,11 +39,26 @@ class Breakdown:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
-        return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["properties", self.query.breakdown.breakdown]))
+        return ast.Alias(
+            alias="breakdown_value",
+            expr=ast.Field(
+                chain=get_properties_chain(
+                    breakdown_type=self.query.breakdown.breakdown_type,
+                    breakdown_field=self.query.breakdown.breakdown,
+                    group_type_index=self.query.breakdown.breakdown_group_type_index,
+                )
+            ),
+        )
 
     def events_where_filter(self) -> ast.Expr:
         return ast.CompareOperation(
-            left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+            left=ast.Field(
+                chain=get_properties_chain(
+                    breakdown_type=self.query.breakdown.breakdown_type,
+                    breakdown_field=self.query.breakdown.breakdown,
+                    group_type_index=self.query.breakdown.breakdown_group_type_index,
+                )
+            ),
             op=ast.CompareOperationOp.In,
             right=self._breakdown_values_ast,
         )
@@ -66,8 +81,10 @@ class Breakdown:
             team=self.team,
             event_name=series_event_name(self.series),
             breakdown_field=self.query.breakdown.breakdown,
+            breakdown_type=self.query.breakdown.breakdown_type,
             query_date_range=self.query_date_range,
             histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
+            group_type_index=self.query.breakdown.breakdown_group_type_index,
         )
         return breakdown.get_breakdown_values()
 
@@ -101,12 +118,24 @@ class Breakdown:
                     ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+                                left=ast.Field(
+                                    chain=get_properties_chain(
+                                        breakdown_type=self.query.breakdown.breakdown_type,
+                                        breakdown_field=self.query.breakdown.breakdown,
+                                        group_type_index=self.query.breakdown.breakdown_group_type_index,
+                                    )
+                                ),
                                 op=ast.CompareOperationOp.GtEq,
                                 right=ast.Constant(value=lower_bound),
                             ),
                             ast.CompareOperation(
-                                left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+                                left=ast.Field(
+                                    chain=get_properties_chain(
+                                        breakdown_type=self.query.breakdown.breakdown_type,
+                                        breakdown_field=self.query.breakdown.breakdown,
+                                        group_type_index=self.query.breakdown.breakdown_group_type_index,
+                                    )
+                                ),
                                 op=ast.CompareOperationOp.Lt,
                                 right=ast.Constant(value=upper_bound),
                             ),

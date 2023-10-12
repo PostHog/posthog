@@ -2,6 +2,7 @@ from typing import List, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
@@ -10,8 +11,10 @@ class BreakdownValues:
     team: Team
     event_name: str
     breakdown_field: str
+    breakdown_type: str
     query_date_range: QueryDateRange
     histogram_bin_count: Optional[int]
+    group_type_index: Optional[int]
 
     def __init__(
         self,
@@ -19,16 +22,29 @@ class BreakdownValues:
         event_name: str,
         breakdown_field: str,
         query_date_range: QueryDateRange,
+        breakdown_type: str,
         histogram_bin_count: Optional[float] = None,
+        group_type_index: Optional[float] = None,
     ):
         self.team = team
         self.event_name = event_name
         self.breakdown_field = breakdown_field
         self.query_date_range = query_date_range
+        self.breakdown_type = breakdown_type
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
+        self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
     def get_breakdown_values(self) -> List[str]:
-        select_field = ast.Alias(alias="value", expr=ast.Field(chain=["properties", self.breakdown_field]))
+        select_field = ast.Alias(
+            alias="value",
+            expr=ast.Field(
+                chain=get_properties_chain(
+                    breakdown_type=self.breakdown_type,
+                    breakdown_field=self.breakdown_field,
+                    group_type_index=self.group_type_index,
+                )
+            ),
+        )
 
         query = parse_select(
             """

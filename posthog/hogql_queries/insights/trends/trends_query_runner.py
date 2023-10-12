@@ -199,12 +199,26 @@ class TrendsQueryRunner(QueryRunner):
         return [new_result]
 
     def _is_breakdown_field_boolean(self):
-        field_type = self._event_property(self.query.breakdown.breakdown)
+        if self.query.breakdown.breakdown_type == "person":
+            property_type = PropertyDefinition.Type.PERSON
+        elif self.query.breakdown.breakdown_type == "group":
+            property_type = PropertyDefinition.Type.GROUP
+        else:
+            property_type = PropertyDefinition.Type.EVENT
+
+        field_type = self._event_property(
+            self.query.breakdown.breakdown, property_type, self.query.breakdown.breakdown_group_type_index
+        )
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: any):
         bool_map = {1: "true", 0: "false", "": ""}
         return bool_map.get(value) or value
 
-    def _event_property(self, field: str):
-        return PropertyDefinition.objects.get(name=field).property_type
+    def _event_property(self, field: str, field_type: PropertyDefinition.Type, group_type_index: Optional[int]):
+        return PropertyDefinition.objects.get(
+            name=field,
+            team=self.team,
+            type=field_type,
+            group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
+        ).property_type
