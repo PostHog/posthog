@@ -179,12 +179,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
         loadRecordingSnapshots: () => {
-            if (values.sessionPlayerSnapshotDataLoading) {
-                return
-            }
-            if (!values.sessionPlayerSnapshotData?.snapshots) {
-                actions.loadRecordingSnapshots()
-            }
             actions.loadEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
