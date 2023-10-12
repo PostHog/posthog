@@ -1,0 +1,118 @@
+from typing import List, Tuple
+from posthog.hogql import ast
+from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
+from posthog.hogql_queries.insights.trends.utils import series_event_name
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
+from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+
+
+class Breakdown:
+    query: TrendsQuery
+    team: Team
+    series: EventsNode | ActionsNode
+    query_date_range: QueryDateRange
+
+    def __init__(
+        self, team: Team, query: TrendsQuery, series: EventsNode | ActionsNode, query_date_range: QueryDateRange
+    ):
+        self.team = team
+        self.query = query
+        self.series = series
+        self.query_date_range = query_date_range
+
+    @cached_property
+    def enabled(self):
+        return self.query.breakdown is not None and self.query.breakdown.breakdown is not None
+
+    @cached_property
+    def is_histogram_breakdown(self):
+        return self.enabled and self.query.breakdown.breakdown_histogram_bin_count is not None
+
+    def placeholders(self):
+        values = self._get_breakdown_buckets_ast() if self.is_histogram_breakdown else self._get_breakdown_values_ast
+
+        return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
+
+    def events_select(self):
+        if self.is_histogram_breakdown:
+            return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
+
+        return ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["properties", self.query.breakdown.breakdown]))
+
+    def events_where_filter(self):
+        return ast.CompareOperation(
+            left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+            op=ast.CompareOperationOp.In,
+            right=self._get_breakdown_values_ast,
+        )
+
+    def _get_breakdown_buckets_ast(self) -> ast.Array:
+        buckets = self._get_breakdown_histogram_buckets()
+        values = list(map(lambda t: f"[{t[0]},{t[1]}]", buckets))
+        values.append('["",""]')
+
+        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), values)))
+
+    @cached_property
+    def _get_breakdown_values_ast(self) -> ast.Array:
+        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), self._get_breakdown_values)))
+
+    @cached_property
+    def _get_breakdown_values(self) -> ast.Array:
+        breakdown = BreakdownValues(
+            team=self.team,
+            event_name=series_event_name(self.series),
+            breakdown_field=self.query.breakdown.breakdown,
+            query_date_range=self.query_date_range,
+            histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
+        )
+        return breakdown.get_breakdown_values()
+
+    def _get_breakdown_histogram_buckets(self) -> List[Tuple[float, float]]:
+        buckets = []
+        values = self._get_breakdown_values
+
+        if len(values) == 1:
+            values = [values[0], values[0]]
+
+        for i in range(len(values) - 1):
+            last_value = i == len(values) - 2
+            lower_bound = values[i]
+            upper_bound = values[i + 1] + 0.01 if last_value else values[i + 1]
+            buckets.append((lower_bound, upper_bound))
+
+        return buckets
+
+    def _get_breakdown_histogram_multi_if(self) -> ast.Expr:
+        multi_if_exprs: List[ast.Expr] = []
+
+        buckets = self._get_breakdown_histogram_buckets()
+
+        for lower_bound, upper_bound in buckets:
+
+            multi_if_exprs.extend(
+                [
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+                                op=ast.CompareOperationOp.GtEq,
+                                right=ast.Constant(value=lower_bound),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
+                                op=ast.CompareOperationOp.Lt,
+                                right=ast.Constant(value=upper_bound),
+                            ),
+                        ]
+                    ),
+                    ast.Constant(value=f"[{lower_bound},{upper_bound}]"),
+                ]
+            )
+
+        # `else` block of the multi-if
+        multi_if_exprs.append(ast.Constant(value='["",""]'))
+
+        return ast.Call(name="multiIf", args=multi_if_exprs)

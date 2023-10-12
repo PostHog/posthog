@@ -19,6 +19,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import ActionsNode, EventsNode, HogQLQueryResponse, TrendsQuery, TrendsQueryResponse
 
 
@@ -131,8 +132,13 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when breakdowns are active
             if self.query.breakdown is not None and self.query.breakdown.breakdown is not None:
-                series_object["breakdown_value"] = val[2]
-                series_object["label"] = "{} - {}".format(series_object["label"], val[2])
+                if self._is_breakdown_field_boolean():
+                    remapped_label = self._convert_boolean(val[2])
+                    series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                    series_object["breakdown_value"] = remapped_label
+                else:
+                    series_object["label"] = "{} - {}".format(series_object["label"], val[2])
+                    series_object["breakdown_value"] = val[2]
 
             res.append(series_object)
         return res
@@ -191,3 +197,22 @@ class TrendsQueryRunner(QueryRunner):
         new_result["label"] = f"Formula ({formula})"
 
         return [new_result]
+
+    def _is_breakdown_field_boolean(self):
+        field_type = self._event_properties.get(self.query.breakdown.breakdown)
+        return field_type == "Boolean"
+
+    def _convert_boolean(self, value: any):
+        bool_map = {1: "true", 0: "false", "": ""}
+        return bool_map.get(value) or value
+
+    @cached_property
+    def _event_properties(self):
+        event_property_values = PropertyDefinition.objects.filter(
+            team_id=self.team.pk,
+            type__in=[None, PropertyDefinition.Type.EVENT],
+        ).values_list("name", "property_type")
+
+        event_properties = {name: property_type for name, property_type in event_property_values if property_type}
+
+        return event_properties

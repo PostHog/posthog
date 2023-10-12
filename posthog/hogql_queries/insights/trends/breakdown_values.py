@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -11,12 +11,21 @@ class BreakdownValues:
     event_name: str
     breakdown_field: str
     query_date_range: QueryDateRange
+    histogram_bin_count: Optional[int]
 
-    def __init__(self, team: Team, event_name: str, breakdown_field: str, query_date_range: QueryDateRange):
+    def __init__(
+        self,
+        team: Team,
+        event_name: str,
+        breakdown_field: str,
+        query_date_range: QueryDateRange,
+        histogram_bin_count: Optional[float] = None,
+    ):
         self.team = team
         self.event_name = event_name
         self.breakdown_field = breakdown_field
         self.query_date_range = query_date_range
+        self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
 
     def get_breakdown_values(self) -> List[str]:
         select_field = ast.Alias(alias="value", expr=ast.Field(chain=["properties", self.breakdown_field]))
@@ -36,8 +45,6 @@ class BreakdownValues:
                     ORDER BY
                         count DESC,
                         value DESC
-                    LIMIT 25
-                    OFFSET 0
                 )
             """,
             placeholders={
@@ -46,6 +53,10 @@ class BreakdownValues:
             },
         )
 
+        if self.histogram_bin_count is not None:
+            expr = self._to_bucketing_expression()
+            query.select = [expr]
+
         response = execute_hogql_query(
             query_type="TrendsQueryBreakdownValues",
             query=query,
@@ -53,7 +64,6 @@ class BreakdownValues:
         )
 
         values = response.results[0][0]
-
         return values
 
     def _where_filter(self) -> ast.Expr:
@@ -77,3 +87,18 @@ class BreakdownValues:
             filters.append(parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.event_name)}))
 
         return ast.And(exprs=filters)
+
+    def _to_bucketing_expression(self) -> ast.Expr:
+        assert isinstance(self.histogram_bin_count, int)
+
+        if self.histogram_bin_count <= 1:
+            qunatile_expression = "quantiles(0,1)(value)"
+        else:
+            quantiles = []
+            bin_size = 1.0 / self.histogram_bin_count
+            for i in range(self.histogram_bin_count + 1):
+                quantiles.append(i * bin_size)
+
+            qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
+
+        return parse_expr(f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))")

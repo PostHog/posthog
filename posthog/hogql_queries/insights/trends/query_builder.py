@@ -2,7 +2,8 @@ from typing import List
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
@@ -35,7 +36,7 @@ class TrendsQueryBuilder:
         return full_query
 
     def _get_date_subqueries(self) -> List[ast.SelectQuery]:
-        if not self._breakdown_enabled():
+        if not self._breakdown.enabled:
             return [
                 parse_select(
                     """
@@ -83,7 +84,7 @@ class TrendsQueryBuilder:
                     CROSS JOIN (
                         SELECT breakdown_value
                         FROM (
-                            SELECT {breakdown_values}
+                            SELECT {cross_join_breakdown_values}
                         )
                         ARRAY JOIN breakdown_value as breakdown_value
                     ) as sec
@@ -91,7 +92,7 @@ class TrendsQueryBuilder:
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
-                    "breakdown_values": ast.Alias(alias="breakdown_value", expr=self._get_breakdown_values_ast),
+                    **self._breakdown.placeholders(),
                 },
             )
         ]
@@ -115,10 +116,8 @@ class TrendsQueryBuilder:
             },
         )
 
-        if self._breakdown_enabled():
-            query.select.append(
-                ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["properties", self.query.breakdown.breakdown]))
-            )
+        if self._breakdown.enabled:
+            query.select.append(self._breakdown.events_select())
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
         return query
@@ -134,7 +133,7 @@ class TrendsQueryBuilder:
             placeholders={"inner_query": inner_query},
         )
 
-        if self._breakdown_enabled():
+        if self._breakdown.enabled:
             query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
             query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC")]
@@ -154,7 +153,7 @@ class TrendsQueryBuilder:
             placeholders={"inner_query": inner_query},
         )
 
-        if self._breakdown_enabled():
+        if self._breakdown.enabled:
             query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
@@ -180,9 +179,11 @@ class TrendsQueryBuilder:
         )
 
         # Series
-        if self._series_event_name() is not None:
+        if series_event_name(self.series) is not None:
             filters.append(
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self._series_event_name())})
+                parse_expr(
+                    "event = {event}", placeholders={"event": ast.Constant(value=series_event_name(self.series))}
+                )
             )
 
         # Filter Test Accounts
@@ -203,14 +204,8 @@ class TrendsQueryBuilder:
             filters.append(property_to_expr(series.properties, self.team))
 
         # Breakdown
-        if self._breakdown_enabled():
-            filters.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["properties", self.query.breakdown.breakdown]),
-                    op=ast.CompareOperationOp.In,
-                    right=self._get_breakdown_values_ast,
-                )
-            )
+        if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
+            filters.append(self._breakdown.events_where_filter())
 
         if len(filters) == 0:
             return ast.Constant(value=True)
@@ -232,19 +227,6 @@ class TrendsQueryBuilder:
 
         return f"SAMPLE {self.query.samplingFactor}"
 
-    def _series_event_name(self) -> str | None:
-        if isinstance(self.series, EventsNode):
-            return self.series.event
-        return None
-
-    def _breakdown_enabled(self):
-        return self.query.breakdown is not None and self.query.breakdown.breakdown is not None
-
     @cached_property
-    def _get_breakdown_values_ast(self) -> ast.Array:
-        breakdown = BreakdownValues(
-            self.team, self._series_event_name(), self.query.breakdown.breakdown, self.query_date_range
-        )
-        breakdown_values = breakdown.get_breakdown_values()
-
-        return ast.Array(exprs=list(map(lambda v: ast.Constant(value=v), breakdown_values)))
+    def _breakdown(self):
+        return Breakdown(team=self.team, query=self.query, series=self.series, query_date_range=self.query_date_range)
