@@ -5,7 +5,7 @@ import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
-import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
+import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
@@ -57,7 +57,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
 jest.setTimeout(1000)
 
 describe('ingester', () => {
-    let ingester: SessionRecordingIngesterV2
+    let ingester: SessionRecordingIngester
 
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -76,7 +76,7 @@ describe('ingester', () => {
         teamToken = team.api_token
         await deleteKeysWithPrefix(hub)
 
-        ingester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
         nextOffset = 1
 
@@ -522,11 +522,11 @@ describe('ingester', () => {
     })
 
     describe('simulated rebalancing', () => {
-        let otherIngester: SessionRecordingIngesterV2
+        let otherIngester: SessionRecordingIngester
         jest.setTimeout(5000) // Increased to cover lock delay
 
         beforeEach(async () => {
-            otherIngester = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage)
+            otherIngester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
             await otherIngester.start()
         })
 

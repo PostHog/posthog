@@ -8,7 +8,6 @@ import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { runInstrumentedFunction } from '../../../main/utils'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, RRWebEvent, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -16,6 +15,7 @@ import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
@@ -95,7 +95,7 @@ type PartitionMetrics = {
     lastKnownCommit?: number
 }
 
-export class SessionRecordingIngesterV2 {
+export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
     sessionHighWaterMarker: OffsetHighWaterMarker
