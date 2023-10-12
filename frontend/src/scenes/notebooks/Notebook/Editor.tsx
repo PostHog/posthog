@@ -107,7 +107,7 @@ export function Editor(): JSX.Element {
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
+            // NodeGapInsertionExtension,
         ],
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
