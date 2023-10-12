@@ -342,11 +342,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         },
                     }
                 },
-                setSurveyTemplateValues: (state, { template }) => {
-                    return {
-                        ...state,
-                        ...template,
-                    }
+                setSurveyTemplateValues: (_, { template }) => {
+                    const newTemplateSurvey = { ...NEW_SURVEY, ...template }
+                    return newTemplateSurvey
                 },
             },
         ],

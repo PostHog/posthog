@@ -145,7 +145,7 @@ export function Surveys(): JSX.Element {
                         description={
                             'Use surveys to gather qualitative feedback from your users on new or existing features.'
                         }
-                        action={() => router.actions.push(urls.survey('new'))}
+                        action={() => router.actions.push(urls.surveyTemplates())}
                         isEmpty={surveys.length === 0}
                         productKey={ProductKey.SURVEYS}
                     />

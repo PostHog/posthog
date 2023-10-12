@@ -45,7 +45,7 @@ export function SurveyTemplates(): JSX.Element {
                                         key={idx}
                                         type={template.questions[0].type}
                                         question={template.questions[0].question}
-                                        appearance={{ whiteLabel: true }}
+                                        appearance={{ whiteLabel: true, ...template.appearance }}
                                         surveyQuestionItem={template.questions[0] as SurveyQuestion}
                                         onAppearanceChange={() => {}}
                                         readOnly

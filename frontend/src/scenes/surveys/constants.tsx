@@ -153,12 +153,12 @@ export enum SurveyTemplateType {
     CSAT = 'Customer satisfaction score (CSAT)',
     CES = 'Customer effort score (CES)',
     CCR = 'Customer churn rate (CCR)',
-    Superhuman = 'Product-market fit (Superhuman)',
+    PMF = 'Product-market fit (PMF)',
 }
 
 export const defaultSurveyTemplates = [
     {
-        type: SurveyTemplateTypes.Interview,
+        type: SurveyTemplateType.Interview,
         questions: [
             {
                 type: SurveyQuestionType.Link,
@@ -167,10 +167,11 @@ export const defaultSurveyTemplates = [
                 link: 'https://calendly.com/',
             },
         ],
+        appearance: { submitButtonText: 'Schedule' },
         description: <>Send users straight to your calendar.</>,
     },
     {
-        type: SurveyTemplateTypes.NPS,
+        type: SurveyTemplateType.NPS,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -185,7 +186,7 @@ export const defaultSurveyTemplates = [
         description: 'Get an industry-recognized benchmark.',
     },
     {
-        type: SurveyTemplateTypes.Superhuman,
+        type: SurveyTemplateType.PMF,
         questions: [
             {
                 type: SurveyQuestionType.SingleChoice,
@@ -196,7 +197,7 @@ export const defaultSurveyTemplates = [
         description: "40% 'very disappointed' signals product-market fit.",
     },
     {
-        type: SurveyTemplateTypes.CSAT,
+        type: SurveyTemplateType.CSAT,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -211,7 +212,7 @@ export const defaultSurveyTemplates = [
         description: 'Works best after a checkout or support flow.',
     },
     {
-        type: SurveyTemplateTypes.CES,
+        type: SurveyTemplateType.CES,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -226,7 +227,7 @@ export const defaultSurveyTemplates = [
         description: 'Works well with churn surveys.',
     },
     {
-        type: SurveyTemplateTypes.CCR,
+        type: SurveyTemplateType.CCR,
         questions: [
             {
                 type: SurveyQuestionType.MultipleChoice,
