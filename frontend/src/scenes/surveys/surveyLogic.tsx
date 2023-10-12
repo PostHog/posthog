@@ -358,7 +358,10 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
-                    return { ...state, [`${payload?.questionIndex}`]: true }
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
                 },
             },
         ],
@@ -366,7 +369,10 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveySingleChoiceResultsSuccess: (state, { payload }) => {
-                    return { ...state, [`${payload?.questionIndex}`]: true }
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
                 },
             },
         ],
