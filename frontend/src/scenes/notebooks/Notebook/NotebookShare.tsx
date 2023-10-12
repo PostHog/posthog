@@ -23,8 +23,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
         <div className="space-y-2">
             <h3>Internal Link</h3>
             <p>
-                <b>Click the button below</b> to copy a direct link to this Notebook. Make sure the person you share it
-                with has access to this PostHog project.
+                <b>Click the button below</b> to copy a direct link to this Notebook. Make sure the person you share it with has access to this PostHog project.
             </p>
             <LemonButton
                 type="secondary"
