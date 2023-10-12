@@ -69,9 +69,7 @@ afterEach(function () {
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
-        cy.log(`E2E_TESTING: ${event} ${Cypress.spec.name}`, { state, duration })
         cy.window().then((win) => {
-            cy.log('has posthog on window', { window, posthog: (win as any).posthog })
             ;(win as any).posthog?.capture(event, { state, duration })
         })
     }
