@@ -138,7 +138,13 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     break
                 }
             }
-            actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
+
+            // :FIXME: There is a race condition or something else that prevents a date
+            // range update without the timeout. Fix the race condition or move this
+            // business logic to the date range filter.
+            setTimeout(() => {
+                actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
+            }, 10)
         },
     }),
 })
