@@ -249,10 +249,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         X_PyList_Extend(flattened_queries, sub_select_queries);
         Py_DECREF(sub_select_queries);
       } else {
-        Py_DECREF(flattened_queries);
+        Py_DECREF(flattened_queries);  // FIXME: Also decref all select_queries items
         throw HogQLParsingException("Unexpected query node type: " + string(Py_TYPE(query)->tp_name));
       }
-    }
+    }  // FIXME: Decref all select_queries items
     if (PyList_Size(flattened_queries) == 1) {
       PyObject* query = PyList_GET_ITEM(flattened_queries, 0);
       Py_INCREF(query);
