@@ -9,7 +9,7 @@ import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/ka
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { runInstrumentedFunction } from '../../../main/utils'
-import { PipelineEvent, PluginsServerConfig, RRWebEvent, RawEventMessage, RedisPool, TeamId } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, RRWebEvent, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
