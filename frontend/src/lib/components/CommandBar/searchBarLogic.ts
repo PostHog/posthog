@@ -17,8 +17,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
-        onArrowUp: (activeIndex: number) => ({ activeIndex }),
-        onArrowDown: (activeIndex, maxIndex: number) => ({ activeIndex, maxIndex }),
+        onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
+        onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
         openActiveResult: true,
@@ -40,7 +40,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 setSearchQuery: () => 0,
                 openActiveResult: () => 0,
-                onArrowUp: (_, { activeIndex }) => (activeIndex > 0 ? activeIndex - 1 : 0),
+                onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
             },
         ],
@@ -61,7 +61,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         maxIndex: [(s) => [s.searchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
         activeResultIndex: [
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex ?? keyboardResultIndex,
+            (keyboardResultIndex: number, hoverResultIndex: number | null) => keyboardResultIndex,
         ],
     }),
     listeners(({ values, actions }) => ({

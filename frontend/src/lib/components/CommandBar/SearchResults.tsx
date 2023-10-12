@@ -14,13 +14,14 @@ const SearchResults = (): JSX.Element => {
         }
 
         if (event.key === 'Enter') {
+            event.preventDefault()
             openActiveResult()
         } else if (event.key === 'ArrowDown') {
             event.preventDefault()
             onArrowDown(activeResultIndex, maxIndex)
         } else if (event.key === 'ArrowUp') {
             event.preventDefault()
-            onArrowUp(activeResultIndex)
+            onArrowUp(activeResultIndex, maxIndex)
         }
     })
 
