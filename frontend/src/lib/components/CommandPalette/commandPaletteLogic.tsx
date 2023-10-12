@@ -246,7 +246,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
-                                    push(urls.person(person.distinct_ids[0]))
+                                    push(urls.personByDistinctId(person.distinct_ids[0]))
                                 },
                             },
                         ],
@@ -729,13 +729,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                               },
                                     }),
                                 }),
-                            },
-                            {
-                                icon: IconRecording,
-                                display: 'Schedule Quick Call',
-                                executor: () => {
-                                    open('https://calendly.com/posthog-feedback')
-                                },
                             },
                             {
                                 icon: IconGithub,

@@ -281,9 +281,10 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 interval: 'day',
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -308,7 +309,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<TrendsQuery> = {
+            const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
                     smoothing_intervals: 1,
@@ -319,12 +320,12 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
                     formula: 'A+B',
-                    shown_as: ShownAsValue.VOLUME,
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
                 breakdown: {
                     breakdown_histogram_bin_count: 1,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -363,7 +364,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<FunnelsQuery> = {
+            const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
                 funnelsFilter: {
                     funnel_viz_type: FunnelVizType.Steps,
@@ -385,6 +386,7 @@ describe('filtersToQueryNode', () => {
                     layout: FunnelLayout.horizontal,
                     hidden_legend_breakdowns: ['Chrome', 'Safari'],
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -404,7 +406,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<RetentionQuery> = {
+            const query: RetentionQuery = {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
                     retention_type: 'retention_first_time',
@@ -444,7 +446,7 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<PathsQuery> = {
+            const query: PathsQuery = {
                 kind: NodeKind.PathsQuery,
                 pathsFilter: {
                     path_type: PathType.Screen,
@@ -480,15 +482,15 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<StickinessQuery> = {
+            const query: StickinessQuery = {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     compare: true,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
-                    shown_as: ShownAsValue.STICKINESS,
                     display: ChartDisplayType.ActionsLineGraph,
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -504,12 +506,12 @@ describe('filtersToQueryNode', () => {
 
             const result = filtersToQueryNode(filters)
 
-            const query: Partial<LifecycleQuery> = {
+            const query: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
                     toggledLifecycles: ['new', 'dormant'],
                 },
+                series: [],
             }
             expect(result).toEqual(query)
         })
@@ -643,9 +645,6 @@ describe('filtersToQueryNode', () => {
                     },
                 ],
                 interval: 'day',
-                lifecycleFilter: {
-                    shown_as: ShownAsValue.LIFECYCLE,
-                },
             }
             expect(result).toEqual(query)
         })

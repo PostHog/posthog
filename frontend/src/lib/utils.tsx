@@ -414,6 +414,10 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
     return typeof candidate === 'object' && candidate !== null
 }
@@ -432,31 +436,36 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     })
     return response
 }
-export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    ignoredKeys: string[] = []
+): T {
     const response = { ...obj }
-    Object.keys(response).forEach((key) => {
-        // remove undefined values
-        if (response[key] === undefined) {
-            delete response[key]
-        }
-        // remove empty arrays i.e. []
-        if (
-            typeof response[key] === 'object' &&
-            Array.isArray(response[key]) &&
-            (response[key] as unknown[]).length === 0
-        ) {
-            delete response[key]
-        }
-        // remove empty objects i.e. {}
-        if (
-            typeof response[key] === 'object' &&
-            !Array.isArray(response[key]) &&
-            response[key] !== null &&
-            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
-        ) {
-            delete response[key]
-        }
-    })
+    Object.keys(response)
+        .filter((key) => !ignoredKeys.includes(key))
+        .forEach((key) => {
+            // remove undefined values
+            if (response[key] === undefined) {
+                delete response[key]
+            }
+            // remove empty arrays i.e. []
+            if (
+                typeof response[key] === 'object' &&
+                Array.isArray(response[key]) &&
+                (response[key] as unknown[]).length === 0
+            ) {
+                delete response[key]
+            }
+            // remove empty objects i.e. {}
+            if (
+                typeof response[key] === 'object' &&
+                !Array.isArray(response[key]) &&
+                response[key] !== null &&
+                Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+            ) {
+                delete response[key]
+            }
+        })
     return response
 }
 

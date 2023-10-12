@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { IconJournalPlus, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconNotebook, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
@@ -71,7 +71,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     const { createNotebook } = useActions(notebooksModel)
 
     const openAndAddToNotebook = async (notebookShortId: string, exists: boolean): Promise<void> => {
-        await openNotebook(notebookShortId, NotebookTarget.Popover, null, (theNotebookLogic) => {
+        const position = props.resource ? 'end' : 'start'
+        await openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
             if (!exists && props.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([props.resource])
             }
@@ -203,7 +204,11 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     const button = (
         <LemonButton
-            icon={<IconJournalPlus />}
+            icon={
+                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
+                    <IconNotebook />
+                </IconWithCount>
+            }
             data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
             sideIcon={null}
             {...props}
@@ -223,13 +228,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? (
-                button
-            ) : (
-                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
-                    <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
-                </IconWithCount>
-            )}
+            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
         </FlaggedFeature>
     )
 }

@@ -169,7 +169,7 @@ jobs:
     check-migrations:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         name: Validate Django migrations
         runs-on: ubuntu-latest

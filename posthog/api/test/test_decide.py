@@ -2089,6 +2089,99 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
+        ff = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        # use a non-csrf client to make requests
+        req_client = Client()
+        req_client.force_login(self.user)
+        response = req_client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "linked_flag_id": ff.id,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+            content_type="application/json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        req_client.logout()
+        self.client.logout()
+
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that single increment made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="Beta feature",
+            key="survey-targeting-random",
+            created_by=self.user,
+        )
+        # use a non-csrf client to make requests
+        req_client = Client()
+        req_client.force_login(self.user)
+        response = req_client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+            content_type="application/json",
+        )
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        req_client.logout()
+        self.client.logout()
+
+        with self.settings(DECIDE_BILLING_SAMPLING_RATE=1), freeze_time("2022-05-07 12:23:07"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+
+            client = redis.get_client()
+            # check that single increment made it to redis
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     """
@@ -2525,13 +2618,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_founder")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -2544,13 +2636,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
@@ -2563,13 +2654,12 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(3, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
-            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
-            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. select all cohorts
+            # E   3. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(

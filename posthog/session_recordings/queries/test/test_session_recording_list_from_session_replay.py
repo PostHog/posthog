@@ -6,18 +6,20 @@ from django.utils.timezone import now
 from freezegun.api import freeze_time
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Cohort
+from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.group.util import create_group
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
-    ttl_days,
 )
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
@@ -38,6 +40,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
     @classmethod
     def teardown_class(cls):
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
     def create_action(self, name, team_id=None, properties=None):
         if team_id is None:
@@ -1971,6 +1974,114 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             ]
         )
 
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_by_console_text(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = "with-logs-session"
+        with_warns_session_id = "with-warns-session"
+        with_errors_session_id = "with-errors-session"
+        with_two_session_id = "with-two-session"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_log_count=4,
+            log_messages={"log": ["log message 1", "log message 2", "log message 3", "log message 4"]},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_warns_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_warn_count=5,
+            log_messages={
+                "warn": ["warn message 1", "warn message 2", "warn message 3", "warn message 4", "warn message 5"]
+            },
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_errors_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+            log_messages={"error": ["error message 1", "error message 2", "error message 3", "error message 4"]},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_two_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+            log_messages={
+                "error": ["error message 1", "error message 2", "error message 3", "error message 4"],
+                "log": ["log message 1", "log message 2", "log message 3"],
+            },
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 4 matches in both
+            data={"console_logs": ["warn", "error"], "console_search_query": "message 4"},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_errors_session_id,
+                with_two_session_id,
+                with_warns_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # there are 5 warn and 4 error logs, message 5 matches only matches in warn
+            data={"console_logs": ["warn", "error"], "console_search_query": "message 5"},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_warns_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # match is case-insensitive
+            data={"console_logs": ["warn", "error"], "console_search_query": "MESSAGE 5"},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_warns_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            # message 5 does not match log level "log
+            data={"console_logs": ["log"], "console_search_query": "message 5"},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted([])
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"], person_properties=["email"], verify_no_jsonextract=False
     )
@@ -2451,3 +2562,81 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_group_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        session_id = f"test_event_filter_with_group_filter-ONE-{uuid4()}"
+        different_group_session = f"test_event_filter_with_group_filter-TWO-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.pk,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=different_group_session,
+            first_timestamp=self.base_time,
+            team_id=self.team.pk,
+        )
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=0)
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key="project:1", properties={"name": "project one"}
+        )
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=1)
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"name": "org one"})
+
+        self.create_event(
+            "user",
+            self.base_time,
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": session_id,
+                "$window_id": "1",
+                "$group_1": "org:1",
+            },
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            team=self.team,
+            event_name="$pageview",
+            properties={
+                "$session_id": different_group_session,
+                "$window_id": "1",
+                "$group_0": "project:1",
+            },
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "properties": [
+                            {
+                                "key": "name",
+                                "value": ["org one"],
+                                "operator": "exact",
+                                "type": "group",
+                                "group_type_index": 1,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        self.assertEqual([sr["session_id"] for sr in session_recordings], [session_id])

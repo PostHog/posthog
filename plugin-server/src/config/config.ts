@@ -45,24 +45,21 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_RACK: undefined,
-        KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
-        KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE: true, // If true, use the cooperative rebalance strategy, otherwise uses the default ('range,roundrobin')
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
-        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
-        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 500, // Timeout when a partition read fails (possibly because empty)
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 50, // Maximum time the broker may wait to fill the Fetch response with fetch.min.bytes of messages.
+        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 100, // Timeout when a partition read fails (possibly because empty).
         KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
-        KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
-        KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
-        KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
+        KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
+        KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -132,6 +129,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
+        EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -156,6 +154,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_PARALLEL_CONSUMPTION: false,
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+        SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
     }
 }
 

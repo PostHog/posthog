@@ -1,8 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconBarChart } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
-import { BillingProductV2Type } from '~/types'
-import { useValues } from 'kea'
+import { BillingProductV2Type, ProductKey } from '~/types'
+import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +11,9 @@ import { urls } from 'scenes/urls'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { router } from 'kea-router'
+import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { productsLogic } from './productsLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -20,25 +23,42 @@ export const scene: SceneExport = {
 function OnboardingCompletedButton({
     productUrl,
     onboardingUrl,
+    productKey,
 }: {
     productUrl: string
     onboardingUrl: string
+    productKey: ProductKey
 }): JSX.Element {
+    const { onSelectProduct } = useActions(productsLogic)
     return (
         <>
             <LemonButton type="secondary" status="muted" to={productUrl}>
                 Go to product
             </LemonButton>
-            <LemonButton type="tertiary" status="muted" to={onboardingUrl}>
+            <LemonButton
+                type="tertiary"
+                status="muted"
+                onClick={() => {
+                    onSelectProduct(productKey)
+                    router.actions.push(onboardingUrl)
+                }}
+            >
                 Set up again
             </LemonButton>
         </>
     )
 }
 
-function OnboardingNotCompletedButton({ url }: { url: string }): JSX.Element {
+function OnboardingNotCompletedButton({ url, productKey }: { url: string; productKey: ProductKey }): JSX.Element {
+    const { onSelectProduct } = useActions(productsLogic)
     return (
-        <LemonButton type="primary" to={url}>
+        <LemonButton
+            type="primary"
+            onClick={() => {
+                onSelectProduct(productKey)
+                router.actions.push(url)
+            }}
+        >
             Get started
         </LemonButton>
     )
@@ -64,9 +84,16 @@ function ProductCard({ product }: { product: BillingProductV2Type }): JSX.Elemen
             <p className="grow">{product.description}</p>
             <div className="flex gap-x-2">
                 {onboardingCompleted ? (
-                    <OnboardingCompletedButton productUrl={''} onboardingUrl={urls.onboarding(product.type)} />
+                    <OnboardingCompletedButton
+                        productUrl={getProductUri(product.type as ProductKey)}
+                        onboardingUrl={urls.onboarding(product.type)}
+                        productKey={product.type as ProductKey}
+                    />
                 ) : (
-                    <OnboardingNotCompletedButton url={urls.onboarding(product.type)} />
+                    <OnboardingNotCompletedButton
+                        url={urls.onboarding(product.type)}
+                        productKey={product.type as ProductKey}
+                    />
                 )}
             </div>
         </LemonCard>
@@ -77,6 +104,7 @@ export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
@@ -105,7 +133,19 @@ export function Products(): JSX.Element {
                             ))}
                     </div>
                     <div className="mt-20">
-                        <LemonButton status="muted" to={urls.default()} size="small">
+                        <LemonButton
+                            status="muted"
+                            onClick={() => {
+                                updateCurrentTeam({
+                                    has_completed_onboarding_for: {
+                                        ...currentTeam?.has_completed_onboarding_for,
+                                        skipped_onboarding: true,
+                                    },
+                                })
+                                router.actions.replace(urls.default())
+                            }}
+                            size="small"
+                        >
                             None of these
                         </LemonButton>
                     </div>

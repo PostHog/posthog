@@ -1,14 +1,28 @@
 import collections.abc
 import csv
+import dataclasses
 import datetime as dt
 import gzip
 import json
+import logging
+import logging.handlers
+import queue
 import tempfile
 import typing
+import uuid
 from string import Template
 
 import brotli
-from temporalio import workflow
+from asgiref.sync import sync_to_async
+from temporalio import activity, workflow
+
+from posthog.batch_exports.service import (
+    BatchExportsInputsProtocol,
+    create_batch_export_run,
+    update_batch_export_run_status,
+)
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -24,6 +38,7 @@ SELECT_QUERY_TEMPLATE = Template(
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
         $exclude_events
+        $include_events
     $order_by
     $format
     """
@@ -36,6 +51,7 @@ async def get_rows_count(
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
 ) -> int:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -47,11 +63,19 @@ async def get_rows_count(
         exclude_events_statement = ""
         events_to_exclude_tuple = ()
 
+    if include_events:
+        include_events_statement = "AND event IN {include_events}"
+        events_to_include_tuple = tuple(include_events)
+    else:
+        include_events_statement = ""
+        events_to_include_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
         exclude_events=exclude_events_statement,
+        include_events=include_events_statement,
     )
 
     count = await client.read_query(
@@ -61,6 +85,7 @@ async def get_rows_count(
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
             "exclude_events": events_to_exclude_tuple,
+            "include_events": events_to_include_tuple,
         },
     )
 
@@ -94,6 +119,7 @@ def get_results_iterator(
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -105,11 +131,19 @@ def get_results_iterator(
         exclude_events_statement = ""
         events_to_exclude_tuple = ()
 
+    if include_events:
+        include_events_statement = "AND event IN {include_events}"
+        events_to_include_tuple = tuple(include_events)
+    else:
+        include_events_statement = ""
+        events_to_include_tuple = ()
+
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
         exclude_events=exclude_events_statement,
+        include_events=include_events_statement,
     )
 
     for batch in client.stream_query_as_arrow(
@@ -119,6 +153,7 @@ def get_results_iterator(
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
             "exclude_events": events_to_exclude_tuple,
+            "include_events": events_to_include_tuple,
         },
     ):
         yield from iter_batch_records(batch)
@@ -216,10 +251,10 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
-    elif interval == "every-5-minutes":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=5)
-    elif interval == "every-10-minutes":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(minutes=10)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(**kwargs)
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
@@ -280,6 +315,9 @@ class BatchExportTemporaryFile:
     def __exit__(self, exc, value, tb):
         """Context-manager protocol exit method."""
         return self._file.__exit__(exc, value, tb)
+
+    def __iter__(self):
+        yield from self._file
 
     @property
     def brotli_compressor(self):
@@ -405,3 +443,191 @@ class BatchExportTemporaryFile:
 
         self.bytes_since_last_reset = 0
         self.records_since_last_reset = 0
+
+
+class BatchExportLoggerAdapter(logging.LoggerAdapter):
+    """Adapter that adds batch export details to log records."""
+
+    def __init__(
+        self,
+        logger: logging.Logger,
+        extra=None,
+    ) -> None:
+        """Create the logger adapter."""
+        super().__init__(logger, extra or {})
+
+    def process(self, msg: str, kwargs) -> tuple[typing.Any, collections.abc.MutableMapping[str, typing.Any]]:
+        """Override to add batch exports details."""
+        workflow_id = None
+        workflow_run_id = None
+        attempt = None
+
+        try:
+            activity_info = activity.info()
+        except RuntimeError:
+            pass
+        else:
+            workflow_run_id = activity_info.workflow_run_id
+            workflow_id = activity_info.workflow_id
+            attempt = activity_info.attempt
+
+        try:
+            workflow_info = workflow.info()
+        except RuntimeError:
+            pass
+        else:
+            workflow_run_id = workflow_info.run_id
+            workflow_id = workflow_info.workflow_id
+            attempt = workflow_info.attempt
+
+        if workflow_id is None or workflow_run_id is None or attempt is None:
+            return (None, {})
+
+        # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
+        # Since {data_interval_date} is an iso formatted datetime string, it has two '-' to separate the
+        # date. Plus one more leaves us at the end of {batch_export_id}.
+        batch_export_id = workflow_id.rsplit("-", maxsplit=3)[0]
+
+        extra = kwargs.get("extra", None) or {}
+        extra["workflow_id"] = workflow_id
+        extra["batch_export_id"] = batch_export_id
+        extra["workflow_run_id"] = workflow_run_id
+        extra["attempt"] = attempt
+
+        if isinstance(self.extra, dict):
+            extra = extra | self.extra
+        kwargs["extra"] = extra
+
+        return (msg, kwargs)
+
+    @property
+    def base_logger(self) -> logging.Logger:
+        """Underlying logger usable for actions such as adding handlers/formatters."""
+        return self.logger
+
+
+class BatchExportsLogRecord(logging.LogRecord):
+    team_id: int
+    batch_export_id: str
+    workflow_run_id: str
+    attempt: int
+
+
+class KafkaLoggingHandler(logging.Handler):
+    def __init__(self, topic, key=None):
+        super().__init__()
+        self.producer = KafkaProducer()
+        self.topic = topic
+        self.key = key
+
+    def emit(self, record):
+        if record.name == "kafka":
+            return
+
+        # This is a lie, but as long as this handler is used together
+        # with BatchExportLoggerAdapter we should be fine.
+        # This is definitely cheaper than a bunch if checks for attributes.
+        record = typing.cast(BatchExportsLogRecord, record)
+
+        msg = self.format(record)
+        data = {
+            "instance_id": record.workflow_run_id,
+            "level": record.levelname,
+            "log_source": "batch_exports",
+            "log_source_id": record.batch_export_id,
+            "message": msg,
+            "team_id": record.team_id,
+            "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
+        }
+
+        try:
+            future = self.producer.produce(topic=self.topic, data=data, key=self.key)
+            future.get(timeout=1)
+        except Exception as e:
+            logging.exception("Failed to produce log to Kafka topic %s", self.topic, exc_info=e)
+
+    def close(self):
+        self.producer.close()
+        logging.Handler.close(self)
+
+
+LOG_QUEUE: queue.Queue = queue.Queue(-1)
+QUEUE_HANDLER = logging.handlers.QueueHandler(LOG_QUEUE)
+QUEUE_HANDLER.setLevel(logging.DEBUG)
+
+KAFKA_HANDLER = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
+KAFKA_HANDLER.setLevel(logging.DEBUG)
+QUEUE_LISTENER = logging.handlers.QueueListener(LOG_QUEUE, KAFKA_HANDLER)
+
+logger = logging.getLogger(__name__)
+logger.addHandler(QUEUE_HANDLER)
+logger.setLevel(logging.DEBUG)
+
+
+def get_batch_exports_logger(inputs: BatchExportsInputsProtocol) -> BatchExportLoggerAdapter:
+    """Return a logger for BatchExports."""
+    # Need a type comment as _thread is private.
+    if QUEUE_LISTENER._thread is None:  # type: ignore
+        QUEUE_LISTENER.start()
+
+    adapter = BatchExportLoggerAdapter(logger, {"team_id": inputs.team_id})
+
+    return adapter
+
+
+@dataclasses.dataclass
+class CreateBatchExportRunInputs:
+    """Inputs to the create_export_run activity.
+
+    Attributes:
+        team_id: The id of the team the BatchExportRun belongs to.
+        batch_export_id: The id of the BatchExport this BatchExportRun belongs to.
+        data_interval_start: Start of this BatchExportRun's data interval.
+        data_interval_end: End of this BatchExportRun's data interval.
+    """
+
+    team_id: int
+    batch_export_id: str
+    data_interval_start: str
+    data_interval_end: str
+    status: str = "Starting"
+
+
+@activity.defn
+async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
+    """Activity that creates an BatchExportRun.
+
+    Intended to be used in all export workflows, usually at the start, to create a model
+    instance to represent them in our database.
+    """
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
+
+    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
+    # But one of our dependencies is pinned to asgiref==3.3.2.
+    # Remove these comments once we upgrade.
+    run = await sync_to_async(create_batch_export_run)(  # type: ignore
+        batch_export_id=uuid.UUID(inputs.batch_export_id),
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        status=inputs.status,
+    )
+
+    logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
+
+    return str(run.id)
+
+
+@dataclasses.dataclass
+class UpdateBatchExportRunStatusInputs:
+    """Inputs to the update_export_run_status activity."""
+
+    id: str
+    status: str
+    latest_error: str | None = None
+
+
+@activity.defn
+async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
+    """Activity that updates the status of an BatchExportRun."""
+    await sync_to_async(update_batch_export_run_status)(run_id=uuid.UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore

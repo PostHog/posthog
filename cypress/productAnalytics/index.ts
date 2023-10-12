@@ -16,7 +16,7 @@ export const savedInsights = {
     },
 }
 
-function interceptInsightLoad(insightType: string): string {
+export function interceptInsightLoad(insightType: string): string {
     cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
     cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
     cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
@@ -116,7 +116,7 @@ export const insight = {
             // force clicks rather than mess around scrolling rows that exist into view
             cy.contains('button', 'Add to dashboard').click({ force: true })
             cy.wait('@patchInsight').then(() => {
-                cy.contains('Added').should('exist')
+                cy.contains('Remove from dashboard').should('exist')
                 if (options?.visitAfterAdding) {
                     cy.contains('a', dashboardName).click({ force: true })
                 }

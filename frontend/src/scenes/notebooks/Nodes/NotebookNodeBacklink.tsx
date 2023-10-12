@@ -10,7 +10,7 @@ import {
     IconLive,
     IconPerson,
     IconCohort,
-    IconJournal,
+    IconNotebook,
 } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
@@ -31,7 +31,7 @@ const ICON_MAP = {
     events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
-    notebooks: <IconJournal />,
+    notebooks: <IconNotebook />,
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -68,7 +68,7 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
     } else if (type === TaxonomicFilterGroupType.Cohorts) {
         return urls.cohort(id)
     } else if (type === TaxonomicFilterGroupType.Persons) {
-        return urls.person(id)
+        return urls.personByDistinctId(id)
     } else if (type === TaxonomicFilterGroupType.Insights) {
         return urls.insightView(id as InsightModel['short_id'])
     } else if (type === TaxonomicFilterGroupType.FeatureFlags) {

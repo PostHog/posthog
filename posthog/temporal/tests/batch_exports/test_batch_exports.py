@@ -1,22 +1,35 @@
 import csv
+import dataclasses
 import datetime as dt
 import io
 import json
+import logging
 import operator
+import random
+import string
+import uuid
 from random import randint
 from typing import TypedDict
+from unittest.mock import patch
 from uuid import uuid4
 
 import aiohttp
 import pytest
 import pytest_asyncio
 from django.conf import settings
+from freezegun import freeze_time
+from temporalio import activity, workflow
 
+from posthog.clickhouse.log_entries import (
+    KAFKA_LOG_ENTRIES,
+)
 from posthog.temporal.tests.batch_exports.base import (
     to_isoformat,
 )
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    KafkaLoggingHandler,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -239,7 +252,58 @@ async def test_get_rows_count_can_exclude_events(client):
 
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
-    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events)
+    row_count = await get_rows_count(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+    )
+    assert row_count == 5000
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_rows_count_can_include_events(client):
+    """Test the count of rows returned by get_rows_count can include events."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": f"test-{i}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
+            "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "http://localhost.com",
+            "set": None,
+            "set_once": None,
+        }
+        for i in range(10000)
+    ]
+    # Duplicate everything
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    # Include the latter half of events.
+    include_events = (f"test-{i}" for i in range(5000, 10000))
+    row_count = await get_rows_count(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+    )
     assert row_count == 5000
 
 
@@ -402,10 +466,76 @@ async def test_get_results_iterator_can_exclude_events(client):
 
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events)
+    iter_ = get_results_iterator(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+    )
     rows = [row for row in iter_]
 
     all_expected = sorted(events[:5000], key=operator.itemgetter("event"))
+    all_result = sorted(rows, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_result)
+    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
+
+    for expected, result in zip(all_expected, all_result):
+        for key, value in result.items():
+            if key in ("timestamp", "inserted_at", "created_at"):
+                expected_value = to_isoformat(expected[key])
+            else:
+                expected_value = expected[key]
+
+            # Some keys will be missing from result, so let's only check the ones we have.
+            assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_results_iterator_can_include_events(client):
+    """Test the rows returned by get_results_iterator can include events."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": f"test-{i}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {
+                "$browser": "Chrome",
+                "$os": "Mac OS X",
+                "$ip": "127.0.0.1",
+                "$current_url": "http://localhost.com",
+            },
+            "elements_chain": "this that and the other",
+            "elements": json.dumps("this that and the other"),
+            "ip": "127.0.0.1",
+            "site_url": "",
+            "set": None,
+            "set_once": None,
+        }
+        for i in range(10000)
+    ]
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    # Include the latter half of events.
+    include_events = (f"test-{i}" for i in range(5000, 10000))
+    iter_ = get_results_iterator(
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+    )
+    rows = [row for row in iter_]
+
+    all_expected = sorted(events[5000:], key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_result)
@@ -611,3 +741,104 @@ def test_batch_export_temporary_file_write_records_to_tsv(records):
         assert be_file.bytes_since_last_reset == 0
         assert be_file.records_total == len(records)
         assert be_file.records_since_last_reset == 0
+
+
+def test_kafka_logging_handler_produces_to_kafka(caplog):
+    """Test a mocked call to Kafka produce from the KafkaLoggingHandler."""
+    logger_name = "test-logger"
+    logger = logging.getLogger(logger_name)
+    handler = KafkaLoggingHandler(topic=KAFKA_LOG_ENTRIES)
+    handler.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+    team_id = random.randint(1, 10000)
+    batch_export_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    timestamp = "2023-09-21 00:01:01.000001"
+
+    expected_tuples = []
+    expected_kafka_produce_calls_kwargs = []
+
+    with patch("posthog.kafka_client.client._KafkaProducer.produce") as produce:
+        with caplog.at_level(logging.DEBUG):
+            with freeze_time(timestamp):
+                for level in (10, 20, 30, 40, 50):
+                    random_message = "".join(random.choice(string.ascii_letters) for _ in range(30))
+
+                    logger.log(
+                        level,
+                        random_message,
+                        extra={
+                            "team_id": team_id,
+                            "batch_export_id": batch_export_id,
+                            "workflow_run_id": run_id,
+                        },
+                    )
+
+                    expected_tuples.append(
+                        (
+                            logger_name,
+                            level,
+                            random_message,
+                        )
+                    )
+                    data = {
+                        "message": random_message,
+                        "team_id": team_id,
+                        "log_source": "batch_exports",
+                        "log_source_id": batch_export_id,
+                        "instance_id": run_id,
+                        "timestamp": timestamp,
+                        "level": logging.getLevelName(level),
+                    }
+                    expected_kafka_produce_calls_kwargs.append({"topic": KAFKA_LOG_ENTRIES, "data": data, "key": None})
+
+        assert caplog.record_tuples == expected_tuples
+
+        kafka_produce_calls_kwargs = [call.kwargs for call in produce.call_args_list]
+        assert kafka_produce_calls_kwargs == expected_kafka_produce_calls_kwargs
+
+
+@dataclasses.dataclass
+class TestInputs:
+    team_id: int
+    data_interval_end: str | None = None
+    interval: str = "hour"
+    batch_export_id: str = ""
+
+
+@dataclasses.dataclass
+class TestInfo:
+    workflow_id: str
+    run_id: str
+    workflow_run_id: str
+    attempt: int
+
+
+@pytest.mark.parametrize("context", [activity.__name__, workflow.__name__])
+def test_batch_export_logger_adapter(context, caplog):
+    """Test BatchExportLoggerAdapter sets the appropiate context variables."""
+    team_id = random.randint(1, 10000)
+    inputs = TestInputs(team_id=team_id)
+    logger = get_batch_exports_logger(inputs=inputs)
+
+    batch_export_id = str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    attempt = random.randint(1, 10)
+    info = TestInfo(
+        workflow_id=f"{batch_export_id}-{dt.datetime.utcnow().isoformat()}",
+        run_id=run_id,
+        workflow_run_id=run_id,
+        attempt=attempt,
+    )
+
+    with patch("posthog.kafka_client.client._KafkaProducer.produce"):
+        with patch(context + ".info", return_value=info):
+            for level in (10, 20, 30, 40, 50):
+                logger.log(level, "test")
+
+    records = caplog.get_records("call")
+    assert all(record.team_id == team_id for record in records)
+    assert all(record.batch_export_id == batch_export_id for record in records)
+    assert all(record.workflow_run_id == run_id for record in records)
+    assert all(record.attempt == attempt for record in records)

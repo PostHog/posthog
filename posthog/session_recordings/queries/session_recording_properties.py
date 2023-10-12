@@ -17,11 +17,6 @@ class EventFiltersSQL(NamedTuple):
     params: Dict[str, Any]
 
 
-class SessionRecordingQueryResult(NamedTuple):
-    results: List
-    has_more_recording: bool
-
-
 class SessionRecordingProperties(EventQuery):
     _filter: SessionRecordingsFilter
     _session_ids: List[str]

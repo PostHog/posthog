@@ -1,6 +1,6 @@
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.hogql_queries.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models.filters.filter import Filter as LegacyFilter
 from posthog.models.filters.path_filter import PathFilter as LegacyPathFilter

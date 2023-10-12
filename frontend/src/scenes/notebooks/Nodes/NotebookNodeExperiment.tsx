@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
@@ -18,8 +18,8 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.attributes
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
+    const { id } = attributes
     const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)

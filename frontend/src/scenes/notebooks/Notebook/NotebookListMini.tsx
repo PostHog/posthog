@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconJournal } from 'lib/lemon-ui/icons'
+import { IconNotebook } from 'lib/lemon-ui/icons'
 import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookListItemType } from '~/types'
 import { NotebookSelectPopover } from '../NotebookSelectButton/NotebookSelectButton'
@@ -23,7 +23,7 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     return (
         <NotebookSelectPopover placement="right-start">
-            <LemonButton size="small" icon={<IconJournal />} status="primary-alt" sideIcon={null}>
+            <LemonButton size="small" icon={<IconNotebook />} status="primary-alt" sideIcon={null}>
                 <span className="font-semibold">{selectedTitle || 'Notebooks'}</span>
             </LemonButton>
         </NotebookSelectPopover>

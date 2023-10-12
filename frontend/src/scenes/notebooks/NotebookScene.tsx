@@ -8,7 +8,14 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
+import {
+    IconArrowRight,
+    IconDelete,
+    IconEllipsis,
+    IconExport,
+    IconHelpOutline,
+    IconNotification,
+} from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksModel } from '~/models/notebooksModel'
 import { router } from 'kea-router'
@@ -17,6 +24,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import './NotebookScene.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -31,16 +39,16 @@ export const scene: SceneExport = {
 }
 
 export function NotebookScene(): JSX.Element {
-    const { notebookId } = useValues(notebookSceneLogic)
-    const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
-    const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
+    const { notebookId, loading } = useValues(notebookSceneLogic)
+    const { notebook, conflictWarningVisible, showHistory } = useValues(notebookLogic({ shortId: notebookId }))
+    const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
     const { selectedNotebook, visibility } = useValues(notebookPopoverLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
-    if (!notebook && !notebookLoading && !conflictWarningVisible) {
+    if (!notebook && !loading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
     }
 
@@ -65,6 +73,10 @@ export function NotebookScene(): JSX.Element {
 
     const isTemplate = notebook?.is_template
 
+    if (notebookId === 'new') {
+        return <NotebookLoadingState />
+    }
+
     return (
         <div className="NotebookScene">
             <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
@@ -83,9 +95,12 @@ export function NotebookScene(): JSX.Element {
                                     {
                                         label: 'Export JSON',
                                         icon: <IconExport />,
-                                        onClick: () => {
-                                            exportJSON()
-                                        },
+                                        onClick: () => exportJSON(),
+                                    },
+                                    {
+                                        label: 'History',
+                                        icon: <IconNotification />,
+                                        onClick: () => setShowHistory(!showHistory),
                                     },
                                     !isTemplate && {
                                         label: 'Delete',

@@ -18,7 +18,7 @@ import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } fr
 
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { JSONContent, NotebookEditor } from './utils'
+import { EditorRange, JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -69,15 +69,16 @@ export const notebookLogic = kea<notebookLogicType>([
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
-        setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        setLocalContent: (jsonContent: JSONContent, updateEditor = false) => ({ jsonContent, updateEditor }),
         clearLocalContent: true,
+        setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
+        clearPreviewContent: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
-        setIsShowingSidebar: (showing: boolean) => ({ showing }),
         registerNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         unregisterNodeLogic: (nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeLogic }),
         setEditable: (editable: boolean) => ({ editable }),
@@ -94,16 +95,14 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeType,
             knownStartingPosition,
         }),
-        insertReplayCommentByTimestamp: (
-            timestamp: number,
-            sessionRecordingId: string,
+        insertReplayCommentByTimestamp: (options: {
+            timestamp: number
+            sessionRecordingId: string
             knownStartingPosition?: number
-        ) => ({
-            timestamp,
-            sessionRecordingId,
-            // if operating on a particular instance of a replay comment, we can pass the known starting position
-            knownStartingPosition,
-        }),
+            nodeId?: string
+        }) => options,
+        setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTextSelection: (selection: number | EditorRange) => ({ selection }),
     }),
     reducers({
         localContent: [
@@ -112,6 +111,13 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        previewContent: [
+            null as JSONContent | null,
+            {
+                setPreviewContent: (_, { jsonContent }) => jsonContent,
+                clearPreviewContent: () => null,
             },
         ],
         editor: [
@@ -161,17 +167,16 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             },
         ],
-        isEditable: [
+        shouldBeEditable: [
             false,
             {
                 setEditable: (_, { editable }) => editable,
             },
         ],
-        isShowingSidebar: [
+        showHistory: [
             false,
             {
-                setEditingNodeId: (_, { editingNodeId }) => (editingNodeId ? true : false),
-                setIsShowingSidebar: (_, { showing }) => showing,
+                setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
     }),
@@ -279,10 +284,10 @@ export const notebookLogic = kea<notebookLogicType>([
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
-            (s) => [s.notebook, s.localContent],
-            (notebook, localContent): JSONContent => {
+            (s) => [s.notebook, s.localContent, s.previewContent],
+            (notebook, localContent, previewContent): JSONContent => {
                 // We use the local content is set otherwise the notebook content
-                return localContent || notebook?.content || []
+                return previewContent || localContent || notebook?.content || []
             },
         ],
         title: [
@@ -293,9 +298,9 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
-            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
-                if (notebook?.is_template) {
+            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent],
+            (notebook, notebookLoading, localContent, isLocalOnly, previewContent): NotebookSyncStatus => {
+                if (previewContent || notebook?.is_template) {
                     return 'synced'
                 }
 
@@ -335,6 +340,24 @@ export const notebookLogic = kea<notebookLogicType>([
                     )
                 }
             },
+        ],
+        findNodeLogicById: [
+            (s) => [s.nodeLogics],
+            (nodeLogics) => {
+                return (id: string): notebookNodeLogicType | null => {
+                    return Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === id) ?? null
+                }
+            },
+        ],
+
+        isShowingSidebar: [
+            (s) => [s.editingNodeId, s.showHistory],
+            (editingNodeId, showHistory) => !!editingNodeId || showHistory,
+        ],
+
+        isEditable: [
+            (s) => [s.shouldBeEditable, s.previewContent],
+            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
         ],
     }),
     sharedListeners(({ values, actions }) => ({
@@ -385,7 +408,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition }) => {
+        insertReplayCommentByTimestamp: async ({ timestamp, sessionRecordingId, knownStartingPosition, nodeId }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
                 () => {
@@ -406,12 +429,24 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     values.editor?.insertContentAfterNode(
                         insertionPosition,
-                        buildTimestampCommentContent(timestamp, sessionRecordingId)
+                        buildTimestampCommentContent({
+                            playbackTime: timestamp,
+                            sessionRecordingId,
+                            sourceNodeId: nodeId,
+                        })
                     )
                 }
             )
         },
-        setLocalContent: async (_, breakpoint) => {
+        setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (values.previewContent) {
+                // We don't want to modify the content if we are viewing a preview
+                return
+            }
+            if (updateEditor) {
+                values.editor?.setContent(jsonContent)
+            }
+
             await breakpoint(SYNC_DELAY)
 
             posthog.capture('notebook content changed', {
@@ -426,6 +461,18 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
+        setPreviewContent: async () => {
+            values.editor?.setContent(values.content)
+        },
+        clearPreviewContent: async () => {
+            values.editor?.setContent(values.content)
+        },
+        setShowHistory: async ({ showHistory }) => {
+            if (!showHistory) {
+                actions.clearPreviewContent()
+            }
+        },
+
         onEditorUpdate: () => {
             if (!values.editor || !values.notebook) {
                 return
@@ -435,14 +482,8 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setLocalContent(jsonContent)
             actions.onUpdateEditor()
         },
-
-        setEditable: ({ editable }) => {
-            values.editor?.setEditable(editable)
-        },
-        setEditor: ({ editor }) => {
-            if (editor) {
-                editor.setEditable(values.isEditable)
-            }
+        setEditor: () => {
+            values.editor?.setContent(values.content)
         },
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
@@ -450,7 +491,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         exportJSON: () => {
             const file = new File(
-                [JSON.stringify(values.editor?.getJSON())],
+                [JSON.stringify(values.editor?.getJSON(), null, 2)],
                 `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
                 { type: 'application/json' }
             )
@@ -460,12 +501,6 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                const node = values.editor.getSelectedNode()
-
-                if (node?.attrs.nodeId) {
-                    actions.scrollToSelection()
-                }
-
                 actions.onUpdateEditor()
             }
         },
@@ -473,6 +508,15 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.editor) {
                 values.editor.scrollToSelection()
             }
+        },
+        setEditingNodeId: () => {
+            values.editingNodeLogic?.actions.selectNode()
+        },
+
+        setTextSelection: ({ selection }) => {
+            queueMicrotask(() => {
+                values.editor?.setTextSelection(selection)
+            })
         },
     })),
 ])

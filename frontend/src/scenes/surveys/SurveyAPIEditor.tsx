@@ -1,5 +1,5 @@
 import { Survey } from '~/types'
-import { NewSurvey } from './surveyLogic'
+import { NewSurvey } from './constants'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX.Element {

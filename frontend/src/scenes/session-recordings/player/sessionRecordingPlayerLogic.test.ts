@@ -5,14 +5,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
-import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -22,7 +22,26 @@ describe('sessionRecordingPlayerLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id/snapshots/': (req, res, ctx) => {
+                    // with no sources, returns sources...
+                    if (req.url.searchParams.get('source') === 'blob') {
+                        return res(ctx.text(snapshotsAsJSONLines()))
+                    }
+                    // with no source requested should return sources
+                    return [
+                        200,
+                        {
+                            sources: [
+                                {
+                                    source: 'blob',
+                                    start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                    end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                    blob_key: '1691755416097-1691755492268',
+                                },
+                            ],
+                        },
+                    ]
+                },
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
             },
             delete: {
@@ -81,6 +100,10 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toDispatchActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                // once to gather sources
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsV2,
+                // once to load source from that
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsV2,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
             ])
 
@@ -146,12 +169,12 @@ describe('sessionRecordingPlayerLogic', () => {
     describe('delete session recording', () => {
         it('on playlist page', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsListLogic({ playlistShortId: 'playlist_id' })
+            const listLogic = sessionRecordingsPlaylistLogic({})
             listLogic.mount()
             logic = sessionRecordingPlayerLogic({
                 sessionRecordingId: '3',
                 playerKey: 'test',
-                playlistShortId: 'playlist_id',
+                playlistLogic: listLogic,
             })
             logic.mount()
             jest.spyOn(api, 'delete')
@@ -165,7 +188,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     listLogic.actionCreators.setSelectedRecordingId(null),
                 ])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
 
             expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
@@ -174,9 +197,13 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('on any other recordings page with a list', async () => {
             silenceKeaLoadersErrors()
-            const listLogic = sessionRecordingsListLogic({ updateSearchParams: true })
+            const listLogic = sessionRecordingsPlaylistLogic({ updateSearchParams: true })
             listLogic.mount()
-            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '3',
+                playerKey: 'test',
+                playlistLogic: listLogic,
+            })
             logic.mount()
             jest.spyOn(api, 'delete')
 
@@ -204,7 +231,7 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions(['deleteRecording'])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
                 .toFinishAllListeners()
 
@@ -225,7 +252,7 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions(['deleteRecording'])
                 .toNotHaveDispatchedActions([
-                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                    sessionRecordingsPlaylistLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
                 ])
                 .toFinishAllListeners()
 

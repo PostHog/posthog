@@ -24,24 +24,11 @@
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        padding: 0.5rem;
+        padding: 0 0.5rem;
         overflow: hidden;
         border-radius: var(--radius);
         margin: calc(var(--radius) / 2) 0;
-
-        &:hover {
-            background-color: var(--mid);
-        }
-
-        &.disabled {
-            cursor: not-allowed;
-            color: var(--muted);
-            background-color: var(--mid);
-        }
-
-        &.selected {
-            background-color: var(--primary-bg-hover);
-        }
+        background-color: var(--primary-bg-hover);
     }
 
     .selected-column-col {
@@ -56,23 +43,7 @@
         padding-right: 0.25rem;
 
         svg {
-            transform: rotate(90deg) translateX(2px);
+            transform: rotate(90deg);
         }
-    }
-}
-
-.column-configurator-modal-sortable-container {
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 0.5rem;
-    background-color: var(--primary-bg-hover);
-
-    .drag-handle {
-        color: var(--default);
-        font-size: 1.2em;
-        padding-right: 0.25rem;
-        transform: rotate(90deg) translateX(2px);
     }
 }
