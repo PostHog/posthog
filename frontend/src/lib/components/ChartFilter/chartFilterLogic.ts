@@ -10,16 +10,15 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateBreakdown']],
-        values: [insightVizDataLogic(props), ['isTrends', 'isStickiness', 'display', 'series']],
+        values: [
+            insightVizDataLogic(props),
+            ['isTrends', 'isStickiness', 'isSingleSeries', 'display', 'series', 'formula', 'breakdown'],
+        ],
     }),
 
     actions: () => ({
         setChartFilter: (chartFilter: ChartDisplayType) => ({ chartFilter }),
     }),
-
-    selectors: {
-        chartFilter: [(s) => [s.display], (display): ChartDisplayType | null | undefined => display],
-    },
 
     listeners: ({ actions, values }) => ({
         setChartFilter: ({ chartFilter }) => {
