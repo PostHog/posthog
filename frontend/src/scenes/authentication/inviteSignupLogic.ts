@@ -9,7 +9,6 @@ import type { inviteSignupLogicType } from './inviteSignupLogicType'
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
     InvalidRecipient = 'invalid_recipient',
-    AccountExists = 'account_exists',
     Unknown = 'unknown',
 }
 
@@ -51,7 +50,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
-                            } else if (e.code === ErrorCodes.AccountExists) {
+                            } else if (e.code === 'account_exists') {
                                 location.href = e.detail
                             } else {
                                 actions.setError({ code: ErrorCodes.InvalidInvite, detail: e.detail })
