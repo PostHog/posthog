@@ -53,7 +53,7 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
                     },
                 }}
             >
-                Public sharing of Notebooks is not currently supported, but it's on our roadmap.
+                We don’t currently support sharing notebooks externally, but it’s on our roadmap!
             </LemonBanner>
         </div>
     )
