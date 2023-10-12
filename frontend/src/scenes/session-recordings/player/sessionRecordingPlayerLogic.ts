@@ -889,7 +889,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
 
                 const recordingFile = new File(
-                    [JSON.stringify(payload)],
+                    [JSON.stringify(payload, null, 2)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,
                     { type: 'application/json' }
                 )
@@ -956,6 +956,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         delete (window as any).__debug_player
+        delete (window as any).__posthog_player_export
 
         actions.stopAnimation()
         cache.resetConsoleWarn?.()
@@ -998,6 +999,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.debugging = !cache.debugging
             localStorage.setItem('ph_debug_player', JSON.stringify(cache.debugging))
             cache.debug('player data', values.sessionPlayerData)
+        }
+        ;(window as any).__posthog_player_export = () => {
+            // eslint-disable-next-line no-console
+            console.log('🥚 Easter egg unlocked! Exporting recording to file...')
+            actions.exportRecordingToFile()
         }
 
         if (props.mode === SessionRecordingPlayerMode.Preview) {
