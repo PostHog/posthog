@@ -322,6 +322,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Notebook',
         layout: 'app-raw',
     },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -492,4 +496,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
+    [urls.notebooks()]: Scene.Notebooks,
 }

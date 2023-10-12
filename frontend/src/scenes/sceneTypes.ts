@@ -80,6 +80,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Notebooks = 'Notebooks',
     Notebook = 'Notebook',
     Products = 'Products',
     Onboarding = 'Onboarding',
