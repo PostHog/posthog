@@ -4,7 +4,7 @@ import './NotebookPopover.scss'
 import { Notebook } from './Notebook'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconChevronRight, IconOpenInNew, IconLink } from 'lib/lemon-ui/icons'
 import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
@@ -14,6 +14,7 @@ import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { openNotebookShareDialog } from './NotebookShare'
 
 export function NotebookPopoverCard(): JSX.Element | null {
     const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
@@ -54,7 +55,15 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         onClick={() => setVisibility('hidden')}
                         status="primary-alt"
                         icon={<IconOpenInNew />}
-                        tooltip="Go to Notebook"
+                        tooltip="View notebook outside of popover"
+                        tooltipPlacement="left"
+                    />
+                    <LemonButton
+                        size="small"
+                        onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
+                        status="primary-alt"
+                        icon={<IconLink />}
+                        tooltip="Share notebook"
                         tooltipPlacement="left"
                     />
 
