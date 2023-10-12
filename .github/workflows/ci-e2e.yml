@@ -228,10 +228,10 @@ jobs:
                   config: retries=2
                   spec: ${{ matrix.chunk }}
                   install: false
-                  env:
-                      E2E_TESTING: 1
-                      OPT_OUT_CAPTURE: 0
-                      GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+              env:
+                  E2E_TESTING: 1
+                  OPT_OUT_CAPTURE: 0
+                  GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
