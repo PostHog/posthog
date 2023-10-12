@@ -9,6 +9,8 @@ try {
     // eslint-disable-next-line no-empty
 } catch {}
 
+const E2E_TESTING = Cypress.env('E2E_TESTING')
+
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
 // From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
 Cypress.on('window:before:load', (win) => {
@@ -62,21 +64,15 @@ beforeEach(() => {
     }
 })
 
-afterEach(() => {
-    if (process.env.E2E_TESTING) {
-        cy.window().then((win) => {
-            ;(win as any).posthog?.capture('e2e_testing_test_passed')
-        })
-    }
-})
+afterEach(function () {
+    const { state, duration } = this.currentTest
+    const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
-Cypress.on('fail', (error: Cypress.CypressError) => {
-    if (process.env.E2E_TESTING) {
+    if (E2E_TESTING) {
         cy.window().then((win) => {
-            ;(win as any).posthog?.capture('e2e_testing_test_failed', { e2e_testing_error_message: error.message })
+            ;(win as any).posthog?.capture(event, { state, duration })
         })
     }
-    throw error // so the test still fails
 })
 
 const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
