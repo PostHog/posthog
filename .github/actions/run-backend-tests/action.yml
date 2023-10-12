@@ -83,6 +83,15 @@ runs:
           run: |
               sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.0-source.zip --output antlr4-source.zip
+              # Check that the downloaded archive is the expected runtime - a security measure
+              anltr_known_md5sum="ff214b65fb02e150b4f515d7983bca92"
+              antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
+              if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
+                  echo "Unexpected MD5 sum of antlr4-source.zip!"
+                  echo "Known: $anltr_known_md5sum"
+                  echo "Found: $antlr_found_ms5sum"
+                  exit 64
+              fi
               unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
               cmake .
               DESTDIR=out make install
