@@ -73,6 +73,11 @@ describe('Surveys', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.title().should('equal', 'Surveys • PostHog')
 
+        // enable surveys
+        // cy.get('div.LemonBanner.LemonBanner--warning.mb-2').contains('Configure').click()
+        // cy.get('[data-attr="opt-in-surveys-switch"]').click()
+        // cy.contains('Done').click()
+
         // click via top right button
         cy.get('[data-attr="new-survey"]').click()
 
@@ -112,32 +117,58 @@ describe('Surveys', () => {
             .should('contain', 'Very likely')
         cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 5)
 
-        it('handles user targeting properties', () => {
-            // add targeting filters
-            // add linked feature flag
-        })
+        // add targeting filters
+        cy.contains('Add user targeting').click()
+
+        // select the first property
+        cy.get('[data-attr="property-select-toggle-0"]').click()
+        cy.get('[data-attr="prop-filter-person_properties-0"]').click()
+        cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
+        cy.get('[data-attr=prop-val-0]').click({ force: true })
+
+        cy.get('.ant-input-number-input-wrap>input').type('{backspace}')
 
         // save
         cy.get('[data-attr="save-survey"]').click()
         cy.get('[data-attr=success-toast]').contains('created').should('exist')
 
         // check preview release conditions
+        cy.contains('Release conditions summary').should('exist')
+        cy.get('.FeatureConditionCard').should('exist').should('contain.text', 'is_demo equals true')
+        cy.get('.FeatureConditionCard').should('contain.text', 'Rolled out to 100% of users in this set.')
 
         // launch survey
-        cy.get('.LemonButton').contains('Launch').click()
+        cy.get('[data-attr="launch-survey"]').click()
 
         // refresh, see survey show up on page
+        cy.reload()
+
+        cy.contains('Unique users viewed').should('exist')
+
+        // stop survey
+        cy.contains('Stop').click()
 
         // back to surveys
         cy.clickNavMenu('surveys')
         cy.get('[data-attr=surveys-table]').should('contain', name)
 
-        it('remove user targeting properties', () => {
-            // remove user targeting properties
-        })
-
         // back into survey
         cy.get(`[data-row-key="${name}"]`).contains(name).click()
+
+        // edit
+        cy.get('[data-attr="more-button"]').click()
+        cy.get('.Popover__content').contains('Edit').click()
+
+        // remove user targeting properties
+        cy.contains('Remove all user properties').click()
+
+        // save
+        cy.get('[data-attr="save-survey"]').click()
+
+        // check preview release conditions
+        cy.get('.LemonTabs').contains('Overview').click()
+        cy.contains('Release conditions summary').should('exist')
+        cy.get('.FeatureConditionCard').should('not.exist')
 
         // delete survey
         cy.get('[data-attr="more-button"]').click()
