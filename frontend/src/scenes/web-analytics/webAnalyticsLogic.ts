@@ -47,7 +47,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (oldPropertyFilters.some((f) => f.key === key && f.operator === PropertyOperator.Exact)) {
                         return oldPropertyFilters
                             .map((f) => {
-                                if (f.key !== key || f.operator !== PropertyOperator.Exact) {
+                                if (
+                                    f.type !== PropertyFilterType.Event ||
+                                    f.key !== key ||
+                                    f.operator !== PropertyOperator.Exact
+                                ) {
                                     return f
                                 }
                                 const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
