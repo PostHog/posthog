@@ -329,6 +329,15 @@ export class SessionRecordingIngesterV2 {
             })
         }
 
+        if (!events.length) {
+            status.warn('🙈', 'Event contained no valid rrweb events, ignoring')
+
+            return statusWarn('invalid_rrweb_events', {
+                token: messagePayload.token,
+                teamId: messagePayload.team_id,
+            })
+        }
+
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
                 partition: message.partition,
