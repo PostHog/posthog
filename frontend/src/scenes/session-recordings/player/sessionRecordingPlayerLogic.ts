@@ -108,7 +108,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['user', 'hasAvailableFeature'],
             preflightLogic,
             ['preflight'],
             featureFlagLogic,
@@ -866,7 +866,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+            if (!values.user?.is_impersonated && !values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
                 openBillingPopupModal({
                     title: 'Unlock recording exports',
                     description:
@@ -956,7 +956,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         }
 
         delete (window as any).__debug_player
-        delete (window as any).__posthog_player_export
 
         actions.stopAnimation()
         cache.resetConsoleWarn?.()
@@ -999,11 +998,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.debugging = !cache.debugging
             localStorage.setItem('ph_debug_player', JSON.stringify(cache.debugging))
             cache.debug('player data', values.sessionPlayerData)
-        }
-        ;(window as any).__posthog_player_export = () => {
-            // eslint-disable-next-line no-console
-            console.log('🥚 Easter egg unlocked! Exporting recording to file...')
-            actions.exportRecordingToFile()
         }
 
         if (props.mode === SessionRecordingPlayerMode.Preview) {
