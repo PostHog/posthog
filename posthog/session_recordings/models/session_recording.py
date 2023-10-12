@@ -1,20 +1,19 @@
 from typing import Any, List, Optional, Literal
 
+from django.conf import settings
 from django.db import models
-from django.dispatch import receiver
 
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
+from posthog.models.signals import mutable_receiver
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDModel
 from posthog.session_recordings.models.metadata import (
-    DecompressedRecordingData,
     RecordingMatchingEvents,
     RecordingMetadata,
 )
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from django.conf import settings
 
 
 class SessionRecording(UUIDModel):
@@ -61,7 +60,6 @@ class SessionRecording(UUIDModel):
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
-    _snapshots: Optional[DecompressedRecordingData] = None
 
     def load_metadata(self) -> bool:
         if self._metadata:
@@ -94,55 +92,6 @@ class SessionRecording(UUIDModel):
             self.set_start_url_from_urls(first_url=metadata["first_url"])
 
         return True
-
-    def load_snapshots(self, limit=20, offset=0) -> None:
-        from posthog.session_recordings.queries.session_recording_events import SessionRecordingEvents
-
-        if self._snapshots:
-            return
-
-        if self.object_storage_path:
-            self.load_object_data()
-        else:
-            snapshots = SessionRecordingEvents(
-                team=self.team, session_recording_id=self.session_id, recording_start_time=self.start_time
-            ).get_snapshots(limit, offset)
-
-            self._snapshots = snapshots
-
-    def load_object_data(self) -> None:
-        """
-        This is only called in the to-be deprecated v1 of session recordings snapshot API
-        """
-        try:
-            from ee.session_recordings.session_recording_extensions import load_persisted_recording
-        except ImportError:
-            load_persisted_recording = lambda *args: None
-
-        data = load_persisted_recording(self)
-
-        if not data:
-            return
-
-        if data.get("version", None) == "2022-12-22":
-            self._snapshots = {
-                "has_next": False,
-                "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
-            }
-        elif data.get("version", None) == "2023-08-01":
-            raise NotImplementedError("Storage version 2023-08-01 will never be supported in this code path")
-        else:
-            # unknown version
-            return
-
-    # S3 / Clickhouse backed fields
-    @property
-    def snapshot_data_by_window_id(self):
-        return self._snapshots["snapshot_data_by_window_id"] if self._snapshots else None
-
-    @property
-    def can_load_more_snapshots(self):
-        return self._snapshots["has_next"] if self._snapshots else False
 
     @property
     def storage(self):
@@ -242,7 +191,7 @@ class SessionRecording(UUIDModel):
         self.start_url = url.split("?")[0][:512] if url else None
 
 
-@receiver(models.signals.post_save, sender=SessionRecording)
+@mutable_receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
         ee_persist_single_recording.delay(instance.session_id, instance.team_id)

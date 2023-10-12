@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -9,7 +9,7 @@ import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/ka
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { runInstrumentedFunction } from '../../../main/utils'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, RRWebEvent, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
@@ -95,7 +95,7 @@ type PartitionMetrics = {
     lastKnownCommit?: number
 }
 
-export class SessionRecordingIngesterV2 {
+export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
     sessionHighWaterMarker: OffsetHighWaterMarker
@@ -276,7 +276,10 @@ export class SessionRecordingIngesterV2 {
             return statusWarn('invalid_json', { error })
         }
 
-        if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
+        const { $snapshot_items, $session_id, $window_id } = event.properties || {}
+
+        // NOTE: This is simple validation - ideally we should do proper schema based validation
+        if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
             status.warn('🙈', 'Received non-snapshot message, ignoring')
             return
         }
@@ -307,6 +310,39 @@ export class SessionRecordingIngesterV2 {
             })
         }
 
+        const invalidEvents: any[] = []
+        const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
+            if (!event || !event.timestamp) {
+                invalidEvents.push(event)
+                return false
+            }
+            return true
+        })
+
+        if (invalidEvents.length) {
+            captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
+                extra: {
+                    invalidEvents,
+                    eventsCount: events.length,
+                    invalidEventsCount: invalidEvents.length,
+                    event,
+                },
+                tags: {
+                    team_id: teamId,
+                    session_id: $session_id,
+                },
+            })
+        }
+
+        if (!events.length) {
+            status.warn('🙈', 'Event contained no valid rrweb events, ignoring')
+
+            return statusWarn('invalid_rrweb_events', {
+                token: messagePayload.token,
+                teamId: messagePayload.team_id,
+            })
+        }
+
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
                 partition: message.partition,
@@ -317,9 +353,9 @@ export class SessionRecordingIngesterV2 {
 
             team_id: teamId,
             distinct_id: messagePayload.distinct_id,
-            session_id: event.properties?.$session_id,
-            window_id: event.properties?.$window_id,
-            events: event.properties.$snapshot_items,
+            session_id: $session_id,
+            window_id: $window_id,
+            events: events,
         }
 
         return recordingMessage
