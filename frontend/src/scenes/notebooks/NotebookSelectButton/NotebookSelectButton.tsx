@@ -204,7 +204,11 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     const button = (
         <LemonButton
-            icon={<IconJournalPlus />}
+            icon={
+                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
+                    <IconJournalPlus />
+                </IconWithCount>
+            }
             data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
             sideIcon={null}
             {...props}
@@ -224,13 +228,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? (
-                button
-            ) : (
-                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
-                    <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
-                </IconWithCount>
-            )}
+            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
         </FlaggedFeature>
     )
 }
