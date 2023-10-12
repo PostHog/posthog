@@ -147,7 +147,7 @@ export const NEW_SURVEY: NewSurvey = {
     appearance: defaultSurveyAppearance,
 }
 
-export enum SurveyTemplateTypes {
+export enum SurveyTemplateType {
     Interview = 'User interview',
     NPS = 'Net promoter score (NPS)',
     CSAT = 'Customer satisfaction score (CSAT)',
