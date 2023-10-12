@@ -207,6 +207,7 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     inCardView?: boolean
+    inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
@@ -238,6 +239,7 @@ export function LineGraph_({
     showPersonsModal = true,
     compare = false,
     inCardView,
+    inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
@@ -369,6 +371,7 @@ export function LineGraph_({
         const gridOptions: Partial<GridLineOptions> = {
             borderColor: colors.axisLine as string,
             borderDash: [4, 2],
+            display: !inSurveyView,
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -575,9 +578,11 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
+                    display: !inSurveyView,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        display: !inSurveyView,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -616,9 +621,10 @@ export function LineGraph_({
         } else if (isHorizontal) {
             options.scales = {
                 x: {
+                    display: !inSurveyView,
                     beginAtZero: true,
-                    display: true,
                     ticks: {
+                        display: !inSurveyView,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -629,7 +635,13 @@ export function LineGraph_({
                 },
                 y: {
                     beforeFit: (scale) => {
-                        if (shouldAutoResize) {
+                        if (inSurveyView) {
+                            const ROW_HEIGHT = 60
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = dynamicHeight
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else if (shouldAutoResize) {
                             // automatically resize the chart container to fit the number of rows
                             const MIN_HEIGHT = 575
                             const ROW_HEIGHT = 16

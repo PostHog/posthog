@@ -4,6 +4,7 @@ import {
     SurveyRatingResults,
     QuestionResultsReady,
     SurveySingleChoiceResults,
+    SurveyMultipleChoiceResults,
     SurveyUserStats,
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -165,6 +166,7 @@ export function RatingQuestionBarChart({
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
+    const barColor = '#1d4aff'
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Rating) {
@@ -187,6 +189,8 @@ export function RatingQuestionBarChart({
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
+                                    inSurveyView={true}
+                                    showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
                                     type={GraphType.Bar}
@@ -200,11 +204,12 @@ export function RatingQuestionBarChart({
                                         {
                                             id: 1,
                                             label: 'Number of responses',
-                                            barPercentage: 0.7,
+                                            barPercentage: 0.8,
                                             minBarLength: 2,
                                             data: surveyRatingResults[questionIndex],
-                                            backgroundColor: '#1d4aff',
-                                            hoverBackgroundColor: '#1d4aff',
+                                            backgroundColor: barColor,
+                                            borderColor: barColor,
+                                            hoverBackgroundColor: barColor,
                                         },
                                     ]}
                                     labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
@@ -215,8 +220,8 @@ export function RatingQuestionBarChart({
                         </div>
                     </div>
                     <div className="flex flex-row justify-between mt-1">
-                        <div className="text-muted-alt">{question.lowerBoundLabel}</div>
-                        <div className="text-muted-alt">{question.upperBoundLabel}</div>
+                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
+                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
                     </div>
                 </div>
             )}
@@ -333,6 +338,73 @@ export function SingleChoiceQuestionPieChart({
                                 )
                             })}
                         </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function MultipleChoiceQuestionBarChart({
+    questionIndex,
+    surveyMultipleChoiceResults,
+    surveyMultipleChoiceResultsReady,
+}: {
+    questionIndex: number
+    surveyMultipleChoiceResults: SurveyMultipleChoiceResults
+    surveyMultipleChoiceResultsReady: QuestionResultsReady
+}): JSX.Element {
+    const { loadSurveyMultipleChoiceResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const barColor = '#1d4aff'
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.MultipleChoice) {
+        throw new Error(`Question type must be ${SurveyQuestionType.MultipleChoice}`)
+    }
+
+    useEffect(() => {
+        loadSurveyMultipleChoiceResults({ questionIndex })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveyMultipleChoiceResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : (
+                <div className="mb-8">
+                    <div className="font-semibold text-muted-alt">Multiple choice</div>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="border rounded pt-6 pr-10">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <LineGraph
+                                inSurveyView={true}
+                                showValueOnSeries={true}
+                                labelGroupType={1}
+                                data-attr="survey-multiple-choice"
+                                type={GraphType.HorizontalBar}
+                                formula="-"
+                                tooltip={{
+                                    showHeader: false,
+                                    hideColorCol: true,
+                                }}
+                                datasets={[
+                                    {
+                                        id: 1,
+                                        label: 'Number of responses',
+                                        barPercentage: 0.9,
+                                        minBarLength: 2,
+                                        data: surveyMultipleChoiceResults[questionIndex].data,
+                                        labels: surveyMultipleChoiceResults[questionIndex].labels,
+                                        breakdownValues: surveyMultipleChoiceResults[questionIndex].labels,
+                                        backgroundColor: barColor,
+                                        borderColor: barColor,
+                                        hoverBackgroundColor: barColor,
+                                    },
+                                ]}
+                                labels={surveyMultipleChoiceResults[questionIndex].labels}
+                            />
+                        </BindLogic>
                     </div>
                 </div>
             )}
