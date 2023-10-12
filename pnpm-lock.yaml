@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -36,8 +36,8 @@ dependencies:
     specifier: 4.4.6
     version: 4.4.6(monaco-editor@0.39.0)(react-dom@16.14.0)(react@16.14.0)
   '@posthog/icons':
-    specifier: ^0.0.2
-    version: 0.0.2(react-dom@16.14.0)(react@16.14.0)
+    specifier: ^0.1.1
+    version: 0.1.1(react-dom@16.14.0)(react@16.14.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.3.2
     version: 1.3.4
@@ -3332,8 +3332,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.0.2(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-9AOJBfYSpOKPPKvQ5i4UNPuj7bXaPvnzCDOXEk/XLMs47lI1/4OagW8ZreAhQPo0VykYgymPRSo336esPjmd4g==}
+  /@posthog/icons@0.1.1(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-OmQEO0CzFZt7RFtMfDbNO9kQUlkITUK1AZxbO+fpgu6YEp7Whb1zcVr1IKzu1jTe8gccblIV+7LNRwpXKOPJpA==}
     peerDependencies:
       react: ^18.2.0
       react-dom: ^18.2.0

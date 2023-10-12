@@ -1,17 +1,17 @@
 import {
-    Home,
-    Dashboard,
-    Database,
-    Apps,
-    Person,
-    Question,
-    GridMasonry,
-    People,
-    TestTube,
-    Toggle,
-    RewindPlay,
-    Graph,
-    Toolbar,
+    IconHome,
+    IconDashboard,
+    IconDatabase,
+    IconApps,
+    IconPerson,
+    IconQuestion,
+    IconGridMasonry,
+    IconPeople,
+    IconTestTube,
+    IconToggle,
+    IconRewindPlay,
+    IconGraph,
+    IconToolbar,
 } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,37 +32,37 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.ProjectHomepage,
             label: 'Project homepage',
-            icon: <Home />,
+            icon: <IconHome />,
             to: urls.projectHomepage(),
         },
         {
             identifier: Scene.Dashboards,
             label: 'Dashboards',
-            icon: <Dashboard />,
+            icon: <IconDashboard />,
             logic: dashboardsSidebarLogic,
         },
         {
             identifier: Scene.DataManagement,
             label: 'Data management',
-            icon: <Database />,
+            icon: <IconDatabase />,
             logic: dataManagementSidebarLogic,
         },
         {
             identifier: Scene.Persons,
             label: 'Persons and groups',
-            icon: <Person />,
+            icon: <IconPerson />,
             logic: personsAndGroupsSidebarLogic,
         },
         {
             identifier: Scene.Cohorts,
             label: 'Cohorts',
-            icon: <People />,
+            icon: <IconPeople />,
             logic: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Annotations,
             label: 'Annotations',
-            icon: <Question />, // TODO: Should be bubble
+            icon: <IconQuestion />, // TODO: Should be bubble
             logic: annotationsSidebarLogic,
         },
     ],
@@ -70,35 +70,35 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Events,
             label: 'Events',
-            icon: <GridMasonry />, // TODO: Should be live signal
+            icon: <IconGridMasonry />, // TODO: Should be live signal
         },
         {
             identifier: Scene.SavedInsights,
             label: 'Product Analytics',
-            icon: <Graph />,
+            icon: <IconGraph />,
             logic: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
             label: 'Session Replay',
-            icon: <RewindPlay />,
+            icon: <IconRewindPlay />,
         },
         {
             identifier: Scene.FeatureFlags,
             label: 'Feature Flags',
-            icon: <Toggle />,
+            icon: <IconToggle />,
             logic: featureFlagsSidebarLogic,
         },
         {
             identifier: Scene.Experiments,
             label: 'A/B Testing',
-            icon: <TestTube />,
+            icon: <IconTestTube />,
             logic: experimentsSidebarLogic,
         },
         {
             identifier: Scene.ToolbarLaunch,
             label: 'Toolbar',
-            icon: <Toolbar />,
+            icon: <IconToolbar />,
             logic: toolbarSidebarLogic,
         },
     ],
@@ -106,7 +106,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Apps,
             label: 'Apps',
-            icon: <Apps />,
+            icon: <IconApps />,
         },
     ],
 ]

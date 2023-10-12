@@ -1,7 +1,7 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { LightBulb, Question, Gear } from '@posthog/icons'
+import { IconLightBulb, IconQuestion, IconGear } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -25,7 +25,7 @@ export function Navbar(): JSX.Element {
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <LightBulb /> : <LightBulb /> // TODO
+    const activeThemeIcon = isDarkModeOn ? <IconLightBulb /> : <IconLightBulb /> // TODO
 
     return (
         <nav className="Navbar3000">
@@ -89,11 +89,15 @@ export function Navbar(): JSX.Element {
                         />
                         <HelpButton
                             customComponent={
-                                <NavbarButton icon={<Question />} identifier="help-button" title="Need any help?" />
+                                <NavbarButton icon={<IconQuestion />} identifier="help-button" title="Need any help?" />
                             }
                             placement="right-end"
                         />
-                        <NavbarButton icon={<Gear />} identifier={Scene.ProjectSettings} to={urls.projectSettings()} />
+                        <NavbarButton
+                            icon={<IconGear />}
+                            identifier={Scene.ProjectSettings}
+                            to={urls.projectSettings()}
+                        />
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}
