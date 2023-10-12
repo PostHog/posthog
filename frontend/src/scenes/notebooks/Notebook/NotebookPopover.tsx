@@ -4,7 +4,7 @@ import './NotebookPopover.scss'
 import { Notebook } from './Notebook'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight, IconOpenInNew, IconLink } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconChevronRight, IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
 import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from './NotebookListMini'
@@ -62,7 +62,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         size="small"
                         onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
                         status="primary-alt"
-                        icon={<IconLink />}
+                        icon={<IconShare />}
                         tooltip="Share notebook"
                         tooltipPlacement="left"
                     />
