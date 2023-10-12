@@ -289,6 +289,7 @@ export function SingleChoiceQuestionPieChart({
                                         {
                                             id: 1,
                                             data: surveySingleChoiceResults[questionIndex].data,
+                                            labels: surveySingleChoiceResults[questionIndex].labels,
                                             backgroundColor: surveySingleChoiceResults[questionIndex].labels.map(
                                                 (_: string, i: number) => colors[i % colors.length]
                                             ),
