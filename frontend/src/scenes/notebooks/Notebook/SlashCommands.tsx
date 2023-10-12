@@ -4,7 +4,9 @@ import Suggestion from '@tiptap/suggestion'
 import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import {
+    IconBold,
     IconCohort,
+    IconItalic,
     IconRecording,
     IconTableChart,
     IconUploadFile,
@@ -26,6 +28,7 @@ import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
+import NotebookIconHeading from './NotebookIconHeading'
 
 type SlashCommandsProps = {
     mode: 'slash' | 'add'
@@ -47,23 +50,28 @@ type SlashCommandsItem = {
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
-        title: 'H1',
+        title: 'h1',
+        icon: <NotebookIconHeading level={1} />,
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'H2',
+        title: 'h1',
+        icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'H3',
+        title: 'h1',
+        icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },
     {
-        title: 'B',
+        title: 'bold',
+        icon: <IconBold />,
         command: (chain) => chain.toggleBold(),
     },
     {
-        title: 'I',
+        title: 'italic',
+        icon: <IconItalic />,
         command: (chain) => chain.toggleItalic(),
     },
 ]
@@ -392,7 +400,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="SlashCommands space-y-px">
+        <div className="space-y-1">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
@@ -401,13 +409,12 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
                         onClick={async () => (await item.command(editor.deleteRange(range))).run()}
-                    >
-                        {item.title}
-                    </LemonButton>
+                        icon={item.icon}
+                    />
                 ))}
             </div>
 
-            <LemonDivider className="my-2" />
+            <LemonDivider className="my-0" />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
