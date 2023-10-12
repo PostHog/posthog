@@ -73,11 +73,6 @@ describe('Surveys', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.title().should('equal', 'Surveys • PostHog')
 
-        // enable surveys
-        // cy.get('div.LemonBanner.LemonBanner--warning.mb-2').contains('Configure').click()
-        // cy.get('[data-attr="opt-in-surveys-switch"]').click()
-        // cy.contains('Done').click()
-
         // click via top right button
         cy.get('[data-attr="new-survey"]').click()
 
