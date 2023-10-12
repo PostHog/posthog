@@ -95,6 +95,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.query],
             (query) => (isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null),
         ],
+        localQuerySource: [
+            (s) => [s.querySource, s.filterTestAccountsDefault],
+            (querySource, filterTestAccountsDefault) =>
+                querySource ? querySource : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault).source,
+        ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
         isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
@@ -189,57 +194,38 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props, key }) => ({
         updateDateRange: ({ dateRange }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = { ...localQuerySource, dateRange }
-                actions.updateQuerySource(newQuerySource)
-            }
+            actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
         updateBreakdown: ({ breakdown }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = {
-                    ...localQuerySource,
-                    breakdown: { ...(localQuerySource as TrendsQuery).breakdown, ...breakdown },
-                }
-                actions.updateQuerySource(newQuerySource)
-            }
+            actions.updateQuerySource({ breakdown: { ...values.breakdown, ...breakdown } })
         },
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
         updateInsightFilter: ({ insightFilter }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const filterProperty = filterPropertyForQuery(localQuerySource)
-                const newQuerySource = { ...localQuerySource }
-                newQuerySource[filterProperty] = {
-                    ...localQuerySource[filterProperty],
+            const filterProperty = filterPropertyForQuery(values.localQuerySource)
+            actions.updateQuerySource({
+                [filterProperty]: {
+                    ...values.insightFilter,
                     ...insightFilter,
-                }
-                actions.updateQuerySource(newQuerySource)
-            }
+                },
+            })
         },
         updateQuerySource: ({ querySource }) => {
-            const localQuery = values.query
-                ? values.query
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
-
+            console.debug('updateQuerySource', querySource, key)
+            // console.trace('x')
             actions.setQuery({
-                ...localQuery,
-                source: { ...(localQuery as InsightVizNode).source, ...querySource },
+                ...(values.query || {}),
+                source: { ...values.localQuerySource, ...querySource },
             } as Node)
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
+                if (props.setQuery) {
+                    props.setQuery(query as InsightVizNode)
+                }
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)
