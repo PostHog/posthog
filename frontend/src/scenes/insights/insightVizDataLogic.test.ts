@@ -222,7 +222,7 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('updates insight filter for other insight query kinds', () => {
+        it('updates the insight filter for other insight query kinds', () => {
             builtInsightVizDataLogic.actions.updateQuerySource(funnelsQueryDefault)
 
             expectLogic(builtInsightDataLogic, () => {
@@ -238,6 +238,7 @@ describe('insightVizDataLogic', () => {
                             ...funnelsQueryDefault.funnelsFilter,
                             layout: FunnelLayout.horizontal,
                         },
+                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
                     },
                 },
             })
