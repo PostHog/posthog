@@ -9,7 +9,7 @@ import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { IconCohort } from 'lib/lemon-ui/icons'
+import { IconCohort, IconPerson, InsightsTrendsIcon } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema'
@@ -45,6 +45,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                 ? [
                       {
                           text: 'People in cohort',
+                          icon: <IconPerson />,
                           onClick: () => {
                               setExpanded(false)
                               insertAfter({
@@ -72,6 +73,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
                       {
                           text: 'Cohort trends',
+                          icon: <InsightsTrendsIcon noBackground color="currentColor" />,
                           onClick: () => {
                               setExpanded(false)
                               insertAfter({
