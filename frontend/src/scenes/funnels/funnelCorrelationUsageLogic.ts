@@ -7,12 +7,12 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 
 import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),
@@ -25,7 +25,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         values: [insightLogic(props), ['filters', 'isInDashboardContext']],
 
         actions: [
-            insightVizDataLogic(props),
+            insightDataLogic(props),
             ['loadDataSuccess'],
             funnelPersonsModalLogic(props),
             ['openCorrelationPersonsModal'],

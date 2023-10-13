@@ -7,7 +7,7 @@ import insight from '../../../mocks/fixtures/api/projects/:team_id/insights/tren
 import { InsightShortId } from '~/types'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 import { App } from 'scenes/App'
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { insightDataLogic } from '../insightDataLogic'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
@@ -73,7 +73,7 @@ export function TimeoutState(): JSX.Element {
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
         window.setTimeout(() => {
-            const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
+            const logic = insightDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
             logic?.actions.setTimedOutQueryId('a-uuid-query-id')
         }, 150)
     }, [])

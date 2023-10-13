@@ -85,9 +85,8 @@ export function InsightContainer({
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
-        timedOutQueryId,
     } = useValues(insightVizDataLogic(insightProps))
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, timedOutQueryId } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
