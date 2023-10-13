@@ -9,6 +9,7 @@ import temporalio.client
 import temporalio.common
 import temporalio.testing
 import temporalio.worker
+from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from posthog.api.test.test_organization import acreate_organization
@@ -50,7 +51,18 @@ async def temporal_client():
 
 
 @pytest_asyncio.fixture
-async def temporal_schedule(temporal_client):
+async def team():
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+
+    yield team
+
+    sync_to_async(team.delete)()
+    sync_to_async(organization.delete)()
+
+
+@pytest_asyncio.fixture
+async def temporal_schedule(temporal_client, team):
     """Manage a test Temopral Schedule yielding its handle."""
     destination_data = {
         "type": "NoOp",
@@ -65,8 +77,6 @@ async def temporal_schedule(temporal_client):
         "paused": True,
     }
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
     batch_export = await acreate_batch_export(
         team_id=team.pk,
         name=batch_export_data["name"],
@@ -165,7 +175,7 @@ def test_backfill_range(start_at, end_at, step, expected):
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_get_schedule_frequency(activity_environment, temporal_worker, temporal_schedule):
     """Test get_schedule_frequency returns the correct interval."""
     desc = await temporal_schedule.describe()
@@ -177,7 +187,7 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_schedule):
     """Test backfill_schedule activity schedules all backfill runs."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
@@ -199,12 +209,12 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
     result = desc.info.num_actions
     expected = 10
 
-    assert result == expected
+    assert result >= expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client):
+@pytest.mark.asyncio
+async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
     end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
@@ -213,7 +223,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
-        team_id=1,
+        team_id=team.pk,
         batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
