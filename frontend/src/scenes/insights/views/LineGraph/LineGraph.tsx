@@ -218,6 +218,8 @@ export interface LineGraphProps {
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
+    hideXAxis?: boolean
+    hideYAxis?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -250,6 +252,8 @@ export function LineGraph_({
     showPercentStackView,
     supportsPercentStackView,
     hideAnnotations,
+    hideXAxis,
+    hideYAxis,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -371,7 +375,6 @@ export function LineGraph_({
         const gridOptions: Partial<GridLineOptions> = {
             borderColor: colors.axisLine as string,
             borderDash: [4, 2],
-            display: !inSurveyView,
         }
 
         const tooltipOptions: Partial<TooltipOptions> = {
@@ -569,6 +572,7 @@ export function LineGraph_({
         if (type === GraphType.Bar) {
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
@@ -578,11 +582,11 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
-                    display: !inSurveyView,
+                    display: !hideYAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        display: !inSurveyView,
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -595,8 +599,8 @@ export function LineGraph_({
         } else if (type === GraphType.Line) {
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: tickOptions,
                     grid: {
                         ...gridOptions,
@@ -605,10 +609,11 @@ export function LineGraph_({
                     },
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
-                    display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -621,10 +626,10 @@ export function LineGraph_({
         } else if (isHorizontal) {
             options.scales = {
                 x: {
-                    display: !inSurveyView,
+                    display: !hideXAxis,
                     beginAtZero: true,
                     ticks: {
-                        display: !inSurveyView,
+                        display: !hideXAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -634,6 +639,7 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
+                    display: true,
                     beforeFit: (scale) => {
                         if (inSurveyView) {
                             const ROW_HEIGHT = 60
@@ -668,7 +674,10 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
-                    grid: gridOptions,
+                    grid: {
+                        ...gridOptions,
+                        display: !inSurveyView,
+                    },
                 },
             }
             options.indexAxis = 'y'

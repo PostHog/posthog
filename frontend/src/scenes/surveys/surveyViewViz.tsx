@@ -379,6 +379,8 @@ export function MultipleChoiceQuestionBarChart({
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <LineGraph
                                 inSurveyView={true}
+                                hideYAxis={true}
+                                hideXAxis={true}
                                 showValueOnSeries={true}
                                 labelGroupType={1}
                                 data-attr="survey-multiple-choice"
