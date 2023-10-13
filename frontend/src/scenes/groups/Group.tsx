@@ -5,7 +5,7 @@ import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { Group as IGroup, PersonsTabType, PropertyDefinitionType } from '~/types'
+import { Group as IGroup, NotebookNodeType, PersonsTabType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -16,6 +16,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -77,6 +78,18 @@ export function Group(): JSX.Element {
             <PageHeader
                 title={groupDisplayId(groupData.group_key, groupData.group_properties)}
                 caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
+                buttons={
+                    <NotebookSelectButton
+                        type="secondary"
+                        resource={{
+                            type: NotebookNodeType.Group,
+                            attrs: {
+                                id: groupKey,
+                                groupTypeIndex: groupTypeIndex,
+                            },
+                        }}
+                    />
+                }
             />
             <LemonTabs
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
