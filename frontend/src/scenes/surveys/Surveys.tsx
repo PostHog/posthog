@@ -196,6 +196,7 @@ export function Surveys(): JSX.Element {
                                 columnKey: 'created_at',
                                 order: -1,
                             }}
+                            rowKey="name"
                             nouns={['survey', 'surveys']}
                             data-attr="surveys-table"
                             emptyState={
