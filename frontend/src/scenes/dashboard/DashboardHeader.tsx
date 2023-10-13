@@ -31,6 +31,7 @@ import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogi
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
+import { notebooksModel } from '~/models/notebooksModel'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -50,6 +51,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+    const { createNotebookFromDashboard } = useActions(notebooksModel)
 
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
@@ -260,6 +262,13 @@ export function DashboardHeader(): JSX.Element | null {
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
+                                            </LemonButton>
+                                            <LemonButton
+                                                onClick={() => createNotebookFromDashboard(dashboard)}
+                                                status="stealth"
+                                                fullWidth
+                                            >
+                                                Create notebook from dashboard
                                             </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
