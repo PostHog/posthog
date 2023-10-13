@@ -9,12 +9,12 @@ from celery.canvas import Signature
 from celery.schedules import crontab
 from celery.signals import (
     setup_logging,
+    task_failure,
     task_postrun,
     task_prerun,
-    worker_process_init,
-    task_success,
-    task_failure,
     task_retry,
+    task_success,
+    worker_process_init,
 )
 from django.conf import settings
 from django.db import connection
@@ -22,7 +22,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Gauge, Counter
+from prometheus_client import Counter, Gauge
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
@@ -95,8 +95,9 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
-    from posthog.settings import sentry_init
     from prometheus_client import start_http_server
+
+    from posthog.settings import sentry_init
 
     sentry_init()
     start_http_server(8001)
@@ -140,7 +141,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Send all instance usage to the Billing service
     sender.add_periodic_task(
-        crontab(hour="1", minute="0"), send_org_usage_reports.s(), name="send instance usage report"
+        crontab(hour="0", minute="5"), send_org_usage_reports.s(), name="send instance usage report"
     )
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(crontab(hour="*", minute="30"), update_quota_limiting.s(), name="update quota limiting")
@@ -813,10 +814,11 @@ def debug_task(self):
 
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
-    from posthog.models import Team
     from django.db.models import Q
     from posthoganalytics import Posthog
+
+    from posthog.models import Team
+    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
     if not is_cloud():
         return
@@ -847,8 +849,9 @@ def calculate_decide_usage() -> None:
 
 @app.task(ignore_result=True)
 def find_flags_with_enriched_analytics():
-    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
     from datetime import datetime, timedelta
+
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
