@@ -120,7 +120,8 @@ def create_hogql_database(team_id: int) -> Database:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
     for mapping in GroupTypeMapping.objects.filter(team=team):
-        database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
+        if database.events.fields.get(mapping.group_type) is None:
+            database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         table = database.get_table(view.table)
