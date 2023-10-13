@@ -5,14 +5,14 @@ import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { DataTableNode } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
@@ -23,50 +23,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
     const { setQuery } = useActions(cohortEditLogic({ id }))
 
-    if (cohortMissing) {
-        return <NotFound object="cohort" />
-    }
-
-    // useEffect(() => {
-    //     updateAttributes({
-    //         title,
-    //     })
-    //     setActions([
-    //         {
-    //             text: 'Group events',
-    //             onClick: () => {
-    //                 setExpanded(false)
-    //                 insertAfter({
-    //                     type: NotebookNodeType.Query,
-    //                     attrs: {
-    //                         title: `Events for ${title}`,
-    //                         query: {
-    //                             kind: NodeKind.DataTableNode,
-    //                             full: true,
-    //                             source: {
-    //                                 kind: NodeKind.EventsQuery,
-    //                                 select: defaultDataTableColumns(NodeKind.EventsQuery),
-    //                                 after: '-24h',
-    //                                 properties: [
-    //                                     {
-    //                                         key: `$group_${groupTypeIndex}`,
-    //                                         value: id,
-    //                                         type: PropertyFilterType.Event,
-    //                                         operator: PropertyOperator.Exact,
-    //                                     },
-    //                                 ],
-    //                             },
-    //                         },
-    //                     },
-    //                 })
-    //             },
-    //         },
-    //     ])
-    // }, [groupData])
-
-    // if (!groupData && !groupDataLoading) {
-    //     return <NotFound object="group" />
-    // }
+    const title = cohort ? `Cohort: ${cohort.name}` : 'Cohort'
 
     const modifiedQuery = useMemo<DataTableNode>(() => {
         return {
@@ -79,6 +36,34 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         }
     }, [query])
 
+    useEffect(() => {
+        updateAttributes({
+            title,
+        })
+        setActions(
+            !cohortMissing
+                ? [
+                      {
+                          text: 'People in cohort',
+                          onClick: () => {
+                              setExpanded(false)
+                              insertAfter({
+                                  type: NotebookNodeType.Query,
+                                  attrs: {
+                                      title: `People in cohort ${cohort.name}`,
+                                      query: modifiedQuery,
+                                  },
+                              })
+                          },
+                      },
+                  ]
+                : []
+        )
+    }, [cohort, cohortMissing])
+
+    if (cohortMissing) {
+        return <NotFound object="cohort" />
+    }
     return (
         <div className="flex flex-col overflow-hidden">
             <div className={clsx('p-4 flex-0 flex gap-2 justify-between ', !expanded && 'cursor-pointer')}>
