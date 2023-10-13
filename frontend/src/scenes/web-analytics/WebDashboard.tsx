@@ -96,6 +96,40 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                                 <Query query={query} readOnly={true} context={queryContext} />
                             </div>
                         )
+                    } else if ('tabs' in tile) {
+                        const { tabs, activeTabId, layout, setTabId } = tile
+                        const tab = tabs.find((t) => t.id === activeTabId)
+                        if (!tab) {
+                            return null
+                        }
+                        const { query, title } = tab
+                        return (
+                            <div
+                                key={i}
+                                className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
+                                    layout.rowSpan ?? 1
+                                } min-h-100 flex flex-col`}
+                            >
+                                <div className="flex flex-row items-center">
+                                    {<h2 className="flex-1 m-0">{title}</h2>}
+                                    <div className="space-x-2">
+                                        {/* TODO switch to a select if more than 3 */}
+                                        {tabs.map(({ id, linkText }) => (
+                                            <a
+                                                className={
+                                                    id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
+                                                }
+                                                key={id}
+                                                onClick={() => setTabId(id)}
+                                            >
+                                                {linkText}
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                                <Query query={query} readOnly={true} context={queryContext} />
+                            </div>
+                        )
                     } else {
                         return null
                     }

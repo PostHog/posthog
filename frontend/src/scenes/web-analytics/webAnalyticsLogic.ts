@@ -20,14 +20,34 @@ interface QueryTile extends BaseTile {
 }
 
 interface TabsTile extends BaseTile {
+    activeTabId: string
+    setTabId: (id: string) => void
     tabs: {
+        id: string
         title: string
         linkText: string
         query: QuerySchema
-    }
+    }[]
 }
 
 export type WebDashboardTile = QueryTile | TabsTile
+
+export enum SourceTab {
+    REFERRING_DOMAIN = 'REFERRING_DOMAIN',
+    UTM_SOURCE = 'UTM_SOURCE',
+    UTM_CAMPAIGN = 'UTM_CAMPAIGN',
+}
+
+export enum DeviceTab {
+    BROWSER = 'BROWSER',
+    OS = 'OS',
+    DEVICE_TYPE = 'DEVICE_TYPE',
+}
+
+export enum PathTab {
+    PATH = 'PATH',
+    INITIAL_PATH = 'INITIAL_PATH',
+}
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
@@ -37,6 +57,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
         togglePropertyFilter: (key: string, value: string) => ({ key, value }),
+        setSourceTab: (tab: string) => ({
+            tab,
+        }),
+        setDeviceTab: (tab: string) => ({
+            tab,
+        }),
+        setPathTab: (tab: string) => ({
+            tab,
+        }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -86,11 +115,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             },
         ],
+        sourceTab: [
+            SourceTab.REFERRING_DOMAIN as string,
+            {
+                setSourceTab: (_, { tab }) => tab,
+            },
+        ],
+        deviceTab: [
+            DeviceTab.BROWSER as string,
+            {
+                setDeviceTab: (_, { tab }) => tab,
+            },
+        ],
+        pathTab: [
+            PathTab.PATH as string,
+            {
+                setPathTab: (_, { tab }) => tab,
+            },
+        ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         tiles: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters): WebDashboardTile[] => [
+            (s) => [s.webAnalyticsFilters, s.pathTab, s.deviceTab, s.sourceTab],
+            (webAnalyticsFilters, pathTab, deviceTab, sourceTab): WebDashboardTile[] => [
                 {
                     layout: {
                         colSpan: 12,
@@ -105,32 +152,136 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'Pages',
                     layout: {
                         colSpan: 6,
                     },
-                    query: {
-                        full: true,
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.WebTopPagesQuery,
-                            properties: webAnalyticsFilters,
+                    activeTabId: pathTab,
+                    setTabId: actions.setPathTab,
+                    tabs: [
+                        {
+                            id: PathTab.PATH,
+                            title: 'Top Paths',
+                            linkText: 'Path',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopPagesQuery,
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
                         },
-                    },
+                        {
+                            id: PathTab.INITIAL_PATH,
+                            title: 'Top Initial Paths',
+                            linkText: 'Initial Path',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopPagesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                    ],
                 },
                 {
-                    title: 'Traffic Sources',
                     layout: {
                         colSpan: 6,
                     },
-                    query: {
-                        full: true,
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.WebTopSourcesQuery,
-                            properties: webAnalyticsFilters,
+                    activeTabId: sourceTab,
+                    setTabId: actions.setSourceTab,
+                    tabs: [
+                        {
+                            id: SourceTab.REFERRING_DOMAIN,
+                            title: 'Top Referrers',
+                            linkText: 'Referrer',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
                         },
+                        {
+                            id: SourceTab.UTM_SOURCE,
+                            title: 'Top Sources',
+                            linkText: 'UTM Source',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery,
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                        {
+                            id: SourceTab.UTM_CAMPAIGN,
+                            title: 'Top Campaigns',
+                            linkText: 'UTM Campaign',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                    ],
+                },
+                {
+                    layout: {
+                        colSpan: 6,
                     },
+                    activeTabId: deviceTab,
+                    setTabId: actions.setDeviceTab,
+
+                    tabs: [
+                        {
+                            id: DeviceTab.BROWSER,
+                            title: 'Top Browsers',
+                            linkText: 'Browser',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                        {
+                            id: DeviceTab.OS,
+                            title: 'Top OSs',
+                            linkText: 'OS',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                        {
+                            id: DeviceTab.DEVICE_TYPE,
+                            title: 'Top Device Types',
+                            linkText: 'Device Type',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    properties: webAnalyticsFilters,
+                                },
+                            },
+                        },
+                    ],
                 },
                 {
                     title: 'Unique users',
@@ -164,7 +315,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                 },
                 {
-                    title: 'User locations',
+                    title: 'World Map (Unique Users)',
                     layout: {
                         colSpan: 6,
                     },
@@ -196,7 +347,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             ],
         ],
-    }),
+    })),
     sharedListeners(() => ({})),
     listeners(() => ({})),
 ])
