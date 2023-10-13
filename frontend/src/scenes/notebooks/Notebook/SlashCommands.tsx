@@ -22,7 +22,7 @@ import { NotebookNodeType } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
 import { NodeKind } from '~/queries/schema'
@@ -49,15 +49,18 @@ type SlashCommandsItem = {
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
         title: 'H1',
+        icon: <NotebookIconHeading level={1} />,
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
         title: 'H2',
+        icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
         title: 'H3',
-        command: (chain) => chain.toggleHeading({ level: 3 }),
+        icon: <NotebookIconHeading level={2} />,
+        command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
         title: 'B',
@@ -234,7 +237,6 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                                 shown_as: 'Lifecycle',
                             },
                         },
-                        full: true,
                     },
                 },
             }),
@@ -249,7 +251,6 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 attrs: {
                     query: {
                         kind: NodeKind.DataTableNode,
-                        full: true,
                         source: {
                             kind: NodeKind.HogQLQuery,
                             query: `select event,
@@ -284,7 +285,6 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 attrs: {
                     query: {
                         kind: NodeKind.DataTableNode,
-                        full: true,
                         source: {
                             kind: NodeKind.EventsQuery,
                             select: defaultDataTableColumns(NodeKind.EventsQuery),
@@ -306,7 +306,6 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
                 attrs: {
                     query: {
                         kind: NodeKind.DataTableNode,
-                        full: true,
                         columns: defaultDataTableColumns(NodeKind.PersonsNode),
                         source: {
                             kind: NodeKind.PersonsNode,
@@ -348,6 +347,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
+    const { toggleSelectedNodeSettings } = useActions(notebookLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
@@ -473,7 +473,10 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                    onClick={async () => {
+                        ;(await item.command(editor.deleteRange(range))).run()
+                        setTimeout(toggleSelectedNodeSettings, 100)
+                    }}
                 >
                     {item.title}
                 </LemonButton>
