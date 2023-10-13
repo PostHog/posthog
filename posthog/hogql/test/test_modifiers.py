@@ -46,3 +46,28 @@ class TestModifiers(BaseTest):
         # Test (v2)
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"))
         assert "in(tuple(person.id, person.version)" in response.clickhouse
+
+    def test_modifiers_persons_argmax_version_auto(self):
+        # Use the v2 query when selecting properties.x
+        response = execute_hogql_query(
+            "SELECT id, properties.$browser, is_identified FROM persons",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+        )
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+
+        # Use the v2 query when selecting properties
+        response = execute_hogql_query(
+            "SELECT id, properties FROM persons",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+        )
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+
+        # Use the v1 query when not selecting any properties
+        response = execute_hogql_query(
+            "SELECT id, is_identified FROM persons",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion="auto"),
+        )
+        assert "in(tuple(person.id, person.version)" not in response.clickhouse

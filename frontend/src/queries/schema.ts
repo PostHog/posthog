@@ -133,7 +133,7 @@ export interface DataNode extends Node {
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v2_enabled'
-    personsArgMaxVersion?: 'v1' | 'v2'
+    personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
 }
 
 export interface HogQLQueryResponse {

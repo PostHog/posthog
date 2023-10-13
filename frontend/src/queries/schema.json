@@ -1236,7 +1236,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "personsArgMaxVersion": {
-                    "enum": ["v1", "v2"],
+                    "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
                 "personsOnEventsMode": {

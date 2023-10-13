@@ -229,6 +229,7 @@ class HogQLNotice(BaseModel):
 
 
 class PersonsArgMaxVersion(str, Enum):
+    auto = "auto"
     v1 = "v1"
     v2 = "v2"
 
