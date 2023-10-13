@@ -109,7 +109,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-3-11-6
+                  custom_cache_key_element: v1
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -187,7 +187,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-py-3-11-6
+                  custom_cache_key_element: v1
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -331,7 +331,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-py-3-11-6
+                  custom_cache_key_element: v1
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
