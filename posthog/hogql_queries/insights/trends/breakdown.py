@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple
 from posthog.hogql import ast
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain, series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -13,14 +14,21 @@ class Breakdown:
     team: Team
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
+    timings: HogQLTimings
 
     def __init__(
-        self, team: Team, query: TrendsQuery, series: EventsNode | ActionsNode, query_date_range: QueryDateRange
+        self,
+        team: Team,
+        query: TrendsQuery,
+        series: EventsNode | ActionsNode,
+        query_date_range: QueryDateRange,
+        timings: HogQLTimings,
     ):
         self.team = team
         self.query = query
         self.series = series
         self.query_date_range = query_date_range
+        self.timings = timings
 
     @cached_property
     def enabled(self) -> bool:
@@ -65,16 +73,17 @@ class Breakdown:
 
     @cached_property
     def _get_breakdown_values(self) -> ast.Array:
-        breakdown = BreakdownValues(
-            team=self.team,
-            event_name=series_event_name(self.series),
-            breakdown_field=self.query.breakdown.breakdown,
-            breakdown_type=self.query.breakdown.breakdown_type,
-            query_date_range=self.query_date_range,
-            histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
-            group_type_index=self.query.breakdown.breakdown_group_type_index,
-        )
-        return breakdown.get_breakdown_values()
+        with self.timings.measure("breakdown_values_query"):
+            breakdown = BreakdownValues(
+                team=self.team,
+                event_name=series_event_name(self.series),
+                breakdown_field=self.query.breakdown.breakdown,
+                breakdown_type=self.query.breakdown.breakdown_type,
+                query_date_range=self.query_date_range,
+                histogram_bin_count=self.query.breakdown.breakdown_histogram_bin_count,
+                group_type_index=self.query.breakdown.breakdown_group_type_index,
+            )
+            return breakdown.get_breakdown_values()
 
     def _get_breakdown_histogram_buckets(self) -> List[Tuple[float, float]]:
         buckets = []
