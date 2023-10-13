@@ -96,3 +96,18 @@
         object-fit: contain;
     }
 }
+
+.NotebookNodeTitle {
+    padding: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--editable {
+        border-radius: var(--radius);
+        transition: background-color 150ms linear;
+        &:hover {
+            background-color: var(--border);
+        }
+    }
+}

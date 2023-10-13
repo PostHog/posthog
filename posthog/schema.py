@@ -228,11 +228,23 @@ class HogQLNotice(BaseModel):
     start: Optional[float] = None
 
 
+class PersonsArgMaxVersion(str, Enum):
+    v1 = "v1"
+    v2 = "v2"
+
+
+class PersonsOnEventsMode(str, Enum):
+    disabled = "disabled"
+    v1_enabled = "v1_enabled"
+    v2_enabled = "v2_enabled"
+
+
 class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    personsOnEventsMode: Optional[str] = None
+    personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 
 
 class IntervalType(str, Enum):
