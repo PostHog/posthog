@@ -109,7 +109,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-
+                  custom_cache_key_element: v1-3-11-6
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -187,7 +187,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-
+                  custom_cache_key_element: v1-py-3-11-6
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -237,7 +237,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.11.4']
+                python-version: ['3.11.6']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
@@ -331,7 +331,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-
+                  custom_cache_key_element: v1-py-3-11-6
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
