@@ -7,7 +7,7 @@ import { useRef } from 'react'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
-    const inputRef = useRef<HTMLInputElement>(null)
+    const menuRef = useRef<HTMLDivElement>(null)
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -21,22 +21,24 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
         <BubbleMenu
             editor={editor}
             shouldShow={({ editor: { isEditable }, view, state, from, to }) => {
-                const focused = view.hasFocus()
+                const isChildOfMenu = menuRef.current?.contains(document.activeElement)
+                const focused = view.hasFocus() || isChildOfMenu
                 const isTextBlock = isTextSelection(state.selection)
-                const editingLink = inputRef.current === document.activeElement
 
-                if ((!focused || !isEditable || !isTextBlock) && !editingLink) {
+                if (!focused || !isEditable || !isTextBlock) {
                     return false
                 }
 
                 return state.doc.textBetween(from, to).length > 0
             }}
         >
-            <div className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-0.5">
+            <div
+                ref={menuRef}
+                className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-0.5"
+            >
                 {editor.isActive('link') ? (
                     <>
                         <LemonInput
-                            ref={inputRef}
                             size="small"
                             placeholder="https://posthog.com"
                             onChange={setLink}
