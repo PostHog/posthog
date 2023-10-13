@@ -97,7 +97,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.4-slim-bullseye AS posthog-build
+FROM python:3.11.6-slim-bullseye AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
