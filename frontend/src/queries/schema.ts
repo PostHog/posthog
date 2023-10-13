@@ -130,6 +130,11 @@ export interface DataNode extends Node {
     response?: Record<string, any>
 }
 
+/** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
+export interface HogQLQueryModifiers {
+    personsOnEventsMode?: string
+}
+
 export interface HogQLQueryResponse {
     query?: string
     hogql?: string
@@ -138,6 +143,7 @@ export interface HogQLQueryResponse {
     types?: any[]
     columns?: any[]
     timings?: QueryTiming[]
+    modifiers?: HogQLQueryModifiers
 }
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
@@ -152,6 +158,7 @@ export interface HogQLQuery extends DataNode {
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
+    modifiers?: HogQLQueryModifiers
     response?: HogQLQueryResponse
 }
 

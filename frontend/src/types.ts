@@ -3072,6 +3072,8 @@ export enum NotebookNodeType {
     EarlyAccessFeature = 'ph-early-access-feature',
     Survey = 'ph-survey',
     Person = 'ph-person',
+    Group = 'ph-group',
+    Cohort = 'ph-cohort',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',

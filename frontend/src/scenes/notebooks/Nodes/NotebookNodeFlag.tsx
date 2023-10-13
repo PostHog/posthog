@@ -16,6 +16,7 @@ import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -23,6 +24,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         featureFlag,
         featureFlagLoading,
         recordingFilterForFlag,
+        featureFlagMissing,
         hasEarlyAccessFeatures,
         canCreateEarlyAccessFeature,
         hasSurveys,
@@ -92,6 +94,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                 : undefined,
         ])
     }, [featureFlag])
+
+    if (featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
 
     return (
         <div>
