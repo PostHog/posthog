@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { router } from 'kea-router'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { NodeKind } from '~/queries/schema'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -176,10 +176,10 @@ export const notebooksModel = kea<notebooksModelType>([
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: node,
-                        },
+                        } as InsightVizNode,
                     },
                 ]
-            }, [] as { title: string; query: Node }[])
+            }, [] as { title: string; query: InsightVizNode | Node }[])
 
             const resources = queries.map((x) => ({
                 type: NotebookNodeType.Query,
