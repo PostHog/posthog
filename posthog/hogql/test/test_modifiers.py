@@ -21,7 +21,7 @@ class TestModifiers(BaseTest):
         )
         assert modifiers.personsOnEventsMode == PersonOnEventsMode.V2_ENABLED
 
-    def test_modifiers_person_on_events_mode_v1_enabled(self):
+    def test_modifiers_persons_on_events_mode_v1_enabled(self):
         query = "SELECT event, person_id FROM events"
 
         # Control
@@ -35,3 +35,14 @@ class TestModifiers(BaseTest):
             query, team=self.team, modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.V1_ENABLED)
         )
         assert " JOIN " not in response.clickhouse
+
+    def test_modifiers_persons_argmax_version_v2(self):
+        query = "SELECT * FROM persons"
+
+        # Control (v1)
+        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(personsArgMaxVersion="v1"))
+        assert "in(tuple(person.id, person.version)" not in response.clickhouse
+
+        # Test (v2)
+        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"))
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
