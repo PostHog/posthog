@@ -2,6 +2,7 @@ from typing import List
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -15,14 +16,21 @@ class TrendsQueryBuilder:
     team: Team
     query_date_range: QueryDateRange
     series: EventsNode | ActionsNode
+    timings: HogQLTimings
 
     def __init__(
-        self, trends_query: TrendsQuery, team: Team, query_date_range: QueryDateRange, series: EventsNode | ActionsNode
+        self,
+        trends_query: TrendsQuery,
+        team: Team,
+        query_date_range: QueryDateRange,
+        series: EventsNode | ActionsNode,
+        timings: HogQLTimings,
     ):
         self.query = trends_query
         self.team = team
         self.query_date_range = query_date_range
         self.series = series
+        self.timings = timings
 
     def build_query(self) -> ast.SelectUnionQuery:
         date_subqueries = self._get_date_subqueries()

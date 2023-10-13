@@ -63,7 +63,7 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder = TrendsQueryBuilder(self.query, self.team, query_date_range, series.series)
+                query_builder = TrendsQueryBuilder(self.query, self.team, query_date_range, series.series, self.timings)
                 queries.append(query_builder.build_query())
 
         return queries
