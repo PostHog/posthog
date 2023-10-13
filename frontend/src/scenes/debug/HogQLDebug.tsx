@@ -9,6 +9,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
 
 interface HogQLDebugProps {
     queryKey: string
@@ -23,6 +24,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
             <div className="space-y-2">
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <div className="flex gap-2">
+                    <Reload />
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />
                 </div>
