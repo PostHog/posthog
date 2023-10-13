@@ -15,9 +15,25 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode, QueryTiming } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataNode,
+    EventsQuery,
+    EventsQueryResponse,
+    PersonsNode,
+    PersonsQuery,
+    PersonsQueryResponse,
+    QueryResponse,
+    QueryTiming,
+} from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isInsightQueryNode, isEventsQuery, isPersonsNode, isQueryWithHogQLSupport } from '~/queries/utils'
+import {
+    isInsightQueryNode,
+    isEventsQuery,
+    isPersonsNode,
+    isQueryWithHogQLSupport,
+    isPersonsQuery,
+} from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
@@ -182,13 +198,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isPersonsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const eventQueryResponse = values.response as EventsQueryResponse
+                        const queryResponse = values.response as QueryResponse
                         return {
-                            ...eventQueryResponse,
-                            results: [...(eventQueryResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                            ...queryResponse,
+                            results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -358,11 +374,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if (isEventsQuery(query) && !responseError && !dataLoading) {
-                    if ((response as EventsQuery['response'])?.hasMore) {
+                if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
+                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
-                        const typedResults = (response as EventsQuery['response'])?.results
-                        if (sortKey === 'timestamp DESC') {
+                        const typedResults = (response as QueryResponse)?.results
+                        if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
@@ -374,11 +390,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             }
                         } else {
-                            const newQuery: EventsQuery = {
+                            return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                            }
-                            return newQuery
+                            } as EventsQuery | PersonsQuery
                         }
                     }
                 }

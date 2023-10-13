@@ -5,24 +5,28 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
-    logic: sessionRecordingsPlaylistLogic,
+    logic: sessionRecordingsPlaylistSceneLogic,
     paramsToProps: ({ params: { id } }) => {
         return { shortId: id as string }
     },
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, pinnedRecordings, hasChanges, derivedName } = useValues(
+        sessionRecordingsPlaylistSceneLogic
+    )
+    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
+        sessionRecordingsPlaylistSceneLogic
+    )
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
@@ -58,7 +62,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-16">
+        <div className="-mb-14">
             <PageHeader
                 title={
                     <EditableField
@@ -142,11 +146,14 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 }
             />
             {playlist.short_id ? (
-                <SessionRecordingsPlaylist
-                    playlistShortId={playlist.short_id}
-                    filters={playlist.filters}
-                    onFiltersChange={setFilters}
-                />
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist
+                        filters={playlist.filters}
+                        onFiltersChange={setFilters}
+                        onPinnedChange={onPinnedChange}
+                        pinnedRecordings={pinnedRecordings ?? []}
+                    />
+                </div>
             ) : null}
         </div>
     )

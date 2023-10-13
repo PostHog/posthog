@@ -11,6 +11,7 @@ from sentry_sdk import push_scope
 
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import (
+    INSIGHT_LIFECYCLE,
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
     TRENDS_CUMULATIVE,
@@ -38,7 +39,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, person_on_events_mode=team.person_on_events_mode
             ).get_query()
-        elif filter.shown_as == TRENDS_LIFECYCLE:
+        elif filter.insight == INSIGHT_LIFECYCLE or filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:

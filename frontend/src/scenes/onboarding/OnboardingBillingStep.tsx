@@ -2,7 +2,7 @@ import { OnboardingStep } from './OnboardingStep'
 import { PlanComparison } from 'scenes/billing/PlanComparison'
 import { useActions, useValues } from 'kea'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { BillingProductV2Type } from '~/types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { BillingHero } from 'scenes/billing/BillingHero'
@@ -13,7 +13,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { StarHog } from 'lib/components/hedgehogs'
 
-export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const OnboardingBillingStep = ({
+    product,
+    stepKey = OnboardingStepKey.BILLING,
+}: {
+    product: BillingProductV2Type
+    stepKey?: OnboardingStepKey
+}): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
@@ -24,6 +30,7 @@ export const OnboardingBillingStep = ({ product }: { product: BillingProductV2Ty
         <OnboardingStep
             title="Add credit card details"
             showSkip={!product.subscribed}
+            stepKey={stepKey}
             continueOverride={
                 product?.subscribed ? undefined : (
                     <LemonButton

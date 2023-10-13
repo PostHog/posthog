@@ -67,7 +67,7 @@ export class EventsProcessor {
         eventUuid: string
     ): Promise<PreIngestionEvent> {
         if (!UUID.validateString(eventUuid, false)) {
-            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
+            await captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
                 eventUuid: JSON.stringify(eventUuid),
             })
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -104,6 +104,30 @@ export class EventsProcessor {
         return result
     }
 
+    private getElementsChain(properties: Properties): string {
+        /*
+        We're deprecating $elements in favor of $elements_chain, which doesn't require extra
+        processing on the ingestion side and is the way we store elements in ClickHouse.
+        As part of that we'll move posthog-js to send us $elements_chain as string directly,
+        but we still need to support the old way of sending $elements and converting them
+        to $elements_chain, while everyone hasn't upgraded.
+        */
+        let elementsChain = ''
+        if (properties['$elements_chain']) {
+            elementsChain = properties['$elements_chain']
+        } else if (properties['$elements']) {
+            const elements: Record<string, any>[] | undefined = properties['$elements']
+            let elementsList: Element[] = []
+            if (elements && elements.length) {
+                elementsList = extractElements(elements)
+                elementsChain = elementsToString(elementsList)
+            }
+        }
+        delete properties['$elements_chain']
+        delete properties['$elements']
+        return elementsChain
+    }
+
     private async capture(
         eventUuid: string,
         team: Team,
@@ -113,13 +137,6 @@ export class EventsProcessor {
         timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
-        const elements: Record<string, any>[] | undefined = properties['$elements']
-        let elementsList: Element[] = []
-
-        if (elements && elements.length) {
-            elementsList = extractElements(elements)
-            delete properties['$elements']
-        }
 
         if (properties['$ip'] && team.anonymize_ips) {
             delete properties['$ip']
@@ -148,7 +165,6 @@ export class EventsProcessor {
             distinctId,
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
-            elementsList,
             teamId: team.id,
         }
     }
@@ -168,17 +184,20 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
-        const {
-            eventUuid: uuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList: elements,
-        } = preIngestionEvent
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
-        const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+        let elementsChain = ''
+        try {
+            elementsChain = this.getElementsChain(properties)
+        } catch (error) {
+            Sentry.captureException(error, { tags: { team_id: teamId } })
+            status.warn('⚠️', 'Failed to process elements', {
+                uuid,
+                teamId: teamId,
+                properties,
+                error,
+            })
+        }
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
@@ -378,6 +397,19 @@ export const gatherConsoleLogEvents = (
     return consoleLogEntries
 }
 
+export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
+    events
+        // from millis expects a number and handles unexpected input gracefully so we have to do some filtering
+        // since we're accepting input over the API and have seen very unexpected values in the past
+        // we want to be very careful here before converting to a DateTime
+        // TODO we don't really want to support timestamps of 1,
+        //  but we don't currently filter out based on date of RRWebEvents being too far in the past
+        .filter((e) => (e?.timestamp || -1) > 0)
+        .map((e) => DateTime.fromMillis(e.timestamp))
+        .filter((e) => e.isValid)
+        .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
+        .sort()
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
@@ -385,10 +417,7 @@ export const createSessionReplayEvent = (
     session_id: string,
     events: RRWebEvent[]
 ) => {
-    const timestamps = events
-        .filter((e) => !!e?.timestamp)
-        .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
-        .sort()
+    const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
     if (events.length === 0 || timestamps.length === 0) {

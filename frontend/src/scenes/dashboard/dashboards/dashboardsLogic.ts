@@ -10,7 +10,6 @@ import { DashboardBasicType } from '~/types'
 
 export enum DashboardsTab {
     Dashboards = 'dashboards',
-    Notebooks = 'notebooks',
     Templates = 'templates',
 }
 

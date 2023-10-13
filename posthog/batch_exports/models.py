@@ -98,7 +98,7 @@ class BatchExportRun(UUIDModel):
     )
 
 
-BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week")]
+BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week"), ("every 5 minutes", "every 5 minutes")]
 
 
 class BatchExport(UUIDModel):
@@ -145,13 +145,18 @@ class BatchExport(UUIDModel):
 
     @property
     def interval_time_delta(self) -> timedelta:
+        """Return a datetime.timedelta that corresponds to this BatchExport's interval."""
         if self.interval == "hour":
             return timedelta(hours=1)
         elif self.interval == "day":
             return timedelta(days=1)
         elif self.interval == "week":
             return timedelta(weeks=1)
-        raise ValueError("Invalid interval")
+        elif self.interval.startswith("every"):
+            _, value, unit = self.interval.split(" ")
+            kwargs = {unit: int(value)}
+            return timedelta(**kwargs)
+        raise ValueError(f"Invalid interval: '{self.interval}'")
 
 
 class BatchExportLogEntryLevel(str, enum.Enum):

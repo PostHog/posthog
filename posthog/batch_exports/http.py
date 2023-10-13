@@ -1,11 +1,17 @@
 import datetime as dt
 from typing import Any
 
+import posthoganalytics
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
+from rest_framework.exceptions import (
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -27,7 +33,13 @@ from posthog.batch_exports.service import (
     sync_batch_export,
     unpause_batch_export,
 )
-from posthog.models import BatchExport, BatchExportDestination, BatchExportRun, User
+from posthog.models import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportRun,
+    Team,
+    User,
+)
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
@@ -158,9 +170,22 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
 
+        if validated_data["interval"] not in ("hour", "day", "week"):
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
-
         sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():

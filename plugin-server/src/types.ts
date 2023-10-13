@@ -77,7 +77,6 @@ export enum PluginServerMode {
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
-    recordings_ingestion = 'recordings-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
@@ -128,7 +127,6 @@ export interface PluginsServerConfig {
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
-    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -139,8 +137,8 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
-    KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: number
+    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
+    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -289,7 +287,6 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -476,7 +473,6 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
@@ -658,8 +654,15 @@ interface BaseIngestionEvent {
     elementsList: Element[]
 }
 
-/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
-export type PreIngestionEvent = BaseIngestionEvent
+/** Ingestion event before saving, BaseIngestionEvent without elementsList */
+export interface PreIngestionEvent {
+    eventUuid: string
+    event: string
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+}
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export interface PostIngestionEvent extends BaseIngestionEvent {
@@ -931,6 +934,15 @@ export interface RawSessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
+}
+
+/** Raw session replay event row from ClickHouse. */
+export interface RawSessionReplayEvent {
+    min_first_timestamp: string
+    team_id: number
+    distinct_id: string
+    session_id: string
+    /* TODO what columns do we need */
 }
 
 export interface RawPerformanceEvent {

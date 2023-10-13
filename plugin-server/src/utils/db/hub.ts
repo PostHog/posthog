@@ -13,7 +13,7 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../kafka/config'
 import { createKafkaProducer } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
 import {
@@ -53,7 +53,8 @@ pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
 
 export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
     const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
+    const producerConfig = createRdProducerConfigFromEnvVars(serverConfig)
+    const producer = await createKafkaProducer(kafkaConnectionConfig, producerConfig)
     return new KafkaProducerWrapper(producer)
 }
 
@@ -129,15 +130,7 @@ export async function createHub(
 
     const promiseManager = new PromiseManager(serverConfig, statsd)
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        kafkaProducer,
-        clickhouse,
-        statsd,
-        promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd, serverConfig.PERSON_INFO_CACHE_TTL)
     const teamManager = new TeamManager(postgres, serverConfig, statsd)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
