@@ -21,8 +21,8 @@ function NextPagesRouterCodeSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`// pages/_app.js
-...
-import posthog from 'posthog-js' // Import PostHog
+import posthog from "posthog-js"
+import { PostHogProvider } from 'posthog-js/react'
 
 if (typeof window !== 'undefined') { // checks that we are client-side
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
@@ -53,8 +53,8 @@ function NextAppRouterCodeSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`// app/providers.js
 'use client'
-...
 import posthog from 'posthog-js'
+import { PostHogProvider } from 'posthog-js/react'
 
 if (typeof window !== 'undefined') {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
