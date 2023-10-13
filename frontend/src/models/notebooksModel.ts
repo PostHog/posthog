@@ -176,7 +176,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         query: {
                             kind: NodeKind.InsightVizNode,
                             source: node,
-                        } as InsightVizNode,
+                        },
                     },
                 ]
             }, [] as { title: string; query: InsightVizNode | Node }[])

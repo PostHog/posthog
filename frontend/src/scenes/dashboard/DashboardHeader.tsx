@@ -32,6 +32,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 import { notebooksModel } from '~/models/notebooksModel'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -263,13 +264,15 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => createNotebookFromDashboard(dashboard)}
-                                                status="stealth"
-                                                fullWidth
-                                            >
-                                                Create notebook from dashboard
-                                            </LemonButton>
+                                            <FlaggedFeature flag={'notebooks'}>
+                                                <LemonButton
+                                                    onClick={() => createNotebookFromDashboard(dashboard)}
+                                                    status="stealth"
+                                                    fullWidth
+                                                >
+                                                    Create notebook from dashboard
+                                                </LemonButton>
+                                            </FlaggedFeature>
                                             {canEditDashboard && (
                                                 <LemonButton
                                                     onClick={() => {
