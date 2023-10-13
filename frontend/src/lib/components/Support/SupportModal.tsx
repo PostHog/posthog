@@ -9,11 +9,18 @@ import { Field } from 'lib/forms/Field'
 import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { userLogic } from 'scenes/userLogic'
 
+const SUPPORT_TICKET_TEMPLATES = {
+    bug: '## Bug description\n\n*Please describe.*\n*If this affects the front-end, screenshots and links would be of great help. This speeds up our ability to troubleshoot tremendously.*\n\n## How to reproduce\n\n1.\n2.\n3.\n\n## Additional context\n\n',
+    feedback:
+        "## Is your feature request related to a problem?\n\n*Please describe.*\n\n## Describe the solution you'd like\n\n\n\n## Describe alternatives you've considered\n\n\n\n## Additional context\n\n",
+    support:
+        '## How can we assist you?\n\n*Please describe your issue or question in detail.*\n\n## Steps to reproduce (if applicable)\n\n1.\n2.\n3.\n\n## Expected behavior\n\n\n## Actual behavior\n\n\n## Additional context\n\n',
+}
 const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
     {
         value: 'bug',
@@ -49,7 +56,11 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
 
-    if (!preflightLogic.values.preflight?.cloud) {
+    useEffect(() => {
+        handleReportTypeChange()
+    }, [])
+
+    if (false && !preflightLogic.values.preflight?.cloud) {
         if (isSupportFormOpen) {
             lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
         }
@@ -65,6 +76,16 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+        if (kind === 'bug') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+        } else if (kind === 'feedback') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+        } else if (kind === 'support') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+        }
+    }
 
     return (
         <LemonModal
@@ -105,7 +126,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                     </>
                 )}
                 <Field name="kind" label="What type of message is this?">
-                    <LemonSelect fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                    <LemonSelect onSelect={handleReportTypeChange} fullWidth options={SUPPORT_TICKET_OPTIONS} />
                 </Field>
                 <Field name="target_area" label="What area does this best relate to?">
                     <LemonSelect
