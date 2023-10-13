@@ -471,7 +471,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 ))}
             </div>
 
-            <LemonDivider className="my-px" />
+            <LemonDivider />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
