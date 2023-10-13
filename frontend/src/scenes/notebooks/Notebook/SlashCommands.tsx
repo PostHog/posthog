@@ -457,7 +457,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="space-y-1">
+        <div className="space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
@@ -471,7 +471,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 ))}
             </div>
 
-            <LemonDivider className="my-0" />
+            <LemonDivider className="my-px" />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
