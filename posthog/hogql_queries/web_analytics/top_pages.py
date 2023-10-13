@@ -42,15 +42,15 @@ FROM
 LEFT OUTER JOIN
     (
         SELECT
-            session.entry_pathname,
+            session.$initial_pathname,
             avg(session.is_bounce) as bounce_rate
         FROM
             {session_query} AS session
         GROUP BY
-            session.entry_pathname
+            session.$initial_pathname
     ) AS bounce_rate
 ON
-    pathname.$pathname = bounce_rate.entry_pathname
+    pathname.$pathname = bounce_rate.$initial_pathname
 LEFT OUTER JOIN
     {pathname_scroll_query} AS scroll_data
 ON

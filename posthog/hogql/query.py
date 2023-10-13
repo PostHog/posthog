@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
@@ -14,7 +15,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.client import sync_execute
-from posthog.schema import HogQLQueryResponse, HogQLFilters
+from posthog.schema import HogQLQueryResponse, HogQLFilters, HogQLQueryModifiers
 
 
 def execute_hogql_query(
@@ -25,6 +26,7 @@ def execute_hogql_query(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     default_limit: Optional[int] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> HogQLQueryResponse:
@@ -70,12 +72,13 @@ def execute_hogql_query(
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
+        query_modifiers = create_default_modifiers_for_team(team, modifiers)
         with timings.measure("prepare_ast"):
             hogql_query_context = HogQLContext(
                 team_id=team.pk,
                 enable_select_queries=True,
-                person_on_events_mode=team.person_on_events_mode,
                 timings=timings,
+                modifiers=query_modifiers,
             )
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
@@ -107,8 +110,8 @@ def execute_hogql_query(
         clickhouse_context = HogQLContext(
             team_id=team.pk,
             enable_select_queries=True,
-            person_on_events_mode=team.person_on_events_mode,
             timings=timings,
+            modifiers=query_modifiers,
         )
         clickhouse_sql = print_ast(
             select_query, context=clickhouse_context, dialect="clickhouse", settings=settings or HogQLGlobalSettings()
@@ -141,4 +144,5 @@ def execute_hogql_query(
         results=results,
         columns=print_columns,
         types=types,
+        modifiers=query_modifiers,
     )
