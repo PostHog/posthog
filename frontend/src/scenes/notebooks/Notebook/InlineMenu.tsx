@@ -3,9 +3,11 @@ import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL } from 'lib/utils'
+import { useRef } from 'react'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
+    const inputRef = useRef<HTMLInputElement>(null)
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -18,11 +20,12 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     return (
         <BubbleMenu
             editor={editor}
-            shouldShow={({ editor, view, state, from, to }) => {
-                const hasEditorFocus = view.hasFocus()
+            shouldShow={({ editor: { isEditable }, view, state, from, to }) => {
+                const focused = view.hasFocus()
                 const isTextBlock = isTextSelection(state.selection)
+                const editingLink = inputRef.current === document.activeElement
 
-                if (!hasEditorFocus || !editor.isEditable || !isTextBlock) {
+                if ((!focused || !isEditable || !isTextBlock) && !editingLink) {
                     return false
                 }
 
@@ -33,10 +36,11 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 {editor.isActive('link') ? (
                     <>
                         <LemonInput
+                            ref={inputRef}
                             size="small"
                             placeholder="https://posthog.com"
                             onChange={setLink}
-                            value={href}
+                            value={href ?? ''}
                             className="border-0"
                             autoFocus
                         />
