@@ -29,10 +29,11 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         return {
             ...query,
             embedded: true,
-            // TODO: Add back in controls in a way that actually works...
+            // TODO: Add back in controls in a way that actually works - maybe sync with NotebookNodeQuery
             full: false,
             showElapsedTime: false,
             showTimings: false,
+            showOpenEditorButton: false,
         }
     }, [query])
 

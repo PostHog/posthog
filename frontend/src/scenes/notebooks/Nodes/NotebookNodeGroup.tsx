@@ -21,9 +21,8 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     const { groupData, groupDataLoading, groupTypeName } = useValues(logic)
     const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
-    const title = groupData
-        ? `${groupTypeName}: ${groupDisplayId(groupData.group_key, groupData.group_properties)}`
-        : 'Group'
+    const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
+    const title = groupData ? `${groupTypeName}: ${groupDisplay}` : 'Group'
 
     useEffect(() => {
         updateAttributes({
@@ -67,11 +66,12 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between')}>
+            <div className={clsx('p-4 flex-0 flex gap-2 justify-between flex-wrap')}>
                 {groupDataLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : groupData ? (
                     <>
+                        <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
                         <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
                     </>
                 ) : null}
