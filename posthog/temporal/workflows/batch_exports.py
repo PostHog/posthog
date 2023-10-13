@@ -662,6 +662,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         start_at=inputs.start_at,
         end_at=inputs.end_at,
         status=inputs.status,
+        team_id=inputs.team_id,
     )
 
     logger.info(f"Created BatchExportBackfill {run.id} in team {inputs.team_id}.")

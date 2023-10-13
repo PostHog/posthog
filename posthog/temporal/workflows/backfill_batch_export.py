@@ -24,18 +24,6 @@ from posthog.temporal.workflows.batch_exports import (
 )
 
 
-@dataclasses.dataclass
-class BackfillBatchExportInputs:
-    """Inputs for the BackfillBatchExport Workflow."""
-
-    team_id: int
-    schedule_id: str
-    start_at: str
-    end_at: str
-    buffer_limit: int = 1
-    wait_delay: float = 5.0
-
-
 class HeartbeatDetails(typing.NamedTuple):
     """Details sent over in a Temporal Activity heartbeat."""
 
@@ -72,7 +60,41 @@ class HeartbeatDetails(typing.NamedTuple):
 
 
 @temporalio.activity.defn
-async def backfill_schedule(inputs: BackfillBatchExportInputs) -> None:
+async def get_schedule_frequency(schedule_id: str) -> float:
+    """Return a Temporal Schedule's frequency.
+
+    This assumes that the Schedule has one interval set.
+    """
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    handle = client.get_schedule_handle(schedule_id)
+    desc = await handle.describe()
+
+    interval = desc.schedule.spec.intervals[0]
+    return interval.every.total_seconds()
+
+
+@dataclasses.dataclass
+class BackfillScheduleInputs:
+    """Inputs for the backfill_schedule Activity."""
+
+    schedule_id: str
+    start_at: str
+    end_at: str
+    frequency_seconds: float
+    buffer_limit: int = 1
+    wait_delay: float = 5.0
+
+
+@temporalio.activity.defn
+async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """Temporal Activity to backfill a Temporal Schedule.
 
     The backfill is broken up into batches of inputs.buffer_limit size. After a backfill batch is requested,
@@ -115,7 +137,7 @@ async def backfill_schedule(inputs: BackfillBatchExportInputs) -> None:
 
     handle = client.get_schedule_handle(inputs.schedule_id)
 
-    frequency = await get_schedule_frequency(handle)
+    frequency = dt.timedelta(seconds=inputs.frequency_seconds)
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
@@ -215,15 +237,33 @@ def check_workflow_executions_not_running(workflow_executions: list[temporalio.c
     )
 
 
-async def get_schedule_frequency(handle: temporalio.client.ScheduleHandle) -> dt.timedelta:
-    """Return a Temporal Schedule's frequency.
+def backfill_range(
+    start_at: dt.datetime, end_at: dt.datetime, step: dt.timedelta
+) -> typing.Generator[tuple[dt.datetime, dt.datetime], None, None]:
+    """Generate range of dates between start_at and end_at."""
+    current = start_at
 
-    This assumes that the Schedule has one interval set.
-    """
-    desc = await handle.describe()
+    while current < end_at:
+        current_end = current + step
 
-    interval = desc.schedule.spec.intervals[0]
-    return interval.every
+        if current_end > end_at:
+            current_end = end_at
+
+        yield current, current_end
+
+        current = current_end
+
+
+@dataclasses.dataclass
+class BackfillBatchExportInputs:
+    """Inputs for the BackfillBatchExport Workflow."""
+
+    team_id: int
+    schedule_id: str
+    start_at: str
+    end_at: str
+    buffer_limit: int = 1
+    wait_delay: float = 5.0
 
 
 @temporalio.workflow.defn(name="backfill-batch-export")
@@ -268,12 +308,39 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
-
         update_inputs = UpdateBatchExportBackfillStatusInputs(id=backfill_id, status="Completed")
 
+        frequency_seconds = await temporalio.workflow.execute_activity(
+            get_schedule_frequency,
+            inputs.schedule_id,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=0),
+        )
+
+        backfill_duration = dt.datetime.fromisoformat(inputs.end_at) - dt.datetime.fromisoformat(inputs.start_at)
+        number_of_expected_runs = backfill_duration / dt.timedelta(seconds=frequency_seconds)
+
+        backfill_schedule_inputs = BackfillScheduleInputs(
+            schedule_id=inputs.schedule_id,
+            start_at=inputs.start_at,
+            end_at=inputs.end_at,
+            frequency_seconds=frequency_seconds,
+            buffer_limit=inputs.buffer_limit,
+            wait_delay=inputs.wait_delay,
+        )
         try:
             await temporalio.workflow.execute_activity(
-                backfill_schedule, inputs, heartbeat_timeout=dt.timedelta(minutes=2)
+                backfill_schedule,
+                backfill_schedule_inputs,
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                ),
+                # Temporal requires that we set a timeout.
+                # Allocate 5 minutes per expected number of runs to backfill as a timeout.
+                # The 5 minutes are just an assumption and we may tweak this in the future
+                start_to_close_timeout=dt.timedelta(minutes=5 * number_of_expected_runs),
+                heartbeat_timeout=dt.timedelta(minutes=2),
             )
 
         except temporalio.exceptions.ActivityError as e:
@@ -303,20 +370,3 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError"],
                 ),
             )
-
-
-def backfill_range(
-    start_at: dt.datetime, end_at: dt.datetime, step: dt.timedelta
-) -> typing.Generator[tuple[dt.datetime, dt.datetime], None, None]:
-    """Generate ranges of dates between start_at and end_at."""
-    current = start_at
-
-    while current < end_at:
-        current_end = current + step
-
-        if current_end > end_at:
-            current_end = end_at
-
-        yield current, current_end
-
-        current = current_end

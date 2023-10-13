@@ -122,11 +122,22 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
 
 
+@dataclass
+class NoOpInputs:
+    """NoOp Workflow is used for testing, it takes a single argument to echo back."""
+
+    batch_export_id: str
+    team_id: int
+    interval: str = "hour"
+    arg: str = ""
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "NoOp": ("no-op", NoOpInputs),
 }
 
 
@@ -377,6 +388,7 @@ async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None
 
 def create_batch_export_backfill(
     batch_export_id: UUID,
+    team_id: int,
     start_at: str,
     end_at: str,
     status: str = BatchExportRun.Status.RUNNING,
@@ -392,6 +404,7 @@ def create_batch_export_backfill(
         status=status,
         start_at=dt.datetime.fromisoformat(start_at),
         end_at=dt.datetime.fromisoformat(end_at),
+        team_id=team_id,
     )
     backfill.save()
 
