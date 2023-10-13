@@ -191,6 +191,7 @@
 
     .NotebookRecordingTimestamp {
         display: inline-flex;
+        max-height: 22px;
     }
 
     // overriding ::selection is necessary here because
