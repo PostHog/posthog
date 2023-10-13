@@ -61,7 +61,7 @@ if (typeof window !== 'undefined') {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
   })
 }
-export function PHProvider({ children }) {
+export function CSPostHogProvider({ children }) {
     return <PostHogProvider client={posthog}>{children}</PostHogProvider>
 }`}
         </CodeSnippet>
@@ -73,14 +73,14 @@ function NextAppRouterLayoutSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`// app/layout.js
 import './globals.css'
-import { PHProvider } from './providers'
+import { CSPostHogProvider } from './providers'
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <PHProvider>
+      <CSPostHogProvider>
         <body>{children}</body>
-      </PHProvider>
+      </CSPostHogProvider>
     </html>
   )
 }`}
