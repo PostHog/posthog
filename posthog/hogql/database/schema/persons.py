@@ -36,7 +36,7 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers:
     if version == PersonsArgMaxVersion.auto:
         version = PersonsArgMaxVersion.v1
         # If selecting properties, use the faster v2 query. Otherwise v1 is faster.
-        for _, field_chain in requested_fields.items():
+        for field_chain in requested_fields.values():
             if field_chain[0] == "properties":
                 version = PersonsArgMaxVersion.v2
                 break
