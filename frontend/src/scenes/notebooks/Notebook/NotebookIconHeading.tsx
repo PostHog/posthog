@@ -1,6 +1,6 @@
 const NotebookIconHeading = ({ level }: { level: number }): JSX.Element => {
     return (
-        <div style={{ fontSize: 16, fontWeight: '600' }}>
+        <div className="text-base font-semibold">
             H<span className="text-xs font-bold">{level}</span>
         </div>
     )
