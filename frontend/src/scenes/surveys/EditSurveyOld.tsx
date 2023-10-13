@@ -514,7 +514,6 @@ export default function EditSurveyOld(): JSX.Element {
                         {({ value, onChange }) => (
                             <>
                                 <SurveyAppearance
-                                    preview
                                     type={survey.questions[0].type}
                                     surveyQuestionItem={survey.questions[0]}
                                     question={survey.questions[0].question}

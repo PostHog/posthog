@@ -215,7 +215,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
                                                     <SurveyAppearance
-                                                        preview
                                                         type={survey.questions[0].type}
                                                         surveyQuestionItem={survey.questions[0]}
                                                         appearance={survey.appearance || defaultSurveyAppearance}
