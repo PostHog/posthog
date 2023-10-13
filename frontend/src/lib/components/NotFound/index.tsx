@@ -20,11 +20,14 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
 
     return (
         <div className="NotFoundComponent space-y-2">
-            <div className="NotFoundComponent__graphic" />
+            {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
             <h1>{capitalizeFirstLetter(object)} not found</h1>
-            <p>
-                <b>It seems this {object} may have been lost in space.</b>
-            </p>
+            {!nodeLogic ? (
+                <p>
+                    <b>It seems this {object} may have been lost in space.</b>
+                </p>
+            ) : null}
+
             <p>
                 {caption || (
                     <>
