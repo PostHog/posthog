@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { groupLogic } from 'scenes/groups/groupLogic'
+import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -14,13 +14,23 @@ import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { GroupDashboard } from 'scenes/groups/GroupDashboard'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
+interface GroupSceneProps {
+    groupTypeIndex?: string
+    groupKey?: string
+}
 export const scene: SceneExport = {
     component: Group,
     logic: groupLogic,
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+        groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
+        groupKey: decodeURIComponent(groupKey ?? ''),
+    }),
 }
 
-function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
+export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
         <div className="flex items-center flex-wrap">
             <div className="mr-4">
@@ -46,17 +56,17 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 
 export function Group(): JSX.Element {
     const {
+        logicProps,
         groupData,
         groupDataLoading,
         groupTypeName,
-        groupKey,
-        groupTypeIndex,
         groupType,
         groupTab,
         groupEventsQuery,
         showCustomerSuccessDashboards,
     } = useValues(groupLogic)
-    const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
+    const { groupKey, groupTypeIndex } = logicProps
+    const { setGroupEventsQuery } = useActions(groupLogic)
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
@@ -70,7 +80,7 @@ export function Group(): JSX.Element {
             />
             <LemonTabs
                 activeKey={groupTab ?? PersonsTabType.PROPERTIES}
-                onChange={(tab) => setGroupTab(tab)}
+                onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
                     {
                         key: PersonsTabType.PROPERTIES,

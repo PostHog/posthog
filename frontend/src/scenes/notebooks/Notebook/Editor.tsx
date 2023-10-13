@@ -34,6 +34,7 @@ import { InlineMenu } from './InlineMenu'
 import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
+import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -99,6 +100,7 @@ export function Editor(): JSX.Element {
             NotebookNodeReplayTimestamp,
             NotebookNodePlaylist,
             NotebookNodePerson,
+            NotebookNodeGroup,
             NotebookNodeFlagCodeExample,
             NotebookNodeFlag,
             NotebookNodeExperiment,
