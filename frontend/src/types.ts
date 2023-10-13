@@ -1816,7 +1816,7 @@ export enum RecordingWindowFilter {
 }
 
 export interface EditorFilterProps {
-    query: InsightQueryNode
+    // query: InsightQueryNode
     insightProps: InsightLogicProps
 }
 

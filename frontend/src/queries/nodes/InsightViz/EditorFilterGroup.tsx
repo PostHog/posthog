@@ -5,7 +5,6 @@ import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { slugify } from 'lib/utils'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { PureField } from 'lib/forms/Field'
-import { InsightQueryNode } from '~/queries/schema'
 
 import './EditorFilterGroup.scss'
 
@@ -13,10 +12,9 @@ export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
     insight: Partial<InsightModel>
     insightProps: InsightLogicProps
-    query: InsightQueryNode
 }
 
-export function EditorFilterGroup({ query, insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
+export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
     const { title, count, defaultExpanded = true, editorFilters } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
 
@@ -50,17 +48,11 @@ export function EditorFilterGroup({ query, insightProps, editorFilterGroup }: Ed
                         return (
                             <div key={key}>
                                 <PureField
-                                    label={
-                                        typeof Label === 'function' ? (
-                                            <Label query={query} insightProps={insightProps} />
-                                        ) : (
-                                            Label
-                                        )
-                                    }
+                                    label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
                                     info={tooltip}
                                     showOptional={showOptional}
                                 >
-                                    {Component ? <Component query={query} insightProps={insightProps} /> : null}
+                                    {Component ? <Component insightProps={insightProps} /> : null}
                                 </PureField>
                             </div>
                         )
