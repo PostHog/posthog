@@ -24,7 +24,7 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
     return (
         <NotebookSelectPopover placement="right-start">
             <LemonButton size="small" icon={<IconNotebook />} status="primary-alt" sideIcon={null}>
-                <span className="font-semibold">{selectedTitle || 'Notebooks'}</span>
+                <span className="font-semibold truncate">{selectedTitle || 'Notebooks'}</span>
             </LemonButton>
         </NotebookSelectPopover>
     )

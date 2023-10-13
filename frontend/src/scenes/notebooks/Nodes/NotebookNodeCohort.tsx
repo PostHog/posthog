@@ -14,16 +14,14 @@ import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
     const { setQuery } = useActions(cohortEditLogic({ id }))
-
-    const title = cohort ? `Cohort: ${cohort.name}` : 'Cohort'
 
     const modifiedQuery = useMemo<DataTableNode>(() => {
         return {
@@ -38,9 +36,9 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }, [query])
 
     useEffect(() => {
-        updateAttributes({
-            title,
-        })
+        const title = cohort ? `Cohort: ${cohort.name}` : 'Cohort'
+
+        setTitlePlaceholder(title)
         setActions(
             !cohortMissing
                 ? [
@@ -52,7 +50,6 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                               insertAfter({
                                   type: NotebookNodeType.Query,
                                   attrs: {
-                                      title: `People in cohort ${cohort.name}`,
                                       query: {
                                           kind: NodeKind.DataTableNode,
                                           source: {
@@ -80,8 +77,6 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                               insertAfter({
                                   type: NotebookNodeType.Query,
                                   attrs: {
-                                      title: `Pageviews for cohort '${cohort.name}'`,
-
                                       query: {
                                           kind: 'InsightVizNode',
                                           source: {
@@ -159,7 +154,7 @@ type NotebookNodeCohortAttributes = {
 
 export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttributes>({
     nodeType: NotebookNodeType.Cohort,
-    defaultTitle: 'Cohort',
+    titlePlaceholder: 'Cohort',
     Component,
     heightEstimate: 300,
     minHeight: 100,
