@@ -304,6 +304,7 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,
+        id=f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}",
         task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
 
