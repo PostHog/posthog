@@ -52,12 +52,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     path((key) => ['scenes', 'insights', 'insightVizDataLogic', key]),
 
     connect(() => ({
-        values: [
-            insightDataLogic,
-            ['query', 'insightData', 'insightDataLoading', 'insightDataError'],
-            filterTestAccountsDefaultsLogic,
-            ['filterTestAccountsDefault'],
-        ],
+        values: [insightDataLogic, ['query'], filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
         actions: [insightLogic, ['setFilters'], insightDataLogic, ['setQuery']],
     })),
 
@@ -163,15 +158,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
-
-        erroredQueryId: [
-            (s) => [s.insightDataError],
-            (insightDataError) => {
-                return insightDataError?.queryId || null
-            },
-        ],
-
-        timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
     listeners(({ actions, values, props }) => ({

@@ -37,6 +37,7 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -261,7 +262,8 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { timezone } = useValues(insightDataLogic(insightProps))
+    const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
     const { createTooltipData } = useValues(lineGraphLogic)
 

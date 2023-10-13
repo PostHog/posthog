@@ -1,4 +1,5 @@
 import { kea, props, key, path, connect, actions, reducers, selectors } from 'kea'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { InsightLogicProps, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from '../../sharedUtils'
@@ -9,7 +10,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'trendsFilter', 'series']],
+        values: [insightDataLogic(props), ['insightData'], insightVizDataLogic(props), ['trendsFilter', 'series']],
     })),
     actions({
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),

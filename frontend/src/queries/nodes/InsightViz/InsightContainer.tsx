@@ -83,10 +83,10 @@ export function InsightContainer({
         supportsDisplay,
         isUsingSessionAnalysis,
         samplingFactor,
-        insightDataLoading,
-        erroredQueryId,
     } = useValues(insightVizDataLogic(insightProps))
-    const { exportContext, timedOutQueryId } = useValues(insightDataLogic(insightProps))
+    const { exportContext, timedOutQueryId, insightDataLoading, erroredQueryId } = useValues(
+        insightDataLogic(insightProps)
+    )
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

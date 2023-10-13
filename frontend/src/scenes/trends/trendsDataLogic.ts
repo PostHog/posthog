@@ -16,10 +16,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
+            insightDataLogic(props),
+            ['insightData', 'insightDataLoading'],
             insightVizDataLogic(props),
             [
-                'insightData',
-                'insightDataLoading',
                 'series',
                 'formula',
                 'display',

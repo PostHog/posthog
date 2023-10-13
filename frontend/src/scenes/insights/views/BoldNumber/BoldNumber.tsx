@@ -5,6 +5,7 @@ import Textfit from './Textfit'
 import clsx from 'clsx'
 
 import { insightLogic } from '../../insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartParams, TrendResult } from '~/types'
@@ -32,7 +33,8 @@ function useBoldNumberTooltip({
     isTooltipShown: boolean
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
-    const { series, insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { insightData } = useValues(insightDataLogic(insightProps))
+    const { series, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const divRef = useRef<HTMLDivElement>(null)
@@ -83,7 +85,8 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { insightData } = useValues(insightDataLogic(insightProps))
+    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
@@ -125,7 +128,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { insightData } = useValues(insightVizDataLogic(insightProps))
+    const { insightData } = useValues(insightDataLogic(insightProps))
 
     if (!insightData?.result) {
         return null

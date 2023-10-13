@@ -15,7 +15,7 @@ export const retentionLogic = kea<retentionLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightDataLogic(props), ['insightQuery'], insightVizDataLogic(props), ['insightData', 'querySource']],
+        values: [insightDataLogic(props), ['insightQuery', 'insightData'], insightVizDataLogic(props), ['querySource']],
     }),
     selectors: {
         results: [
