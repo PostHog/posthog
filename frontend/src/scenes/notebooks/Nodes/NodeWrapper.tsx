@@ -42,7 +42,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
 
     // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
-    defaultTitle: string
+    titlePlaceholder: string
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
 
     // Sizing
@@ -62,7 +62,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     props: NodeWrapperProps<T> & NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'>
 ): JSX.Element {
     const {
-        defaultTitle,
+        titlePlaceholder,
         nodeType,
         Component,
         selected,
@@ -100,10 +100,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
         resizeable: resizeableOrGenerator,
         settings,
         startExpanded,
-        defaultTitle,
+        titlePlaceholder,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { resizeable, expanded, actions } = useValues(nodeLogic)
+    const { resizeable, expanded, actions, title } = useValues(nodeLogic)
     const { setExpanded, deleteNode, toggleEditing } = useActions(nodeLogic)
 
     useWhyDidIRender('NodeWrapper.logicProps', {
@@ -142,8 +142,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     }, [resizeable, updateAttributes])
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
-    // If a title is set on the attrs we use it. Otherwise we use the base component title.
-    const title = attributes.title ? attributes.title : defaultTitle
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)

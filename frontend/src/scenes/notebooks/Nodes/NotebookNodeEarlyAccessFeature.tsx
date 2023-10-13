@@ -16,16 +16,13 @@ import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({
-    attributes,
-    updateAttributes,
-}: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading, earlyAccessFeatureMissing } = useValues(
         earlyAccessFeatureLogic({ id })
     )
     const { expanded } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         const flagId = (earlyAccessFeature as EarlyAccessFeatureType).feature_flag?.id
@@ -44,11 +41,9 @@ const Component = ({
     }, [earlyAccessFeature])
 
     useEffect(() => {
-        updateAttributes({
-            title: earlyAccessFeature.name
-                ? `Early Access Management: ${earlyAccessFeature.name}`
-                : 'Early Access Management',
-        })
+        setTitlePlaceholder(
+            earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
+        )
     }, [earlyAccessFeature?.name])
 
     if (earlyAccessFeatureMissing) {
@@ -125,7 +120,7 @@ type NotebookNodeEarlyAccessAttributes = {
 
 export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNodeEarlyAccessAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
-    defaultTitle: 'Early Access Management',
+    titlePlaceholder: 'Early Access Management',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.earlyAccessFeature(attrs.id),
