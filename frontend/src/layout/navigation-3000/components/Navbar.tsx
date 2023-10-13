@@ -1,7 +1,7 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconLightBulb, IconQuestion, IconGear } from '@posthog/icons'
+import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -13,7 +13,6 @@ import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
-import { IconSync } from 'lib/lemon-ui/icons'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -25,7 +24,7 @@ export function Navbar(): JSX.Element {
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <IconLightBulb /> : <IconLightBulb /> // TODO
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     return (
         <nav className="Navbar3000">
@@ -64,11 +63,7 @@ export function Navbar(): JSX.Element {
                                 isThemeSyncedWithSystem ? (
                                     <div className="relative">
                                         {activeThemeIcon}
-                                        <LemonBadge
-                                            size="small"
-                                            position="top-right"
-                                            content={<IconSync /> /* TODO */}
-                                        />
+                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
                                     </div>
                                 ) : (
                                     activeThemeIcon

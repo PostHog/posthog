@@ -5,13 +5,13 @@ import {
     IconApps,
     IconPerson,
     IconQuestion,
-    IconGridMasonry,
     IconPeople,
     IconTestTube,
     IconToggle,
     IconRewindPlay,
     IconGraph,
     IconToolbar,
+    IconLive,
 } from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -70,7 +70,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Events,
             label: 'Events',
-            icon: <IconGridMasonry />, // TODO: Should be live signal
+            icon: <IconLive />,
         },
         {
             identifier: Scene.SavedInsights,
