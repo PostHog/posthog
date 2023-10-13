@@ -15,6 +15,7 @@ import {
     IconExport,
     IconHelpOutline,
     IconNotification,
+    IconShare,
 } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksModel } from '~/models/notebooksModel'
@@ -25,6 +26,7 @@ import './NotebookScene.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
+import { openNotebookShareDialog } from './Notebook/NotebookShare'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -102,6 +104,11 @@ export function NotebookScene(): JSX.Element {
                                         icon: <IconNotification />,
                                         onClick: () => setShowHistory(!showHistory),
                                     },
+                                    {
+                                        label: 'Share',
+                                        icon: <IconShare />,
+                                        onClick: () => openNotebookShareDialog({ shortId: notebookId }),
+                                    },
                                     !isTemplate && {
                                         label: 'Delete',
                                         icon: <IconDelete />,
@@ -140,13 +147,13 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Pins the notebook to the right, allowing you to view it while navigating the rest of
-                                PostHog. This is great for dragging and dropping elements like Insights, Recordings or
-                                even Feature Flags into your active Notebook.
+                                Opens the notebook in a popover, that can be accessed from anywhere in the PostHog app.
+                                This is great for dragging and dropping elements like Insights, Recordings or even
+                                Feature Flags into your active Notebook.
                             </>
                         }
                     >
-                        Pin to side
+                        Open in popover
                     </LemonButton>
                 </div>
             </div>

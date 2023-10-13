@@ -7,21 +7,61 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { ElapsedTime, Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
 
 interface HogQLDebugProps {
+    queryKey: string
     query: HogQLQuery
     setQuery: (query: DataNode) => void
 }
-export function HogQLDebug({ query, setQuery }: HogQLDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: 'debug-scene' }
+export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey }
     const { dataLoading, response, responseErrorObject, elapsedTime } = useValues(dataNodeLogic(dataNodeLogicProps))
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div className="space-y-2">
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <div className="flex gap-2">
+                    <Reload />
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />
+                </div>
+                <div className="flex gap-2">
+                    <LemonLabel>
+                        POE Version:
+                        <LemonSelect
+                            options={[
+                                { value: 'disabled', label: 'Disabled' },
+                                { value: 'v1_enabled', label: 'V1 Enabled' },
+                                { value: 'v2_enabled', label: 'V2 Enabled' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, personsOnEventsMode: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
+                        />
+                    </LemonLabel>
+                    <LemonLabel>
+                        Persons ArgMax Version
+                        <LemonSelect
+                            options={[
+                                { value: 'v1', label: 'V1' },
+                                { value: 'v2', label: 'V2' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, personsArgMaxVersion: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
+                        />
+                    </LemonLabel>
                 </div>
                 {dataLoading ? (
                     <>

@@ -129,6 +129,25 @@
     }
 }
 
+.w-px {
+    width: 1px;
+}
+.h-px {
+    height: 1px;
+}
+.min-w-px {
+    min-width: 1px;
+}
+.max-w-px {
+    max-width: 1px;
+}
+.min-h-px {
+    min-height: 1px;
+}
+.max-h-px {
+    max-height: 1px;
+}
+
 @each $name, $size in $screens {
     .w-#{$name} {
         width: $size;

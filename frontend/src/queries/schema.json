@@ -1216,6 +1216,9 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "query": {
                     "type": "string"
                 },
@@ -1231,6 +1234,21 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "HogQLQueryModifiers": {
+            "additionalProperties": false,
+            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "properties": {
+                "personsArgMaxVersion": {
+                    "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsOnEventsMode": {
+                    "enum": ["disabled", "v1_enabled", "v2_enabled"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "HogQLQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1243,6 +1261,9 @@
                 },
                 "hogql": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "query": {
                     "type": "string"
@@ -2390,25 +2411,30 @@
             "required": ["results"],
             "type": "object"
         },
-        "WebAnalyticsFilters": {},
+        "WebAnalyticsPropertyFilters": {
+            "items": {
+                "$ref": "#/definitions/EventPropertyFilter"
+            },
+            "type": "array"
+        },
         "WebOverviewStatsQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebOverviewStatsQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebOverviewStatsQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebOverviewStatsQueryResponse": {
@@ -2454,18 +2480,18 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebTopClicksQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {
@@ -2511,18 +2537,18 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebTopPagesQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopPagesQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopPagesQueryResponse": {
@@ -2568,18 +2594,18 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebTopSourcesQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopSourcesQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopSourcesQueryResponse": {

@@ -1,26 +1,29 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({
-    attributes,
-    updateAttributes,
-}: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
     const { id } = attributes
-    const { featureFlag } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
-        updateAttributes({
-            title: featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example',
-        })
+        setTitlePlaceholder(
+            featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
+        )
     }, [featureFlag?.key])
+
+    if (!featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
 
     return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>
 }
@@ -31,7 +34,7 @@ type NotebookNodeFlagCodeExampleAttributes = {
 
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
     nodeType: NotebookNodeType.FeatureFlagCodeExample,
-    defaultTitle: 'Feature flag code example',
+    titlePlaceholder: 'Feature flag code example',
     Component,
     heightEstimate: '3rem',
     startExpanded: true,

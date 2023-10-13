@@ -166,6 +166,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 <div className="space-y-2">
                                                     <Field name="type" label="Question type" className="max-w-60">
                                                         <LemonSelect
+                                                            data-attr={`survey-question-type-${index}`}
                                                             onSelect={(newType) => {
                                                                 const isEditingQuestion =
                                                                     defaultSurveyFieldValues[question.type].questions[0]
