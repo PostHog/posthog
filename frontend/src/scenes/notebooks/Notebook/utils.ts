@@ -117,6 +117,8 @@ export const textContent = (node: any): string => {
         'ph-recording-playlist': customOrTitleSerializer,
         'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
+        'ph-group': customOrTitleSerializer,
+        'ph-cohort': customOrTitleSerializer,
     }
 
     return getText(node, {

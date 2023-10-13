@@ -12,8 +12,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions, useValues } from 'kea'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
