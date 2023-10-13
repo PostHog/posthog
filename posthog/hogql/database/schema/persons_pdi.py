@@ -8,6 +8,8 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.schema import HogQLQueryModifiers
+
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
@@ -26,7 +28,9 @@ def persons_pdi_select(requested_fields: Dict[str, List[str]]):
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
-def persons_pdi_join(from_table: str, to_table: str, requested_fields: Dict[str, List[str]]):
+def persons_pdi_join(
+    from_table: str, to_table: str, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers
+):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -53,7 +57,7 @@ class PersonsPDITable(LazyTable):
         "person_id": StringDatabaseField(name="person_id"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         return persons_pdi_select(requested_fields)
 
     def to_printed_clickhouse(self, context):
