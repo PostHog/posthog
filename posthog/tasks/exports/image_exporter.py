@@ -141,10 +141,11 @@ def _screenshot_asset(
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
-        if driver:
-            # To help with debugging, add a screenshot and any chrome logs
-            with configure_scope() as scope:
-                # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
+        # To help with debugging, add a screenshot and any chrome logs
+        with configure_scope() as scope:
+            scope.set_extra("url_to_render", url_to_render)
+            if driver:
+                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
                     all_logs = [x for x in driver.get_log("browser")]
                     scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
@@ -155,7 +156,7 @@ def _screenshot_asset(
                     scope.add_attachment(None, None, image_path)
                 except Exception:
                     pass
-                capture_exception(e)
+        capture_exception(e)
 
         raise e
     finally:
@@ -165,7 +166,7 @@ def _screenshot_asset(
 
 def export_image(exported_asset: ExportedAsset) -> None:
     with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
+        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
         scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:

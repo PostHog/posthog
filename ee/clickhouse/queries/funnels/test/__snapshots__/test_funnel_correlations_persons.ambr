@@ -445,7 +445,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['$pageview', 'insight analyzed']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
@@ -579,7 +579,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
@@ -711,7 +711,7 @@
                               AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(properties, 'foo'), '^"|"$', ''))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                       AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')

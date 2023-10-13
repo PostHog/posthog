@@ -168,6 +168,10 @@ RUN groupadd -g 1000 posthog && \
     chown posthog:posthog /code
 USER posthog
 
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules

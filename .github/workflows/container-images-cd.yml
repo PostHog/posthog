@@ -70,6 +70,7 @@ jobs:
                   push: true
                   tags: posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: Build and push unit container image
               id: build-unit
@@ -80,6 +81,7 @@ jobs:
                   file: production-unit.Dockerfile
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
                   platforms: linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: get deployer token
               id: deployer

@@ -190,7 +190,7 @@ function InstanceSettings(): JSX.Element | null {
 
     return (
         <Link to={urls.instanceSettings()}>
-            <LemonButton icon={<IconCorporate className="text-primary" />} onClick={closeSitePopover} fullWidth>
+            <LemonButton icon={<IconCorporate className="text-link" />} onClick={closeSitePopover} fullWidth>
                 Instance settings
             </LemonButton>
         </Link>

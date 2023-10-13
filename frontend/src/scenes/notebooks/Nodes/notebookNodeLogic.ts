@@ -23,10 +23,11 @@ import {
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
-    NotebookNodeWidget,
+    NotebookNodeSettings,
 } from '../Notebook/utils'
 import { NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 
 export type NotebookNodeLogicProps = {
     node: NotebookNode
@@ -35,8 +36,10 @@ export type NotebookNodeLogicProps = {
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos: () => number
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    widgets: NotebookNodeWidget[]
+    settings: NotebookNodeSettings
+    messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
+    defaultTitle: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -63,6 +66,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        toggleEditing: true,
+        scrollIntoView: true,
+        setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -101,12 +107,36 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
             },
         ],
+        messageListeners: [
+            props.messageListeners as NotebookNodeMessagesListeners,
+            {
+                setMessageListeners: (_, { listeners }) => listeners,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
-        widgets: [(_, p) => [p.widgets], (widgets) => widgets],
+        settings: [(_, p) => [p.settings], (settings) => settings],
+        defaultTitle: [(_, p) => [p.defaultTitle], (title) => title],
+
+        sendMessage: [
+            (s) => [s.messageListeners],
+            (messageListeners) => {
+                return <T extends keyof NotebookNodeMessages>(
+                    message: T,
+                    payload: NotebookNodeMessages[T]
+                ): boolean => {
+                    if (!messageListeners[message]) {
+                        return false
+                    }
+
+                    messageListeners[message]?.(payload)
+                    return true
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -142,6 +172,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
         },
 
+        scrollIntoView: () => {
+            values.editor?.scrollToPosition(props.getPos())
+        },
+
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
@@ -149,11 +183,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
             const insertionPosition = props.getPos()
-            values.notebookLogic.actions.insertReplayCommentByTimestamp(
+            values.notebookLogic.actions.insertReplayCommentByTimestamp({
                 timestamp,
                 sessionRecordingId,
-                insertionPosition
-            )
+                knownStartingPosition: insertionPosition,
+                nodeId: props.nodeId,
+            })
         },
 
         setExpanded: ({ expanded }) => {
@@ -167,6 +202,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
+        },
+        toggleEditing: () => {
+            props.notebookLogic.actions.setEditingNodeId(
+                props.notebookLogic.values.editingNodeId === props.nodeId ? null : props.nodeId
+            )
         },
     })),
 

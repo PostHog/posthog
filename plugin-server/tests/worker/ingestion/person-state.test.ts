@@ -244,16 +244,24 @@ describe('PersonState.update()', () => {
 
     describe('on person update', () => {
         it('updates person properties', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, uuid.toString(), [
-                'new-user',
-            ])
+            await hub.db.createPerson(
+                timestamp,
+                { b: 3, c: 4, toString: {} },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['new-user']
+            )
 
             const person = await personState({
                 event: '$pageview',
                 distinct_id: 'new-user',
                 properties: {
                     $set_once: { c: 3, e: 4 },
-                    $set: { b: 4 },
+                    $set: { b: 4, toString: 1 },
                 },
             }).updateProperties()
             await hub.db.kafkaProducer.flush()
@@ -262,7 +270,7 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: { b: 4, c: 4, e: 4 },
+                    properties: { b: 4, c: 4, e: 4, toString: 1 },
                     created_at: timestamp,
                     version: 1,
                     is_identified: false,

@@ -42,7 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/surveyLogic'
+import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -446,7 +446,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         affectedUsers: [
-            {},
+            { 0: -1 },
             {
                 setAffectedUsers: (state, { index, count }) => ({
                     ...state,
@@ -801,7 +801,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     effectiveRolloutPercentage = 100
                 }
 
-                if (affectedUsers[index] === -1 || totalUsers === -1 || !totalUsers) {
+                if (
+                    affectedUsers[index] === -1 ||
+                    totalUsers === -1 ||
+                    !totalUsers ||
+                    affectedUsers[index] === undefined
+                ) {
                     return effectiveRolloutPercentage
                 }
 

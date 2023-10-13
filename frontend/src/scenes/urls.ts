@@ -88,8 +88,10 @@ export const urls = {
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    person: (id: string, encode: boolean = true): string =>
+    personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
+    personByUUID: (uuid: string, encode: boolean = true): string =>
+        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
@@ -181,9 +183,6 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
-    notebooks: (): string =>
-        combineUrl(urls.dashboards(), {
-            tab: 'notebooks',
-        }).url,
+    notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
 }

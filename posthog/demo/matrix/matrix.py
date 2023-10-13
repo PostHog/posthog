@@ -199,6 +199,7 @@ class Matrix(ABC):
     start: dt.datetime
     now: dt.datetime
     end: dt.datetime
+    group_type_index_offset: int
     # A mapping of groups. The first key is the group type, the second key is the group key.
     groups: DefaultDict[str, DefaultDict[str, Dict[str, Any]]]
     distinct_id_to_person: Dict[str, SimPerson]
@@ -224,12 +225,14 @@ class Matrix(ABC):
         days_past: int = 180,
         days_future: int = 30,
         n_clusters: int = settings.DEMO_MATRIX_N_CLUSTERS,
+        group_type_index_offset: int = 0,
     ):
         if now is None:
             now = timezone.now()
         self.now = now
         self.start = (now - dt.timedelta(days=days_past)).replace(hour=0, minute=0, second=0, microsecond=0)
         self.end = (now + dt.timedelta(days=days_future)).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.group_type_index_offset = group_type_index_offset
         # We initialize random data providers here and pass it down as a performance measure
         # Provider initialization is a bit intensive, as it loads some JSON data,
         # so doing it at cluster or person level could be overly taxing
@@ -272,6 +275,6 @@ class Matrix(ABC):
 
     def _get_group_type_index(self, group_type: str) -> Optional[int]:
         try:
-            return list(self.groups.keys()).index(group_type)
+            return list(self.groups.keys()).index(group_type) + self.group_type_index_offset
         except ValueError:
             return None

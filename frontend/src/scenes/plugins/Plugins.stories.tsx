@@ -3,7 +3,6 @@ import { App } from 'scenes/App'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { PluginTab } from 'scenes/plugins/types'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
@@ -21,7 +20,7 @@ export default meta
 export const Installed: Story = () => {
     useAvailableFeatures([AvailableFeature.APP_METRICS])
     useEffect(() => {
-        router.actions.push(urls.projectApps(PluginTab.Installed))
+        router.actions.push(urls.projectApps())
     })
     return <App />
 }

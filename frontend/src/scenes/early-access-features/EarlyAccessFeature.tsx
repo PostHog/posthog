@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues, BindLogic } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
@@ -30,6 +30,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { NotFound } from 'lib/components/NotFound'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -40,12 +41,31 @@ export const scene: SceneExport = {
 }
 
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
-    const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
-        useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
-        useActions(earlyAccessFeatureLogic)
+    const {
+        earlyAccessFeature,
+        earlyAccessFeatureLoading,
+        isEarlyAccessFeatureSubmitting,
+        isEditingFeature,
+        earlyAccessFeatureMissing,
+    } = useValues(earlyAccessFeatureLogic)
+    const {
+        submitEarlyAccessFeatureRequest,
+        loadEarlyAccessFeature,
+        editFeature,
+        updateStage,
+        deleteEarlyAccessFeature,
+    } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+
+    if (earlyAccessFeatureMissing) {
+        return <NotFound object="early access feature" />
+    }
+
+    if (earlyAccessFeatureLoading) {
+        return <LemonSkeleton active />
+    }
+
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
@@ -57,7 +77,15 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <>
                                 <LemonButton
                                     type="secondary"
-                                    onClick={() => cancel()}
+                                    data-attr="cancel-feature"
+                                    onClick={() => {
+                                        if (isEditingFeature) {
+                                            editFeature(false)
+                                            loadEarlyAccessFeature()
+                                        } else {
+                                            router.actions.push(urls.earlyAccessFeatures())
+                                        }
+                                    }}
                                     disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
                                 >
                                     Cancel
@@ -65,6 +93,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"
+                                    data-attr="save-feature"
                                     onClick={() => {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
@@ -88,6 +117,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 children: 'Delete',
                                                 type: 'primary',
                                                 status: 'danger',
+                                                'data-attr': 'confirm-delete-feature',
                                                 onClick: () => {
                                                     // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
                                                     deleteEarlyAccessFeature(
@@ -133,7 +163,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                                 <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                    <LemonButton type="secondary" onClick={() => editFeature(true)} loading={false}>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => editFeature(true)}
+                                        loading={false}
+                                        data-attr="edit-feature"
+                                    >
                                         Edit
                                     </LemonButton>
                                 )}

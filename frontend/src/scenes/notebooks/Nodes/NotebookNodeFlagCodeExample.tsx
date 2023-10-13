@@ -4,20 +4,28 @@ import { useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
-    const { id } = props.attributes
-    const { featureFlag } = useValues(featureFlagLogic({ id }))
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
 
     useEffect(() => {
-        props.updateAttributes({
+        updateAttributes({
             title: featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example',
         })
     }, [featureFlag?.key])
+
+    if (!featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
 
     return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>
 }

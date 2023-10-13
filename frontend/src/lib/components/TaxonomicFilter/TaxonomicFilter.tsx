@@ -23,6 +23,7 @@ export function TaxonomicFilter({
     onClose,
     taxonomicGroupTypes,
     optionsFromProp,
+    hogQLTable,
     eventNames,
     height,
     width,
@@ -50,6 +51,7 @@ export function TaxonomicFilter({
         popoverEnabled,
         selectFirstItem,
         excludedProperties,
+        hogQLTable,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -75,6 +77,7 @@ export function TaxonomicFilter({
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'
                 )}
+                data-attr={taxonomicFilterLogicKey}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             >

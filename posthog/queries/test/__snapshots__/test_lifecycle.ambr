@@ -55,7 +55,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -128,7 +128,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC'))) - INTERVAL 1 day
@@ -201,7 +201,7 @@
               FROM person
               WHERE team_id = 2
               GROUP BY id
-              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day

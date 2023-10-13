@@ -15,7 +15,7 @@ export interface AppMetricIdentifier {
     pluginConfigId: number
     jobId?: string
     // Keep in sync with posthog/queries/app_metrics/serializers.py
-    category: 'processEvent' | 'onEvent' | 'exportEvents' | 'scheduledTask'
+    category: 'processEvent' | 'onEvent' | 'exportEvents' | 'scheduledTask' | 'webhook'
 }
 
 export interface AppMetric extends AppMetricIdentifier {
@@ -136,7 +136,7 @@ export class AppMetrics {
     }
 
     async flush(): Promise<void> {
-        console.log(`Flushing app metrics`)
+        status.debug('🚽', `Flushing app metrics`)
         const startTime = Date.now()
         this.lastFlushTime = startTime
         if (Object.keys(this.queuedData).length === 0) {
@@ -170,7 +170,7 @@ export class AppMetrics {
             topic: KAFKA_APP_METRICS,
             messages: kafkaMessages,
         })
-        console.log(`Finisehd flushing app metrics, took ${Date.now() - startTime}ms`)
+        status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)
     }
 
     _metricErrorParameters(errorWithContext: ErrorWithContext): Partial<AppMetric> {

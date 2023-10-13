@@ -257,7 +257,7 @@ idna==2.8
     #   trio
     #   urllib3
     #   yarl
-importlib-metadata==1.6.0
+importlib-metadata==6.8.0
     # via -r requirements.in
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
     # via -r requirements.in
@@ -303,6 +303,8 @@ multidict==6.0.2
     #   yarl
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
+nh3==0.2.14
+    # via -r requirements.in
 numpy==1.23.3
     # via
     #   -r requirements.in
@@ -558,7 +560,7 @@ yarl==1.9.2
     # via
     #   -r requirements.in
     #   aiohttp
-zipp==3.1.0
+zipp==3.17.0
     # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:

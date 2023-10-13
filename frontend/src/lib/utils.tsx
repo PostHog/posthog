@@ -414,6 +414,10 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
     return typeof candidate === 'object' && candidate !== null
 }
@@ -432,31 +436,36 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     })
     return response
 }
-export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    ignoredKeys: string[] = []
+): T {
     const response = { ...obj }
-    Object.keys(response).forEach((key) => {
-        // remove undefined values
-        if (response[key] === undefined) {
-            delete response[key]
-        }
-        // remove empty arrays i.e. []
-        if (
-            typeof response[key] === 'object' &&
-            Array.isArray(response[key]) &&
-            (response[key] as unknown[]).length === 0
-        ) {
-            delete response[key]
-        }
-        // remove empty objects i.e. {}
-        if (
-            typeof response[key] === 'object' &&
-            !Array.isArray(response[key]) &&
-            response[key] !== null &&
-            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
-        ) {
-            delete response[key]
-        }
-    })
+    Object.keys(response)
+        .filter((key) => !ignoredKeys.includes(key))
+        .forEach((key) => {
+            // remove undefined values
+            if (response[key] === undefined) {
+                delete response[key]
+            }
+            // remove empty arrays i.e. []
+            if (
+                typeof response[key] === 'object' &&
+                Array.isArray(response[key]) &&
+                (response[key] as unknown[]).length === 0
+            ) {
+                delete response[key]
+            }
+            // remove empty objects i.e. {}
+            if (
+                typeof response[key] === 'object' &&
+                !Array.isArray(response[key]) &&
+                response[key] !== null &&
+                Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+            ) {
+                delete response[key]
+            }
+        })
     return response
 }
 
@@ -1572,6 +1581,26 @@ export function isNumeric(x: any): boolean {
         return false
     }
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+/**
+ * Check if the argument is nullish (null or undefined).
+ *
+ * Useful as a typeguard, e.g. when passed to Array.filter()
+ *
+ * @example
+ * const myList = [1, 2, null]; // type is (number | null)[]
+ *
+ * // using isNotNil
+ * const myFilteredList1 = myList.filter(isNotNil) // type is number[]
+ * const squaredList1 = myFilteredList1.map(x => x * x) // not a type error!
+ *
+ * // compared to:
+ * const myFilteredList2 = myList.filter(x => x != null) // type is (number | null)[]
+ * const squaredList2 = myFilteredList2.map(x => x * x) // Type Error: TS18047: x is possibly null
+ */
+export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
+    return arg !== null && arg !== undefined
 }
 
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
