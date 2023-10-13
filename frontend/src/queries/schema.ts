@@ -21,7 +21,9 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    EventPropertyFilter,
 } from '~/types'
+import { ComponentType } from 'react'
 
 /**
  * PostHog Query Schema definition.
@@ -540,7 +542,7 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
-export type WebAnalyticsFilters = any
+export type WebAnalyticsPropertyFilters = EventPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange
@@ -548,7 +550,7 @@ export interface WebAnalyticsQueryBase {
 
 export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewStatsQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebOverviewStatsQueryResponse
 }
 
@@ -559,7 +561,7 @@ export interface WebOverviewStatsQueryResponse extends QueryResponse {
 }
 export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopSourcesQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopSourcesQueryResponse
 }
 export interface WebTopSourcesQueryResponse extends QueryResponse {
@@ -570,7 +572,7 @@ export interface WebTopSourcesQueryResponse extends QueryResponse {
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopClicksQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
@@ -581,7 +583,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 
 export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopPagesQuery
-    filters: WebAnalyticsFilters
+    properties: WebAnalyticsPropertyFilters
     response?: WebTopPagesQueryResponse
 }
 export interface WebTopPagesQueryResponse extends QueryResponse {
@@ -709,7 +711,9 @@ export interface QueryContext {
     emptyStateDetail?: string
 }
 
+export type QueryContextColumnComponent = ComponentType<{ record: any; columnName: string; value: any }>
+
 interface QueryContextColumn {
     title?: string
-    render?: (props: { record: any }) => JSX.Element
+    render?: QueryContextColumnComponent
 }

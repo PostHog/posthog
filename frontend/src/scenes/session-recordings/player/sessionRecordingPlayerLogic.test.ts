@@ -18,8 +18,11 @@ import { urls } from 'scenes/urls'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
+    const mockWarn = jest.fn()
 
     beforeEach(() => {
+        console.warn = mockWarn
+        mockWarn.mockClear()
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots/': (req, res, ctx) => {
@@ -99,11 +102,10 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
 
             await expectLogic(logic).toDispatchActions([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 // once to gather sources
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsV2,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 // once to load source from that
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsV2,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
             ])
 
@@ -324,6 +326,33 @@ describe('sessionRecordingPlayerLogic', () => {
                     },
                 }),
             })
+        })
+
+        it('captures replayer warnings', async () => {
+            jest.useFakeTimers()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '4',
+                playerKey: 'test',
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    eventUUIDs: listOfMatchingEvents.map((event) => event.uuid),
+                },
+            })
+            logic.mount()
+
+            console.warn('[replayer]', 'test')
+            console.warn('[replayer]', 'test2')
+
+            expect(mockWarn).not.toHaveBeenCalled()
+
+            expect((window as any).__posthog_player_warnings).toEqual([
+                ['[replayer]', 'test'],
+                ['[replayer]', 'test2'],
+            ])
+            jest.runOnlyPendingTimers()
+            expect(mockWarn).toHaveBeenCalledWith(
+                '[PostHog Replayer] 2 warnings (window.__posthog_player_warnings to safely log them)'
+            )
         })
     })
 })

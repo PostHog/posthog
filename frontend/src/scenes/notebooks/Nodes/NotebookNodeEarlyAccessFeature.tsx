@@ -14,13 +14,16 @@ import {
 import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
-    const { earlyAccessFeature, earlyAccessFeatureLoading } = useValues(earlyAccessFeatureLogic({ id }))
+    const { earlyAccessFeature, earlyAccessFeatureLoading, earlyAccessFeatureMissing } = useValues(
+        earlyAccessFeatureLogic({ id })
+    )
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
@@ -47,6 +50,10 @@ const Component = ({
                 : 'Early Access Management',
         })
     }, [earlyAccessFeature?.name])
+
+    if (earlyAccessFeatureMissing) {
+        return <NotFound object="early access feature" />
+    }
 
     return (
         <div>
