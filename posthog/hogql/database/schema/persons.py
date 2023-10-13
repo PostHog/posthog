@@ -32,7 +32,16 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
 
 
 def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
-    if modifiers.personsArgMaxVersion == PersonsArgMaxVersion.v2:
+    version = modifiers.personsArgMaxVersion
+    if version == PersonsArgMaxVersion.auto:
+        version = PersonsArgMaxVersion.v1
+        # If selecting properties, use the faster v2 query. Otherwise v1 is faster.
+        for field_chain in requested_fields.values():
+            if field_chain[0] == "properties":
+                version = PersonsArgMaxVersion.v2
+                break
+
+    if version == PersonsArgMaxVersion.v2:
         from posthog.hogql.parser import parse_select
         from posthog.hogql import ast
 
