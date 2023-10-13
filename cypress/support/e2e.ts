@@ -30,6 +30,7 @@ beforeEach(() => {
             decideResponse({
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
+                'surveys-results-visualizations': true,
                 'auto-redirect': true,
                 notebooks: true,
             })

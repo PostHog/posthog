@@ -26,9 +26,9 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />
                 </div>
-                <div className="flex">
+                <div className="flex gap-2">
                     <LemonLabel>
-                        POE:
+                        POE Version:
                         <LemonSelect
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
@@ -41,7 +41,23 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                                     modifiers: { ...query.modifiers, personsOnEventsMode: value },
                                 } as HogQLQuery)
                             }
-                            value={(query.modifiers ?? response?.modifiers)?.personsOnEventsMode}
+                            value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
+                        />
+                    </LemonLabel>
+                    <LemonLabel>
+                        Persons ArgMax Version
+                        <LemonSelect
+                            options={[
+                                { value: 'v1', label: 'V1' },
+                                { value: 'v2', label: 'V2' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, personsArgMaxVersion: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
                         />
                     </LemonLabel>
                 </div>

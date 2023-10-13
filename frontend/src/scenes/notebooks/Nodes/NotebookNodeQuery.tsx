@@ -2,7 +2,7 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
@@ -26,13 +26,11 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = ({
-    attributes,
-    updateAttributes,
-}: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded } = useValues(nodeLogic)
+    const { setTitlePlaceholder } = useActions(nodeLogic)
 
     useEffect(() => {
         let title = 'Query'
@@ -56,7 +54,7 @@ const Component = ({
             title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
         }
 
-        updateAttributes({ title: title })
+        setTitlePlaceholder(title)
     }, [query])
 
     const modifiedQuery = useMemo(() => {
@@ -195,7 +193,7 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    defaultTitle: 'Query',
+    titlePlaceholder: 'Query',
     Component,
     heightEstimate: 500,
     minHeight: 200,

@@ -39,7 +39,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
     return (
         <div ref={ref} className="NotebookPopover__content__card">
             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
-                <span className="flex items-center gap-1 text-primary-alt">
+                <span className="flex items-center gap-1 text-primary-alt overflow-hidden">
                     <NotebookListMini
                         selectedNotebookId={selectedNotebook}
                         onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
