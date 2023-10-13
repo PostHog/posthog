@@ -54,7 +54,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['query', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],

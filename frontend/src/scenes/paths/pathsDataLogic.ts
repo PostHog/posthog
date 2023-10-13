@@ -21,6 +21,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode } from '~/queries/schema'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -39,10 +40,12 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
+            insightDataLogic(props),
+            ['insightQuery'],
             insightVizDataLogic(props),
             [
                 'querySource as vizQuerySource',
-                'insightQuery',
+
                 'insightData',
                 'insightDataLoading',
                 'insightDataError',
