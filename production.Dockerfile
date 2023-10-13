@@ -152,7 +152,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.4-slim-bullseye
+FROM python:3.11.6-slim-bullseye
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
