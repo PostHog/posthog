@@ -276,7 +276,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
         logger = get_batch_exports_logger(inputs=inputs)
-        logger.info("Starting Backfill for BatchExport %s: %s - %s", inputs.schedule_id, inputs.start_at, inputs.end_at)
+        logger.info(
+            "Starting Backfill for BatchExport %s: %s - %s", inputs.batch_export_id, inputs.start_at, inputs.end_at
+        )
 
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(
             team_id=inputs.team_id,
