@@ -14,6 +14,7 @@ import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes
@@ -97,6 +98,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
             )}
         </div>
     )
+
+    if (!person && !personLoading) {
+        return <NotFound object="person" />
+    }
 
     return (
         <div className="flex flex-col overflow-hidden">
