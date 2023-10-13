@@ -129,7 +129,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         settings: [(_, p) => [p.settings], (settings) => settings],
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes],
-            (titlePlaceholder, nodeAttributes) => nodeAttributes.title ?? titlePlaceholder,
+            (titlePlaceholder, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
         ],
 
         sendMessage: [

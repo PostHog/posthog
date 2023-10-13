@@ -17,7 +17,7 @@ import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
     const { survey, surveyLoading, hasTargetingFlag, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)

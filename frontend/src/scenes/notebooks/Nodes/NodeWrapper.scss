@@ -96,3 +96,13 @@
         object-fit: contain;
     }
 }
+
+.NotebookNodeTitle {
+    border-radius: var(--radius);
+    transition: background-color 150ms linear;
+    padding: 0.25rem;
+
+    &:hover {
+        background-color: var(--border);
+    }
+}

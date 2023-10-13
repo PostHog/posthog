@@ -36,6 +36,7 @@ import {
     NotebookNodeSettings,
 } from '../Notebook/utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     nodeType: NotebookNodeType
@@ -103,7 +104,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
         titlePlaceholder,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-    const { resizeable, expanded, actions, title } = useValues(nodeLogic)
+    const { resizeable, expanded, actions } = useValues(nodeLogic)
     const { setExpanded, deleteNode, toggleEditing } = useActions(nodeLogic)
 
     useWhyDidIRender('NodeWrapper.logicProps', {
@@ -170,11 +171,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                 ) : (
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
-                                            <div className="flex items-center">
+                                            <div className="flex items-center flex-1">
                                                 {isEditable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
                                                 )}
-                                                <span className="ml-1">{title}</span>
+                                                <NotebookNodeTitle />
                                             </div>
 
                                             <div className="flex space-x-1">
