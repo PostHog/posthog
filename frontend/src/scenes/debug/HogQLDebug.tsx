@@ -7,6 +7,8 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { ElapsedTime, Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 interface HogQLDebugProps {
     query: HogQLQuery
@@ -22,6 +24,25 @@ export function HogQLDebug({ query, setQuery }: HogQLDebugProps): JSX.Element {
                 <div className="flex gap-2">
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />
+                </div>
+                <div className="flex">
+                    <LemonLabel>
+                        POE:
+                        <LemonSelect
+                            options={[
+                                { value: 'disabled', label: 'Disabled' },
+                                { value: 'v1_enabled', label: 'V1 Enabled' },
+                                { value: 'v2_enabled', label: 'V2 Enabled' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, personsOnEventsMode: value },
+                                } as HogQLQuery)
+                            }
+                            value={(query.modifiers ?? response?.modifiers)?.personsOnEventsMode}
+                        />
+                    </LemonLabel>
                 </div>
                 {dataLoading ? (
                     <>
