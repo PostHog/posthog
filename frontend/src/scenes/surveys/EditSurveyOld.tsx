@@ -23,7 +23,7 @@ import {
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
-import { Customization } from './SurveyAppearance'
+import { Customization, SurveyAppearance } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -511,13 +511,31 @@ export default function EditSurveyOld(): JSX.Element {
                 {survey.type !== SurveyType.API ? (
                     <Field name="appearance" label="">
                         {({ value, onChange }) => (
-                            <Customization
-                                appearance={value || defaultSurveyAppearance}
-                                surveyQuestionItem={survey.questions[0]}
-                                onAppearanceChange={(appearance) => {
-                                    onChange(appearance)
-                                }}
-                            />
+                            <>
+                                <SurveyAppearance
+                                    preview
+                                    type={survey.questions[0].type}
+                                    surveyQuestionItem={survey.questions[0]}
+                                    question={survey.questions[0].question}
+                                    description={survey.questions[0].description}
+                                    link={
+                                        survey.questions[0].type === SurveyQuestionType.Link
+                                            ? survey.questions[0].link
+                                            : undefined
+                                    }
+                                    appearance={{
+                                        ...(survey.appearance || defaultSurveyAppearance),
+                                        ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
+                                    }}
+                                />
+                                <Customization
+                                    appearance={value || defaultSurveyAppearance}
+                                    surveyQuestionItem={survey.questions[0]}
+                                    onAppearanceChange={(appearance) => {
+                                        onChange(appearance)
+                                    }}
+                                />
+                            </>
                         )}
                     </Field>
                 ) : (
