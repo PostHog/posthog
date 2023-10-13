@@ -49,7 +49,7 @@ export function NotebookNodeTitle(): JSX.Element {
             fullWidth
             value={newValue}
             onChange={(e) => setNewValue(e)}
-            // onBlur={commitEdit}
+            onBlur={commitEdit}
             onKeyUp={onKeyUp}
             onFocus={(e) => e.target.select()}
         />
