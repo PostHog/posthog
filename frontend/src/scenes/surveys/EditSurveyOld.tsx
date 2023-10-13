@@ -403,7 +403,7 @@ export default function EditSurveyOld(): JSX.Element {
                                 <PureField
                                     label="URL targeting"
                                     error={urlMatchTypeValidationError}
-                                    info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                    info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                 >
                                     <div className="flex flex-row gap-2 items-center">
                                         URL

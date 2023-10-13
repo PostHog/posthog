@@ -44,6 +44,8 @@ import {
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import React, { useEffect, useState } from 'react'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 function PresentationTypeCard({
     title,
@@ -84,6 +86,7 @@ export default function EditSurveyNew(): JSX.Element {
     const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription } = useActions(surveyLogic)
     const [targetAll, setTargetAll] = useState<boolean>(true)
     const [activePreview, setActivePreview] = useState<number>(0)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     useEffect(() => {
         if (targetAll) {
@@ -100,7 +103,7 @@ export default function EditSurveyNew(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-4">
-            <div className="flex flex-col gap-2 flex-1">
+            <div className="flex flex-col gap-2 flex-1 SurveyForm">
                 <Field name="name" label="Name">
                     <LemonInput data-attr="survey-name" />
                 </Field>
@@ -643,7 +646,7 @@ export default function EditSurveyNew(): JSX.Element {
                                         ]}
                                     />
                                     <div className="flex gap-2">
-                                        {true && (
+                                        {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
                                             // TODO: Add pay gate mini here once billing is resolved for it
                                             <LemonButton
                                                 type="secondary"
@@ -818,7 +821,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                         <PureField
                                                             label="URL targeting"
                                                             error={urlMatchTypeValidationError}
-                                                            info="Targeting by regex or exact match requires atleast version 1.82 of posthog-js"
+                                                            info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 URL
