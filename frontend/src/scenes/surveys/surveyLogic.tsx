@@ -48,7 +48,10 @@ export interface SurveyUserStats {
 }
 
 export interface SurveyRatingResults {
-    [key: number]: number[]
+    [key: number]: {
+        data: number[]
+        total: number
+    }
 }
 
 export interface SurveySingleChoiceResults {
@@ -222,12 +225,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
-                const resultArr = new Array(question.scale).fill(0)
+                let total = 0
+                const data = new Array(question.scale).fill(0)
                 results?.forEach(([value, count]) => {
-                    resultArr[value - 1] = count
+                    total += count
+                    data[value - 1] = count
                 })
 
-                return { ...values.surveyRatingResults, [questionIndex]: resultArr }
+                return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
             },
         },
         surveySingleChoiceResults: {

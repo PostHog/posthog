@@ -181,6 +181,8 @@ export function RatingQuestionBarChart({
         <div className="mb-4">
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyRatingResults[questionIndex].total ? (
+                <></>
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
@@ -190,6 +192,8 @@ export function RatingQuestionBarChart({
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
                                     inSurveyView={true}
+                                    hideYAxis={true}
+                                    hideXAxis={true}
                                     showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
@@ -206,7 +210,7 @@ export function RatingQuestionBarChart({
                                             label: 'Number of responses',
                                             barPercentage: 0.8,
                                             minBarLength: 2,
-                                            data: surveyRatingResults[questionIndex],
+                                            data: surveyRatingResults[questionIndex].data,
                                             backgroundColor: barColor,
                                             borderColor: barColor,
                                             hoverBackgroundColor: barColor,
@@ -273,6 +277,8 @@ export function SingleChoiceQuestionPieChart({
         <div className="mb-4">
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveySingleChoiceResults[questionIndex].data.length ? (
+                <></>
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Single choice</div>
@@ -371,6 +377,8 @@ export function MultipleChoiceQuestionBarChart({
         <div className="mb-4">
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyMultipleChoiceResults[questionIndex].data.length ? (
+                <></>
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">Multiple choice</div>
