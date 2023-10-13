@@ -12,6 +12,7 @@ from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.models.team.team import WeekStartDay
+from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import BaseTest
 from posthog.utils import PersonOnEventsMode
 
@@ -106,7 +107,9 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
             context = HogQLContext(
-                team_id=self.team.pk, within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.DISABLED
+                team_id=self.team.pk,
+                within_non_hogql_query=True,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.DISABLED),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -120,7 +123,9 @@ class TestPrinter(BaseTest):
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
             context = HogQLContext(
-                team_id=self.team.pk, within_non_hogql_query=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED
+                team_id=self.team.pk,
+                within_non_hogql_query=True,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.V1_ENABLED),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),

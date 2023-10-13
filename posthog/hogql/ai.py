@@ -7,6 +7,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from .database.database import create_hogql_database, serialize_database
 from posthog.utils import get_instance_region
+from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
     from posthog.models import User, Team
@@ -52,7 +53,12 @@ class PromptUnclear(Exception):
 
 def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
     database = create_hogql_database(team.pk)
-    context = HogQLContext(team_id=team.pk, enable_select_queries=True, database=database)
+    context = HogQLContext(
+        team_id=team.pk,
+        enable_select_queries=True,
+        database=database,
+        modifiers=create_default_modifiers_for_team(team),
+    )
     serialized_database = serialize_database(database)
     schema_description = "\n\n".join(
         (
