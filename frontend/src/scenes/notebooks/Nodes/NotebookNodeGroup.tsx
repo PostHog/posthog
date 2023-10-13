@@ -14,20 +14,18 @@ import { GroupCaption } from 'scenes/groups/Group'
 import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex } = attributes
 
     const logic = groupLogic({ groupKey: id, groupTypeIndex: groupTypeIndex })
     const { groupData, groupDataLoading, groupTypeName } = useValues(logic)
-    const { setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
-    const title = groupData ? `${groupTypeName}: ${groupDisplay}` : 'Group'
 
     useEffect(() => {
-        updateAttributes({
-            title,
-        })
+        const title = groupData ? `${groupTypeName}: ${groupDisplay}` : 'Group'
+        setTitlePlaceholder(title)
         setActions([
             {
                 text: 'Events for this group',
@@ -87,7 +85,7 @@ type NotebookNodeGroupAttributes = {
 
 export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttributes>({
     nodeType: NotebookNodeType.Group,
-    defaultTitle: 'Group',
+    titlePlaceholder: 'Group',
     Component,
     heightEstimate: 300,
     minHeight: 100,
