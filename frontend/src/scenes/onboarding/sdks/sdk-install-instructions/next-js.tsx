@@ -33,9 +33,17 @@ if (typeof window !== 'undefined') { // checks that we are client-side
   })
 }
 
-export default function App({ Component, pageProps }) {
-  const router = useRouter()
-  ...`}
+export default function App(
+    { Component, pageProps: { session, ...pageProps } }
+) {
+    return (
+        <>
+            <PostHogProvider client={posthog}>
+                <Component {...pageProps} />
+            </PostHogProvider>
+        </>
+    )
+}`}
         </CodeSnippet>
     )
 }
@@ -53,7 +61,29 @@ if (typeof window !== 'undefined') {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
   })
 }
-...`}
+export function PHProvider({ children }) {
+    return <PostHogProvider client={posthog}>{children}</PostHogProvider>
+}`}
+        </CodeSnippet>
+    )
+}
+
+function NextAppRouterLayoutSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript}>
+            {`// app/layout.js
+import './globals.css'
+import { PHProvider } from './providers'
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <PHProvider>
+        <body>{children}</body>
+      </PHProvider>
+    </html>
+  )
+}`}
         </CodeSnippet>
     )
 }
@@ -86,6 +116,11 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                 .
             </p>
             <NextAppRouterCodeSnippet />
+            <p>
+                Afterwards, import the <code>PHProvider</code> component in your <code>app/layout.js</code> file and
+                wrap your app with it.
+            </p>
+            <NextAppRouterLayoutSnippet />
             <h4>With Pages router</h4>
             <p>
                 If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can
