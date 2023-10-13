@@ -49,18 +49,15 @@ type SlashCommandsItem = {
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
         title: 'H1',
-        icon: <NotebookIconHeading level={1} />,
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
         title: 'H2',
-        icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
         title: 'H3',
-        icon: <NotebookIconHeading level={2} />,
-        command: (chain) => chain.toggleHeading({ level: 2 }),
+        command: (chain) => chain.toggleHeading({ level: 3 }),
     },
     {
         title: 'B',
