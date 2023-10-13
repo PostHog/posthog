@@ -425,7 +425,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         </>
     )
 
-    if (showOpenEditorButton && !isReadOnly) {
+    // The editor button moved under "export". Show only if there's no export button.
+    if (!showExport && showOpenEditorButton && !isReadOnly) {
         if (inlineEditorButtonOnRow === 1) {
             firstRowRight.push(editorButton)
         } else if (inlineEditorButtonOnRow === 2) {
