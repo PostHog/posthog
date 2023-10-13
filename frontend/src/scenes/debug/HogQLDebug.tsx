@@ -11,11 +11,12 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 interface HogQLDebugProps {
+    queryKey: string
     query: HogQLQuery
     setQuery: (query: DataNode) => void
 }
-export function HogQLDebug({ query, setQuery }: HogQLDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: 'debug-scene' }
+export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey }
     const { dataLoading, response, responseErrorObject, elapsedTime } = useValues(dataNodeLogic(dataNodeLogicProps))
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
