@@ -30,7 +30,6 @@ import {
     SurveyAppearance,
     SurveyMultipleChoiceAppearance,
     SurveyRatingAppearance,
-    SurveyThankYou,
 } from './SurveyAppearance'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -46,6 +45,7 @@ import React, { useEffect, useState } from 'react'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 function PresentationTypeCard({
     title,
@@ -957,56 +957,12 @@ export default function EditSurveyNew(): JSX.Element {
             </div>
             <LemonDivider vertical />
             <div className="flex flex-col items-center h-full w-full sticky top-0 pt-8" style={{ maxWidth: 320 }}>
-                {survey.type !== SurveyType.API ? (
-                    <>
-                        {showThankYou ? (
-                            <SurveyThankYou appearance={survey.appearance} />
-                        ) : (
-                            <SurveyAppearance
-                                type={survey.questions[activePreview].type}
-                                surveyQuestionItem={survey.questions[activePreview]}
-                                question={survey.questions[activePreview].question}
-                                description={survey.questions[activePreview].description}
-                                link={
-                                    survey.questions[activePreview].type === SurveyQuestionType.Link
-                                        ? survey.questions[activePreview].link
-                                        : undefined
-                                }
-                                appearance={{
-                                    ...(survey.appearance || defaultSurveyAppearance),
-                                    ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
-                                }}
-                            />
-                        )}
-                        <LemonSelect
-                            onChange={(activePreview) => {
-                                setActivePreview(activePreview)
-                            }}
-                            className="mt-4 whitespace-nowrap"
-                            fullWidth
-                            value={activePreview}
-                            options={[
-                                ...survey.questions.map((question, index) => ({
-                                    label: `${index + 1}. ${question.question ?? ''}`,
-                                    value: index,
-                                })),
-                                ...(survey.appearance.displayThankYouMessage
-                                    ? [
-                                          {
-                                              label: `${survey.questions.length + 1}. Confirmation message`,
-                                              value: survey.questions.length,
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
-                    </>
-                ) : (
-                    <div className="flex flex-col">
-                        <h4 className="text-center">API survey response</h4>
-                        <SurveyAPIEditor survey={survey} />
-                    </div>
-                )}
+                <SurveyFormAppearance
+                    activePreview={activePreview}
+                    survey={survey}
+                    showThankYou={!!showThankYou}
+                    setActivePreview={(preview) => setActivePreview(preview)}
+                />
             </div>
         </div>
     )
