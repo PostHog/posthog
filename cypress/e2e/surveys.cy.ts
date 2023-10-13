@@ -34,7 +34,8 @@ describe('Surveys', () => {
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
         cy.clickNavMenu('surveys')
-        cy.get('tbody').should('not.have.text', name)
+
+        cy.get('tbody').should('not.exist')
     })
 
     it('shows survey disabled banner when surveys disabled', () => {
@@ -169,7 +170,7 @@ describe('Surveys', () => {
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete').click()
         cy.clickNavMenu('surveys')
-        cy.get('tbody').should('not.have.text', name)
+        cy.get('tbody').should('not.exist')
     })
 
     it('Delete survey', () => {
