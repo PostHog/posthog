@@ -211,9 +211,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.updateQuerySource(newQuerySource)
             }
         },
-        updateDisplay: ({ display }) => {
-            actions.updateInsightFilter({ display })
-        },
         updateInsightFilter: ({ insightFilter }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
@@ -227,6 +224,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 }
                 actions.updateQuerySource(newQuerySource)
             }
+        },
+        updateDisplay: ({ display }) => {
+            actions.updateInsightFilter({ display })
         },
         updateQuerySource: ({ querySource }) => {
             const localQuery = values.query
