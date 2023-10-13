@@ -6,7 +6,9 @@ from posthog.temporal.workflows.backfill_batch_export import (
     get_schedule_frequency,
 )
 from posthog.temporal.workflows.batch_exports import (
+    create_batch_export_backfill_model,
     create_export_run,
+    update_batch_export_backfill_model_status,
     update_export_run_status,
 )
 from posthog.temporal.workflows.bigquery_batch_export import (
@@ -40,6 +42,7 @@ WORKFLOWS = [
 
 ACTIVITIES: Sequence[Callable] = [
     backfill_schedule,
+    create_batch_export_backfill_model,
     create_export_run,
     delete_squashed_person_overrides_from_clickhouse,
     delete_squashed_person_overrides_from_postgres,
@@ -54,5 +57,6 @@ ACTIVITIES: Sequence[Callable] = [
     prepare_person_overrides,
     select_persons_to_delete,
     squash_events_partition,
+    update_batch_export_backfill_model_status,
     update_export_run_status,
 ]

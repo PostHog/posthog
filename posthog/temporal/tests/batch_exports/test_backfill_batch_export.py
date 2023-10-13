@@ -203,7 +203,7 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
