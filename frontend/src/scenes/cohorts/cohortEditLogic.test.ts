@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { CohortLogicProps } from 'scenes/cohorts/cohortSceneLogic'
 import { expectLogic, partial } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { mockCohort } from '~/test/mocks'

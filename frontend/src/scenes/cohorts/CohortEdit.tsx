@@ -1,7 +1,6 @@
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'

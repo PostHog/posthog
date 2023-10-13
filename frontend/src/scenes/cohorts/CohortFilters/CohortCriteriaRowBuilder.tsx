@@ -11,7 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { CohortLogicProps } from 'scenes/cohorts/cohortSceneLogic'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']

@@ -19,8 +19,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     const logic = groupLogic({ groupKey: id, groupTypeIndex: groupTypeIndex })
     const { groupData, groupDataLoading, groupTypeName } = useValues(logic)
-    const { expanded } = useValues(notebookNodeLogic)
-    const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter } = useActions(notebookNodeLogic)
 
     const title = groupData
         ? `${groupTypeName}: ${groupDisplayId(groupData.group_key, groupData.group_properties)}`
@@ -32,9 +31,8 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         })
         setActions([
             {
-                text: 'Group events',
+                text: 'Events for this group',
                 onClick: () => {
-                    setExpanded(false)
                     insertAfter({
                         type: NotebookNodeType.Query,
                         attrs: {
@@ -69,7 +67,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between ', !expanded && 'cursor-pointer')}>
+            <div className={clsx('p-4 flex-0 flex gap-2 justify-between')}>
                 {groupDataLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : groupData ? (
