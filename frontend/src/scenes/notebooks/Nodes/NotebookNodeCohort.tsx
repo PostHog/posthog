@@ -11,7 +11,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Query } from '~/queries/Query/Query'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
@@ -79,13 +79,15 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between ', !expanded && 'cursor-pointer')}>
+            <div className={clsx('p-4 gap-2', !expanded && 'cursor-pointer')}>
                 {cohortLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
                         <IconCohort className="text-muted-alt text-lg" />
                         <span className="flex-1 font-semibold truncate">{cohort.name}</span>
+                        <span className="italic text-muted-alt">({cohort.count} persons)</span>
+                        <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
                     </div>
                 )}
             </div>
