@@ -16,7 +16,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export function PlayerController(): JSX.Element {
-    const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
 
@@ -25,9 +25,7 @@ export function PlayerController(): JSX.Element {
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
-    const showPause = [SessionPlayerState.PLAY, SessionPlayerState.SKIP, SessionPlayerState.BUFFER].includes(
-        currentPlayerState
-    )
+    const showPause = playingState === SessionPlayerState.PLAY
 
     return (
         <div className="bg-bg-light flex flex-col select-none">

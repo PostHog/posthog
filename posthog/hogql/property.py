@@ -9,7 +9,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
@@ -48,7 +48,7 @@ class AggregationFinder(TraversingVisitor):
 
 
 def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list],
+    property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
     scope: Literal["event", "person"] = "event",
 ) -> ast.Expr:
@@ -63,6 +63,8 @@ def property_to_expr(
         return ast.And(exprs=properties)
     elif isinstance(property, Property):
         pass
+    elif isinstance(property, ast.Expr):
+        return clone_expr(property)
     elif (
         isinstance(property, PropertyGroup)
         or isinstance(property, PropertyGroupFilter)

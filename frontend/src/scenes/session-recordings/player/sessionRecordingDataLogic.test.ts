@@ -217,8 +217,8 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActionsInAnyOrder([
-                    'loadRecordingSnapshotsV2',
-                    'loadRecordingSnapshotsV2Success',
+                    'loadRecordingSnapshots',
+                    'loadRecordingSnapshotsSuccess',
                     'loadEvents',
                     'loadEventsSuccess',
                 ])

@@ -138,7 +138,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
 
             const snapshots = prepareRecordingSnapshots(values.sessionRecording.snapshots)
 
-            dataLogic.actions.loadRecordingSnapshotsV2Success({
+            dataLogic.actions.loadRecordingSnapshotsSuccess({
                 snapshots,
             })
 
