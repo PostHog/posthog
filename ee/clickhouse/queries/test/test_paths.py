@@ -36,6 +36,7 @@ ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
 class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
+
     maxDiff = None
 
     def _create_groups(self):
@@ -1834,6 +1835,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 6)
 
     def test_event_inclusion_exclusion_filters_across_single_person(self):
+
         # P1 for pageview event, screen event, and custom event all together
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
 

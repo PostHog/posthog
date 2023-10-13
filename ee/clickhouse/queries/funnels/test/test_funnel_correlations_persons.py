@@ -28,6 +28,7 @@ PERSON_ID_COLUMN = 2
 
 
 class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
+
     maxDiff = None
 
     def _setup_basic_test(self):
@@ -211,6 +212,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(cohort.count, 5)
 
     def test_people_arent_returned_multiple_times(self):
+
         people = journeys_for(
             {
                 "user_1": [
@@ -415,6 +417,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
     def test_strict_funnel_correlation_with_recordings(self):
+
         # First use that successfully completes the strict funnel
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(

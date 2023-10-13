@@ -13,6 +13,7 @@ from posthog.test.test_journeys import journeys_for
 
 
 class TestExperimentCRUD(APILicensedTest):
+
     # List experiments
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
