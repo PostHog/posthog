@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, PropertyFilterType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -51,7 +51,20 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                                   type: NotebookNodeType.Query,
                                   attrs: {
                                       title: `People in cohort ${cohort.name}`,
-                                      query: modifiedQuery,
+                                      query: {
+                                          kind: NodeKind.DataTableNode,
+                                          source: {
+                                              kind: NodeKind.PersonsQuery,
+                                              properties: [
+                                                  {
+                                                      type: PropertyFilterType.Cohort,
+                                                      key: 'id',
+                                                      value: id,
+                                                  },
+                                              ],
+                                          },
+                                          full: true,
+                                      },
                                   },
                               })
                           },
