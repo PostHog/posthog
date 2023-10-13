@@ -7,13 +7,13 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 export function NotebookNodeTitle(): JSX.Element {
     const { isEditable } = useValues(notebookLogic)
-    const { title, titlePlaceholder } = useValues(notebookNodeLogic)
+    const { nodeAttributes, title, titlePlaceholder } = useValues(notebookNodeLogic)
     const { updateAttributes } = useActions(notebookNodeLogic)
     const [editing, setEditing] = useState(false)
     const [newValue, setNewValue] = useState('')
 
     useEffect(() => {
-        setNewValue(title)
+        setNewValue(nodeAttributes.title ?? '')
     }, [editing])
 
     const commitEdit = (): void => {
