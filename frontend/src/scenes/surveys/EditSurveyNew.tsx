@@ -133,7 +133,9 @@ export default function EditSurveyNew(): JSX.Element {
                                                     key: index,
                                                     header: (
                                                         <div className="flex flex-row w-full items-center justify-between">
-                                                            <b>{question.question}</b>
+                                                            <b>
+                                                                Question {index + 1}. {question.question}
+                                                            </b>
                                                             {survey.questions.length > 1 && (
                                                                 <LemonButton
                                                                     icon={<IconDelete />}
