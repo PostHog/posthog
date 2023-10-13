@@ -1,4 +1,3 @@
-import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
 import { decideResponse } from '../fixtures/api/decide'
 import { insight } from '../productAnalytics'
@@ -20,7 +19,10 @@ describe('Insights', () => {
             return true
         })
 
-        cy.visit(urls.insightNew())
+        cy.visit('/insights')
+        cy.wait('@getInsights').then(() => {
+            cy.get('.saved-insights tr').should('exist')
+        })
     })
 
     describe('unsaved insights confirmation', () => {

@@ -317,7 +317,8 @@ describe('the feature flag logic', () => {
             logic.actions.setTotalUsers(100)
             expect(logic.values.computeBlastRadiusPercentage(67, 0)).toBeCloseTo(67, 2)
             // total users is defined but affected users is not. UI side should handle not showing the result in this case
-            expect(logic.values.computeBlastRadiusPercentage(75, 1)).toEqual(NaN)
+            // and computation resolves to rollout percentage
+            expect(logic.values.computeBlastRadiusPercentage(75, 1)).toEqual(75)
             expect(logic.values.computeBlastRadiusPercentage(100, 2)).toBeCloseTo(25, 2)
         })
 

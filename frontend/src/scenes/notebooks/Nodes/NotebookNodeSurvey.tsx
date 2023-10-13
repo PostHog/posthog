@@ -15,10 +15,11 @@ import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
-    const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
+    const { survey, surveyLoading, hasTargetingFlag, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
@@ -40,6 +41,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     useEffect(() => {
         updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
     }, [survey.name])
+
+    if (surveyMissing) {
+        return <NotFound object={'survey'} />
+    }
 
     return (
         <div>
