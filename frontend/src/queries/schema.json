@@ -1213,6 +1213,9 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "query": {
                     "type": "string"
                 },
@@ -1228,6 +1231,21 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "HogQLQueryModifiers": {
+            "additionalProperties": false,
+            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "properties": {
+                "personsArgMaxVersion": {
+                    "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsOnEventsMode": {
+                    "enum": ["disabled", "v1_enabled", "v2_enabled"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "HogQLQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1240,6 +1258,9 @@
                 },
                 "hogql": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "query": {
                     "type": "string"

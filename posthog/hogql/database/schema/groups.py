@@ -11,6 +11,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
+from posthog.schema import HogQLQueryModifiers
 
 GROUPS_TABLE_FIELDS = {
     "index": IntegerDatabaseField(name="group_type_index"),
@@ -32,7 +33,9 @@ def select_from_groups_table(requested_fields: Dict[str, List[str]]):
 
 
 def join_with_group_n_table(group_index: int):
-    def join_with_group_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+    def join_with_group_table(
+        from_table: str, to_table: str, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers
+    ):
         from posthog.hogql import ast
 
         if not requested_fields:
@@ -72,7 +75,7 @@ class RawGroupsTable(Table):
 class GroupsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

@@ -9,35 +9,9 @@ SELECT
     max(events.timestamp) AS max_timestamp,
     dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
 
-    argMin(events.properties.`$referrer`, events.timestamp) AS earliest_referrer,
-    argMin(events.properties.`$pathname`, events.timestamp) AS entry_pathname,
-    argMax(events.properties.`$pathname`, events.timestamp ) AS exit_pathname,
-    argMax(events.properties.utm_source, events.timestamp) AS earliest_utm_source,
-
-    if(domain(earliest_referrer) = '', earliest_referrer, domain(earliest_referrer)) AS referrer_domain,
-    multiIf(
-        earliest_utm_source IS NOT NULL, earliest_utm_source,
-        -- This will need to be an approach that scales better
-        referrer_domain == 'app.posthog.com', 'posthog',
-        referrer_domain == 'eu.posthog.com', 'posthog',
-        referrer_domain == 'posthog.com', 'posthog',
-        referrer_domain == 'www.google.com', 'google',
-        referrer_domain == 'www.google.co.uk', 'google',
-        referrer_domain == 'www.google.com.hk', 'google',
-        referrer_domain == 'www.google.de', 'google',
-        referrer_domain == 't.co', 'twitter',
-        referrer_domain == 'github.com', 'github',
-        referrer_domain == 'duckduckgo.com', 'duckduckgo',
-        referrer_domain == 'www.bing.com', 'bing',
-        referrer_domain == 'bing.com', 'bing',
-        referrer_domain == 'yandex.ru', 'yandex',
-        referrer_domain == 'quora.com', 'quora',
-        referrer_domain == 'www.quora.com', 'quora',
-        referrer_domain == 'linkedin.com', 'linkedin',
-        referrer_domain == 'www.linkedin.com', 'linkedin',
-        startsWith(referrer_domain, 'http://localhost:'), 'localhost',
-        referrer_domain
-    ) AS blended_source,
+    any(events.properties.$initial_referring_domain) AS $initial_referring_domain,
+    any(events.properties.$set_once.$initial_pathname) AS $initial_pathname,
+    any(events.properties.$set_once.$initial_utm_source) AS $initial_utm_source,
 
     countIf(events.event == '$pageview') AS num_pageviews,
     countIf(events.event == '$autocapture') AS num_autocaptures,
@@ -56,6 +30,19 @@ GROUP BY
 HAVING
     ({session_having})
     """
+
+SOURCE_CTE = """
+SELECT
+    events.properties.$set_once.$initial_utm_source AS $initial_utm_source,
+    count() as total_pageviews,
+    uniq(events.person_id) as unique_visitors
+FROM
+    events
+WHERE
+    (event = '$pageview')
+    AND ({source_where})
+    GROUP BY $initial_utm_source
+"""
 
 PATHNAME_CTE = """
 SELECT

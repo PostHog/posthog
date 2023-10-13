@@ -95,7 +95,7 @@ export function SurveyAppearance({
     preview,
 }: SurveyAppearanceProps): JSX.Element {
     return (
-        <>
+        <div data-attr="survey-preview">
             {type === SurveyQuestionType.Rating && (
                 <SurveyRatingAppearance
                     preview={preview}
@@ -129,7 +129,7 @@ export function SurveyAppearance({
                     onSubmit={() => undefined}
                 />
             )}
-        </>
+        </div>
     )
 }
 

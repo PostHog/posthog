@@ -11,6 +11,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
@@ -92,7 +93,7 @@ def get_query_runner(
 
         return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "TrendsQuery":
-        from .insights.trends_query_runner import TrendsQueryRunner
+        from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "EventsQuery":
@@ -184,7 +185,12 @@ class QueryRunner(ABC):
         with self.timings.measure("to_hogql"):
             return print_ast(
                 self.to_query(),
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True, timings=self.timings),
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    timings=self.timings,
+                    modifiers=create_default_modifiers_for_team(self.team),
+                ),
                 "hogql",
             )
 

@@ -16,27 +16,29 @@ import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
     const {
         featureFlag,
         featureFlagLoading,
         recordingFilterForFlag,
+        featureFlagMissing,
         hasEarlyAccessFeatures,
         canCreateEarlyAccessFeature,
         hasSurveys,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
     )
 
     useEffect(() => {
-        updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+        setTitlePlaceholder(featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag')
 
         setActions([
             {
@@ -93,6 +95,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         ])
     }, [featureFlag])
 
+    if (featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
+
     return (
         <div>
             <BindLogic logic={featureFlagLogic} props={{ id }}>
@@ -134,7 +140,7 @@ type NotebookNodeFlagAttributes = {
 
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
-    defaultTitle: 'Feature flag',
+    titlePlaceholder: 'Feature flag',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),

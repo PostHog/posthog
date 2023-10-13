@@ -39,7 +39,7 @@ export type NotebookNodeLogicProps = {
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
-    defaultTitle: string
+    titlePlaceholder: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -69,6 +69,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         toggleEditing: true,
         scrollIntoView: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
+        setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -113,13 +114,23 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setMessageListeners: (_, { listeners }) => listeners,
             },
         ],
+
+        titlePlaceholder: [
+            props.titlePlaceholder,
+            {
+                setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         settings: [(_, p) => [p.settings], (settings) => settings],
-        defaultTitle: [(_, p) => [p.defaultTitle], (title) => title],
+        title: [
+            (s) => [s.titlePlaceholder, s.nodeAttributes],
+            (titlePlaceholder, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
+        ],
 
         sendMessage: [
             (s) => [s.messageListeners],

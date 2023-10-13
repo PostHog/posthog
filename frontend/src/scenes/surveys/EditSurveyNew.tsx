@@ -263,6 +263,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                                     className="max-w-60"
                                                                 >
                                                                     <LemonSelect
+                                                                        data-attr={`survey-question-type-${index}`}
                                                                         onSelect={(newType) => {
                                                                             const isEditingQuestion =
                                                                                 defaultSurveyFieldValues[question.type]

@@ -17,10 +17,13 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
+import { NotFound } from 'lib/components/NotFound'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning } = useValues(
+        experimentLogic({ experimentId: id })
+    )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
@@ -39,6 +42,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
     useEffect(() => {
         loadExperiment()
     }, [id])
+
+    if (experimentMissing) {
+        return <NotFound object="experiment" />
+    }
 
     return (
         <div>
@@ -122,7 +129,7 @@ type NotebookNodeExperimentAttributes = {
 
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
     nodeType: NotebookNodeType.Experiment,
-    defaultTitle: 'Experiment',
+    titlePlaceholder: 'Experiment',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.experiment(attrs.id),

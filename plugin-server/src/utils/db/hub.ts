@@ -58,6 +58,17 @@ export async function createKafkaProducerWrapper(serverConfig: PluginsServerConf
     return new KafkaProducerWrapper(producer)
 }
 
+export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<string, string[]> {
+    const eventsToDropByToken: Map<string, string[]> = new Map()
+    if (eventsToDropByTokenStr) {
+        eventsToDropByTokenStr.split(',').forEach((pair) => {
+            const [token, distinctID] = pair.split(':')
+            eventsToDropByToken.set(token, [...(eventsToDropByToken.get(token) || []), distinctID])
+        })
+    }
+    return eventsToDropByToken
+}
+
 export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     threadId: number | null = null,
@@ -184,6 +195,8 @@ export async function createHub(
         conversionBufferEnabledTeams,
         fetchHostnameGuardTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
+        poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
+        eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 
     // :TODO: This is only used on worker threads, not main

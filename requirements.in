@@ -87,3 +87,4 @@ django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==0.27.8
 nh3==0.2.14
+hogql-parser==0.1.7
