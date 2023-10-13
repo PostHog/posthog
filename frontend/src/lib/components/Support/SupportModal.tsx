@@ -56,6 +56,16 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
 
+    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+        if (kind === 'bug') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+        } else if (kind === 'feedback') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+        } else if (kind === 'support') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+        }
+    }
+
     useEffect(() => {
         handleReportTypeChange()
     }, [])
@@ -76,16 +86,6 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
-
-    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
-        if (kind === 'bug') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
-        } else if (kind === 'feedback') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
-        } else if (kind === 'support') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
-        }
-    }
 
     return (
         <LemonModal
