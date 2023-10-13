@@ -60,7 +60,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
         handleReportTypeChange()
     }, [])
 
-    if (false && !preflightLogic.values.preflight?.cloud) {
+    if (!preflightLogic.values.preflight?.cloud) {
         if (isSupportFormOpen) {
             lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
         }
