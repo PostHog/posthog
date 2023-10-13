@@ -93,7 +93,7 @@ def get_query_runner(
 
         return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "TrendsQuery":
-        from .insights.trends_query_runner import TrendsQueryRunner
+        from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "EventsQuery":
