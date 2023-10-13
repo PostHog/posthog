@@ -76,7 +76,6 @@ export const notebookLogic = kea<notebookLogicType>([
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
-        toggleSelectedNodeSettings: true,
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
@@ -517,19 +516,6 @@ export const notebookLogic = kea<notebookLogicType>([
         setTextSelection: ({ selection }) => {
             queueMicrotask(() => {
                 values.editor?.setTextSelection(selection)
-            })
-        },
-
-        toggleSelectedNodeSettings: () => {
-            queueMicrotask(() => {
-                if (values.editor) {
-                    const node = values.editor.getSelectedNode()
-
-                    if (node) {
-                        const nodeLogic = values.findNodeLogicById(node.attrs.nodeId)
-                        nodeLogic?.actions.toggleEditing()
-                    }
-                }
             })
         },
     })),
