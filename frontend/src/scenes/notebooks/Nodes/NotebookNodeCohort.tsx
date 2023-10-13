@@ -69,6 +69,54 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                               })
                           },
                       },
+
+                      {
+                          text: 'Cohort trends',
+                          onClick: () => {
+                              setExpanded(false)
+                              insertAfter({
+                                  type: NotebookNodeType.Query,
+                                  attrs: {
+                                      title: `Pageviews for cohort '${cohort.name}'`,
+
+                                      query: {
+                                          kind: 'InsightVizNode',
+                                          source: {
+                                              kind: 'TrendsQuery',
+                                              filterTestAccounts: true,
+                                              series: [
+                                                  {
+                                                      kind: 'EventsNode',
+                                                      event: '$pageview',
+                                                      name: '$pageview',
+                                                      math: 'total',
+                                                  },
+                                              ],
+                                              interval: 'day',
+                                              trendsFilter: {
+                                                  display: 'ActionsLineGraph',
+                                              },
+                                              properties: {
+                                                  type: 'AND',
+                                                  values: [
+                                                      {
+                                                          type: 'AND',
+                                                          values: [
+                                                              {
+                                                                  key: 'id',
+                                                                  value: id,
+                                                                  type: 'cohort',
+                                                              },
+                                                          ],
+                                                      },
+                                                  ],
+                                              },
+                                          },
+                                      },
+                                  },
+                              })
+                          },
+                      },
                   ]
                 : []
         )
