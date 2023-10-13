@@ -1,7 +1,7 @@
 from posthog.hogql.ast import SelectQuery, SelectUnionQuery
 from posthog.hogql.base import AST
 
-def parse_expr(expr: str, /, *, start: int) -> AST:
+def parse_expr(expr: str, /) -> AST:
     """Parse the HogQL expression string into an AST"""
     ...
 

@@ -25,7 +25,7 @@ RULE_TO_PARSE_FUNCTION = {
         "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
     },
     "cpp": {
-        "expr": lambda string, start: _parse_expr_cpp(string, start),
+        "expr": lambda string, _: _parse_expr_cpp(string),  # The start arg is ignored in the C++ version
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
     },

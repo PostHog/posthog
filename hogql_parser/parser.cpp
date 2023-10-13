@@ -1221,15 +1221,10 @@ parser_state* get_module_state(PyObject* module) {
 
 // MODULE METHODS
 
-static PyObject* method_parse_expr(PyObject* self, PyObject* args, PyObject* kwargs) {
+static PyObject* method_parse_expr(PyObject* self, PyObject* args) {
   parser_state* state = get_module_state(self);
   const char* str;
-  int start;  // TODO: Determine if this `start` kwarg of `parse_expr` is needed for anything
-
-  static char* kwlist[] = {"expr", "start", NULL};
-
-  // s = str, | = optionals start here, i = int
-  if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|i", kwlist, &str, &start)) {
+  if (!PyArg_ParseTuple(args, "s", &str)) {
     return NULL;
   }
   HogQLParser parser = get_parser(str);
@@ -1294,10 +1289,8 @@ static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
 
 static PyMethodDef parser_methods[] = {
     {.ml_name = "parse_expr",
-     // The cast of the function is necessary since PyCFunction values only take two
-     // PyObject* parameters, and method_parse_expr() takes three.
-     .ml_meth = (PyCFunction)(void (*)(void))method_parse_expr,
-     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_meth = method_parse_expr,
+     .ml_flags = METH_VARARGS,
      .ml_doc = "Parse the HogQL expression string into an AST"},
     {.ml_name = "parse_order_expr",
      .ml_meth = method_parse_order_expr,
