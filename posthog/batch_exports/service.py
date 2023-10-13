@@ -8,7 +8,6 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleBackfill,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -250,38 +249,63 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
+@dataclass
+class BackfillBatchExportInputs:
+    """Inputs for the BackfillBatchExport Workflow."""
+
+    team_id: int
+    batch_export_id: str
+    start_at: str
+    end_at: str
+    buffer_limit: int = 1
+    wait_delay: float = 5.0
+
+
 def backfill_export(
     temporal: Client,
     batch_export_id: str,
+    team_id: int,
     start_at: dt.datetime,
     end_at: dt.datetime,
-    overlap: ScheduleOverlapPolicy = ScheduleOverlapPolicy.BUFFER_ALL,
-):
-    """Creates an export run for the given BatchExport, and specified time range.
+) -> None:
+    """Starts a backfill for given team and batch export covering given date range.
 
     Arguments:
+        temporal: A Temporal Client to trigger the workflow.
+        batch_export_id: The id of the BatchExport to backfill.
+        team_id: The id of the Team the BatchExport belongs to.
         start_at: From when to backfill.
         end_at: Up to when to backfill.
     """
     try:
-        BatchExport.objects.get(id=batch_export_id)
+        BatchExport.objects.get(id=batch_export_id, team_id=team_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
-    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=overlap)
-    backfill_schedule(temporal=temporal, schedule_id=batch_export_id, schedule_backfill=schedule_backfill)
+    inputs = BackfillBatchExportInputs(
+        batch_export_id=batch_export_id,
+        team_id=team_id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+    )
+    start_backfill_batch_export_workflow(temporal, inputs=inputs)
 
 
 @async_to_sync
-async def backfill_schedule(temporal: Client, schedule_id: str, schedule_backfill: ScheduleBackfill):
-    """Async call the Temporal client to execute a backfill on the given schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
+async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> None:
+    """Async call to start a BackfillBatchExportWorkflow."""
+    handle = temporal.get_schedule_handle(inputs.batch_export_id)
     description = await handle.describe()
 
     if description.schedule.spec.jitter is not None:
-        schedule_backfill.end_at += description.schedule.spec.jitter
+        # Adjust end_at to account for jitter if present.
+        inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
 
-    await handle.backfill(schedule_backfill)
+    await temporal.start_workflow(
+        "backfill-batch-export",
+        inputs,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+    )
 
 
 def create_batch_export_run(

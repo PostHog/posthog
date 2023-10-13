@@ -214,7 +214,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
         team_id=1,
-        schedule_id=desc.id,
+        batch_export_id=desc.id,
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
         buffer_limit=2,

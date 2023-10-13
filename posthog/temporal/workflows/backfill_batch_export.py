@@ -13,6 +13,7 @@ import temporalio.exceptions
 import temporalio.workflow
 from django.conf import settings
 
+from posthog.batch_exports.service import BackfillBatchExportInputs
 from posthog.temporal.client import connect
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
@@ -254,18 +255,6 @@ def backfill_range(
         current = current_end
 
 
-@dataclasses.dataclass
-class BackfillBatchExportInputs:
-    """Inputs for the BackfillBatchExport Workflow."""
-
-    team_id: int
-    schedule_id: str
-    start_at: str
-    end_at: str
-    buffer_limit: int = 1
-    wait_delay: float = 5.0
-
-
 @temporalio.workflow.defn(name="backfill-batch-export")
 class BackfillBatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to manage a backfill of a batch export.
@@ -291,7 +280,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(
             team_id=inputs.team_id,
-            batch_export_id=inputs.schedule_id,
+            batch_export_id=inputs.batch_export_id,
             start_at=inputs.start_at,
             end_at=inputs.end_at,
             status="Running",
@@ -312,7 +301,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         frequency_seconds = await temporalio.workflow.execute_activity(
             get_schedule_frequency,
-            inputs.schedule_id,
+            inputs.batch_export_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=0),
         )
@@ -321,7 +310,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         number_of_expected_runs = backfill_duration / dt.timedelta(seconds=frequency_seconds)
 
         backfill_schedule_inputs = BackfillScheduleInputs(
-            schedule_id=inputs.schedule_id,
+            schedule_id=inputs.batch_export_id,
             start_at=inputs.start_at,
             end_at=inputs.end_at,
             frequency_seconds=frequency_seconds,

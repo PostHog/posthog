@@ -1,5 +1,10 @@
 from typing import Callable, Sequence
 
+from posthog.temporal.workflows.backfill_batch_export import (
+    BackfillBatchExportWorkflow,
+    backfill_schedule,
+    get_schedule_frequency,
+)
 from posthog.temporal.workflows.batch_exports import (
     create_export_run,
     update_export_run_status,
@@ -24,6 +29,7 @@ from posthog.temporal.workflows.snowflake_batch_export import (
 from posthog.temporal.workflows.squash_person_overrides import *
 
 WORKFLOWS = [
+    BackfillBatchExportWorkflow,
     BigQueryBatchExportWorkflow,
     NoOpWorkflow,
     PostgresBatchExportWorkflow,
@@ -33,10 +39,12 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES: Sequence[Callable] = [
+    backfill_schedule,
     create_export_run,
     delete_squashed_person_overrides_from_clickhouse,
     delete_squashed_person_overrides_from_postgres,
     drop_dictionary,
+    get_schedule_frequency,
     insert_into_bigquery_activity,
     insert_into_postgres_activity,
     insert_into_s3_activity,
