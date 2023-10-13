@@ -171,7 +171,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                 ) : (
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
-                                            <div className="flex items-center flex-1">
+                                            <div className="flex items-center flex-1 overflow-hidden">
                                                 {isEditable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
                                                 )}
