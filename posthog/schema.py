@@ -531,34 +531,6 @@ class WebTopClicksQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
-class WebTopPagesQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
-class WebTopSourcesQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
 class Breakdown(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -788,26 +760,6 @@ class WebTopClicksQuery(BaseModel):
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[EventPropertyFilter]
     response: Optional[WebTopClicksQueryResponse] = None
-
-
-class WebTopPagesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
-    properties: List[EventPropertyFilter]
-    response: Optional[WebTopPagesQueryResponse] = None
-
-
-class WebTopSourcesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
-    properties: List[EventPropertyFilter]
-    response: Optional[WebTopSourcesQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1201,9 +1153,7 @@ class DataTableNode(BaseModel):
         TimeToSeeDataSessionsQuery,
         WebOverviewStatsQuery,
         WebStatsTableQuery,
-        WebTopSourcesQuery,
         WebTopClicksQuery,
-        WebTopPagesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -1484,9 +1434,7 @@ class Model(RootModel):
             HogQLMetadata,
             WebOverviewStatsQuery,
             WebStatsTableQuery,
-            WebTopSourcesQuery,
             WebTopClicksQuery,
-            WebTopPagesQuery,
         ],
     ]
 

@@ -19,9 +19,7 @@ from posthog.schema import (
     QueryTiming,
     TrendsQuery,
     LifecycleQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
     WebOverviewStatsQuery,
     PersonsQuery,
     EventsQuery,
@@ -70,9 +68,7 @@ RunnableQueryNode = Union[
     EventsQuery,
     PersonsQuery,
     WebOverviewStatsQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
 ]
 
 
@@ -110,18 +106,10 @@ def get_query_runner(
         from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 
         return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopSourcesQuery":
-        from .web_analytics.top_sources import WebTopSourcesQueryRunner
-
-        return WebTopSourcesQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopPagesQuery":
-        from .web_analytics.top_pages import WebTopPagesQueryRunner
-
-        return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebStatsTableQuery":
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 

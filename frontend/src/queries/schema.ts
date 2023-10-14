@@ -62,8 +62,6 @@ export enum NodeKind {
 
     // Web analytics queries
     WebOverviewStatsQuery = 'WebOverviewStatsQuery',
-    WebTopSourcesQuery = 'WebTopSourcesQuery',
-    WebTopPagesQuery = 'WebTopPagesQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
@@ -88,9 +86,7 @@ export type AnyDataNode =
     | HogQLMetadata
     | WebOverviewStatsQuery
     | WebStatsTableQuery
-    | WebTopSourcesQuery
     | WebTopClicksQuery
-    | WebTopPagesQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -317,9 +313,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | TimeToSeeDataSessionsQuery
         | WebOverviewStatsQuery
         | WebStatsTableQuery
-        | WebTopSourcesQuery
         | WebTopClicksQuery
-        | WebTopPagesQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -564,16 +558,6 @@ export interface WebOverviewStatsQueryResponse extends QueryResponse {
     types?: unknown[]
     columns?: unknown[]
 }
-export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebTopSourcesQuery
-    properties: WebAnalyticsPropertyFilters
-    response?: WebTopSourcesQueryResponse
-}
-export interface WebTopSourcesQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
-}
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopClicksQuery
@@ -581,17 +565,6 @@ export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
-}
-
-export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebTopPagesQuery
-    properties: WebAnalyticsPropertyFilters
-    response?: WebTopPagesQueryResponse
-}
-export interface WebTopPagesQueryResponse extends QueryResponse {
     results: unknown[]
     types?: unknown[]
     columns?: unknown[]
