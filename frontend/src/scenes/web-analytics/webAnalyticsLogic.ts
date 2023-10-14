@@ -245,7 +245,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     activeTabId: deviceTab,
                     setTabId: actions.setDeviceTab,
-
                     tabs: [
                         {
                             id: DeviceTab.BROWSER,
@@ -255,8 +254,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.Browser,
                                 },
                             },
                         },
@@ -268,8 +268,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.OS,
                                 },
                             },
                         },
@@ -281,8 +282,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.DeviceType,
                                 },
                             },
                         },

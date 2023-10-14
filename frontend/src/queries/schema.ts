@@ -577,6 +577,9 @@ export enum WebStatsBreakdown {
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
+    Browser = 'Browser',
+    OS = 'OS',
+    DeviceType = 'DeviceType',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery

@@ -91,6 +91,12 @@ LIMIT 10
                 return parse_expr("events.properties.$set_once.$initial_utm_source")
             case WebStatsBreakdown.InitialUTMCampaign:
                 return parse_expr("events.properties.$set_once.$initial_utm_campaign")
+            case WebStatsBreakdown.Browser:
+                return parse_expr("events.properties.$browser")
+            case WebStatsBreakdown.OS:
+                return parse_expr("events.properties.$os")
+            case WebStatsBreakdown.DeviceType:
+                return parse_expr("events.properties.$device_type")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
@@ -106,5 +112,11 @@ LIMIT 10
                 return parse_expr("any(events.properties.$set_once.$initial_utm_source)")
             case WebStatsBreakdown.InitialUTMCampaign:
                 return parse_expr("any(events.properties.$set_once.$initial_utm_campaign)")
+            case WebStatsBreakdown.Browser:
+                return parse_expr("any(events.properties.$browser)")
+            case WebStatsBreakdown.OS:
+                return parse_expr("any(events.properties.$os)")
+            case WebStatsBreakdown.DeviceType:
+                return parse_expr("any(events.properties.$device_type)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")

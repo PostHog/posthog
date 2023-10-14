@@ -2469,7 +2469,16 @@
             "type": "object"
         },
         "WebStatsBreakdown": {
-            "enum": ["Page", "InitialPage", "InitialReferringDomain", "InitialUTMSource", "InitialUTMCampaign"],
+            "enum": [
+                "Page",
+                "InitialPage",
+                "InitialReferringDomain",
+                "InitialUTMSource",
+                "InitialUTMCampaign",
+                "Browser",
+                "OS",
+                "DeviceType"
+            ],
             "type": "string"
         },
         "WebStatsTableQuery": {

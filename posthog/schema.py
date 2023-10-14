@@ -501,6 +501,9 @@ class WebStatsBreakdown(str, Enum):
     InitialReferringDomain = "InitialReferringDomain"
     InitialUTMSource = "InitialUTMSource"
     InitialUTMCampaign = "InitialUTMCampaign"
+    Browser = "Browser"
+    OS = "OS"
+    DeviceType = "DeviceType"
 
 
 class WebStatsTableQueryResponse(BaseModel):

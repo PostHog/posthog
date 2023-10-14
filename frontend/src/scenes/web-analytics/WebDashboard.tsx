@@ -52,6 +52,12 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:
             return <>UTM Campaign</>
+        case WebStatsBreakdown.Browser:
+            return <>Browser</>
+        case WebStatsBreakdown.OS:
+            return <>OS</>
+        case WebStatsBreakdown.DeviceType:
+            return <>Device Type</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -80,6 +86,15 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             break
         case WebStatsBreakdown.InitialUTMCampaign:
             propertyName = '$set_once.$initial_utm_campaign'
+            break
+        case WebStatsBreakdown.Browser:
+            propertyName = '$browser'
+            break
+        case WebStatsBreakdown.OS:
+            propertyName = '$os'
+            break
+        case WebStatsBreakdown.DeviceType:
+            propertyName = '$device_type'
             break
         default:
             throw new UnexpectedNeverError(breakdownBy)
