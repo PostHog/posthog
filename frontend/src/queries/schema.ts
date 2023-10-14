@@ -719,10 +719,10 @@ export type QueryContextColumnTitleComponent = ComponentType<{
 }>
 
 export type QueryContextColumnComponent = ComponentType<{
-    record: any
     columnName: string
-    value: any
     query: DataTableNode
+    record: unknown
+    value: unknown
 }>
 
 interface QueryContextColumn {
