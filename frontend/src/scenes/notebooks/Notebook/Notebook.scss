@@ -8,66 +8,67 @@
         width: 100%;
         overflow: hidden;
 
-        > h1,
-        > h2,
-        > h3,
-        > h4,
-        > h5 {
-            margin-top: 0.5rem;
-        }
+        .ProseMirror {
+            &-focused {
+                outline: none;
+            }
 
-        > p {
-            margin-bottom: 0.2rem;
-        }
+            > h1,
+            > h2,
+            > h3,
+            > h4,
+            > h5 {
+                margin-top: 0.5rem;
+            }
 
-        > .ProseMirror-focused {
-            outline: none;
-        }
+            > p {
+                margin-bottom: 0.2rem;
+            }
 
-        > .is-empty::before {
-            content: attr(data-placeholder);
-            float: left;
-            color: rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            height: 0;
-        }
-
-        ul {
-            list-style-type: disc;
-        }
-
-        ol {
-            list-style-type: decimal;
-        }
-
-        ul,
-        ol {
-            padding-left: 1rem;
-
-            li {
-                p {
-                    margin-bottom: 0.2rem;
+            > .is-empty::before {
+                content: attr(data-placeholder);
+                float: left;
+                color: rgba(0, 0, 0, 0.2);
+                [theme='dark'] & {
+                    color: rgba(255, 255, 255, 0.2);
                 }
+                pointer-events: none;
+                height: 0;
+            }
 
-                > p {
-                    display: inline-block;
+            > ul {
+                list-style-type: disc;
+            }
+
+            > ol {
+                list-style-type: decimal;
+            }
+
+            > ul,
+            > ol {
+                padding-left: 1rem;
+
+                li {
+                    p {
+                        margin-bottom: 0.2rem;
+                    }
                 }
             }
-        }
 
-        > pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            overflow-x: auto;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-        }
+            > pre {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                overflow-x: auto;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+            }
 
-        > code,
-        > p code {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            padding: 0.2rem;
+            > code,
+            > p code {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                padding: 0.2rem;
+            }
         }
 
         .Backlink {
@@ -125,33 +126,66 @@
     .NotebookSidebar {
         position: relative;
         width: 0px;
-        margin-top: 3.6rem; // Account for title
         transition: width var(--notebook-popover-transition-properties);
+
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
+        .NotebookScene & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
+        }
 
         .NotebookSidebar__content {
             position: sticky;
             align-self: flex-start;
-            top: 65px;
+            top: 0px;
             width: var(--notebook-sidebar-width);
             transform: translateX(-100%);
             transition: transform var(--notebook-popover-transition-properties);
+
+            .NotebookScene & {
+                // Account for sticky header
+                top: 4rem;
+            }
         }
 
         &--showing {
             width: var(--notebook-sidebar-width);
+            margin-right: 1rem;
 
             .NotebookSidebar__content {
                 transform: translateX(0);
             }
         }
+
+        .NotebookHistory {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: var(--notebook-sidebar-height);
+            overflow: hidden;
+        }
     }
 
-    .NotebookNodeSettings__widgets {
-        position: sticky;
-        align-self: flex-start;
-        top: 65px;
+    .NotebookInlineMenu {
+        margin-bottom: -0.2rem;
+        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
 
-        &__content {
+        .LemonInput {
+            border: 0px;
+            min-height: 0px;
+        }
+
+        .LemonButton {
+            min-height: 1.75rem;
+
+            .LemonButton__icon {
+                font-size: 1rem;
+            }
+        }
+    }
+
+    .NotebookSidebar__widget {
+        > .LemonWidget__content {
             max-height: calc(100vh - 220px);
             overflow: auto;
         }
@@ -165,6 +199,7 @@
 
     .NotebookRecordingTimestamp {
         display: inline-flex;
+        max-height: 22px;
     }
 
     // overriding ::selection is necessary here because

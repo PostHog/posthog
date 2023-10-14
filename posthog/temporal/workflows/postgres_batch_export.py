@@ -6,22 +6,21 @@ from dataclasses import dataclass
 import psycopg2
 from django.conf import settings
 from psycopg2 import sql
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import PostgresBatchExportInputs
-from posthog.temporal.workflows.base import (
-    CreateBatchExportRunInputs,
-    PostHogWorkflow,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
-    update_export_run_status,
-)
+from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
+    CreateBatchExportRunInputs,
+    UpdateBatchExportRunStatusInputs,
+    create_export_run,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
+    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -58,9 +57,10 @@ def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name:
     tsv_file.seek(0)
 
     with postgres_connection.cursor() as cursor:
+        cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
         cursor.copy_from(
             tsv_file,
-            sql.Identifier(schema, table_name).as_string(postgres_connection),
+            table_name,
             null="",
             columns=schema_columns,
         )
@@ -81,12 +81,19 @@ class PostgresInsertInputs:
     has_self_signed_cert: bool = False
     schema: str = "public"
     port: int = 5432
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 @activity.defn
 async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
     """Activity streams data from ClickHouse to Postgres."""
-    activity.logger.info("Running Postgres export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(
+        "Running Postgres export batch %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -97,23 +104,27 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
+            logger.info(
+                "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to Postgres", count)
+        logger.info("BatchExporting %s rows to Postgres", count)
 
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
         with postgres_connection(inputs) as connection:
             with connection.cursor() as cursor:
@@ -162,7 +173,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
-                        activity.logger.info(
+                        logger.info(
                             "Copying %s records of size %s bytes to Postgres",
                             pg_file.records_since_last_reset,
                             pg_file.bytes_since_last_reset,
@@ -171,7 +182,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         pg_file.reset()
 
                 if pg_file.tell() > 0:
-                    activity.logger.info(
+                    logger.info(
                         "Copying %s records of size %s bytes to Postgres",
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
@@ -198,9 +209,9 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: PostgresBatchExportInputs):
         """Workflow implementation to export data to Postgres."""
-        workflow.logger.info("Starting Postgres export")
-
+        logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        logger.info("Starting Postgres export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -234,6 +245,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             has_self_signed_cert=inputs.has_self_signed_cert,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         try:
@@ -249,17 +262,33 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                         # Raised on errors that are related to database operation.
                         # For example: unexpected disconnect, database or other object not found.
                         "OperationalError"
+                        # The schema name provided is invalid (usually because it doesn't exist).
+                        "InvalidSchemaName"
+                        # Missing permissions to, e.g., insert into table.
+                        "InsufficientPrivilege"
                     ],
                 ),
             )
 
-        except Exception as e:
-            workflow.logger.exception("Postgres BatchExport failed.", exc_info=e)
-            update_inputs.status = "Failed"
-            # Note: This shallows the exception type, but the message should be enough.
-            # If not, swap to repr(e)
-            update_inputs.latest_error = str(e)
+        except exceptions.ActivityError as e:
+            if isinstance(e.cause, exceptions.CancelledError):
+                logger.error("Postgres BatchExport was cancelled.")
+                update_inputs.status = "Cancelled"
+            else:
+                logger.exception("Postgres BatchExport failed.", exc_info=e.cause)
+                update_inputs.status = "Failed"
+
+            update_inputs.latest_error = str(e.cause)
             raise
+
+        except Exception as e:
+            logger.exception("Postgers BatchExport failed with an unexpected error.", exc_info=e)
+            update_inputs.status = "Failed"
+            update_inputs.latest_error = "An unexpected error has ocurred"
+            raise
+
+        else:
+            logger.info("Successfully finished Postgres export batch %s - %s", data_interval_start, data_interval_end)
 
         finally:
             await workflow.execute_activity(

@@ -121,6 +121,7 @@ export function InsightLabel({
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             background: seriesColor,
                             boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
@@ -171,6 +172,7 @@ export function InsightLabel({
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
                                     <Tag className="tag-pill" closable={false}>
+                                        {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
                                             {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
                                         </span>

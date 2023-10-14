@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Union
 
 from django.conf import settings
 from django.db import connection
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +11,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
-from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
 from posthog.cloud_utils import is_cloud
 from posthog.gitsha import GIT_SHA
 from posthog.permissions import SingleTenancyOrAdmin
@@ -34,6 +35,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
 
+    @method_decorator(cache_page(60))
     def list(self, request: Request) -> Response:
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()
@@ -141,6 +143,9 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def navigation(self, request: Request) -> Response:
+        # Import here to avoid circular import
+        from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
+
         return Response(
             {
                 "system_status_ok": (

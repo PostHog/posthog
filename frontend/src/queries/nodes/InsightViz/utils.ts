@@ -1,7 +1,7 @@
 import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -11,7 +11,6 @@ import {
 } from '~/queries/utils'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import equal from 'fast-deep-equal'
-import { ShownAsValue } from 'lib/constants'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
@@ -82,18 +81,6 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
     }
 }
 
-export const getShownAs = (query: InsightQueryNode): ShownAsValue | undefined => {
-    if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.shown_as
-    } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.shown_as
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.shown_as
-    } else {
-        return undefined
-    }
-}
-
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.show_legend
@@ -128,7 +115,7 @@ export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined) {
+    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
         return undefined
     }
 

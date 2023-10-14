@@ -1,12 +1,12 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
-import { Message } from 'node-rdkafka-acosom'
+import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../types'
+import { Hub, PipelineEvent, WorkerMethods } from '../../types'
 import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -59,11 +59,6 @@ export class KafkaJSIngestionConsumer {
         // references to queue.workerMethods buried deep in the codebase
         // #onestepatatime
         this.workerMethods = {
-            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
-                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
-            },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
@@ -226,11 +221,6 @@ export class IngestionConsumer {
         // references to queue.workerMethods buried deep in the codebase
         // #onestepatatime
         this.workerMethods = {
-            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
-                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
-            },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
@@ -249,13 +239,13 @@ export class IngestionConsumer {
             connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
             topic: this.topic,
             groupId: this.consumerGroupId,
-            sessionTimeout: 30000,
+            autoCommit: true,
+            sessionTimeout: this.pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            fetchBatchSize: 500,
+            fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
             topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            cooperativeRebalance: this.pluginsServer.KAFKA_CONSUMPTION_RDKAFKA_COOPERATIVE_REBALANCE,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
         this.consumerReady = true

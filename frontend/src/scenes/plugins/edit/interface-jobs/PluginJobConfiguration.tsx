@@ -39,11 +39,11 @@ export function PluginJobConfiguration(props: InterfaceJobsProps): JSX.Element {
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
                         <PlayCircleOutlined
-                            className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
+                            className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     ) : (
                         <SettingOutlined
-                            className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
+                            className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     )}
                 </Tooltip>
@@ -109,7 +109,7 @@ function FieldInput({
             return (
                 <CodeEditor
                     options={{ codeLens: false, lineNumbers: 'off' }}
-                    className="plugin-job-json-editor"
+                    className="Plugin__JobJsonEditor"
                     language="json"
                     height={200}
                     value={value}

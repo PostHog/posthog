@@ -1,13 +1,13 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
-import { TopicPartition } from 'node-rdkafka-acosom'
+import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
-    return `${prefix}/${tp.topic}/${tp.partition}`
+    return `${prefix}high-water-marks/${tp.topic}/${tp.partition}`
 }
 
 export type OffsetHighWaterMarks = Record<string, number | undefined>
@@ -27,7 +27,7 @@ export class OffsetHighWaterMarker {
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
     private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/high-water-marks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()
@@ -86,7 +86,7 @@ export class OffsetHighWaterMarker {
                 await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
+            status.error('🧨', 'OffsetHighWaterMarker failed to add high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -127,7 +127,7 @@ export class OffsetHighWaterMarker {
                 await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
+            status.error('🧨', 'OffsetHighWaterMarker failed to commit high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,

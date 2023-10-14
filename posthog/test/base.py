@@ -12,6 +12,7 @@ import freezegun
 import pytest
 import sqlparse
 from django.apps import apps
+from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -39,12 +40,12 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
-from posthog.models.session_recording_event.sql import (
+from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.models.session_replay_event.sql import (
+from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -232,6 +233,7 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     def setUp(self):
         super().setUp()
 
+        cache.clear()
         TEST_clear_cloud_cache(self.initial_cloud_mode)
         TEST_clear_instance_license_cache()
 

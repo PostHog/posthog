@@ -13,10 +13,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import clsx from 'clsx'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
+    embedded?: boolean
 }
 
 let uniqueNode = 0
@@ -45,8 +47,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden'}
-                style={{ height: 318 }}
+                className={clsx('flex flex-col rounded bg-bg-light space-y-2 w-full', !props.embedded && 'p-2 border')}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
@@ -115,87 +116,90 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }}
                         />
                     </span>
-                    <CodeEditor
-                        className="py-2 border rounded overflow-hidden h-full"
-                        language="mysql"
-                        value={queryInput}
-                        onChange={(v) => setQueryInput(v ?? '')}
-                        height="100%"
-                        onMount={(editor, monaco) => {
-                            monaco.languages.registerCodeActionProvider('mysql', {
-                                provideCodeActions: (model, _range, context) => {
-                                    if (logic.isMounted()) {
-                                        // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
-                                        const markersFromMonaco = context.markers
-                                        // We have a list of _all_ markers returned from the HogQL metadata query
-                                        const markersFromMetadata = logic.values.modelMarkers
-                                        // We need to merge the two lists
-                                        const quickFixes: languages.CodeAction[] = []
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
+                    <div className="resize-y overflow-hidden" style={{ height: 222 }}>
+                        <CodeEditor
+                            className="py-2 border rounded overflow-hidden h-full"
+                            language="mysql"
+                            value={queryInput}
+                            onChange={(v) => setQueryInput(v ?? '')}
+                            height="100%"
+                            onMount={(editor, monaco) => {
+                                monaco.languages.registerCodeActionProvider('mysql', {
+                                    provideCodeActions: (model, _range, context) => {
+                                        if (logic.isMounted()) {
+                                            // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
+                                            const markersFromMonaco = context.markers
+                                            // We have a list of _all_ markers returned from the HogQL metadata query
+                                            const markersFromMetadata = logic.values.modelMarkers
+                                            // We need to merge the two lists
+                                            const quickFixes: languages.CodeAction[] = []
 
-                                        for (const activeMarker of markersFromMonaco) {
-                                            const start = model.getOffsetAt({
-                                                column: activeMarker.startColumn,
-                                                lineNumber: activeMarker.startLineNumber,
-                                            })
-                                            const end = model.getOffsetAt({
-                                                column: activeMarker.endColumn,
-                                                lineNumber: activeMarker.endLineNumber,
-                                            })
-                                            for (const rawMarker of markersFromMetadata) {
-                                                if (
-                                                    rawMarker.hogQLFix &&
-                                                    // if ranges overlap
-                                                    rawMarker.start <= end &&
-                                                    rawMarker.end >= start
-                                                ) {
-                                                    quickFixes.push({
-                                                        title: `Replace with: ${rawMarker.hogQLFix}`,
-                                                        diagnostics: [rawMarker],
-                                                        kind: 'quickfix',
-                                                        edit: {
-                                                            edits: [
-                                                                {
-                                                                    resource: model.uri,
-                                                                    textEdit: {
-                                                                        range: rawMarker,
-                                                                        text: rawMarker.hogQLFix,
+                                            for (const activeMarker of markersFromMonaco) {
+                                                const start = model.getOffsetAt({
+                                                    column: activeMarker.startColumn,
+                                                    lineNumber: activeMarker.startLineNumber,
+                                                })
+                                                const end = model.getOffsetAt({
+                                                    column: activeMarker.endColumn,
+                                                    lineNumber: activeMarker.endLineNumber,
+                                                })
+                                                for (const rawMarker of markersFromMetadata) {
+                                                    if (
+                                                        rawMarker.hogQLFix &&
+                                                        // if ranges overlap
+                                                        rawMarker.start <= end &&
+                                                        rawMarker.end >= start
+                                                    ) {
+                                                        quickFixes.push({
+                                                            title: `Replace with: ${rawMarker.hogQLFix}`,
+                                                            diagnostics: [rawMarker],
+                                                            kind: 'quickfix',
+                                                            edit: {
+                                                                edits: [
+                                                                    {
+                                                                        resource: model.uri,
+                                                                        textEdit: {
+                                                                            range: rawMarker,
+                                                                            text: rawMarker.hogQLFix,
+                                                                        },
+                                                                        versionId: undefined,
                                                                     },
-                                                                    versionId: undefined,
-                                                                },
-                                                            ],
-                                                        },
-                                                        isPreferred: true,
-                                                    })
+                                                                ],
+                                                            },
+                                                            isPreferred: true,
+                                                        })
+                                                    }
                                                 }
                                             }
+                                            return {
+                                                actions: quickFixes,
+                                                dispose: () => {},
+                                            }
                                         }
-                                        return {
-                                            actions: quickFixes,
-                                            dispose: () => {},
-                                        }
-                                    }
-                                },
-                            })
-                            monacoDisposables.current.push(
-                                editor.addAction({
-                                    id: 'saveAndRunPostHog',
-                                    label: 'Save and run query',
-                                    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                                    run: () => saveQuery(),
+                                    },
                                 })
-                            )
-                            setMonacoAndEditor([monaco, editor])
-                        }}
-                        options={{
-                            minimap: {
-                                enabled: false,
-                            },
-                            wordWrap: 'on',
-                            scrollBeyondLastLine: false,
-                            automaticLayout: true,
-                            fixedOverflowWidgets: true,
-                        }}
-                    />
+                                monacoDisposables.current.push(
+                                    editor.addAction({
+                                        id: 'saveAndRunPostHog',
+                                        label: 'Save and run query',
+                                        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+                                        run: () => saveQuery(),
+                                    })
+                                )
+                                setMonacoAndEditor([monaco, editor])
+                            }}
+                            options={{
+                                minimap: {
+                                    enabled: false,
+                                },
+                                wordWrap: 'on',
+                                scrollBeyondLastLine: false,
+                                automaticLayout: true,
+                                fixedOverflowWidgets: true,
+                            }}
+                        />
+                    </div>
                 </div>
                 <div className="flex flex-row">
                     <div className="flex-1">

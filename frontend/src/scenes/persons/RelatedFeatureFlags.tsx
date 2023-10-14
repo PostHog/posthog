@@ -7,6 +7,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 import { FeatureFlagReleaseType } from '~/types'
 import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface Props {
     distinctId: string
@@ -55,7 +56,11 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>
-                        {featureFlag.name && <span className="row-description">{featureFlag.name}</span>}
+                        {featureFlag.name && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {featureFlag.name}
+                            </LemonMarkdown>
+                        )}
                     </>
                 )
             },
@@ -153,11 +158,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Match evaluation</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
-                            { label: 'Not matched', value: 'not matched' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Matched', value: FeatureFlagMatchReason.ConditionMatch },
+                                { label: 'Not matched', value: 'not matched' },
+                            ] as { label: string; value: string }[]
+                        }
                         onChange={(reason) => {
                             if (reason) {
                                 if (reason === 'all') {
@@ -189,11 +196,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Enabled', value: 'true' },
-                            { label: 'Disabled', value: 'false' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
+                            ] as { label: string; value: string }[]
+                        }
                         value="all"
                         dropdownMaxContentWidth
                     />

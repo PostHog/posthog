@@ -66,7 +66,6 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
-import { PromiseManager } from './../../worker/vm/promise-manager'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
@@ -165,16 +164,12 @@ export class DB {
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
-    /** PromiseManager instance to keep track of voided promises */
-    promiseManager: PromiseManager
-
     constructor(
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
-        promiseManager: PromiseManager,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
@@ -183,7 +178,6 @@ export class DB {
         this.clickhouse = clickhouse
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
-        this.promiseManager = promiseManager
     }
 
     // ClickHouse
@@ -1348,8 +1342,7 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        tx?: TransactionClient,
-        options: { cache?: boolean } = { cache: true }
+        tx?: TransactionClient
     ): Promise<void> {
         const result = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
@@ -1374,13 +1367,6 @@ export class DB {
 
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
-        }
-
-        if (options?.cache) {
-            await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-                properties: groupProperties,
-                created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-            })
         }
     }
 
@@ -1418,11 +1404,6 @@ export class DB {
             ],
             'upsertGroup'
         )
-
-        await this.updateGroupCache(teamId, groupTypeIndex, groupKey, {
-            properties: groupProperties,
-            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouse),
-        })
     }
 
     public async upsertGroupClickhouse(

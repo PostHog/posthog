@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
+    BatchExportLogEntry,
     CohortType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
@@ -447,6 +448,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
     }
 
+    public surveysResponsesCount(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('surveys/responses_count')
+    }
+
     public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
@@ -537,6 +542,10 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id)
     }
 
+    public batchExportLogs(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExport(id, teamId).addPathComponent('logs')
+    }
+
     public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
@@ -547,6 +556,14 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    public batchExportRunLogs(
+        id: BatchExportConfiguration['id'],
+        runId: BatchExportRun['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
     // Request finalization
@@ -711,8 +728,9 @@ const api = {
                     return new ApiRequest().dataManagementActivity()
                 },
                 [ActivityScope.NOTEBOOK]: () => {
-                    // not implemented
-                    return null
+                    return activityLogProps.id
+                        ? new ApiRequest().notebook(`${activityLogProps.id}`).withAction('activity')
+                        : new ApiRequest().notebooks().withAction('activity')
                 },
             }
 
@@ -1186,6 +1204,65 @@ const api = {
         },
     },
 
+    batchExportLogs: {
+        async search(
+            batchExportId: string,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: BatchExportLogEntry | null = null,
+            leadingEntry: BatchExportLogEntry | null = null
+        ): Promise<BatchExportLogEntry[]> {
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
+                },
+                true
+            )
+
+            const response = await new ApiRequest()
+                .batchExportLogs(batchExportId, currentTeamId || undefined)
+                .withQueryString(params)
+                .get()
+
+            return response.results
+        },
+    },
+
+    batchExportRunLogs: {
+        async search(
+            batchExportId: string,
+            batchExportRunId: string,
+            currentTeamId: number | null,
+            searchTerm: string | null = null,
+            typeFilters: CheckboxValueType[] = [],
+            trailingEntry: BatchExportLogEntry | null = null,
+            leadingEntry: BatchExportLogEntry | null = null
+        ): Promise<BatchExportLogEntry[]> {
+            const params = toParams(
+                {
+                    limit: LOGS_PORTION_LIMIT,
+                    type_filter: typeFilters,
+                    search: searchTerm || undefined,
+                    before: trailingEntry?.timestamp,
+                    after: leadingEntry?.timestamp,
+                },
+                true
+            )
+
+            const response = await new ApiRequest()
+                .batchExportRunLogs(batchExportId, batchExportRunId, currentTeamId || undefined)
+                .withQueryString(params)
+                .get()
+
+            return response.results
+        },
+    },
+
     annotations: {
         async get(annotationId: RawAnnotationType['id']): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
@@ -1216,14 +1293,21 @@ const api = {
     },
 
     recordings: {
-        async list(params: string): Promise<SessionRecordingsResponse> {
-            return await new ApiRequest().recordings().withQueryString(params).get()
+        async list(params: Record<string, any>): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
         async getMatchingEvents(params: string): Promise<{ results: string[] }> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
-        async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).get()
+        async get(
+            recordingId: SessionRecordingType['id'],
+            params: Record<string, any> = {}
+        ): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+        },
+
+        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -1283,12 +1367,12 @@ const api = {
 
         async listPlaylistRecordings(
             playlistId: SessionRecordingPlaylistType['short_id'],
-            params: string
+            params: Record<string, any> = {}
         ): Promise<SessionRecordingsResponse> {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
-                .withQueryString(params)
+                .withQueryString(toParams(params))
                 .get()
         },
 
@@ -1440,6 +1524,9 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
+        async getResponsesCount(): Promise<{ [key: string]: number }> {
+            return await new ApiRequest().surveysResponsesCount().get()
+        },
     },
 
     dataWarehouseTables: {
@@ -1583,7 +1670,8 @@ const api = {
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
-        queryId?: string
+        queryId?: string,
+        refresh?: boolean
     ): Promise<
         T extends { [response: string]: any }
             ? T['response'] extends infer P | undefined
@@ -1591,7 +1679,9 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().query().create({ ...options, data: { query, client_query_id: queryId } })
+        return await new ApiRequest()
+            .query()
+            .create({ ...options, data: { query, client_query_id: queryId, refresh: refresh } })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

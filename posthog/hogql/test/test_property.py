@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any
+from typing import List, Union, cast, Optional, Dict, Any, Literal
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
@@ -26,8 +26,13 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 class TestProperty(BaseTest):
     maxDiff = None
 
-    def _property_to_expr(self, property: Union[PropertyGroup, Property, dict, list], team: Optional[Team] = None):
-        return clear_locations(property_to_expr(property, team=team or self.team))
+    def _property_to_expr(
+        self,
+        property: Union[PropertyGroup, Property, dict, list],
+        team: Optional[Team] = None,
+        scope: Optional[Literal["event", "person"]] = None,
+    ):
+        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -435,4 +440,19 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
+        )
+
+    def test_person_scope(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}, scope="event"),
+            self._parse_expr("person.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}, scope="person"),
+            self._parse_expr("properties.a = 'b'"),
+        )
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}, scope="person")
+        self.assertEqual(
+            str(e.exception), "The 'event' property filter only works in 'event' scope, not in 'person' scope"
         )

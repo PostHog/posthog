@@ -6,6 +6,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
 import { BasePerson, Person, RawPerson, TimestampFormat } from '../../types'
+import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
@@ -30,12 +31,13 @@ export function sanitizeEventName(eventName: any): string {
 
 export function timeoutGuard(
     message: string,
-    context?: Record<string, any>,
+    context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000
 ): NodeJS.Timeout {
     return setTimeout(() => {
-        console.log(`⌛⌛⌛ ${message}`, context)
-        Sentry.captureMessage(message, context ? { extra: context } : undefined)
+        const ctx = typeof context === 'function' ? context() : context
+        status.warn('⌛', message, ctx)
+        Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
     }, timeout)
 }
 

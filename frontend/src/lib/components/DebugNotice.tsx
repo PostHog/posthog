@@ -39,10 +39,10 @@ export function DebugNotice(): JSX.Element | null {
                     onClick={() => setNoticeHidden(true)}
                 />
             </div>
-            <div className="p-2 border-l-4 border-danger text-danger-dark  truncate">
+            <div className="p-2 border-l-4 border-danger text-danger-dark truncate">
                 Branch: <b>{debugInfo.branch}</b>
             </div>
-            <div className="p-2 border-l-4 border-warning text-warning-dark  truncate">
+            <div className="p-2 border-l-4 border-warning text-warning-dark truncate">
                 Revision: <b>{debugInfo.revision}</b>
             </div>
         </div>

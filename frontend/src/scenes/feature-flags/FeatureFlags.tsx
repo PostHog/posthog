@@ -29,6 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -90,9 +91,9 @@ export function OverViewTab({
                         </div>
 
                         {featureFlag.name && (
-                            <span className="row-description" style={{ maxWidth: '24rem' }}>
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
                                 {featureFlag.name}
-                            </span>
+                            </LemonMarkdown>
                         )}
                     </>
                 )
@@ -278,7 +279,7 @@ export function OverViewTab({
                                                 { label: 'Multiple variants', value: 'multivariant' },
                                                 { label: 'Experiment', value: 'experiment' },
                                             ]}
-                                            value="all"
+                                            value={filters.type ?? 'all'}
                                         />
                                     </>
                                 )}
@@ -303,7 +304,7 @@ export function OverViewTab({
                                         { label: 'Enabled', value: 'true' },
                                         { label: 'Disabled', value: 'false' },
                                     ]}
-                                    value="all"
+                                    value={filters.active ?? 'all'}
                                 />
                                 <span className="ml-1">
                                     <b>Created by</b>
@@ -322,7 +323,7 @@ export function OverViewTab({
                                         }
                                     }}
                                     options={uniqueCreators}
-                                    value="any"
+                                    value={filters.created_by ?? 'any'}
                                 />
                             </div>
                         </div>

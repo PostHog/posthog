@@ -20,6 +20,8 @@ exec gunicorn posthog.wsgi \
     --worker-tmp-dir /dev/shm \
     --workers=2 \
     --threads=8 \
+    --keep-alive=60 \
+    --backlog=${GUNICORN_BACKLOG:-1000} \
     --worker-class=gthread \
     ${STATSD_HOST:+--statsd-host $STATSD_HOST:$STATSD_PORT} \
     --limit-request-line=16384 $@

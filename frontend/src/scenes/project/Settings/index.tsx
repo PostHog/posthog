@@ -36,6 +36,7 @@ import { IngestionInfo } from './IngestionInfo'
 import { ExtraTeamSettings } from './ExtraTeamSettings'
 import { WeekStartConfig } from './WeekStartConfig'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SurveySettings } from './Survey'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -245,6 +246,7 @@ export function ProjectSettings(): JSX.Element {
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                <SurveySettings />
                 <ExtraTeamSettings />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />

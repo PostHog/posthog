@@ -21,7 +21,9 @@ import {
     HogQLMathType,
     InsightLogicProps,
     InsightShortId,
+    EventPropertyFilter,
 } from '~/types'
+import { ComponentType } from 'react'
 
 /**
  * PostHog Query Schema definition.
@@ -43,6 +45,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
+    PersonsQuery = 'PersonsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -57,6 +60,12 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
 
+    // Web analytics queries
+    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebTopSourcesQuery = 'WebTopSourcesQuery',
+    WebTopPagesQuery = 'WebTopPagesQuery',
+    WebTopClicksQuery = 'WebTopClicksQuery',
+
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
@@ -68,13 +77,18 @@ export enum NodeKind {
 }
 
 export type AnyDataNode =
-    | EventsNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
-    | TimeToSeeDataSessionsQuery
+    | WebOverviewStatsQuery
+    | WebTopSourcesQuery
+    | WebTopClicksQuery
+    | WebTopPagesQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -136,6 +150,8 @@ export interface HogQLQuery extends DataNode {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
+    /** Constant values that can be referenced with the {placeholder} syntax in the query */
+    values?: Record<string, any>
     response?: HogQLQueryResponse
 }
 
@@ -158,8 +174,12 @@ export interface HogQLMetadataResponse {
 
 export interface HogQLMetadata extends DataNode {
     kind: NodeKind.HogQLMetadata
-    expr?: string
+    /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
+    /** HogQL expression to validate (use `select` or `expr`, but not both) */
+    expr?: string
+    /** Table to validate the expression against */
+    table?: string
     filters?: HogQLFilters
     response?: HogQLMetadataResponse
 }
@@ -195,6 +215,7 @@ export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: number
 }
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -273,17 +294,29 @@ export interface PersonsNode extends DataNode {
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
-export interface DataTableNode extends Node {
+export interface DataTableNode extends Node, DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | PersonsQuery
+        | HogQLQuery
+        | TimeToSeeDataSessionsQuery
+        | WebOverviewStatsQuery
+        | WebTopSourcesQuery
+        | WebTopClicksQuery
+        | WebTopPagesQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
-    /** Show with most visual options enabled. Used in scenes. */
-    full?: boolean
+}
+
+interface DataTableNodeViewProps {
+    /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -326,7 +359,7 @@ export interface DataTableNode extends Node {
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node, InsightVizNodeViewProps {
+export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTableNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
@@ -370,8 +403,13 @@ export interface InsightsQueryBase extends Node {
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type TrendsFilter = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
+
+export interface TrendsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -382,13 +420,22 @@ export interface TrendsQuery extends InsightsQueryBase {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
+    response?: TrendsQueryResponse
 }
 
-/** `FunnelsFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
+/** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_breakdowns` */
 export type FunnelsFilter = Omit<
     FunnelsFilterType & { hidden_legend_breakdowns?: string[] },
-    keyof FilterType | 'hidden_legend_keys'
+    | keyof FilterType
+    | 'hidden_legend_keys'
+    | 'funnel_step_breakdown'
+    | 'funnel_correlation_person_entity'
+    | 'funnel_correlation_person_converted'
+    | 'entrance_period_start'
+    | 'drop_off'
+    | 'funnel_step'
+    | 'funnel_custom_steps'
 >
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
@@ -410,19 +457,22 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter?: RetentionFilter
 }
 
-/** `PathsFilterType` minus everything inherited from `FilterType` */
-export type PathsFilter = Omit<PathsFilterType, keyof FilterType>
+/** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
+export type PathsFilter = Omit<
+    PathsFilterType,
+    keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
+>
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
     pathsFilter?: PathsFilter
 }
 
-/** `StickinessFilterType` minus everything inherited from `FilterType` and
- * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
+/** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
+ * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
-    keyof FilterType | 'hidden_legend_keys'
+    keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
@@ -435,14 +485,22 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
-export interface LifecycleQueryResponse {
-    result: Record<string, any>[]
+export interface QueryResponse {
+    results: unknown[]
     timings?: QueryTiming[]
+    hogql?: string
+    is_cached?: boolean
+    last_refresh?: string
+    next_allowed_client_refresh?: string
+}
+
+export interface LifecycleQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
 }
 
 export interface LifecycleQuery extends InsightsQueryBase {
@@ -454,6 +512,77 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
     response?: LifecycleQueryResponse
+}
+
+export interface PersonsQueryResponse {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+}
+
+export interface PersonsQuery extends DataNode {
+    kind: NodeKind.PersonsQuery
+    select?: HogQLExpression[]
+    search?: string
+    properties?: AnyPropertyFilter[]
+    fixedProperties?: AnyPropertyFilter[]
+    orderBy?: string[]
+    limit?: number
+    offset?: number
+    response?: PersonsQueryResponse
+}
+
+export type WebAnalyticsPropertyFilters = EventPropertyFilter[]
+
+export interface WebAnalyticsQueryBase {
+    dateRange?: DateRange
+}
+
+export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewStatsQuery
+    properties: WebAnalyticsPropertyFilters
+    response?: WebOverviewStatsQueryResponse
+}
+
+export interface WebOverviewStatsQueryResponse extends QueryResponse {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+export interface WebTopSourcesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopSourcesQuery
+    properties: WebAnalyticsPropertyFilters
+    response?: WebTopSourcesQueryResponse
+}
+export interface WebTopSourcesQueryResponse extends QueryResponse {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopClicksQuery
+    properties: WebAnalyticsPropertyFilters
+    response?: WebTopClicksQueryResponse
+}
+export interface WebTopClicksQueryResponse extends QueryResponse {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+}
+
+export interface WebTopPagesQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebTopPagesQuery
+    properties: WebAnalyticsPropertyFilters
+    response?: WebTopPagesQueryResponse
+}
+export interface WebTopPagesQueryResponse extends QueryResponse {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
 }
 
 export type InsightQueryNode =
@@ -575,7 +704,9 @@ export interface QueryContext {
     emptyStateDetail?: string
 }
 
+export type QueryContextColumnComponent = ComponentType<{ record: any; columnName: string; value: any }>
+
 interface QueryContextColumn {
     title?: string
-    render?: (props: { record: any }) => JSX.Element
+    render?: QueryContextColumnComponent
 }

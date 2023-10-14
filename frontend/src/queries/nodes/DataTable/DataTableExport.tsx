@@ -212,7 +212,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             ? [
                                   <ExportWithConfirmation
                                       key={0}
-                                      placement={'bottomRight'}
+                                      placement={'topRight'}
                                       onConfirm={() => startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
