@@ -709,6 +709,20 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_plugin_unused(self, mock_get, mock_reload):
+        plugin_no_configs = Plugin.objects.create(organization=self.organization)
+        plugin_enabled = Plugin.objects.create(organization=self.organization)
+        plugin_only_disabled = Plugin.objects.create(organization=self.organization)
+        PluginConfig.objects.create(plugin=plugin_only_disabled, team=self.team, enabled=False, order=1)
+        PluginConfig.objects.create(plugin=plugin_enabled, team=self.team, enabled=False, order=1)
+        PluginConfig.objects.create(plugin=plugin_enabled, team=self.team, enabled=True, order=2)
+        response = self.client.get("/api/organizations/@current/plugins/unused/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            [plugin_no_configs.id, plugin_only_disabled.id],
+        )
+
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         my_org = self.organization
         other_org = Organization.objects.create(
