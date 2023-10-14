@@ -2481,7 +2481,7 @@
             "type": "object"
         },
         "WebStatsBreakdown": {
-            "const": "Page",
+            "enum": ["Page", "InitialPage", "InitialReferringDomain", "InitialUTMSource", "InitialUTMCampaign"],
             "type": "string"
         },
         "WebStatsTableQuery": {

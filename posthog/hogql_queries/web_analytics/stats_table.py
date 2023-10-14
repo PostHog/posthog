@@ -85,6 +85,12 @@ LIMIT 10
                 return parse_expr("properties.$pathname")
             case WebStatsBreakdown.InitialPage:
                 return parse_expr("events.properties.$set_once.$initial_pathname")
+            case WebStatsBreakdown.InitialReferringDomain:
+                return parse_expr("events.properties.$set_once.$initial_referring_domain")
+            case WebStatsBreakdown.InitialUTMSource:
+                return parse_expr("events.properties.$set_once.$initial_utm_source")
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return parse_expr("events.properties.$set_once.$initial_utm_campaign")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
@@ -94,5 +100,11 @@ LIMIT 10
                 return parse_expr("any(events.properties.$set_once.$initial_pathname)")
             case WebStatsBreakdown.InitialPage:
                 return parse_expr("any(events.properties.$set_once.$initial_pathname)")
+            case WebStatsBreakdown.InitialReferringDomain:
+                return parse_expr("any(events.properties.$set_once.$initial_referring_domain)")
+            case WebStatsBreakdown.InitialUTMSource:
+                return parse_expr("any(events.properties.$set_once.$initial_utm_source)")
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return parse_expr("any(events.properties.$set_once.$initial_utm_campaign)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")

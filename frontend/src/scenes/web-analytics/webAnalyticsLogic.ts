@@ -172,6 +172,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                             },
                         },
+                        {
+                            id: PathTab.INITIAL_PATH,
+                            title: 'Top Entry Paths',
+                            linkText: 'Entry Path',
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebStatsTableQuery,
+                                    properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.InitialPage,
+                                },
+                            },
+                        },
                     ],
                 },
                 {
@@ -189,8 +203,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.InitialReferringDomain,
                                 },
                             },
                         },
@@ -202,8 +217,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery,
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.InitialUTMSource,
                                 },
                             },
                         },
@@ -215,8 +231,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopSourcesQuery, // TODO
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.InitialUTMCampaign,
                                 },
                             },
                         },

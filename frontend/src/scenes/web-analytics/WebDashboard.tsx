@@ -44,6 +44,14 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             return <>Path</>
+        case WebStatsBreakdown.InitialPage:
+            return <>Initial Path</>
+        case WebStatsBreakdown.InitialReferringDomain:
+            return <>Referring Domain</>
+        case WebStatsBreakdown.InitialUTMSource:
+            return <>UTM Source</>
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return <>UTM Campaign</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -60,6 +68,18 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             propertyName = '$pathname'
+            break
+        case WebStatsBreakdown.InitialPage:
+            propertyName = '$set_once.$initial_pathname'
+            break
+        case WebStatsBreakdown.InitialReferringDomain:
+            propertyName = '$set_once.$initial_referrer'
+            break
+        case WebStatsBreakdown.InitialUTMSource:
+            propertyName = '$set_once.$initial_utm_source'
+            break
+        case WebStatsBreakdown.InitialUTMCampaign:
+            propertyName = '$set_once.$initial_utm_campaign'
             break
         default:
             throw new UnexpectedNeverError(breakdownBy)

@@ -599,8 +599,11 @@ export interface WebTopPagesQueryResponse extends QueryResponse {
 
 export enum WebStatsBreakdown {
     Page = 'Page',
-    // InitialPage = 'InitialPage',
+    InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialReferringDomain = 'InitialReferringDomain',
+    InitialUTMSource = 'InitialUTMSource',
+    InitialUTMCampaign = 'InitialUTMCampaign',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery

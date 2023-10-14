@@ -495,6 +495,14 @@ class WebOverviewStatsQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class WebStatsBreakdown(str, Enum):
+    Page = "Page"
+    InitialPage = "InitialPage"
+    InitialReferringDomain = "InitialReferringDomain"
+    InitialUTMSource = "InitialUTMSource"
+    InitialUTMCampaign = "InitialUTMCampaign"
+
+
 class WebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -765,7 +773,7 @@ class WebStatsTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    breakdownBy: Literal["Page"] = "Page"
+    breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[EventPropertyFilter]
