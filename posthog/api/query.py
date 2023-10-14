@@ -45,6 +45,7 @@ QUERY_WITH_RUNNER = [
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
+    "WebStatsTableQuery",
 ]
 QUERY_WITH_RUNNER_NO_CACHE = [
     "EventsQuery",

@@ -4,6 +4,7 @@ import {
     isPersonsNode,
     isPersonsQuery,
     isWebOverviewStatsQuery,
+    isWebStatsTableQuery,
     isWebTopClicksQuery,
     isWebTopPagesQuery,
     isWebTopSourcesQuery,
@@ -59,7 +60,8 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isWebOverviewStatsQuery(query) ||
         isWebTopSourcesQuery(query) ||
         isWebTopPagesQuery(query) ||
-        isWebTopClicksQuery(query)
+        isWebTopClicksQuery(query) ||
+        isWebStatsTableQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)

@@ -65,6 +65,7 @@ export enum NodeKind {
     WebTopSourcesQuery = 'WebTopSourcesQuery',
     WebTopPagesQuery = 'WebTopPagesQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
+    WebStatsTableQuery = 'WebStatsTableQuery',
 
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
@@ -86,6 +87,7 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | WebOverviewStatsQuery
+    | WebStatsTableQuery
     | WebTopSourcesQuery
     | WebTopClicksQuery
     | WebTopPagesQuery
@@ -314,6 +316,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewStatsQuery
+        | WebStatsTableQuery
         | WebTopSourcesQuery
         | WebTopClicksQuery
         | WebTopPagesQuery
@@ -594,6 +597,24 @@ export interface WebTopPagesQueryResponse extends QueryResponse {
     columns?: unknown[]
 }
 
+export enum WebStatsBreakdown {
+    Page = 'Page',
+    // InitialPage = 'InitialPage',
+    // ExitPage = 'ExitPage'
+}
+export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebStatsTableQuery
+    properties: WebAnalyticsPropertyFilters
+    breakdownBy: WebStatsBreakdown
+    response?: WebStatsTableQueryResponse
+}
+export interface WebStatsTableQueryResponse extends QueryResponse {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+}
+
 export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery
@@ -713,9 +734,20 @@ export interface QueryContext {
     emptyStateDetail?: string
 }
 
-export type QueryContextColumnComponent = ComponentType<{ record: any; columnName: string; value: any }>
+export type QueryContextColumnTitleComponent = ComponentType<{
+    columnName: string
+    query: DataTableNode
+}>
+
+export type QueryContextColumnComponent = ComponentType<{
+    record: any
+    columnName: string
+    value: any
+    query: DataTableNode
+}>
 
 interface QueryContextColumn {
     title?: string
+    renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
 }

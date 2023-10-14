@@ -14,6 +14,7 @@ from posthog.schema import (
     WebTopClicksQuery,
     WebTopPagesQuery,
     WebOverviewStatsQuery,
+    WebStatsTableQuery,
 )
 
 WebQueryNode = Union[
@@ -21,6 +22,7 @@ WebQueryNode = Union[
     WebTopSourcesQuery,
     WebTopClicksQuery,
     WebTopPagesQuery,
+    WebStatsTableQuery,
 ]
 
 

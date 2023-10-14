@@ -32,6 +32,7 @@ import {
     WebOverviewStatsQuery,
     PersonsQuery,
     HogQLMetadata,
+    WebStatsTableQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -115,6 +116,10 @@ export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
 
 export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverviewStatsQuery {
     return node?.kind === NodeKind.WebOverviewStatsQuery
+}
+
+export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+    return node?.kind === NodeKind.WebStatsTableQuery
 }
 
 export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {

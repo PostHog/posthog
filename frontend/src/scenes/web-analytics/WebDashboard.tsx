@@ -4,8 +4,15 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { QueryContext, QueryContextColumnComponent } from '~/queries/schema'
+import {
+    NodeKind,
+    QueryContext,
+    QueryContextColumnComponent,
+    QueryContextColumnTitleComponent,
+    WebStatsBreakdown,
+} from '~/queries/schema'
 import { useCallback } from 'react'
+import { UnexpectedNeverError } from 'lib/utils'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -27,16 +34,35 @@ const NumericCell: QueryContextColumnComponent = ({ value }) => {
     )
 }
 
-const ClickablePropertyCell: QueryContextColumnComponent = (props) => {
-    const { columnName, value } = props
+const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
+    const { query } = props
+    const { source } = query
+    if (source.kind !== NodeKind.WebStatsTableQuery) {
+        return null
+    }
+    const { breakdownBy } = source
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
+            return <>Path</>
+        default:
+            throw new UnexpectedNeverError(breakdownBy)
+    }
+}
+const BreakdownValueCell: QueryContextColumnComponent = (props) => {
+    const { value, query } = props
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { source } = query
+    if (source.kind !== NodeKind.WebStatsTableQuery) {
+        return null
+    }
+    const { breakdownBy } = source
     let propertyName: string
-    switch (columnName) {
-        case 'pathname':
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
             propertyName = '$pathname'
             break
         default:
-            return null
+            throw new UnexpectedNeverError(breakdownBy)
     }
 
     const onClick = useCallback(() => {
@@ -48,13 +74,13 @@ const ClickablePropertyCell: QueryContextColumnComponent = (props) => {
 
 const queryContext: QueryContext = {
     columns: {
+        breakdown_value: {
+            renderTitle: BreakdownValueTitle,
+            render: BreakdownValueCell,
+        },
         bounce_rate: {
             title: 'Bounce Rate',
             render: PercentageCell,
-        },
-        pathname: {
-            title: 'Path',
-            render: ClickablePropertyCell,
         },
         views: {
             title: 'Views',
@@ -112,22 +138,27 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             >
                                 <div className="flex flex-row items-center">
                                     {<h2 className="flex-1 m-0">{title}</h2>}
-                                    <div className="space-x-2">
-                                        {/* TODO switch to a select if more than 3 */}
-                                        {tabs.map(({ id, linkText }) => (
-                                            <a
-                                                className={
-                                                    id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
-                                                }
-                                                key={id}
-                                                onClick={() => setTabId(id)}
-                                            >
-                                                {linkText}
-                                            </a>
-                                        ))}
-                                    </div>
+                                    {tabs.length > 1 && (
+                                        <div className="space-x-2">
+                                            {/* TODO switch to a select if more than 3 */}
+                                            {tabs.map(({ id, linkText }) => (
+                                                <a
+                                                    className={
+                                                        id === activeTabId
+                                                            ? 'text-link'
+                                                            : 'text-inherit hover:text-link'
+                                                    }
+                                                    key={id}
+                                                    onClick={() => setTabId(id)}
+                                                >
+                                                    {linkText}
+                                                </a>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                                <Query query={query} readOnly={true} context={queryContext} />
+                                {/* Setting key forces the component to be recreated when the tab changes */}
+                                <Query key={activeTabId} query={query} readOnly={true} context={queryContext} />
                             </div>
                         )
                     } else {

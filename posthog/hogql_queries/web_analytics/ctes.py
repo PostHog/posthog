@@ -73,3 +73,47 @@ WHERE
     AND ({pathname_scroll_where})
 GROUP BY $pathname
 """
+
+COUNTS_CTE = """
+SELECT
+    {breakdown_by} AS breakdown_value,
+    count() as total_pageviews,
+    uniq(events.person_id) as unique_visitors
+FROM
+    events
+WHERE
+    (event = '$pageview')
+    AND ({counts_where})
+    GROUP BY breakdown_value
+"""
+
+BOUNCE_RATE_CTE = """
+SELECT
+    breakdown_value,
+    avg(session.is_bounce) as bounce_rate
+FROM (
+    SELECT
+        events.properties.`$session_id` AS session_id,
+        min(events.timestamp) AS min_timestamp,
+        max(events.timestamp) AS max_timestamp,
+        dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
+        countIf(events.event == '$pageview') AS num_pageviews,
+        countIf(events.event == '$autocapture') AS num_autocaptures,
+        {breakdown_by} AS breakdown_value,
+
+        -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
+        (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
+    FROM
+        events
+    WHERE
+        session_id IS NOT NULL
+        AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
+        AND ({session_where})
+    GROUP BY
+        events.properties.`$session_id`
+    HAVING
+        ({session_having})
+) AS session
+GROUP BY
+    breakdown_value
+    """

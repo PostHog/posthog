@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters } from '~/queries/schema'
+import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { isNotNil } from 'lib/utils'
 
@@ -166,21 +166,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebTopPagesQuery,
+                                    kind: NodeKind.WebStatsTableQuery,
                                     properties: webAnalyticsFilters,
-                                },
-                            },
-                        },
-                        {
-                            id: PathTab.INITIAL_PATH,
-                            title: 'Top Initial Paths',
-                            linkText: 'Initial Path',
-                            query: {
-                                full: true,
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.WebTopPagesQuery, // TODO
-                                    properties: webAnalyticsFilters,
+                                    breakdownBy: WebStatsBreakdown.Page,
                                 },
                             },
                         },

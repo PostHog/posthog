@@ -122,6 +122,10 @@ def get_query_runner(
         from .web_analytics.top_pages import WebTopPagesQueryRunner
 
         return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebStatsTableQuery":
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
+
+        return WebStatsTableQueryRunner(query=query, team=team, timings=timings)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 

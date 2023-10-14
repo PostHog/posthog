@@ -495,6 +495,20 @@ class WebOverviewStatsQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class WebStatsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class WebTopClicksQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -745,6 +759,17 @@ class WebOverviewStatsQuery(BaseModel):
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
     properties: List[EventPropertyFilter]
     response: Optional[WebOverviewStatsQueryResponse] = None
+
+
+class WebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: Literal["Page"] = "Page"
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    properties: List[EventPropertyFilter]
+    response: Optional[WebStatsTableQueryResponse] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -1167,6 +1192,7 @@ class DataTableNode(BaseModel):
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
         WebOverviewStatsQuery,
+        WebStatsTableQuery,
         WebTopSourcesQuery,
         WebTopClicksQuery,
         WebTopPagesQuery,
@@ -1449,6 +1475,7 @@ class Model(RootModel):
             HogQLQuery,
             HogQLMetadata,
             WebOverviewStatsQuery,
+            WebStatsTableQuery,
             WebTopSourcesQuery,
             WebTopClicksQuery,
             WebTopPagesQuery,

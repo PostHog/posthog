@@ -103,6 +103,9 @@
                     "$ref": "#/definitions/WebOverviewStatsQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebStatsTableQuery"
+                },
+                {
                     "$ref": "#/definitions/WebTopSourcesQuery"
                 },
                 {
@@ -410,6 +413,9 @@
                         },
                         {
                             "$ref": "#/definitions/WebOverviewStatsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebStatsTableQuery"
                         },
                         {
                             "$ref": "#/definitions/WebTopSourcesQuery"
@@ -2438,6 +2444,70 @@
             "type": "object"
         },
         "WebOverviewStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebStatsBreakdown": {
+            "const": "Page",
+            "type": "string"
+        },
+        "WebStatsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownBy": {
+                    "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebStatsTableQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebStatsTableQueryResponse"
+                }
+            },
+            "required": ["kind", "properties", "breakdownBy"],
+            "type": "object"
+        },
+        "WebStatsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
