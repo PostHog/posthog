@@ -25,6 +25,7 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -236,6 +237,7 @@ def process_query(
             query=hogql_query.query,
             team=team,
             filters=hogql_query.filters,
+            modifiers=hogql_query.modifiers,
             placeholders=values,
             default_limit=default_limit,
         )
@@ -245,7 +247,7 @@ def process_query(
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
     elif query_kind == "DatabaseSchemaQuery":
-        database = create_hogql_database(team.pk)
+        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
         return serialize_database(database)
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)

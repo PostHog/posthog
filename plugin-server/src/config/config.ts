@@ -130,6 +130,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+        POE_EMBRACE_JOIN_FOR_TEAMS: '',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,

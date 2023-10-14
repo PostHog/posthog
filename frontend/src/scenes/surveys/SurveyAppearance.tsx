@@ -100,7 +100,7 @@ export function SurveyAppearance({
     }, [showThankYou])
 
     return (
-        <>
+        <div data-attr="survey-preview">
             <h3 className="mb-4 text-center">Preview</h3>
             {!hideSubmittedSurvey && (
                 <>
@@ -220,7 +220,7 @@ export function SurveyAppearance({
                     </div>
                 </div>
             )}
-        </>
+        </div>
     )
 }
 
