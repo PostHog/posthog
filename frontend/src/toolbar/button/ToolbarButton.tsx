@@ -16,7 +16,7 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { IconHelpOutline, IconTarget, IconClose } from 'lib/lemon-ui/icons'
 import { Logomark } from '~/toolbar/assets/Logomark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Toolbar3000 } from './Toolbar3000'
+import { Toolbar3000 } from '../3000/Toolbar3000'
 
 export const HELP_URL =
     'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
@@ -49,6 +49,7 @@ export function ToolbarButton(): JSX.Element {
         showFlags,
         hideFlags,
         setHedgehogMode,
+        setBoundingRect,
     } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
@@ -73,6 +74,11 @@ export function ToolbarButton(): JSX.Element {
             const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
             if (buttonDiv) {
                 const rect = buttonDiv.getBoundingClientRect()
+
+                // TODO this is already capturing x and y change
+                // TODO and could replace react draggable
+                setBoundingRect(rect)
+
                 const x = rect.left + rect.width / 2
                 const y = rect.top + rect.height / 2
                 const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))

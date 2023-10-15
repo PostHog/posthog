@@ -9,6 +9,9 @@ import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 
+const DEFAULT_PADDING = { width: 35, height: 30 }
+const DEFAULT_PADDING_3000 = { width: 35, height: 3000 }
+
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     path(() => ['toolbar', 'button', 'toolbarButtonLogic']),
     connect(() => ({
@@ -34,6 +37,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
+        setBoundingRect: (boundingRect: DOMRect) => ({ boundingRect }),
     }),
 
     windowValues(() => ({
@@ -174,6 +178,24 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 setHedgehogActor: (_, { actor }) => actor,
             },
         ],
+        padding: [
+            DEFAULT_PADDING,
+            {
+                setBoundingRect: (state, { boundingRect }) => {
+                    if (state.height === boundingRect.height && state.width === boundingRect.width) {
+                        return state
+                    }
+                    return { width: boundingRect.width + 5, height: boundingRect.height + 5 }
+                },
+                setHedgehogMode: (state, { hedgehogMode }) => {
+                    if (state === DEFAULT_PADDING && hedgehogMode) {
+                        return DEFAULT_PADDING_3000
+                    } else {
+                        return state
+                    }
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -184,10 +206,10 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             },
         ],
         dragPosition: [
-            (s) => [s.lastDragPosition, s.windowWidth, s.windowHeight],
-            (lastDragPosition, windowWidth, windowHeight) => {
-                const widthPadding = 35
-                const heightPadding = 30
+            (s) => [s.padding, s.lastDragPosition, s.windowWidth, s.windowHeight],
+            (padding, lastDragPosition, windowWidth, windowHeight) => {
+                const widthPadding = padding.width
+                const heightPadding = padding.height
 
                 const { x, y } = lastDragPosition || {
                     x: -widthPadding,
@@ -197,8 +219,8 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 const dragY = y < 0 ? windowHeight + y : y
 
                 return {
-                    x: inBounds(widthPadding, dragX, windowWidth - widthPadding),
-                    y: inBounds(heightPadding, dragY, windowHeight - heightPadding),
+                    x: inBounds(DEFAULT_PADDING.width, dragX, windowWidth - widthPadding),
+                    y: inBounds(DEFAULT_PADDING.height, dragY, windowHeight - heightPadding),
                 }
             },
         ],
