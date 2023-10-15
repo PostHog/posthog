@@ -107,30 +107,28 @@ export function TaxonomicFilter({
                                 </Tooltip>
                             }
                             onKeyDown={(e) => {
-                                if (e.key === 'ArrowUp') {
-                                    e.preventDefault()
-                                    moveUp()
+                                let shouldPreventDefault = true
+                                switch (e.key) {
+                                    case 'ArrowUp':
+                                        moveUp()
+                                        break
+                                    case 'ArrowDown':
+                                        moveDown()
+                                        break
+                                    case 'Tab':
+                                        e.shiftKey ? tabLeft() : tabRight()
+                                        break
+                                    case 'Enter':
+                                        selectSelected()
+                                        break
+                                    case 'Escape':
+                                        onClose?.()
+                                        break
+                                    default:
+                                        shouldPreventDefault = false
                                 }
-                                if (e.key === 'ArrowDown') {
+                                if (shouldPreventDefault) {
                                     e.preventDefault()
-                                    moveDown()
-                                }
-                                if (e.key === 'Tab') {
-                                    e.preventDefault()
-                                    if (e.shiftKey) {
-                                        tabLeft()
-                                    } else {
-                                        tabRight()
-                                    }
-                                }
-
-                                if (e.key === 'Enter') {
-                                    e.preventDefault()
-                                    selectSelected()
-                                }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    onClose?.()
                                 }
                             }}
                             ref={searchInputRef}
