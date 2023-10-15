@@ -69,9 +69,12 @@ export function TaxonomicFilter({
         ...(height ? { height } : {}),
     }
 
+    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div
+                ref={taxonomicFilterRef}
                 className={clsx(
                     'taxonomic-filter',
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
@@ -136,7 +139,11 @@ export function TaxonomicFilter({
                         />
                     </div>
                 ) : null}
-                <InfiniteSelectResults focusInput={focusInput} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
+                <InfiniteSelectResults
+                    focusInput={focusInput}
+                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                    popupAnchorElement={taxonomicFilterRef.current}
+                />
             </div>
         </BindLogic>
     )
