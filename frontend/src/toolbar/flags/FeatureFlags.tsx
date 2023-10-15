@@ -12,10 +12,11 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { HTMLAttributes } from 'react'
 
-function OverrideNotice(): JSX.Element {
+function OverrideNotice({ className }: Pick<HTMLAttributes<HTMLDivElement>, 'className'>): JSX.Element {
     return (
-        <div className="local-feature-flag-override-note rounded border p-2 my-2">
+        <div className={clsx('local-feature-flag-override-note rounded border p-2', className)}>
             Note, overriding feature flags will only affect this browser.
         </div>
     )
@@ -30,11 +31,11 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div
             className={clsx(
-                'toolbar-block ToolbarBlock justify-between w-full overflow-hidden rounded-t flex flex-col',
+                'toolbar-block ToolbarBlock justify-between w-full h-full overflow-hidden rounded-t flex flex-col',
                 hedgehogMode && 'px-2 py-1'
             )}
         >
-            {hedgehogMode && <OverrideNotice />}
+            {hedgehogMode && <OverrideNotice className={'mb-2'} />}
             <LemonInput
                 autoFocus
                 placeholder="Search"
@@ -126,7 +127,7 @@ export function FeatureFlags(): JSX.Element {
                     )}
                 </div>
             </div>
-            {!hedgehogMode && <OverrideNotice />}
+            {!hedgehogMode && <OverrideNotice className={'mt-2'} />}
         </div>
     )
 }
