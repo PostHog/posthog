@@ -308,9 +308,10 @@ const HogQLRaw: HogQLQuery = {
           person.properties.email
  order by count() desc
     limit 100`,
+    explain: true,
     filters: {
         dateRange: {
-            date_from: '-24h',
+            date_from: '-34h',
         },
     },
 }
