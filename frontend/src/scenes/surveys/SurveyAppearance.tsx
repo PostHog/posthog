@@ -373,19 +373,21 @@ const NumberRating = ({
             }}
             className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
         >
-            {(ratingSurveyQuestion.scale === 5 ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map((num, idx) => {
-                const active = activeNumber === num
-                return (
-                    <RatingButton
-                        preview={preview}
-                        key={idx}
-                        active={active}
-                        appearance={appearance}
-                        num={num}
-                        setActiveNumber={setActiveNumber}
-                    />
-                )
-            })}
+            {(ratingSurveyQuestion.scale === 5 ? [0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(
+                (num, idx) => {
+                    const active = activeNumber === num
+                    return (
+                        <RatingButton
+                            preview={preview}
+                            key={idx}
+                            active={active}
+                            appearance={appearance}
+                            num={num}
+                            setActiveNumber={setActiveNumber}
+                        />
+                    )
+                }
+            )}
         </div>
     )
 }
