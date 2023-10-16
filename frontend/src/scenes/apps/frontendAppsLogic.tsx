@@ -31,7 +31,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
                 if (!values.appConfigs[id]) {
                     if (pluginsLogic.findMounted()) {
-                        const pluginConfig = Object.values(pluginsLogic.values.pluginConfigs).find((c) => c.id === id)
+                        const pluginConfig = pluginsLogic.values.getPluginConfig(id)
                         const plugin = pluginConfig ? pluginsLogic.values.plugins[pluginConfig.plugin] : undefined
                         if (!plugin && !pluginConfig) {
                             throw Error(`Could not load metadata for app with ID ${id}`)

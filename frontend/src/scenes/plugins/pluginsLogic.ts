@@ -140,17 +140,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
                     capturePluginEvent(`plugin updated`, response)
                     actions.pluginUpdated(id)
-                    // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
-                    const schema = getConfigSchemaObject(response.config_schema)
-                    const pluginConfig = Object.values(values.pluginConfigs).filter((c) => c.plugin === id)[0]
-                    if (pluginConfig?.enabled) {
-                        if (
-                            Object.entries(schema).find(([key, { required }]) => required && !pluginConfig.config[key])
-                        ) {
-                            actions.editPlugin(id)
-                        }
-                    }
-
                     return { ...values.plugins, [id]: response }
                 },
                 patchPlugin: async ({ id, pluginChanges }) => {
@@ -160,14 +149,16 @@ export const pluginsLogic = kea<pluginsLogicType>([
             },
         ],
         pluginConfigs: [
-            {} as Record<string, PluginConfigType>,
+            {} as Record<number, PluginConfigType>,
             {
                 loadPluginConfigs: async () => {
-                    const pluginConfigs: Record<string, PluginConfigType> = {}
+                    const pluginConfigs: Record<number, PluginConfigType> = {}
                     const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
 
                     for (const pluginConfig of results) {
-                        pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
+                        if (pluginConfig.id) {
+                            pluginConfigs[pluginConfig.id] = { ...pluginConfig }
+                        }
                     }
 
                     return pluginConfigs
@@ -200,7 +191,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         // Run the sync after we return from the loader, and save its data
                         window.setTimeout(() => response.id && actions.syncFrontendAppState(response.id), 0)
                     }
-                    return { ...pluginConfigs, [response.plugin]: response }
+                    return { ...pluginConfigs, [response.id]: response }
                 },
                 toggleEnabled: async ({ id, enabled }) => {
                     const { pluginConfigs, plugins } = values
@@ -224,7 +215,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     })
                     const newPluginConfigs: Record<string, PluginConfigType> = { ...pluginConfigs }
                     for (const pluginConfig of response) {
-                        newPluginConfigs[pluginConfig.plugin] = pluginConfig
+                        newPluginConfigs[pluginConfig.id] = pluginConfig
                     }
                     return newPluginConfigs
                 },
@@ -319,7 +310,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 const newPluginConfigs: Record<number, PluginConfigType> = {}
                 Object.values(pluginConfigs).forEach((pluginConfig) => {
                     if (plugins[pluginConfig.plugin]) {
-                        newPluginConfigs[pluginConfig.plugin] = pluginConfig
+                        newPluginConfigs[pluginConfig.id] = pluginConfig
                     }
                 })
                 return newPluginConfigs
@@ -414,7 +405,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.pluginConfigs],
             (pluginConfigs): ((id: number) => PluginConfigType | undefined) =>
                 (id: number) =>
-                    Object.values(pluginConfigs).find(({ id: _id }) => id === _id),
+                    pluginConfigs[id],
+        ],
+        getPluginConfigsForPlugin: [
+            (s) => [s.pluginConfigs],
+            (pluginConfigs): ((pluginId: number) => PluginConfigType[]) =>
+                (pluginId: number) =>
+                    Object.values(pluginConfigs).filter((config) => config.plugin === pluginId),
         ],
         installedPlugins: [
             (s) => [s.plugins, s.pluginConfigs, s.updateStatus],
@@ -429,8 +426,14 @@ export const pluginsLogic = kea<pluginsLogicType>([
 
                 return pluginValues
                     .map((plugin, index) => {
-                        let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
-                        if (!pluginConfigs[plugin.id]) {
+                        // TODO: Currently just returning the first pluginConfig if exists or creating an empty one
+                        const pluginConfigsForPlugin = Object.values(pluginConfigs).filter(
+                            (config) => config.plugin === plugin.id
+                        )
+                        let pluginConfig: Omit<PluginConfigType, 'id'> & { id?: number }
+                        if (pluginConfigsForPlugin) {
+                            pluginConfig = pluginConfigsForPlugin[0]
+                        } else {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
                                 ([key, { default: def }]) => {
@@ -439,7 +442,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                             )
 
                             pluginConfig = {
-                                id: undefined,
+                                id: undefined, // TODO: only place where we use undefined for id
                                 team_id: currentTeam.id,
                                 plugin: plugin.id,
                                 enabled: false,
