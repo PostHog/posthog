@@ -821,6 +821,9 @@
                 "hasMore": {
                     "type": "boolean"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -841,7 +844,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results"],
+            "required": ["columns", "types", "results", "hogql"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -1236,7 +1239,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "personsArgMaxVersion": {
-                    "enum": ["v1", "v2"],
+                    "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
                 "personsOnEventsMode": {

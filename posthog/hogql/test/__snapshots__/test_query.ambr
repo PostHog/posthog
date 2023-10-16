@@ -54,11 +54,14 @@
   
   SELECT DISTINCT persons.properties___sneaky_mail 
   FROM (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___random_uuid, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons 
   WHERE ifNull(equals(persons.properties___random_uuid, %(hogql_val_2)s), 0) 
   LIMIT 100 
@@ -105,11 +108,14 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id) 
   WHERE equals(e.team_id, 420) 
   LIMIT 10 
@@ -147,11 +153,14 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 10 
@@ -168,11 +177,14 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id) 
   WHERE equals(e.team_id, 420) 
   LIMIT 10 
@@ -189,11 +201,14 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.person_id, s__pdi__person.id) 
   WHERE equals(s.team_id, 420) 
   GROUP BY s__pdi__person.properties___sneaky_mail 
@@ -221,11 +236,14 @@
   
   SELECT pdi.distinct_id, pdi__person.properties___sneaky_mail 
   FROM person_distinct_id2 AS pdi INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS pdi__person ON equals(pdi.person_id, pdi__person.id) 
   WHERE equals(pdi.team_id, 420) 
   LIMIT 10 
@@ -282,11 +300,14 @@
   WHERE equals(person_distinct_id2.team_id, 420) 
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN (
-  SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___sneaky_mail, person.id AS id 
+  SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  FROM person 
+  WHERE and(equals(person.team_id, 420), ifNull(in(tuple(person.id, person.version), (
+  SELECT person.id, max(person.version) AS version 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) 
+  HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 10 

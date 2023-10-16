@@ -229,6 +229,7 @@ class HogQLNotice(BaseModel):
 
 
 class PersonsArgMaxVersion(str, Enum):
+    auto = "auto"
     v1 = "v1"
     v2 = "v2"
 
@@ -585,6 +586,7 @@ class EventsQueryResponse(BaseModel):
     )
     columns: List
     hasMore: Optional[bool] = None
+    hogql: str
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]

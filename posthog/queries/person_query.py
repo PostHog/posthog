@@ -256,7 +256,6 @@ class PersonQuery:
             return "", {}
 
     def _get_limit_offset_clause(self) -> Tuple[str, Dict]:
-
         if not isinstance(self._filter, Filter):
             return "", {}
 

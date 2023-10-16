@@ -89,7 +89,6 @@ class TestSurvey(APIBaseTest):
         ]
 
     def test_can_create_survey_with_targeting_with_remove_parameter(self):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -507,6 +506,36 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
+    def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
+
+        survey_with_linked_flag = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "linked_flag_id": linked_flag.id,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_linked_flag["linked_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_removes_linked_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_linked_flag['id']}/",
+            data={
+                "linked_flag_id": None,
+            },
+        )
+
+        assert updated_survey_removes_linked_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_removes_linked_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_removes_linked_flag.json()["linked_flag"] is None
+
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
     def test_deleting_survey_does_not_delete_linked_flag(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
 
@@ -676,7 +705,6 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["created_by"]["id"] == self.user.id
 
     def test_update_basic_survey_question_validation(self):
-
         basic_survey = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -879,7 +907,6 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_responses_count(self):
-
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
