@@ -57,7 +57,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     })),
 
     actions({
-        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         updateQuerySource: (querySource: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
