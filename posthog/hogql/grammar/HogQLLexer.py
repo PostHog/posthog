@@ -1257,3 +1257,4 @@ class HogQLLexer(Lexer):
         self._actions = None
         self._predicates = None
 
+
