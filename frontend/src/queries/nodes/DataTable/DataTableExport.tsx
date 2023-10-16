@@ -233,6 +233,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       key={3}
                                       fullWidth
                                       status="stealth"
+                                      data-attr={'copy-csv-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToCsv(
@@ -249,6 +250,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       key={4}
                                       fullWidth
                                       status="stealth"
+                                      data-attr={'copy-json-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToJson(
@@ -311,6 +313,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
             }}
             type="secondary"
             icon={<IconExport />}
+            data-attr="data-table-export-menu"
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
         </LemonButtonWithDropdown>
