@@ -2,7 +2,7 @@ import { actions, afterMount, connect, defaults, kea, path, reducers } from 'kea
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { loaders } from 'kea-loaders'
-import { FrontendApp, FrontendAppConfig } from '~/types'
+import { FrontendApp, FrontendAppConfig, PluginConfigType } from '~/types'
 import { frontendAppRequire } from './frontendAppRequire'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -31,7 +31,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
             loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
                 if (!values.appConfigs[id]) {
                     if (pluginsLogic.findMounted()) {
-                        const pluginConfig = pluginsLogic.values.getPluginConfig(id)
+                        const pluginConfig: PluginConfigType | undefined = pluginsLogic.values.getPluginConfig(id)
                         const plugin = pluginConfig ? pluginsLogic.values.plugins[pluginConfig.plugin] : undefined
                         if (!plugin && !pluginConfig) {
                             throw Error(`Could not load metadata for app with ID ${id}`)
