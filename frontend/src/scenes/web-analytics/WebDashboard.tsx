@@ -69,6 +69,9 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
+    if (typeof value !== 'string') {
+        return null
+    }
     const { breakdownBy } = source
     let propertyName: string
     switch (breakdownBy) {

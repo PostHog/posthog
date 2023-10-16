@@ -6,8 +6,6 @@ import {
     isWebOverviewStatsQuery,
     isWebStatsTableQuery,
     isWebTopClicksQuery,
-    isWebTopPagesQuery,
-    isWebTopSourcesQuery,
 } from '~/queries/utils'
 import { Node } from '~/queries/schema'
 
@@ -56,13 +54,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (
-        isWebOverviewStatsQuery(query) ||
-        isWebTopSourcesQuery(query) ||
-        isWebTopPagesQuery(query) ||
-        isWebTopClicksQuery(query) ||
-        isWebStatsTableQuery(query)
-    ) {
+    if (isWebOverviewStatsQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
     }
