@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
-import { DataNode, DataTableNode } from '~/queries/schema'
+import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns, extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { getPersonsEndpoint } from '~/queries/query'
@@ -12,6 +12,7 @@ import { DataTableRow, dataTableLogic } from './dataTableLogic'
 import { useValues } from 'kea'
 import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
 
 const EXPORT_MAX_LIMIT = 10000
 
@@ -177,7 +178,7 @@ interface DataTableExportProps {
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
-    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
+    const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults, response } = useValues(dataTableLogic)
 
     const source: DataNode = query.source
     const filterCount =
@@ -232,6 +233,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       key={3}
                                       fullWidth
                                       status="stealth"
+                                      data-attr={'copy-csv-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToCsv(
@@ -245,9 +247,10 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       Copy CSV to clipboard
                                   </LemonButton>,
                                   <LemonButton
-                                      key={3}
+                                      key={4}
                                       fullWidth
                                       status="stealth"
+                                      data-attr={'copy-json-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToJson(
@@ -262,10 +265,55 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   </LemonButton>,
                               ]
                             : []
+                    )
+                    .concat(
+                        queryWithDefaults.showOpenEditorButton
+                            ? [
+                                  <LemonDivider key={5} />,
+                                  <LemonButton
+                                      key={6}
+                                      fullWidth
+                                      status="stealth"
+                                      data-attr={'open-json-editor-button'}
+                                      to={
+                                          query
+                                              ? urls.insightNew(undefined, undefined, JSON.stringify(query))
+                                              : undefined
+                                      }
+                                  >
+                                      Open table as a new insight
+                                  </LemonButton>,
+                              ]
+                            : []
+                    )
+                    .concat(
+                        response?.hogql
+                            ? [
+                                  <LemonDivider key={7} />,
+                                  <LemonButton
+                                      key={8}
+                                      fullWidth
+                                      status="stealth"
+                                      data-attr={'open-sql-editor-button'}
+                                      to={urls.insightNew(
+                                          undefined,
+                                          undefined,
+                                          JSON.stringify({
+                                              kind: NodeKind.DataTableNode,
+                                              full: true,
+                                              source: { kind: NodeKind.HogQLQuery, query: response.hogql },
+                                          })
+                                      )}
+                                  >
+                                      Edit SQL directly
+                                  </LemonButton>,
+                              ]
+                            : []
                     ),
             }}
             type="secondary"
             icon={<IconExport />}
+            data-attr="data-table-export-menu"
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
         </LemonButtonWithDropdown>
