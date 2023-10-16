@@ -98,9 +98,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         {response?.explain ? (
                             <>
                                 <h2>Explained ClickHouseSQL</h2>
-                                <CodeSnippet language={Language.SQL} wrap>
-                                    {response.explain.join('\n')}
-                                </CodeSnippet>
+                                <CodeSnippet wrap>{response.explain.join('\n')}</CodeSnippet>
                             </>
                         ) : null}
                         {response?.timings && elapsedTime !== null ? (
