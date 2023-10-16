@@ -6,7 +6,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
 import freezegun
@@ -134,7 +134,7 @@ class ErrorResponsesMixin:
         return {"type": "validation_error", "code": code, "detail": message, "attr": attr}
 
 
-class TestMixin(TestCase if TYPE_CHECKING else object):
+class TestMixin:
     CONFIG_ORGANIZATION_NAME: str = "Test"
     CONFIG_EMAIL: Optional[str] = "user1@posthog.com"
     CONFIG_PASSWORD: Optional[str] = "testpassword12345"
@@ -195,7 +195,7 @@ class TestMixin(TestCase if TYPE_CHECKING else object):
             self.assertIn(preheader, html_message)  # type: ignore
 
 
-class MemoryLeakTestMixin(TestCase if TYPE_CHECKING else object):
+class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
     MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT: float
@@ -218,12 +218,12 @@ class MemoryLeakTestMixin(TestCase if TYPE_CHECKING else object):
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(
+        self.assertLessEqual(  # type: ignore
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(
+        self.assertLessEqual(  # type: ignore
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
