@@ -15,6 +15,7 @@ describe('Surveys', () => {
 
         // go to create a new survey
         cy.get('[data-attr="create-survey"]').click()
+        cy.get('[data-attr="new-blank-survey"]').click()
 
         cy.get('[data-attr="survey-name"]').type(name)
 
@@ -76,6 +77,7 @@ describe('Surveys', () => {
 
         // click via top right button
         cy.get('[data-attr="new-survey"]').click()
+        cy.get('[data-attr="new-blank-survey"]').click()
 
         // select "add filter" and "property"
         cy.get('[data-attr="survey-name"]').type(name)
@@ -180,6 +182,7 @@ describe('Surveys', () => {
     it('Delete survey', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
+        cy.get('[data-attr=new-blank-survey]').click()
         cy.get('[data-attr=survey-name]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=save-survey]').first().click()
 
