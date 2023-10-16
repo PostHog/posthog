@@ -144,9 +144,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
         SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
 
-        // DOUBLE the KAFKA_PRODUCER_BATCH_SIZE by default
-        CONSOLE_LOG_INGESTER_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024 * 2,
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
