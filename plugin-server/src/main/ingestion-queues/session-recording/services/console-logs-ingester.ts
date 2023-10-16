@@ -145,9 +145,13 @@ export class ConsoleLogsIngester {
             })
         }
     }
+
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+
         const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+        producerConfig['KAFKA_PRODUCER_BATCH_SIZE'] = this.serverConfig.CONSOLE_LOG_INGESTER_PRODUCER_BATCH_SIZE
+
         this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
