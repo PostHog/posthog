@@ -90,7 +90,7 @@ describe('Surveys', () => {
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]')
             .invoke('html')
-            .should('include', '1 - 10')
+            .should('include', '0 - 10')
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.upperBoundLabel"]').should(
             'have.value',
@@ -99,11 +99,11 @@ describe('Surveys', () => {
 
         // change the scale
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]').click()
-        cy.contains('1 - 5').click()
+        cy.contains('0 - 5').click()
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]')
             .invoke('html')
-            .should('include', '1 - 5')
+            .should('include', '0 - 5')
 
         // make sure the preview is updated
         cy.get('[data-attr="survey-preview"]')
@@ -111,7 +111,7 @@ describe('Surveys', () => {
             .should('contain', 'How likely are you to recommend us to a friend?')
             .should('contain', 'Unlikely')
             .should('contain', 'Very likely')
-        cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 5)
+        cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 6)
 
         // add targeting filters
         cy.get('.LemonCollapsePanel').contains('Targeting').click()
