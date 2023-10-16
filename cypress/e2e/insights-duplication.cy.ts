@@ -14,19 +14,16 @@ describe('Insights', () => {
                 })
             )
         )
-
-        cy.visit(urls.insightNew())
     })
 
     describe('duplicating insights', () => {
         let insightName
         beforeEach(() => {
-            cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
             insightName = randomString('insight-name-')
             createInsight(insightName)
+            cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
         })
         it('can duplicate insights from the insights list view', () => {
-            cy.visit(urls.savedInsights())
             cy.contains('.saved-insights table tr', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
             })
@@ -35,7 +32,6 @@ describe('Insights', () => {
         })
 
         it('can duplicate insights from the insights card view', () => {
-            cy.visit(urls.savedInsights())
             cy.contains('.saved-insights .LemonSegmentedButton', 'Cards').click()
             cy.contains('.CardMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
