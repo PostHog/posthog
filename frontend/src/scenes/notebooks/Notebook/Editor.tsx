@@ -65,7 +65,7 @@ export function Editor(): JSX.Element {
             CustomDocument,
             StarterKit.configure({
                 document: false,
-                gapcursor: false,
+                // gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
                 placeholder: ({ node }: { node: any }) => {
@@ -111,7 +111,7 @@ export function Editor(): JSX.Element {
             NotebookNodeImage,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
+            // NodeGapInsertionExtension,
         ],
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {
