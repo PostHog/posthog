@@ -105,10 +105,23 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             .exclude(**exclude_args)[:1]
             .values_list("id", flat=True)
         )
+
+        invalid_property = False
+
+        for step in attrs["steps"]:
+            for prop in step["properties"]:
+                if prop["value"] is None:
+                    invalid_property = True
+
         if colliding_action_ids:
             raise serializers.ValidationError(
                 {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
                 code="unique",
+            )
+        if invalid_property:
+            raise serializers.ValidationError(
+                {"name": "Please check the filter definitions"},
+                code="400",
             )
 
         return attrs
