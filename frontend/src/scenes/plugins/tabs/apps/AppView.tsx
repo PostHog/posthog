@@ -67,9 +67,6 @@ export function AppView({
         })
     }
 
-    // console.log(typeof unusedPlugins)
-    // console.log(3 in unusedPlugins)
-
     return (
         <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
@@ -163,26 +160,27 @@ export function AppView({
 
                         {canGloballyManagePlugins(user?.organization) && (
                             <>
-                                {unusedPlugins.includes(plugin.id) && (
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title="Are you sure you wish to uninstall this app completely?"
-                                        onConfirm={() => uninstallPlugin(plugin.id)}
-                                        okText="Uninstall"
-                                        cancelText="Cancel"
-                                        className="Plugins__Popconfirm"
+                                <Popconfirm
+                                    placement="topLeft"
+                                    title="Are you sure you wish to uninstall this app completely?"
+                                    onConfirm={() => uninstallPlugin(plugin.id)}
+                                    okText="Uninstall"
+                                    cancelText="Cancel"
+                                    className="Plugins__Popconfirm"
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        disabledReason={
+                                            unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
+                                        }
+                                        data-attr="plugin-uninstall"
                                     >
-                                        <LemonButton
-                                            type="primary"
-                                            status="danger"
-                                            size="small"
-                                            icon={<DeleteOutlined />}
-                                            data-attr="plugin-uninstall"
-                                        >
-                                            Uninstall
-                                        </LemonButton>
-                                    </Popconfirm>
-                                )}
+                                        Uninstall
+                                    </LemonButton>
+                                </Popconfirm>
                                 {plugin.is_global ? (
                                     <Tooltip
                                         title={
