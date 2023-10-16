@@ -23,6 +23,7 @@ from posthog.schema import (
     WebOverviewStatsQuery,
     PersonsQuery,
     EventsQuery,
+    WebStatsTableQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -69,6 +70,7 @@ RunnableQueryNode = Union[
     PersonsQuery,
     WebOverviewStatsQuery,
     WebTopClicksQuery,
+    WebStatsTableQuery,
 ]
 
 
