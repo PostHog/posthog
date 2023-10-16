@@ -1,0 +1,17 @@
+.masonry-container {
+    column-count: 4;
+    column-gap: 10px;
+}
+
+.masonry-item {
+    margin: 0;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    margin-bottom: 10px;
+    break-inside: avoid;
+}
+
+.masonry-item-text {
+    max-height: 305px;
+    overflow: scroll;
+}
