@@ -32,7 +32,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
     for (const cle of consoleLogEntries) {
         if (!seen.has(cle.message)) {
             deduped.push(cle)
-            seen.add(cle.message)
+            seen.add(`${cle.log_level}-${cle.message}`)
         }
     }
     return deduped
