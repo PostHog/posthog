@@ -12,7 +12,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -39,7 +39,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp=timezone.now(),
             properties={"$session_id": "s2", "$window_id": "w2"},
         )  # No associated recording, so not included
-        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="u1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         _create_event(
             event="pageview",
@@ -108,7 +115,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})
-        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="u1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         _create_event(
             event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now(), properties={"$group_0": "bla"}

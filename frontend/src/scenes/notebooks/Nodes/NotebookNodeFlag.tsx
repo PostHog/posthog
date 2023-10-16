@@ -16,27 +16,29 @@ import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature
 import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
     const {
         featureFlag,
         featureFlagLoading,
         recordingFilterForFlag,
+        featureFlagMissing,
         hasEarlyAccessFeatures,
         canCreateEarlyAccessFeature,
         hasSurveys,
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
     )
 
     useEffect(() => {
-        updateAttributes({ title: featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag' })
+        setTitlePlaceholder(featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag')
 
         setActions([
             {
@@ -93,6 +95,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         ])
     }, [featureFlag])
 
+    if (featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
+
     return (
         <div>
             <BindLogic logic={featureFlagLogic} props={{ id }}>
@@ -123,101 +129,6 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                         </div>
                     </>
                 ) : null}
-
-                {/* <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    {canCreateEarlyAccessFeature && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconRocketLaunch />}
-                            loading={newEarlyAccessFeatureLoading}
-                            onClick={(e) => {
-                                // prevent expanding the node if it isn't expanded
-                                e.stopPropagation()
-
-                                if (!hasEarlyAccessFeatures) {
-                                    createEarlyAccessFeature()
-                                } else {
-                                    if ((featureFlag?.features?.length || 0) <= 0) {
-                                        return
-                                    }
-                                    if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
-                                        insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
-                                    }
-                                }
-                            }}
-                            disabledReason={
-                                shouldDisableInsertEarlyAccessFeature(nextNode) &&
-                                'Early access feature already exists below'
-                            }
-                        >
-                            {hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconSurveys />}
-                        loading={newSurveyLoading}
-                        onClick={(e) => {
-                            // prevent expanding the node if it isn't expanded
-                            e.stopPropagation()
-
-                            if (!hasSurveys) {
-                                createSurvey()
-                            } else {
-                                if ((featureFlag?.surveys?.length || 0) <= 0) {
-                                    return
-                                }
-                                if (!shouldDisableInsertSurvey(nextNode) && featureFlag.surveys) {
-                                    insertAfter(buildSurveyContent(featureFlag.surveys[0].id))
-                                }
-                            }
-                        }}
-                        disabledReason={shouldDisableInsertSurvey(nextNode) && 'Survey already exists below'}
-                    >
-                        {hasSurveys ? 'View' : 'Create'} survey
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        onClick={(e) => {
-                            // prevent expanding the node if it isn't expanded
-                            e.stopPropagation()
-
-                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlagCodeExample) {
-                                insertAfter(buildCodeExampleContent(id))
-                            }
-                        }}
-                        disabledReason={
-                            nextNode?.type.name === NotebookNodeType.FeatureFlagCodeExample &&
-                            'Code example already exists below'
-                        }
-                    >
-                        Show implementation
-                    </LemonButton>
-                    <LemonButton
-                        onClick={(e) => {
-                            // prevent expanding the node if it isn't expanded
-                            e.stopPropagation()
-
-                            if (nextNode?.type.name !== NotebookNodeType.RecordingPlaylist) {
-                                insertAfter(buildPlaylistContent(recordingFilterForFlag))
-                            }
-                        }}
-                        type="secondary"
-                        size="small"
-                        icon={<IconRecording />}
-                        disabledReason={
-                            nextNode?.type.name === NotebookNodeType.RecordingPlaylist &&
-                            'Recording playlist already exists below'
-                        }
-                    >
-                        View Replays
-                    </LemonButton>
-                </div> */}
             </BindLogic>
         </div>
     )
@@ -229,7 +140,7 @@ type NotebookNodeFlagAttributes = {
 
 export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
-    defaultTitle: 'Feature flag',
+    titlePlaceholder: 'Feature flag',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),

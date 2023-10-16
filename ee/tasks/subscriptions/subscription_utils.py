@@ -44,9 +44,12 @@ def generate_assets(
         ]
         ExportedAsset.objects.bulk_create(assets)
 
+        if not assets:
+            return insights, assets
+
         # Wait for all assets to be exported
         tasks = [exporter.export_asset.si(asset.id) for asset in assets]
-        # run them one after the other so we don't exhaust celery workers
+        # run them one after the other, so we don't exhaust celery workers
         parallel_job = chain(*tasks).apply_async()
 
         wait_for_parallel_celery_group(

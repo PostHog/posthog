@@ -4,7 +4,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconComment, IconDelete, IconJournalPlus, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { IconComment, IconDelete, IconNotebook, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -85,7 +85,7 @@ export function PlayerMetaLinks(): JSX.Element {
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton
-                            icon={<IconJournalPlus />}
+                            icon={<IconNotebook />}
                             size="small"
                             onClick={() => {
                                 nodeLogic.actions.insertAfter({

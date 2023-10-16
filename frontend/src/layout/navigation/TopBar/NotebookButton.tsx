@@ -1,4 +1,4 @@
-import { IconJournal } from 'lib/lemon-ui/icons'
+import { IconNotebook } from 'lib/lemon-ui/icons'
 import { useActions, useValues } from 'kea'
 import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
@@ -19,7 +19,7 @@ export function NotebookButton(): JSX.Element {
 
     return (
         <LemonButton
-            icon={<IconJournal />}
+            icon={<IconNotebook />}
             type={visibility === 'visible' ? 'primary' : 'tertiary'}
             onClick={() => setVisibility(visibility === 'visible' ? 'hidden' : 'visible')}
             status="primary-alt"

@@ -227,8 +227,9 @@ export function renderColumn(
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
-        const Component = context?.columns?.[trimQuotes(key.substring(16))]?.render
-        return Component ? <Component record={record} /> : ''
+        const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
+        const Component = context?.columns?.[columnName]?.render
+        return Component ? <Component record={record} columnName={columnName} value={value} /> : ''
     } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         return (
             <CopyToClipboardInline

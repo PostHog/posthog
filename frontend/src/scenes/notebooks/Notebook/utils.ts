@@ -26,7 +26,7 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
-    title: string
+    title?: string
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -117,6 +117,8 @@ export const textContent = (node: any): string => {
         'ph-recording-playlist': customOrTitleSerializer,
         'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
+        'ph-group': customOrTitleSerializer,
+        'ph-cohort': customOrTitleSerializer,
     }
 
     return getText(node, {

@@ -65,7 +65,6 @@ export class EventPipelineRunner {
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
     private delayAcks: boolean
-    private eventsToDropByToken: Map<string, string[]>
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
@@ -74,12 +73,6 @@ export class EventPipelineRunner {
 
         // TODO: remove after successful rollout
         this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
-
-        this.eventsToDropByToken = new Map()
-        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID?.split(',').forEach((pair) => {
-            const [token, distinctID] = pair.split(':')
-            this.eventsToDropByToken.set(token, [...(this.eventsToDropByToken.get(token) || []), distinctID])
-        })
     }
 
     isEventBlacklisted(event: PipelineEvent): boolean {
@@ -89,7 +82,7 @@ export class EventPipelineRunner {
         if (!key) {
             return false // for safety don't drop events here, they are later dropped in teamDataPopulation
         }
-        const dropIds = this.eventsToDropByToken.get(key)
+        const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
@@ -131,10 +124,7 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        if (
-            process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
-            process.env.POE_EMBRACE_JOIN_FOR_TEAMS?.split(',').includes(event.team_id.toString())
-        ) {
+        if (this.hub.poeEmbraceJoinForTeams?.(event.team_id)) {
             // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
             // We're not using the buffer anymore
             // instead we'll (if within timeframe) merge into the newer personId

@@ -1,11 +1,19 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import { surveyLogic, SurveyRatingResults, SurveyRatingResultsReady, SurveyUserStats } from './surveyLogic'
-import { useActions, BindLogic } from 'kea'
+import {
+    surveyLogic,
+    SurveyRatingResults,
+    QuestionResultsReady,
+    SurveySingleChoiceResults,
+    SurveyMultipleChoiceResults,
+    SurveyUserStats,
+} from './surveyLogic'
+import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightLogicProps, RatingSurveyQuestion } from '~/types'
+import { InsightLogicProps, SurveyQuestionType } from '~/types'
 import { useEffect } from 'react'
 
 const insightProps: InsightLogicProps = {
@@ -149,25 +157,32 @@ export function Summary({
 
 export function RatingQuestionBarChart({
     questionIndex,
-    question,
     surveyRatingResults,
     surveyRatingResultsReady,
 }: {
     questionIndex: number
-    question: RatingSurveyQuestion
     surveyRatingResults: SurveyRatingResults
-    surveyRatingResultsReady: SurveyRatingResultsReady
+    surveyRatingResultsReady: QuestionResultsReady
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const barColor = '#1d4aff'
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.Rating) {
+        throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
+    }
 
     useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, question })
-    }, [question])
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex])
 
     return (
         <div className="mb-4">
-            {!surveyRatingResultsReady[`question_${questionIndex}`] ? (
+            {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyRatingResults[questionIndex].total ? (
+                <></>
             ) : (
                 <div className="mb-8">
                     <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
@@ -176,6 +191,10 @@ export function RatingQuestionBarChart({
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
+                                    inSurveyView={true}
+                                    hideYAxis={true}
+                                    hideXAxis={true}
+                                    showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
                                     type={GraphType.Bar}
@@ -189,11 +208,12 @@ export function RatingQuestionBarChart({
                                         {
                                             id: 1,
                                             label: 'Number of responses',
-                                            barPercentage: 0.7,
+                                            barPercentage: 0.8,
                                             minBarLength: 2,
-                                            data: surveyRatingResults[`question_${questionIndex}`],
-                                            backgroundColor: '#1d4aff',
-                                            hoverBackgroundColor: '#1d4aff',
+                                            data: surveyRatingResults[questionIndex].data,
+                                            backgroundColor: barColor,
+                                            borderColor: barColor,
+                                            hoverBackgroundColor: barColor,
                                         },
                                     ]}
                                     labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
@@ -204,8 +224,197 @@ export function RatingQuestionBarChart({
                         </div>
                     </div>
                     <div className="flex flex-row justify-between mt-1">
-                        <div className="text-muted-alt">{question.lowerBoundLabel}</div>
-                        <div className="text-muted-alt">{question.upperBoundLabel}</div>
+                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
+                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function SingleChoiceQuestionPieChart({
+    questionIndex,
+    surveySingleChoiceResults,
+    surveySingleChoiceResultsReady,
+}: {
+    questionIndex: number
+    surveySingleChoiceResults: SurveySingleChoiceResults
+    surveySingleChoiceResultsReady: QuestionResultsReady
+}): JSX.Element {
+    const { loadSurveySingleChoiceResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.SingleChoice) {
+        throw new Error(`Question type must be ${SurveyQuestionType.SingleChoice}`)
+    }
+
+    // Insights colors
+    // TODO: make available in Tailwind
+    const colors = [
+        '#1D4BFF',
+        '#CD0F74',
+        '#43827E',
+        '#621DA6',
+        '#F04F58',
+        '#539B0A',
+        '#E3A605',
+        '#0476FB',
+        '#36416B',
+        '#41CBC3',
+        '#A46FFF',
+        '#FE729E',
+        '#CE1175',
+        '#B64B01',
+    ]
+
+    useEffect(() => {
+        loadSurveySingleChoiceResults({ questionIndex })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveySingleChoiceResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveySingleChoiceResults[questionIndex].data.length ? (
+                <></>
+            ) : (
+                <div className="mb-8">
+                    <div className="font-semibold text-muted-alt">Single choice</div>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="h-80 border rounded pt-4 pb-2 flex">
+                        <div className="relative h-full w-80">
+                            <BindLogic logic={insightLogic} props={insightProps}>
+                                <PieChart
+                                    labelGroupType={1}
+                                    data-attr="survey-rating"
+                                    type={GraphType.Pie}
+                                    hideAnnotations={true}
+                                    formula="-"
+                                    tooltip={{
+                                        showHeader: false,
+                                        hideColorCol: true,
+                                    }}
+                                    datasets={[
+                                        {
+                                            id: 1,
+                                            data: surveySingleChoiceResults[questionIndex].data,
+                                            labels: surveySingleChoiceResults[questionIndex].labels,
+                                            backgroundColor: surveySingleChoiceResults[questionIndex].labels.map(
+                                                (_: string, i: number) => colors[i % colors.length]
+                                            ),
+                                        },
+                                    ]}
+                                    labels={surveySingleChoiceResults[questionIndex].labels}
+                                />
+                            </BindLogic>
+                        </div>
+                        <div
+                            className={`grid h-full pl-4 py-${(() => {
+                                const dataLength = surveySingleChoiceResults[questionIndex].data.length
+                                if (dataLength < 5) {
+                                    return 20
+                                } else if (dataLength < 7) {
+                                    return 15
+                                } else if (dataLength < 10) {
+                                    return 10
+                                } else {
+                                    return 5
+                                }
+                            })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
+                        >
+                            {surveySingleChoiceResults[questionIndex].data.map((count: number, i: number) => {
+                                const { total, labels } = surveySingleChoiceResults[questionIndex]
+                                const percentage = ((count / total) * 100).toFixed(1)
+
+                                return (
+                                    <div
+                                        key={`single-choice-legend-${questionIndex}-${i}`}
+                                        className="flex items-center mr-6"
+                                    >
+                                        <div
+                                            className="w-3 h-3 rounded-full mr-2"
+                                            style={{ backgroundColor: colors[i % colors.length] }}
+                                        />
+                                        <span className="font-semibold text-muted-alt max-w-30 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
+                                        <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function MultipleChoiceQuestionBarChart({
+    questionIndex,
+    surveyMultipleChoiceResults,
+    surveyMultipleChoiceResultsReady,
+}: {
+    questionIndex: number
+    surveyMultipleChoiceResults: SurveyMultipleChoiceResults
+    surveyMultipleChoiceResultsReady: QuestionResultsReady
+}): JSX.Element {
+    const { loadSurveyMultipleChoiceResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const barColor = '#1d4aff'
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.MultipleChoice) {
+        throw new Error(`Question type must be ${SurveyQuestionType.MultipleChoice}`)
+    }
+
+    useEffect(() => {
+        loadSurveyMultipleChoiceResults({ questionIndex })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveyMultipleChoiceResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyMultipleChoiceResults[questionIndex].data.length ? (
+                <></>
+            ) : (
+                <div className="mb-8">
+                    <div className="font-semibold text-muted-alt">Multiple choice</div>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="border rounded pt-6 pr-10">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <LineGraph
+                                inSurveyView={true}
+                                hideYAxis={true}
+                                hideXAxis={true}
+                                showValueOnSeries={true}
+                                labelGroupType={1}
+                                data-attr="survey-multiple-choice"
+                                type={GraphType.HorizontalBar}
+                                formula="-"
+                                tooltip={{
+                                    showHeader: false,
+                                    hideColorCol: true,
+                                }}
+                                datasets={[
+                                    {
+                                        id: 1,
+                                        label: 'Number of responses',
+                                        barPercentage: 0.9,
+                                        minBarLength: 2,
+                                        data: surveyMultipleChoiceResults[questionIndex].data,
+                                        labels: surveyMultipleChoiceResults[questionIndex].labels,
+                                        breakdownValues: surveyMultipleChoiceResults[questionIndex].labels,
+                                        backgroundColor: barColor,
+                                        borderColor: barColor,
+                                        hoverBackgroundColor: barColor,
+                                    },
+                                ]}
+                                labels={surveyMultipleChoiceResults[questionIndex].labels}
+                            />
+                        </BindLogic>
                     </div>
                 </div>
             )}
