@@ -114,6 +114,9 @@ describe('Surveys', () => {
         cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 5)
 
         // add targeting filters
+        cy.get('.LemonCollapsePanel').contains('Targeting').click()
+        cy.contains('All users').click()
+        cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
 
         // select the first property
@@ -156,6 +159,7 @@ describe('Surveys', () => {
         cy.get('.Popover__content').contains('Edit').click()
 
         // remove user targeting properties
+        cy.get('.LemonCollapsePanel').contains('Targeting').click()
         cy.contains('Remove all user properties').click()
 
         // save

@@ -24,7 +24,6 @@ import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -475,10 +474,6 @@ export interface PluginTask {
     exec: (payload?: Record<string, any>) => Promise<any>
 
     __ignoreForAppMetrics?: boolean
-}
-
-export type WorkerMethods = {
-    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
 export type VMMethods = {

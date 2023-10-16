@@ -123,7 +123,6 @@ class FlagsMatcherCache:
 
 
 class FeatureFlagMatcher:
-
     failed_to_fetch_conditions = False
 
     def __init__(
@@ -437,7 +436,6 @@ class FeatureFlagMatcher:
                     self.cohorts_cache.update(all_cohorts)
                 # release conditions
                 for feature_flag in self.feature_flags:
-
                     # super release conditions
                     if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
                         condition = feature_flag.super_conditions[0]
@@ -609,7 +607,6 @@ def get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
-
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
     if all_feature_flags is None:

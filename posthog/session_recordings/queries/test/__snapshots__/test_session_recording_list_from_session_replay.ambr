@@ -1755,7 +1755,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -1776,7 +1776,7 @@
                 FROM person
                 WHERE team_id = 2
                 GROUP BY id
-                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
@@ -1833,7 +1833,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -1854,7 +1854,7 @@
                 FROM person
                 WHERE team_id = 2
                 GROUP BY id
-                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
              WHERE team_id = 2
              GROUP BY distinct_id
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
@@ -2189,7 +2189,7 @@
                     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2424,7 +2424,7 @@
                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+             AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2459,7 +2459,7 @@
                             AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
@@ -2558,7 +2558,7 @@
                     AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+             AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -2593,7 +2593,7 @@
                             AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
                      GROUP BY id
                      HAVING max(is_deleted) = 0
-                     AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                     AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%'))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                   GROUP BY distinct_id
                   HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
@@ -3358,7 +3358,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3429,7 +3429,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3462,7 +3462,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                     AND (pdi.person_id IN
                            (SELECT DISTINCT person_id
@@ -3516,7 +3516,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
             AND (pdi.person_id IN
                    (SELECT DISTINCT person_id
@@ -3549,7 +3549,7 @@
                      FROM person
                      WHERE team_id = 2
                      GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                   WHERE team_id = 2
                     AND (pdi.person_id IN
                            (SELECT DISTINCT person_id
@@ -4134,7 +4134,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -4226,7 +4226,7 @@
              FROM person
              WHERE team_id = 2
              GROUP BY id
-             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0
@@ -4323,7 +4323,7 @@
                     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
@@ -4419,7 +4419,7 @@
                     AND (has(['bla'], "pmat_email")) )
              GROUP BY id
              HAVING max(is_deleted) = 0
-             AND (has(['bla'], argMax(person."pmat_email", version)))) person ON person.id = pdi.person_id
+             AND (has(['bla'], argMax(person."pmat_email", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
           WHERE team_id = 2
           GROUP BY distinct_id
           HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)

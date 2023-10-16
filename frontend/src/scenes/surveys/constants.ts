@@ -4,7 +4,7 @@ export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
 export const SurveyQuestionLabel = {
-    [SurveyQuestionType.Open]: 'Open text',
+    [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',
     [SurveyQuestionType.Link]: 'Link',
     [SurveyQuestionType.SingleChoice]: 'Single choice select',
@@ -24,7 +24,7 @@ export const defaultSurveyAppearance = {
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
     borderColor: '#c9c6c6',
-    placeholder: '',
+    placeholder: 'Start typing...',
     whiteLabel: false,
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
@@ -120,7 +120,7 @@ export interface NewSurvey
         | 'appearance'
     > {
     id: 'new'
-    linked_flag_id: number | undefined
+    linked_flag_id: number | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
@@ -136,7 +136,7 @@ export const NEW_SURVEY: NewSurvey = {
         },
     ],
     type: SurveyType.Popover,
-    linked_flag_id: undefined,
+    linked_flag_id: null,
     targeting_flag_filters: undefined,
     linked_flag: null,
     targeting_flag: null,
