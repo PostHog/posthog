@@ -803,12 +803,7 @@ export default function EditSurveyNew(): JSX.Element {
                                             >
                                                 {({ value, onChange }) => (
                                                     <div className="flex">
-                                                        <FlagSelector
-                                                            value={value}
-                                                            onChange={(value) => {
-                                                                onChange(value)
-                                                            }}
-                                                        />
+                                                        <FlagSelector value={value} onChange={onChange} />
                                                         {value && (
                                                             <LemonButton
                                                                 className="ml-2"
