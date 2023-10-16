@@ -5,21 +5,18 @@ import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
-import { UUIDT } from '../../../src/utils/utils'
-import { createTaskRunner } from '../../../src/worker/worker'
+import { runEventPipeline } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
-    let piscinaTaskRunner: ({ task, args }) => Promise<any>
     const OLD_ENV = process.env
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
-        piscinaTaskRunner = createTaskRunner(hub)
         await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
         process.env = { ...OLD_ENV } // Make a copy
     })
@@ -52,18 +49,15 @@ describe('workerTasks.runEventPipeline()', () => {
         })
 
         await expect(
-            piscinaTaskRunner({
-                task: 'runEventPipeline',
-                args: {
-                    event: {
-                        distinctId: 'asdf',
-                        ip: '',
-                        team_id: teamId,
-                        event: 'some event',
-                        properties: {},
-                        eventUuid: new UUIDT().toString(),
-                    },
-                },
+            runEventPipeline(hub, {
+                distinct_id: 'asdf',
+                ip: '',
+                team_id: teamId,
+                event: 'some event',
+                properties: {},
+                site_url: 'https://example.com',
+                now: new Date().toISOString(),
+                uuid: 'uuid',
             })
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
