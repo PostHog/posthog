@@ -14,14 +14,14 @@ import {
 import { ChartDisplayType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function ChartFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeries

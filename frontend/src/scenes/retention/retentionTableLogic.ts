@@ -4,7 +4,7 @@ import { range } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightLogicProps } from '~/types'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { retentionLogic } from './retentionLogic'
 
 import type { retentionTableLogicType } from './retentionTableLogicType'
@@ -35,7 +35,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['dateRange', 'retentionFilter', 'breakdown'],
             retentionLogic(props),
             ['results'],

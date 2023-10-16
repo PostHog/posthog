@@ -3,7 +3,7 @@ import { initKeaTests } from '~/test/init'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { trendsDataLogic } from './trendsDataLogic'
 
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
@@ -23,7 +23,7 @@ async function initTrendsDataLogic(): Promise<void> {
     await expectLogic(dataNodeLogic).toFinishAllListeners()
 
     insightDataLogic(insightProps).mount()
-    insightVizDataLogic(insightProps).mount()
+    insightVizLogic(insightProps).mount()
 
     logic = trendsDataLogic(insightProps)
     logic.mount()
@@ -77,7 +77,7 @@ describe('trendsDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    insightVizLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     indexedResults: [
@@ -113,7 +113,7 @@ describe('trendsDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    insightVizLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     indexedResults: [

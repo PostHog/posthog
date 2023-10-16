@@ -4,11 +4,11 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconCalculate } from 'lib/lemon-ui/icons'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
-    const { hasFormula, isTrends, display, series } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { hasFormula, isTrends, display, series } = useValues(insightVizLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizLogic(insightProps))
 
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1

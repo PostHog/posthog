@@ -4,7 +4,7 @@ import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
 
@@ -15,7 +15,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionModalLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
+        values: [insightVizLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     }),
     actions: () => ({

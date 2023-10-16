@@ -35,7 +35,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -263,7 +263,7 @@ export function LineGraph_({
 
     const { insightProps, insight } = useValues(insightLogic)
     const { timezone } = useValues(insightDataLogic(insightProps))
-    const { isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends } = useValues(insightVizLogic(insightProps))
 
     const { createTooltipData } = useValues(lineGraphLogic)
 

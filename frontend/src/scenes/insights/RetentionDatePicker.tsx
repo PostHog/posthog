@@ -3,12 +3,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { DatePicker } from 'lib/components/DatePicker'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { dateRange, retentionFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { dateRange, retentionFilter } = useValues(insightVizLogic(insightProps))
+    const { updateDateRange } = useActions(insightVizLogic(insightProps))
 
     const period = retentionFilter?.period
     const date_to = dateRange?.date_to

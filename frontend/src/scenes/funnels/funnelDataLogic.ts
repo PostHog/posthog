@@ -39,7 +39,7 @@ import {
     stepsWithConversionMetrics,
 } from './funnelUtils'
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
@@ -53,12 +53,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         values: [
             insightDataLogic,
             ['insightData', 'insightDataError'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['querySource as vizQuerySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'interval'],
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
     actions({

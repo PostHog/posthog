@@ -16,12 +16,12 @@ import { IconFlag } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { breakdown } = useValues(insightVizLogic(insightProps))
     const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))

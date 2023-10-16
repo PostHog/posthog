@@ -7,7 +7,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 import type { insightDisplayConfigLogicType } from './insightDisplayConfigLogicType'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
     props({} as InsightLogicProps),
@@ -18,7 +18,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             [
                 'isTrends',
                 'isFunnels',

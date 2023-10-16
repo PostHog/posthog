@@ -5,7 +5,7 @@ import api from 'lib/api'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -18,7 +18,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         values: [
             insightDataLogic(props),
             ['insightData', 'insightDataLoading'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             [
                 'series',
                 'formula',
@@ -39,7 +39,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
             ],
         ],
-        actions: [insightDataLogic(props), ['setInsightData'], insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightDataLogic(props), ['setInsightData'], insightVizLogic(props), ['updateInsightFilter']],
     })),
 
     actions({

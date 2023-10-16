@@ -2,15 +2,15 @@ import { kea, props, key, path, connect, actions, selectors, listeners } from 'k
 import type { insightDateFilterLogicType } from './insightDateFilterLogicType'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export const insightDateFilterLogic = kea<insightDateFilterLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic', key]),
     connect((props: InsightLogicProps) => ({
-        actions: [insightVizDataLogic(props), ['updateQuerySource']],
-        values: [insightVizDataLogic(props), ['dateRange']],
+        actions: [insightVizLogic(props), ['updateQuerySource']],
+        values: [insightVizLogic(props), ['dateRange']],
     })),
     actions(() => ({
         setDates: (dateFrom: string | undefined | null, dateTo: string | undefined | null) => ({

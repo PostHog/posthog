@@ -10,7 +10,7 @@ import { InsightVizNode } from '~/queries/schema'
 import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,7 +59,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         actions: [
             insightDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['setQuery'],
-            insightVizDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
+            insightVizLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
     })),

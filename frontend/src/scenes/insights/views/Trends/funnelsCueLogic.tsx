@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { funnelsCueLogicType } from './funnelsCueLogicType'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 
@@ -18,12 +18,12 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
         values: [
             insightLogic(props),
             ['isFirstLoad'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['query'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightVizDataLogic(props), ['setQuery'], featureFlagLogic, ['setFeatureFlags']],
+        actions: [insightVizLogic(props), ['setQuery'], featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
         optOut: (userOptedOut: boolean) => ({ userOptedOut }),

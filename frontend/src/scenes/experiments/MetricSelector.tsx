@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
@@ -43,8 +43,8 @@ export function MetricSelector({
     // insightDataLogic
     const { query } = useValues(insightDataLogic(insightProps))
 
-    // insightVizDataLogic
-    const { isTrends } = useValues(insightVizDataLogic(insightProps))
+    // insightVizLogic
+    const { isTrends } = useValues(insightVizLogic(insightProps))
 
     return (
         <>
@@ -89,9 +89,8 @@ export function MetricSelector({
 }
 
 export function ExperimentInsightCreator({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
-    // insightVizDataLogic
-    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { isTrends, series, querySource } = useValues(insightVizLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizLogic(insightProps))
 
     // calculated properties
     const filterSteps = series || []

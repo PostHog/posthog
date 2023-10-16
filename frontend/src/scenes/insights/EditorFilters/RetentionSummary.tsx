@@ -14,12 +14,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { retentionFilter } = useValues(insightVizLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizLogic(insightProps))
     const { target_entity, returning_entity, retention_type, total_intervals, period } = retentionFilter || {}
 
     return (

@@ -42,11 +42,12 @@ import {
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
-import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
-export const insightVizDataLogic = kea<insightVizDataLogicType>([
+import type { insightVizLogicType } from './insightVizLogicType'
+
+export const insightVizLogic = kea<insightVizLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightVizDataLogic', key]),

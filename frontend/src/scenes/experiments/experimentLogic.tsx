@@ -35,7 +35,7 @@ import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -95,11 +95,11 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
-            insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            insightVizLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['updateQuerySource'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
             ['setQuery as setExposureQuery'],
-            insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            insightVizLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
             ['updateQuerySource as updateExposureQuerySource'],
         ],
     })),

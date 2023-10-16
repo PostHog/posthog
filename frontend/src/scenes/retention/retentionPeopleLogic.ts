@@ -6,7 +6,7 @@ import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { InsightLogicProps } from '~/types'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
@@ -17,8 +17,8 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionPeopleLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource']],
-        actions: [insightVizDataLogic(props), ['loadDataSuccess']],
+        values: [insightVizLogic(props), ['querySource']],
+        actions: [insightVizLogic(props), ['loadDataSuccess']],
     }),
     actions: () => ({
         clearPeople: true,

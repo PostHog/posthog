@@ -6,7 +6,7 @@ import clsx from 'clsx'
 
 import { insightLogic } from '../../insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 import { ChartParams, TrendResult } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -34,7 +34,7 @@ function useBoldNumberTooltip({
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { insightData } = useValues(insightDataLogic(insightProps))
-    const { series, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { series, trendsFilter } = useValues(insightVizLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const divRef = useRef<HTMLDivElement>(null)
@@ -86,7 +86,7 @@ function useBoldNumberTooltip({
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData } = useValues(insightDataLogic(insightProps))
-    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { trendsFilter } = useValues(insightVizLogic(insightProps))
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })

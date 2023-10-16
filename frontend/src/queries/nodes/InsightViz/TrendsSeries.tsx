@@ -11,11 +11,11 @@ import { isInsightQueryNode } from '~/queries/utils'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function TrendsSeries(): JSX.Element | null {
-    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula } = useValues(insightVizDataLogic)
-    const { updateQuerySource } = useActions(insightVizDataLogic)
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula } = useValues(insightVizLogic)
+    const { updateQuerySource } = useActions(insightVizLogic)
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 

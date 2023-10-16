@@ -5,7 +5,7 @@ import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from
 import { NodeKind, TrendsQuery } from '~/queries/schema'
 
 import { insightsTableDataLogic, AggregationType } from './insightsTableDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 const Insight123 = '123' as InsightShortId
 
@@ -29,7 +29,7 @@ describe('insightsTableDataLogic', () => {
                 },
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic).toMatchValues({
                 allowAggregation: true,
@@ -46,7 +46,7 @@ describe('insightsTableDataLogic', () => {
                 ],
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic).toMatchValues({
                 allowAggregation: true,
@@ -59,7 +59,7 @@ describe('insightsTableDataLogic', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }],
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic).toMatchValues({
                 allowAggregation: false,
@@ -74,7 +74,7 @@ describe('insightsTableDataLogic', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }],
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic).toMatchValues({
                 aggregation: AggregationType.Average,
@@ -87,7 +87,7 @@ describe('insightsTableDataLogic', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic).toMatchValues({
                 aggregation: AggregationType.Total,
@@ -100,7 +100,7 @@ describe('insightsTableDataLogic', () => {
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
             }
 
-            insightVizDataLogic(props).actions.updateQuerySource(query)
+            insightVizLogic(props).actions.updateQuerySource(query)
 
             await expectLogic(logic, () => {
                 logic.actions.setAggregationType(AggregationType.Median)

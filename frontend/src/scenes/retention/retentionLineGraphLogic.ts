@@ -5,7 +5,7 @@ import { RetentionTrendPayload } from 'scenes/retention/types'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { retentionLogic } from './retentionLogic'
 
 import type { retentionLineGraphLogicType } from './retentionLineGraphLogicType'
@@ -18,7 +18,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
     path: (key) => ['scenes', 'retention', 'retentionLineGraphLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
             ['results'],

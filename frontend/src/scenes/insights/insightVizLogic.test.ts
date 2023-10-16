@@ -5,7 +5,7 @@ import { ChartDisplayType, InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { useMocks } from '~/mocks/jest'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
 import { NodeKind } from '~/queries/schema'
@@ -14,7 +14,7 @@ import { FunnelLayout } from 'lib/constants'
 const Insight123 = '123' as InsightShortId
 
 describe('insightVizDataLogic', () => {
-    let builtInsightVizDataLogic: ReturnType<typeof insightVizDataLogic.build>
+    let builtInsightVizDataLogic: ReturnType<typeof insightVizLogic.build>
     let builtInsightDataLogic: ReturnType<typeof insightDataLogic.build>
     let builtFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
@@ -31,7 +31,7 @@ describe('insightVizDataLogic', () => {
 
         const props = { dashboardItemId: Insight123 }
 
-        builtInsightVizDataLogic = insightVizDataLogic(props)
+        builtInsightVizDataLogic = insightVizLogic(props)
         builtInsightDataLogic = insightDataLogic(props)
 
         builtInsightDataLogic.mount()

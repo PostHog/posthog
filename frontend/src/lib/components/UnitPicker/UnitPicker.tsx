@@ -7,7 +7,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce((acc, option) => {
     acc[option.value] = option.label
@@ -23,8 +23,8 @@ export interface HandleUnitChange {
 
 export function UnitPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { trendsFilter, display } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { trendsFilter, display } = useValues(insightVizLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizLogic(insightProps))
 
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
 

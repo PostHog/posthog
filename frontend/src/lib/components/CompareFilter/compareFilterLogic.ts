@@ -3,7 +3,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 import type { compareFilterLogicType } from './compareFilterLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -13,10 +13,10 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         values: [
             insightLogic(props),
             ['canEditInsight'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['compare', 'display', 'insightFilter', 'isLifecycle', 'dateRange'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightVizLogic(props), ['updateInsightFilter']],
     }),
 
     actions: () => ({

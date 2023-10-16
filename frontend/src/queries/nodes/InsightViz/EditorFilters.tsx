@@ -35,7 +35,7 @@ import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 import './EditorFilters.scss'
 import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
@@ -62,7 +62,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         breakdown,
         pathsFilter,
         querySource,
-    } = useValues(insightVizDataLogic(insightProps))
+    } = useValues(insightVizLogic(insightProps))
     const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
     if (!querySource) {

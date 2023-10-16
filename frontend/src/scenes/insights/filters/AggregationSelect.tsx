@@ -5,7 +5,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { InsightLogicProps } from '~/types'
 import { isFunnelsQuery, isInsightQueryNode } from '~/queries/utils'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 
@@ -43,8 +43,8 @@ export function AggregationSelect({
     className,
     hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { querySource } = useValues(insightVizLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
         return null

@@ -1,6 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { ChartDisplayType, InsightLogicProps, TrendsFilterType } from '~/types'
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { insightVizLogic } from '../insightVizLogic'
 import { keyForInsightLogicProps } from '../sharedUtils'
 
 import type { valueOnSeriesFilterLogicType } from './valueOnSeriesFilterLogicType'
@@ -11,8 +11,8 @@ export const valueOnSeriesFilterLogic = kea<valueOnSeriesFilterLogicType>([
     path((key) => ['scenes', 'insights', 'EditorFilters', 'valueOnSeriesFilterLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['isTrends', 'isStickiness', 'isLifecycle', 'insightFilter']],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        values: [insightVizLogic(props), ['isTrends', 'isStickiness', 'isLifecycle', 'insightFilter']],
+        actions: [insightVizLogic(props), ['updateInsightFilter']],
     })),
 
     actions({

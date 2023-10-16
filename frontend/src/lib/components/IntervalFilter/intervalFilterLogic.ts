@@ -8,15 +8,15 @@ import { dayjs } from 'lib/dayjs'
 import { InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightVizDataLogic(props), ['updateQuerySource']],
-        values: [insightVizDataLogic(props), ['interval', 'querySource']],
+        actions: [insightVizLogic(props), ['updateQuerySource']],
+        values: [insightVizLogic(props), ['interval', 'querySource']],
     }),
     actions: () => ({
         setInterval: (interval: IntervalKeyType) => ({ interval }),

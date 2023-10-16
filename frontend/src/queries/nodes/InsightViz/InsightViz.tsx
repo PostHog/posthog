@@ -16,7 +16,7 @@ import { getCachedResults } from './utils'
 import { useState } from 'react'
 
 import './Insight.scss'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -69,7 +69,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <BindLogic logic={insightVizDataLogic} props={insightProps}>
+                <BindLogic logic={insightVizLogic} props={insightProps}>
                     <div
                         className={clsx('insight-wrapper', {
                             'insight-wrapper--singlecolumn': isFunnels,

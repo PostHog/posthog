@@ -31,7 +31,7 @@ import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
 
@@ -83,7 +83,7 @@ export function InsightContainer({
         supportsDisplay,
         isUsingSessionAnalysis,
         samplingFactor,
-    } = useValues(insightVizDataLogic(insightProps))
+    } = useValues(insightVizLogic(insightProps))
     const { exportContext, timedOutQueryId, insightDataLoading, erroredQueryId } = useValues(
         insightDataLogic(insightProps)
     )

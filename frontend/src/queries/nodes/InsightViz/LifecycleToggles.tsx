@@ -2,7 +2,7 @@ import { LifecycleFilter } from '~/queries/schema'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
     {
@@ -32,8 +32,8 @@ const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = 
 const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
 
 export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { insightFilter } = useValues(insightVizLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizLogic(insightProps))
 
     const toggledLifecycles = (insightFilter as LifecycleFilter)?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
     const toggleLifecycle = (name: LifecycleToggle): void => {

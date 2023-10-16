@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { EditorFilterProps } from '~/types'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdown, display, isTrends } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdown, updateDisplay } = useActions(insightVizDataLogic(insightProps))
+    const { breakdown, display, isTrends } = useValues(insightVizLogic(insightProps))
+    const { updateBreakdown, updateDisplay } = useActions(insightVizLogic(insightProps))
 
     return (
         <TaxonomicBreakdownFilter

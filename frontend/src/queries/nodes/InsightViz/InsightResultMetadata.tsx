@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 
@@ -15,7 +15,7 @@ export const InsightResultMetadata = ({
     disableLastComputationRefresh,
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
+    const { samplingFactor } = useValues(insightVizLogic(insightProps))
     return (
         <>
             {!disableLastComputation && <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />}

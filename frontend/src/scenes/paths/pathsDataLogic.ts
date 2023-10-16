@@ -12,7 +12,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { isPathsQuery } from '~/queries/utils'
 import { PathNodeData } from './pathUtils'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -42,10 +42,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         values: [
             insightDataLogic(props),
             ['insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
-            insightVizDataLogic(props),
+            insightVizLogic(props),
             ['querySource as vizQuerySource', 'pathsFilter', 'dateRange'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightVizLogic(props), ['updateInsightFilter']],
     })),
 
     actions({

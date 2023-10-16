@@ -4,15 +4,15 @@ import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { getAllEventNames } from './utils'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightVizLogic } from 'scenes/insights/insightVizLogic'
 import { EditorFilterProps } from '~/types'
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 
 export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Element {
     const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { isTrends, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { isTrends, querySource } = useValues(insightVizLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizLogic(insightProps))
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
