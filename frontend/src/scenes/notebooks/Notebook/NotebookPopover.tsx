@@ -15,16 +15,19 @@ import { urls } from 'scenes/urls'
 import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { openNotebookShareDialog } from './NotebookShare'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export function NotebookPopoverCard(): JSX.Element | null {
-    const { visibility, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
+    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
         useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { activeScene } = useValues(sceneLogic)
 
-    const visible = visibility !== 'hidden'
-    const editable = visible && !notebook?.is_template
+    const showEditor = activeScene === Scene.Notebook ? visibility !== 'hidden' : shownAtLeastOnce
+    const editable = visibility !== 'hidden' && !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -92,7 +95,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
             </header>
 
             <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
-                {visible && (
+                {showEditor && (
                     <Notebook
                         key={selectedNotebook}
                         shortId={selectedNotebook}

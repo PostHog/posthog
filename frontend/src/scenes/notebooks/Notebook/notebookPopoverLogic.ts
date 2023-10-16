@@ -57,6 +57,12 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                 setElementRef: (_, { element }) => element,
             },
         ],
+        shownAtLeastOnce: [
+            false,
+            {
+                setVisibility: (state, { visibility }) => visibility !== 'hidden' || state,
+            },
+        ],
         dropMode: [
             false,
             {
