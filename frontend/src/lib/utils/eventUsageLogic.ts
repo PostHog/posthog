@@ -45,6 +45,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { SurveyTemplateType } from 'scenes/surveys/constants'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -498,6 +499,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyStopped: (survey: Survey) => ({ survey }),
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
         reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
@@ -1232,6 +1234,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 id: survey.id,
                 created_at: survey.created_at,
                 start_date: survey.start_date,
+            })
+        },
+        reportSurveyTemplateClicked: ({ template }) => {
+            posthog.capture('survey template clicked', {
+                template,
             })
         },
         reportProductUnsubscribed: ({ product }) => {

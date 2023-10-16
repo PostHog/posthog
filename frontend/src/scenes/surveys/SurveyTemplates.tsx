@@ -8,6 +8,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { surveyLogic } from './surveyLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -15,6 +16,7 @@ export const scene: SceneExport = {
 
 export function SurveyTemplates(): JSX.Element {
     const { setSurveyTemplateValues } = useActions(surveyLogic({ id: 'new' }))
+    const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
 
     return (
         <>
@@ -31,10 +33,12 @@ export function SurveyTemplates(): JSX.Element {
                     return (
                         <div
                             className="flex flex-col items-center"
+                            data-attr="survey-template"
                             key={idx}
-                            onClick={() =>
+                            onClick={() => {
                                 setSurveyTemplateValues({ name: template.type, questions: template.questions })
-                            }
+                                reportSurveyTemplateClicked(template.type)
+                            }}
                         >
                             <span className="mb-2 text-md">
                                 <b>{template.type}</b>
