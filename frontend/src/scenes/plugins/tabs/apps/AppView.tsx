@@ -1,5 +1,6 @@
 import { Link, LemonButton, LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { DeleteOutlined, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import {
     IconLink,
@@ -18,6 +19,9 @@ import { urls } from 'scenes/urls'
 import { PluginType } from '~/types'
 import { PluginTags } from './components'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { userLogic } from 'scenes/userLogic'
+import { canGloballyManagePlugins } from 'scenes/plugins/access'
+import { Popconfirm } from 'antd'
 
 export function AppView({
     plugin,
@@ -31,8 +35,11 @@ export function AppView({
         showAppMetricsForPlugin,
         loading,
         sortableEnabledPlugins,
+        unusedPlugins,
     } = useValues(pluginsLogic)
-    const { installPlugin, editPlugin, toggleEnabled, updatePlugin, openReorderModal } = useActions(pluginsLogic)
+    const { installPlugin, editPlugin, toggleEnabled, updatePlugin, openReorderModal, patchPlugin, uninstallPlugin } =
+        useActions(pluginsLogic)
+    const { user } = useValues(userLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
@@ -149,6 +156,70 @@ export function AppView({
                             >
                                 {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
                             </LemonButton>
+                        )}
+
+                        {canGloballyManagePlugins(user?.organization) && (
+                            <>
+                                <Popconfirm
+                                    placement="topLeft"
+                                    title="Are you sure you wish to uninstall this app completely?"
+                                    onConfirm={() => uninstallPlugin(plugin.id)}
+                                    okText="Uninstall"
+                                    cancelText="Cancel"
+                                    className="Plugins__Popconfirm"
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        disabledReason={
+                                            unusedPlugins.includes(plugin.id) ? undefined : 'This app is still in use.'
+                                        }
+                                        data-attr="plugin-uninstall"
+                                    >
+                                        Uninstall
+                                    </LemonButton>
+                                </Popconfirm>
+                                {plugin.is_global ? (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
+                                                organizations other than yours.
+                                            </>
+                                        }
+                                    >
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<RollbackOutlined />}
+                                            onClick={() => patchPlugin(plugin.id, { is_global: false })}
+                                        >
+                                            Make local
+                                        </LemonButton>
+                                    </Tooltip>
+                                ) : (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
+                                            </>
+                                        }
+                                    >
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<GlobalOutlined />}
+                                            onClick={() => patchPlugin(plugin.id, { is_global: true })}
+                                        >
+                                            Make global
+                                        </LemonButton>
+                                    </Tooltip>
+                                )}
+                            </>
                         )}
 
                         {pluginConfig.id &&

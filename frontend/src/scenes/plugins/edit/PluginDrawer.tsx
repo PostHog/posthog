@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
-import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
+import { Button, Form, Space, Switch, Tag } from 'antd'
+import { CodeOutlined, LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
@@ -11,8 +11,7 @@ import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
-import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { canGloballyManagePlugins } from '../access'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
@@ -50,17 +49,9 @@ const SecretFieldIcon = (): JSX.Element => (
 
 export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const {
-        editPlugin,
-        savePluginConfig,
-        uninstallPlugin,
-        setEditingSource,
-        generateApiKeysIfNeeded,
-        patchPlugin,
-        showPluginLogs,
-    } = useActions(pluginsLogic)
+    const { editPlugin, savePluginConfig, setEditingSource, generateApiKeysIfNeeded, showPluginLogs } =
+        useActions(pluginsLogic)
 
     const [form] = Form.useForm()
 
@@ -145,70 +136,6 @@ export function PluginDrawer(): JSX.Element {
                 data-attr="plugin-drawer"
                 footer={
                     <div className="flex">
-                        <Space style={{ flexGrow: 1 }}>
-                            {editingPlugin &&
-                                !editingPlugin.is_global &&
-                                canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title="Are you sure you wish to uninstall this app completely?"
-                                        onConfirm={() => uninstallPlugin(editingPlugin.name)}
-                                        okText="Uninstall"
-                                        cancelText="Cancel"
-                                        className="Plugins__Popconfirm"
-                                    >
-                                        <Button
-                                            style={{ color: 'var(--danger)', padding: 4 }}
-                                            type="text"
-                                            icon={<DeleteOutlined />}
-                                            data-attr="plugin-uninstall"
-                                        >
-                                            Uninstall
-                                        </Button>
-                                    </Popconfirm>
-                                )}
-                            {preflight?.cloud &&
-                                editingPlugin &&
-                                canGloballyManagePlugins(user?.organization) &&
-                                (editingPlugin.is_global ? (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                This app can currently be used by other organizations in this instance
-                                                of PostHog. This action will <b>disable and hide it</b> for all
-                                                organizations other than yours.
-                                            </>
-                                        }
-                                    >
-                                        <Button
-                                            type="text"
-                                            icon={<RollbackOutlined />}
-                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: false })}
-                                            style={{ padding: 4 }}
-                                        >
-                                            Make local
-                                        </Button>
-                                    </Tooltip>
-                                ) : (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                This action will mark this app as installed for <b>all organizations</b>{' '}
-                                                in this instance of PostHog.
-                                            </>
-                                        }
-                                    >
-                                        <Button
-                                            type="text"
-                                            icon={<GlobalOutlined />}
-                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: true })}
-                                            style={{ padding: 4 }}
-                                        >
-                                            Make global
-                                        </Button>
-                                    </Tooltip>
-                                ))}
-                        </Space>
                         <Space>
                             <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
                                 Cancel
