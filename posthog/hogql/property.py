@@ -129,7 +129,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         chain = ["person", "properties"] if property.type == "person" and scope != "person" else ["properties"]
-        field = ast.Field(chain=chain + property.key.split("."))
+        field = ast.Field(chain=chain + [property.key])
 
         if operator == PropertyOperator.is_set:
             return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))

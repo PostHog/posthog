@@ -2407,7 +2407,14 @@
         },
         "WebAnalyticsPropertyFilters": {
             "items": {
-                "$ref": "#/definitions/EventPropertyFilter"
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    {
+                        "$ref": "#/definitions/HogQLPropertyFilter"
+                    }
+                ]
             },
             "type": "array"
         },

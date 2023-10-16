@@ -84,39 +84,39 @@ LIMIT 10
             case WebStatsBreakdown.Page:
                 return parse_expr("properties.$pathname")
             case WebStatsBreakdown.InitialPage:
-                return parse_expr("events.properties.$set_once.$initial_pathname")
+                return parse_expr("properties.$set_once.$initial_pathname")
             case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("events.properties.$set_once.$initial_referring_domain")
+                return parse_expr("properties.$set_once.$initial_referring_domain")
             case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("events.properties.$set_once.$initial_utm_source")
+                return parse_expr("properties.$set_once.$initial_utm_source")
             case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("events.properties.$set_once.$initial_utm_campaign")
+                return parse_expr("properties.$set_once.$initial_utm_campaign")
             case WebStatsBreakdown.Browser:
-                return parse_expr("events.properties.$browser")
+                return parse_expr("properties.$browser")
             case WebStatsBreakdown.OS:
-                return parse_expr("events.properties.$os")
+                return parse_expr("properties.$os")
             case WebStatsBreakdown.DeviceType:
-                return parse_expr("events.properties.$device_type")
+                return parse_expr("properties.$device_type")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def bounce_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return parse_expr("any(events.properties.$set_once.$initial_pathname)")
+                return parse_expr("any(properties.$set_once.$initial_pathname)")
             case WebStatsBreakdown.InitialPage:
-                return parse_expr("any(events.properties.$set_once.$initial_pathname)")
+                return parse_expr("any(properties.$set_once.$initial_pathname)")
             case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("any(events.properties.$set_once.$initial_referring_domain)")
+                return parse_expr("any(properties.$set_once.$initial_referring_domain)")
             case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("any(events.properties.$set_once.$initial_utm_source)")
+                return parse_expr("any(properties.$set_once.$initial_utm_source)")
             case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("any(events.properties.$set_once.$initial_utm_campaign)")
+                return parse_expr("any(properties.$set_once.$initial_utm_campaign)")
             case WebStatsBreakdown.Browser:
-                return parse_expr("any(events.properties.$browser)")
+                return parse_expr("any(properties.$browser)")
             case WebStatsBreakdown.OS:
-                return parse_expr("any(events.properties.$os)")
+                return parse_expr("any(properties.$os)")
             case WebStatsBreakdown.DeviceType:
-                return parse_expr("any(events.properties.$device_type)")
+                return parse_expr("any(properties.$device_type)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")

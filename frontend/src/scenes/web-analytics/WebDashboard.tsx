@@ -79,16 +79,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             propertyName = '$pathname'
             break
         case WebStatsBreakdown.InitialPage:
-            propertyName = '$set_once.$initial_pathname'
+            propertyName = '$initial_pathname'
             break
         case WebStatsBreakdown.InitialReferringDomain:
-            propertyName = '$set_once.$initial_referrer'
+            propertyName = '$initial_referrer'
             break
         case WebStatsBreakdown.InitialUTMSource:
-            propertyName = '$set_once.$initial_utm_source'
+            propertyName = '$initial_utm_source'
             break
         case WebStatsBreakdown.InitialUTMCampaign:
-            propertyName = '$set_once.$initial_utm_campaign'
+            propertyName = '$initial_utm_campaign'
             break
         case WebStatsBreakdown.Browser:
             propertyName = '$browser'

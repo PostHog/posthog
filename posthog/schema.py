@@ -740,7 +740,7 @@ class WebOverviewStatsQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
-    properties: List[EventPropertyFilter]
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebOverviewStatsQueryResponse] = None
 
 
@@ -751,7 +751,7 @@ class WebStatsTableQuery(BaseModel):
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
-    properties: List[EventPropertyFilter]
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
 
 
@@ -761,7 +761,7 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
-    properties: List[EventPropertyFilter]
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
 
 

@@ -1,27 +1,28 @@
 import {
     AnyPropertyFilter,
+    BaseMathType,
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
-    PropertyGroupFilter,
-    EventType,
-    IntervalType,
-    BaseMathType,
-    PropertyMathType,
     CountPerActorMathType,
-    GroupMathType,
+    EventPropertyFilter,
+    EventType,
     FilterType,
-    TrendsFilterType,
     FunnelsFilterType,
-    RetentionFilterType,
-    PathsFilterType,
-    StickinessFilterType,
-    LifecycleFilterType,
-    LifecycleToggle,
+    GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightLogicProps,
     InsightShortId,
-    EventPropertyFilter,
+    IntervalType,
+    LifecycleFilterType,
+    LifecycleToggle,
+    PathsFilterType,
+    PropertyGroupFilter,
+    PropertyMathType,
+    RetentionFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
 } from '~/types'
 import { ComponentType } from 'react'
 
@@ -541,7 +542,7 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
-export type WebAnalyticsPropertyFilters = EventPropertyFilter[]
+export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
     dateRange?: DateRange

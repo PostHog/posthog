@@ -2,7 +2,14 @@ import { actions, connect, kea, listeners, path, reducers, selectors, sharedList
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema'
-import { BaseMathType, ChartDisplayType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 import { isNotNil } from 'lib/utils'
 
 interface Layout {
@@ -51,6 +58,11 @@ export enum PathTab {
 
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
+const setOncePropertyNames = ['$initial_pathname', '$initial_referrer', '$initial_utm_source', '$initial_utm_campaign']
+const hogqlForSetOnceProperty = (key: string, value: string): string => `properties.$set_once.${key} = '${value}'`
+const isHogqlForSetOnceProperty = (key: string, p: HogQLPropertyFilter): boolean =>
+    setOncePropertyNames.includes(key) && p.key.startsWith(`properties.$set_once.${key} = `)
+
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect({}),
@@ -73,43 +85,81 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
                 togglePropertyFilter: (oldPropertyFilters, { key, value }) => {
-                    if (oldPropertyFilters.some((f) => f.key === key && f.operator === PropertyOperator.Exact)) {
+                    if (
+                        oldPropertyFilters.some(
+                            (f) =>
+                                (f.type === PropertyFilterType.Event &&
+                                    f.key === key &&
+                                    f.operator === PropertyOperator.Exact) ||
+                                (f.type === PropertyFilterType.HogQL && isHogqlForSetOnceProperty(key, f))
+                        )
+                    ) {
                         return oldPropertyFilters
                             .map((f) => {
-                                if (
-                                    f.type !== PropertyFilterType.Event ||
-                                    f.key !== key ||
-                                    f.operator !== PropertyOperator.Exact
-                                ) {
-                                    return f
-                                }
-                                const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
-                                let newValue: (string | number)[]
-                                if (oldValue.includes(value)) {
-                                    // If there are multiple values for this filter, reduce that to just the one being clicked
-                                    if (oldValue.length > 1) {
-                                        newValue = [value]
-                                    } else {
+                                if (setOncePropertyNames.includes(key)) {
+                                    if (f.type !== PropertyFilterType.HogQL) {
+                                        return f
+                                    }
+                                    if (!isHogqlForSetOnceProperty(key, f)) {
+                                        return f
+                                    }
+                                    // With the hogql properties, we don't even attempt to handle arrays, to avoiding
+                                    // needing a parser on the front end. Instead the logic is much simpler
+                                    const hogql = hogqlForSetOnceProperty(key, value)
+                                    if (f.key === hogql) {
                                         return null
+                                    } else {
+                                        return {
+                                            type: PropertyFilterType.HogQL,
+                                            key,
+                                            value: hogql,
+                                        } as const
                                     }
                                 } else {
-                                    newValue = [...oldValue, value]
+                                    if (
+                                        f.key !== key ||
+                                        f.type !== PropertyFilterType.Event ||
+                                        f.operator !== PropertyOperator.Exact
+                                    ) {
+                                        return f
+                                    }
+                                    const oldValue = (Array.isArray(f.value) ? f.value : [f.value]).filter(isNotNil)
+                                    let newValue: (string | number)[]
+                                    if (oldValue.includes(value)) {
+                                        // If there are multiple values for this filter, reduce that to just the one being clicked
+                                        if (oldValue.length > 1) {
+                                            newValue = [value]
+                                        } else {
+                                            return null
+                                        }
+                                    } else {
+                                        newValue = [...oldValue, value]
+                                    }
+                                    return {
+                                        type: PropertyFilterType.Event,
+                                        key,
+                                        operator: PropertyOperator.Exact,
+                                        value: newValue,
+                                    } as const
                                 }
-                                return {
-                                    type: PropertyFilterType.Event,
-                                    key,
-                                    operator: PropertyOperator.Exact,
-                                    value: newValue,
-                                } as const
                             })
                             .filter(isNotNil)
                     } else {
-                        const newFilter: EventPropertyFilter = {
-                            type: PropertyFilterType.Event,
-                            key,
-                            value,
-                            operator: PropertyOperator.Exact,
+                        let newFilter: EventPropertyFilter | HogQLPropertyFilter
+                        if (setOncePropertyNames.includes(key)) {
+                            newFilter = {
+                                type: PropertyFilterType.HogQL,
+                                key: hogqlForSetOnceProperty(key, value),
+                            }
+                        } else {
+                            newFilter = {
+                                type: PropertyFilterType.Event,
+                                key,
+                                value,
+                                operator: PropertyOperator.Exact,
+                            }
                         }
+
                         return [...oldPropertyFilters, newFilter]
                     }
                 },
