@@ -1,7 +1,7 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconDarkMode, IconHelpOutline, IconLightMode, IconSettings, IconSync } from 'lib/lemon-ui/icons'
+import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -24,7 +24,7 @@ export function Navbar(): JSX.Element {
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <IconDarkMode /> : <IconLightMode />
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     return (
         <nav className="Navbar3000">
@@ -63,7 +63,7 @@ export function Navbar(): JSX.Element {
                                 isThemeSyncedWithSystem ? (
                                     <div className="relative">
                                         {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconSync />} />
+                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
                                     </div>
                                 ) : (
                                     activeThemeIcon
@@ -84,16 +84,12 @@ export function Navbar(): JSX.Element {
                         />
                         <HelpButton
                             customComponent={
-                                <NavbarButton
-                                    icon={<IconHelpOutline />}
-                                    identifier="help-button"
-                                    title="Need any help?"
-                                />
+                                <NavbarButton icon={<IconQuestion />} identifier="help-button" title="Need any help?" />
                             }
                             placement="right-end"
                         />
                         <NavbarButton
-                            icon={<IconSettings />}
+                            icon={<IconGear />}
                             identifier={Scene.ProjectSettings}
                             to={urls.projectSettings()}
                         />
