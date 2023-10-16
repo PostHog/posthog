@@ -2466,11 +2466,8 @@ export function IconNotebook(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
-                d="M8.75 3.25H5.25C4.69772 3.25 4.25 3.69772 4.25 4.25V19.75C4.25 20.3023 4.69772 20.75 5.25 20.75H8.75M8.75 3.25H18.75C19.3023 3.25 19.75 3.69772 19.75 4.25V19.75C19.75 20.3023 19.3023 20.75 18.75 20.75H8.75M8.75 3.25V20.75M12.75 7.75H15.75M12.75 11.75H15.75"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9 4h2v5l-1-.75L9 9V4zm9 16H6V4h1v9l3-2.25L13 13V4h5v16z"
+                fill="currentColor"
             />
         </LemonIconBase>
     )

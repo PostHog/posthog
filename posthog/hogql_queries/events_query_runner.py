@@ -253,6 +253,7 @@ class EventsQueryRunner(QueryRunner):
             types=[type for _, type in query_result.types],
             hasMore=received_extra_row,
             timings=self.timings.to_list(),
+            hogql=query_result.hogql,
         )
 
     def select_input_raw(self) -> List[str]:

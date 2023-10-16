@@ -144,6 +144,7 @@ export interface HogQLQueryResponse {
     types?: any[]
     columns?: any[]
     timings?: QueryTiming[]
+    explain?: string[]
     modifiers?: HogQLQueryModifiers
 }
 
@@ -160,6 +161,7 @@ export interface HogQLQuery extends DataNode {
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     modifiers?: HogQLQueryModifiers
+    explain?: boolean
     response?: HogQLQueryResponse
 }
 
@@ -234,6 +236,7 @@ export interface EventsQueryResponse {
     columns: any[]
     types: string[]
     results: any[][]
+    hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
 }

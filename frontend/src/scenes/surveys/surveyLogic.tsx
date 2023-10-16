@@ -10,7 +10,6 @@ import {
     ChartDisplayType,
     PropertyFilterType,
     PropertyOperator,
-    RatingSurveyQuestion,
     Survey,
     SurveyQuestionBase,
     SurveyQuestionType,
@@ -49,7 +48,10 @@ export interface SurveyUserStats {
 }
 
 export interface SurveyRatingResults {
-    [key: number]: number[]
+    [key: number]: {
+        data: number[]
+        total: number
+    }
 }
 
 export interface SurveySingleChoiceResults {
@@ -57,6 +59,13 @@ export interface SurveySingleChoiceResults {
         labels: string[]
         data: number[]
         total: number
+    }
+}
+
+export interface SurveyMultipleChoiceResults {
+    [key: number]: {
+        labels: string[]
+        data: number[]
     }
 }
 
@@ -188,7 +197,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 questionIndex: number
             }): Promise<SurveyRatingResults> => {
                 const { survey } = values
-                const question = values.survey.questions[questionIndex] as RatingSurveyQuestion
+
+                const question = values.survey.questions[questionIndex]
+                if (question.type !== SurveyQuestionType.Rating) {
+                    throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
+                }
+
                 const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
                 const endDate = survey.end_date
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
@@ -212,12 +226,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
-                const resultArr = new Array(question.scale).fill(0)
+                let total = 0
+                const data = new Array(question.scale).fill(0)
                 results?.forEach(([value, count]) => {
-                    resultArr[value - 1] = count
+                    total += count
+                    data[value - 1] = count
                 })
 
-                return { ...values.surveyRatingResults, [questionIndex]: resultArr }
+                return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
             },
         },
         surveySingleChoiceResults: {
@@ -255,6 +271,58 @@ export const surveyLogic = kea<surveyLogicType>([
                 const total = data?.reduce((a, b) => a + b, 0)
 
                 return { ...values.surveySingleChoiceResults, [questionIndex]: { labels, data, total } }
+            },
+        },
+        surveyMultipleChoiceResults: {
+            loadSurveyMultipleChoiceResults: async ({
+                questionIndex,
+            }: {
+                questionIndex: number
+            }): Promise<SurveyMultipleChoiceResults> => {
+                const { survey } = values
+
+                const question = values.survey.questions[questionIndex]
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    throw new Error(`Survey question type must be ${SurveyQuestionType.MultipleChoice}`)
+                }
+
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) AS choice
+                        FROM events
+                        WHERE event == 'survey sent'
+                            AND properties.$survey_id == '${survey.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        GROUP BY choice
+                        ORDER BY count() DESC
+                    `,
+                }
+                const responseJSON = await api.query(query)
+                let { results } = responseJSON
+
+                // Remove outside quotes
+                results = results?.map((r) => {
+                    return [r[0], r[1].slice(1, r[1].length - 1)]
+                })
+
+                // Zero-fill
+                question.choices.forEach((choice) => {
+                    if (results?.length && !results.some((r) => r[1] === choice)) {
+                        results.push([0, choice])
+                    }
+                })
+
+                const data = results?.map((r) => r[0])
+                const labels = results?.map((r) => r[1])
+
+                return { ...values.surveyRatingResults, [questionIndex]: { labels, data } }
             },
         },
     })),
@@ -369,6 +437,17 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveySingleChoiceResultsSuccess: (state, { payload }) => {
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
+                },
+            },
+        ],
+        surveyMultipleChoiceResultsReady: [
+            {},
+            {
+                loadSurveyMultipleChoiceResultsSuccess: (state, { payload }) => {
                     if (!payload || !payload.hasOwnProperty('questionIndex')) {
                         return { ...state }
                     }

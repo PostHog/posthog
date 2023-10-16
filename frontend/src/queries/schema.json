@@ -821,6 +821,9 @@
                 "hasMore": {
                     "type": "boolean"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -841,7 +844,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results"],
+            "required": ["columns", "types", "results", "hogql"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -1206,6 +1209,9 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "explain": {
+                    "type": "boolean"
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },
@@ -1254,6 +1260,12 @@
                 },
                 "columns": {
                     "items": {},
+                    "type": "array"
+                },
+                "explain": {
+                    "items": {
+                        "type": "string"
+                    },
                     "type": "array"
                 },
                 "hogql": {
