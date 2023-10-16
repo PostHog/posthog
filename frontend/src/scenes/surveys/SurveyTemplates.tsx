@@ -26,7 +26,7 @@ export function SurveyTemplates(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <div className="flex flex-row flex-wrap gap-10 ml-8 mt-8">
+            <div className="flex flex-row flex-wrap gap-8 ml-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
                         <div
@@ -39,6 +39,9 @@ export function SurveyTemplates(): JSX.Element {
                             <span className="mb-2 text-md">
                                 <b>{template.type}</b>
                             </span>
+                            <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-2">
+                                {template.description}
+                            </span>
                             <div className="SurveyTemplateContainer">
                                 <div className="SurveyTemplate">
                                     <SurveyAppearance
@@ -47,14 +50,9 @@ export function SurveyTemplates(): JSX.Element {
                                         question={template.questions[0].question}
                                         appearance={{ whiteLabel: true, ...template.appearance }}
                                         surveyQuestionItem={template.questions[0] as SurveyQuestion}
-                                        onAppearanceChange={() => {}}
-                                        readOnly
                                     />
                                 </div>
                             </div>
-                            <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mt-3">
-                                {template.description}
-                            </span>
                         </div>
                     )
                 })}
