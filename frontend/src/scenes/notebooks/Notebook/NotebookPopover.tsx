@@ -17,13 +17,14 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { openNotebookShareDialog } from './NotebookShare'
 
 export function NotebookPopoverCard(): JSX.Element | null {
-    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
+    const { visibility, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
         useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
-    const editable = visibility !== 'hidden' && !notebook?.is_template
+    const visible = visibility !== 'hidden'
+    const editable = visible && !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -91,7 +92,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
             </header>
 
             <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
-                {shownAtLeastOnce && (
+                {visible && (
                     <Notebook
                         key={selectedNotebook}
                         shortId={selectedNotebook}
