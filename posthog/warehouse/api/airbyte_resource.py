@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import AirbyteResource, DataWarehouseCredential
 from posthog.warehouse.airbyte.source import StripeSourcePayload, create_stripe_source
-from posthog.warehouse.airbyte.connection import create_connection
+from posthog.warehouse.airbyte.connection import create_connection, retrieve_sync
 from posthog.warehouse.api.table import TableSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
@@ -22,13 +22,13 @@ class AirbyteResourceSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = AirbyteResource
-        fields = ["id", "source_id", "created_at", "created_by", "loading"]
+        fields = ["id", "source_id", "created_at", "created_by", "status", "client_secret", "account_id"]
         read_only_fields = [
             "id",
             "source_id",
             "created_by",
             "created_at",
-            "loading",
+            "status",
         ]
 
 
@@ -57,6 +57,16 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+    def retrieve(self, *args, **kwargs):
+        super_cls = super()
+
+        airbyte_resource = self.get_object()
+        job = retrieve_sync(airbyte_resource.connection_id)
+        airbyte_resource.status = job["status"]
+        airbyte_resource.save()
+
+        return super_cls.retrieve(*args, **kwargs)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         account_id = request.data["account_id"]

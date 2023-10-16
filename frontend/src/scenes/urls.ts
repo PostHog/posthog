@@ -107,7 +107,6 @@ export const urls = {
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
     dataWarehouse: (): string => '/data-warehouse',
-    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',

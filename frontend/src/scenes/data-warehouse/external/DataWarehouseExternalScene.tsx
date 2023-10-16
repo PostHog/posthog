@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithSideAction, LemonTag } from '@posthog/lemon-ui'
+import { LemonButtonWithSideAction, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,17 +33,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         </LemonTag>
                     </div>
                 }
-                buttons={[
-                    !shouldShowProductIntroduction ? (
-                        <LemonButton
-                            type="secondary"
-                            to={urls.dataWarehouseTable('new')}
-                            data-attr="new-data-warehouse-table"
-                            key={'new-data-warehouse-table'}
-                        >
-                            Manual Link
-                        </LemonButton>
-                    ) : undefined,
+                buttons={
                     <LemonButtonWithSideAction
                         type="primary"
                         sideAction={{
@@ -56,8 +46,8 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         onClick={toggleSourceModal}
                     >
                         Link Source
-                    </LemonButtonWithSideAction>,
-                ]}
+                    </LemonButtonWithSideAction>
+                }
                 caption={
                     <div>
                         These are external data sources you can query under SQL insights with{' '}
@@ -77,7 +67,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
+                    action={() => toggleSourceModal()}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}

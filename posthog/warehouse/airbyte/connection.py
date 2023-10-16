@@ -72,3 +72,17 @@ def start_sync(connection_id: str, headers: Dict):
 
     if not response.ok:
         raise ValueError(response_payload["detail"])
+
+
+def retrieve_sync(connection_id: str):
+    token = settings.AIRBYTE_API_KEY
+    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
+    params = {"connectionId": connection_id, "limit": 1}
+    response = requests.get(AIRBYTE_JOBS_URL, params=params, headers=headers)
+    response_payload = response.json()["data"]
+    latest_job = response_payload[0]
+
+    if not response.ok:
+        raise ValueError(response_payload["detail"])
+
+    return latest_job

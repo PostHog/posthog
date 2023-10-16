@@ -34,7 +34,6 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.FeatureFlag]: Scene.FeatureFlags,
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
