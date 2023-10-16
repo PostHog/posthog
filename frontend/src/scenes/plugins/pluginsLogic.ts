@@ -64,7 +64,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
         installPlugin: (pluginUrl: string, pluginType: PluginInstallationType) => ({ pluginUrl, pluginType }),
-        uninstallPlugin: (name: string) => ({ name }),
+        uninstallPlugin: (id: number) => ({ id }),
         setCustomPluginUrl: (customPluginUrl: string) => ({ customPluginUrl }),
         setLocalPluginUrl: (localPluginUrl: string) => ({ localPluginUrl }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
@@ -126,14 +126,10 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     actions.closeAdvancedInstallModal()
                     return { ...values.plugins, [response.id]: response }
                 },
-                uninstallPlugin: async () => {
-                    const { plugins, editingPlugin } = values
-                    if (!editingPlugin) {
-                        return plugins
-                    }
-                    await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
-                    capturePluginEvent(`plugin uninstalled`, editingPlugin)
-                    const { [editingPlugin.id]: _discard, ...rest } = plugins
+                uninstallPlugin: async ({ id }) => {
+                    await api.delete(`api/organizations/@current/plugins/${id}`)
+                    capturePluginEvent(`plugin uninstalled`, values.plugins[id])
+                    const { [id]: _discard, ...rest } = values.plugins
                     return rest
                 },
                 updatePlugin: async ({ id }) => {
@@ -242,6 +238,16 @@ export const pluginsLogic = kea<pluginsLogicType>([
                         }
                     }
                     return repository
+                },
+            },
+        ],
+        unusedPlugins: [
+            // used for know if plugin can be uninstalled
+            [] as number[],
+            {
+                loadUnusedPlugins: async () => {
+                    const results = await api.get('api/organizations/@current/plugins/unused')
+                    return results
                 },
             },
         ],
@@ -790,6 +796,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
         actions.loadPluginConfigs()
         if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
             actions.loadRepository()
+            actions.loadUnusedPlugins()
         }
     }),
 ])
