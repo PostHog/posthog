@@ -311,7 +311,7 @@ const HogQLRaw: HogQLQuery = {
     explain: true,
     filters: {
         dateRange: {
-            date_from: '-34h',
+            date_from: '-24h',
         },
     },
 }
