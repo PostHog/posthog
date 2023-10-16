@@ -27,11 +27,14 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { processCohort } from 'lib/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+export type CohortLogicProps = {
+    id?: CohortType['id']
+}
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),

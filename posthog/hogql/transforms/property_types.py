@@ -149,7 +149,7 @@ class PropertySwapper(CloningVisitor):
     def _add_property_notice(self, node: ast.Field, property_type: Literal["event", "person"], field_type: str) -> str:
         property_name = node.chain[-1]
         if property_type == "person":
-            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", property_name, "properties")

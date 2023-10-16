@@ -26,14 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import {
-    DatabaseSchemaQueryResponseField,
-    HogQLQuery,
-    InsightQueryNode,
-    InsightVizNode,
-    Node,
-    QueryContext,
-} from './queries/schema'
+import { DatabaseSchemaQueryResponseField, HogQLQuery, InsightVizNode, Node, QueryContext } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -1816,7 +1809,6 @@ export enum RecordingWindowFilter {
 }
 
 export interface EditorFilterProps {
-    query: InsightQueryNode
     insightProps: InsightLogicProps
 }
 
@@ -2317,7 +2309,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    region: Region
+    region: Region | null
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -3072,6 +3064,8 @@ export enum NotebookNodeType {
     EarlyAccessFeature = 'ph-early-access-feature',
     Survey = 'ph-survey',
     Person = 'ph-person',
+    Group = 'ph-group',
+    Cohort = 'ph-cohort',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',

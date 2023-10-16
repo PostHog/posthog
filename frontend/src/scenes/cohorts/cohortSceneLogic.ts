@@ -1,14 +1,12 @@
 import { kea, key, path, props, selectors } from 'kea'
-import type { cohortLogicType } from './cohortLogicType'
-import { Breadcrumb, CohortType } from '~/types'
+import { Breadcrumb } from '~/types'
 import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
+import { CohortLogicProps } from './cohortEditLogic'
 
-export interface CohortLogicProps {
-    id?: CohortType['id']
-}
+import type { cohortSceneLogicType } from './cohortSceneLogicType'
 
-export const cohortLogic = kea<cohortLogicType>([
+export const cohortSceneLogic = kea<cohortSceneLogicType>([
     props({} as CohortLogicProps),
     key((props) => props.id || 'new'),
     path(['scenes', 'cohorts', 'cohortLogic']),

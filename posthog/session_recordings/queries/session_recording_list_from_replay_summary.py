@@ -463,7 +463,7 @@ class SessionIdEventsQuery(EventQuery):
         return person_id_clause, person_id_params
 
     def matching_events(self) -> List[str]:
-        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
         query, query_params = self.get_query(select_event_ids=True)
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         results = [row[0] for row in query_results]
@@ -563,7 +563,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def run(self) -> SessionRecordingQueryResult:
-        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
         query, query_params = self.get_query()
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         session_recordings = self._data_to_return(query_results)

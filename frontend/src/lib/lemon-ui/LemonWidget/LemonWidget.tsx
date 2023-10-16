@@ -15,7 +15,7 @@ export function LemonWidget({ title, onClose, actions, children, className }: Le
     return (
         <Widget className={className}>
             <Header>
-                <span className="flex-1 text-primary-alt px-2">{title}</span>
+                <span className="flex-1 text-primary-alt px-2 truncate">{title}</span>
                 {actions}
 
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconClose />} />}

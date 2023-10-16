@@ -31,12 +31,12 @@ export const NotebookSidebar = (): JSX.Element | null => {
 
 const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
     const { setEditingNodeId } = useActions(notebookLogic)
-    const { settings: Settings, nodeAttributes, defaultTitle } = useValues(logic)
+    const { settings: Settings, nodeAttributes, title } = useValues(logic)
     const { updateAttributes, selectNode } = useActions(logic)
 
     return (
         <LemonWidget
-            title={`Editing '${nodeAttributes.title ?? defaultTitle}'`}
+            title={`Editing '${title}'`}
             className="NotebookSidebar__widget"
             actions={
                 <>

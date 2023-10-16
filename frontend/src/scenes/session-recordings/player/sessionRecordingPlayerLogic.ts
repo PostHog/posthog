@@ -108,7 +108,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['user', 'hasAvailableFeature'],
             preflightLogic,
             ['preflight'],
             featureFlagLogic,
@@ -762,15 +762,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
-            // If buffering, toggle is a noop
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
-                return
-            }
             // If paused, start playing
-            if (
-                values.currentPlayerState === SessionPlayerState.PAUSE ||
-                values.currentPlayerState === SessionPlayerState.READY
-            ) {
+            if (values.playingState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
             }
             // If playing, pause
@@ -873,7 +866,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+            if (!values.user?.is_impersonated && !values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
                 openBillingPopupModal({
                     title: 'Unlock recording exports',
                     description:
@@ -896,7 +889,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
 
                 const recordingFile = new File(
-                    [JSON.stringify(payload)],
+                    [JSON.stringify(payload, null, 2)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,
                     { type: 'application/json' }
                 )
@@ -965,13 +958,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         delete (window as any).__debug_player
 
         actions.stopAnimation()
-        cache.resetConsoleWarn?.()
+
         cache.hasInitialized = false
-        clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
         values.player?.replayer?.pause()
         actions.setPlayer(null)
+        cache.unmountConsoleWarns?.()
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -1024,29 +1017,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.openTime = performance.now()
 
-        // NOTE: RRWeb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
-        let warningCount = 0
-        cache.consoleWarnDebounceTimer = null
-
-        const debouncedCounter = (): void => {
-            warningCount += 1
-
-            if (!cache.consoleWarnDebounceTimer) {
-                cache.consoleWarnDebounceTimer = setTimeout(() => {
-                    cache.consoleWarnDebounceTimer = null
-                    actions.incrementWarningCount(warningCount)
-                    warningCount = 0
-                }, 1000)
-            }
-        }
-
-        cache.resetConsoleWarn = wrapConsole('warn', (args) => {
-            if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
-                debouncedCounter()
-            }
-
-            return true
-        })
+        cache.unmountConsoleWarns = manageConsoleWarns(cache, actions.incrementWarningCount)
     }),
 ])
 
@@ -1054,4 +1025,49 @@ export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProp
     // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
     const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
     return Math.floor(playerTime / 1000)
+}
+
+export const manageConsoleWarns = (cache: any, onIncrement: (count: number) => void): (() => void) => {
+    // NOTE: RRWeb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
+    // We also don't log the warnings directly. Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
+    ;(window as any).__posthog_player_warnings = []
+    const warnings: any[][] = (window as any).__posthog_player_warnings
+
+    let counter = 0
+
+    let consoleWarnDebounceTimer: NodeJS.Timeout | null = null
+
+    const actualConsoleWarn = console.warn
+
+    const debouncedCounter = (args: any[]): void => {
+        warnings.push(args)
+        counter += 1
+
+        if (!consoleWarnDebounceTimer) {
+            consoleWarnDebounceTimer = setTimeout(() => {
+                consoleWarnDebounceTimer = null
+                onIncrement(warnings.length)
+
+                actualConsoleWarn(
+                    `[PostHog Replayer] ${counter} warnings (window.__posthog_player_warnings to safely log them)`
+                )
+                counter = 0
+            }, 1000)
+        }
+    }
+
+    const resetConsoleWarn = wrapConsole('warn', (args) => {
+        if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
+            debouncedCounter(args)
+            // WARNING: Logging these out can cause the browser to completely crash, so we want to delay it and
+            return false
+        }
+
+        return true
+    })
+
+    return () => {
+        resetConsoleWarn()
+        clearTimeout(cache.consoleWarnDebounceTimer)
+    }
 }

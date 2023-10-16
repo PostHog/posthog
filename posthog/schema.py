@@ -228,6 +228,26 @@ class HogQLNotice(BaseModel):
     start: Optional[float] = None
 
 
+class PersonsArgMaxVersion(str, Enum):
+    auto = "auto"
+    v1 = "v1"
+    v2 = "v2"
+
+
+class PersonsOnEventsMode(str, Enum):
+    disabled = "disabled"
+    v1_enabled = "v1_enabled"
+    v2_enabled = "v2_enabled"
+
+
+class HogQLQueryModifiers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+
+
 class IntervalType(str, Enum):
     hour = "hour"
     day = "day"
@@ -566,6 +586,7 @@ class EventsQueryResponse(BaseModel):
     )
     columns: List
     hasMore: Optional[bool] = None
+    hogql: str
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
@@ -644,6 +665,7 @@ class HogQLQueryResponse(BaseModel):
     clickhouse: Optional[str] = None
     columns: Optional[List] = None
     hogql: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: Optional[str] = None
     results: Optional[List] = None
     timings: Optional[List[QueryTiming]] = None
@@ -720,8 +742,8 @@ class WebOverviewStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
+    properties: List[EventPropertyFilter]
     response: Optional[WebOverviewStatsQueryResponse] = None
 
 
@@ -730,8 +752,8 @@ class WebTopClicksQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    properties: List[EventPropertyFilter]
     response: Optional[WebTopClicksQueryResponse] = None
 
 
@@ -740,8 +762,8 @@ class WebTopPagesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
+    properties: List[EventPropertyFilter]
     response: Optional[WebTopPagesQueryResponse] = None
 
 
@@ -750,8 +772,8 @@ class WebTopSourcesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
+    properties: List[EventPropertyFilter]
     response: Optional[WebTopSourcesQueryResponse] = None
 
 
@@ -917,6 +939,7 @@ class HogQLQuery(BaseModel):
     )
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(
