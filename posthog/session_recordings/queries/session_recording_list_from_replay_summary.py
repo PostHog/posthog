@@ -3,6 +3,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
 
+from sentry_sdk import capture_exception
+
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity, Team
@@ -588,9 +590,15 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             recording_filters=self._filter
         )
 
-        log_matching_session_ids_clause, log_matching_session_ids_params = _get_filter_by_log_text_session_ids_clause(
-            team=self._team, recording_filters=self._filter
-        )
+        try:
+            (
+                log_matching_session_ids_clause,
+                log_matching_session_ids_params,
+            ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
+        except Exception as ex:
+            # error here weren't making it to sentry, let's be explicit
+            capture_exception(ex, tags={"team_id": self._team.pk})
+            raise ex
 
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
