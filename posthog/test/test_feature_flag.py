@@ -2444,7 +2444,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
     def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
-
         flag: FeatureFlag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
