@@ -451,14 +451,14 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                               ]
                                                                                             : []),
                                                                                         {
-                                                                                            label: '1 - 5',
+                                                                                            label: '0 - 5',
                                                                                             value: 5,
                                                                                         },
                                                                                         ...(question.display ===
                                                                                         'number'
                                                                                             ? [
                                                                                                   {
-                                                                                                      label: '1 - 10',
+                                                                                                      label: '0 - 10',
                                                                                                       value: 10,
                                                                                                   },
                                                                                               ]

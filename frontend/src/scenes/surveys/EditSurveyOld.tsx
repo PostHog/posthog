@@ -227,9 +227,9 @@ export default function EditSurveyOld(): JSX.Element {
                                                                         ...(question.display === 'emoji'
                                                                             ? [{ label: '1 - 3', value: 3 }]
                                                                             : []),
-                                                                        { label: '1 - 5', value: 5 },
+                                                                        { label: '0 - 5', value: 5 },
                                                                         ...(question.display === 'number'
-                                                                            ? [{ label: '1 - 10', value: 10 }]
+                                                                            ? [{ label: '0 - 10', value: 10 }]
                                                                             : []),
                                                                     ]}
                                                                 />
