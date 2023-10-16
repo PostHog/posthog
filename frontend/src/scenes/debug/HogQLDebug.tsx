@@ -1,5 +1,5 @@
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { DataNode, HogQLQuery } from '~/queries/schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { BindLogic, useValues } from 'kea'
@@ -19,6 +19,8 @@ interface HogQLDebugProps {
 export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey }
     const { dataLoading, response, responseErrorObject, elapsedTime } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const clickHouseTime = (response as HogQLQueryResponse)?.timings?.find(({ k }) => k === './clickhouse_execute')?.t
+
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div className="space-y-2">
@@ -82,10 +84,21 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         ) : null}
                         {response?.clickhouse ? (
                             <>
-                                <h2>Executed ClickHouse SQL</h2>
+                                <h2>
+                                    Executed ClickHouse SQL
+                                    {clickHouseTime !== undefined
+                                        ? ` (${Math.floor(clickHouseTime * 1000) / 1000}s)`
+                                        : ''}
+                                </h2>
                                 <CodeSnippet language={Language.SQL} wrap>
                                     {response.clickhouse}
                                 </CodeSnippet>
+                            </>
+                        ) : null}
+                        {response?.explain ? (
+                            <>
+                                <h2>Explained ClickHouseSQL</h2>
+                                <CodeSnippet wrap>{response.explain.join('\n')}</CodeSnippet>
                             </>
                         ) : null}
                         {response?.timings && elapsedTime !== null ? (

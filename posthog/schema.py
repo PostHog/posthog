@@ -664,6 +664,7 @@ class HogQLQueryResponse(BaseModel):
     )
     clickhouse: Optional[str] = None
     columns: Optional[List] = None
+    explain: Optional[List[str]] = None
     hogql: Optional[str] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     query: Optional[str] = None
@@ -937,6 +938,7 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    explain: Optional[bool] = None
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     modifiers: Optional[HogQLQueryModifiers] = None

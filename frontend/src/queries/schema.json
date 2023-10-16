@@ -1209,6 +1209,9 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "explain": {
+                    "type": "boolean"
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },
@@ -1257,6 +1260,12 @@
                 },
                 "columns": {
                     "items": {},
+                    "type": "array"
+                },
+                "explain": {
+                    "items": {
+                        "type": "string"
+                    },
                     "type": "array"
                 },
                 "hogql": {
