@@ -506,6 +506,36 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
+    def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
+
+        survey_with_linked_flag = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "linked_flag_id": linked_flag.id,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_linked_flag["linked_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_removes_linked_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_linked_flag['id']}/",
+            data={
+                "linked_flag_id": None,
+            },
+        )
+
+        assert updated_survey_removes_linked_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_removes_linked_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_removes_linked_flag.json()["linked_flag"] is None
+
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
     def test_deleting_survey_does_not_delete_linked_flag(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
 

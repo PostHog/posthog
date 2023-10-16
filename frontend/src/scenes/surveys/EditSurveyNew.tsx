@@ -38,10 +38,9 @@ import {
     defaultSurveyAppearance,
     SurveyQuestionLabel,
     SurveyUrlMatchTypeLabels,
-    NEW_SURVEY,
 } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -82,22 +81,13 @@ function PresentationTypeCard({
 }
 
 export default function EditSurveyNew(): JSX.Element {
-    const { survey, hasTargetingFlag, urlMatchTypeValidationError, writingHTMLDescription } = useValues(surveyLogic)
-    const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription } = useActions(surveyLogic)
-    const [targetAll, setTargetAll] = useState<boolean>(true)
-    const [activePreview, setActivePreview] = useState<number>(0)
+    const { survey, hasTargetingFlag, urlMatchTypeValidationError, writingHTMLDescription, hasTargetingSet } =
+        useValues(surveyLogic)
+    const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription, resetTargeting } =
+        useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
-    useEffect(() => {
-        if (targetAll) {
-            setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
-            setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
-            setSurveyValue('linked_flag', NEW_SURVEY.linked_flag)
-            setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
-            setSurveyValue('conditions', NEW_SURVEY.conditions)
-            setSurveyValue('remove_targeting_flag', true)
-        }
-    }, [targetAll])
+    const [activePreview, setActivePreview] = useState<number>(0)
 
     const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
@@ -779,14 +769,23 @@ export default function EditSurveyNew(): JSX.Element {
                             content: (
                                 <PureField>
                                     <LemonSelect
-                                        onChange={(value) => setTargetAll(value)}
-                                        value={targetAll}
+                                        onChange={(value) => {
+                                            if (value) {
+                                                resetTargeting()
+                                            } else {
+                                                // TRICKY: When attempting to set user match conditions
+                                                // we want a proxy value to be set so that the user
+                                                // can then edit these, or decide to go back to all user targeting
+                                                setSurveyValue('conditions', { url: '' })
+                                            }
+                                        }}
+                                        value={!hasTargetingSet}
                                         options={[
                                             { label: 'All users', value: true },
                                             { label: 'Users who match...', value: false },
                                         ]}
                                     />
-                                    {targetAll ? (
+                                    {!hasTargetingSet ? (
                                         <span className="text-muted">
                                             Survey <b>will be released to everyone</b>
                                         </span>
@@ -804,14 +803,19 @@ export default function EditSurveyNew(): JSX.Element {
                                             >
                                                 {({ value, onChange }) => (
                                                     <div className="flex">
-                                                        <FlagSelector value={value} onChange={onChange} />
+                                                        <FlagSelector
+                                                            value={value}
+                                                            onChange={(value) => {
+                                                                onChange(value)
+                                                            }}
+                                                        />
                                                         {value && (
                                                             <LemonButton
                                                                 className="ml-2"
                                                                 icon={<IconCancel />}
                                                                 size="small"
                                                                 status="stealth"
-                                                                onClick={() => onChange(undefined)}
+                                                                onClick={() => onChange(null)}
                                                                 aria-label="close"
                                                             />
                                                         )}

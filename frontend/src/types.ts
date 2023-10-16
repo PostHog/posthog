@@ -2101,7 +2101,6 @@ export interface Survey {
     conditions: {
         url: string
         selector: string
-        is_headless?: boolean
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
     } | null

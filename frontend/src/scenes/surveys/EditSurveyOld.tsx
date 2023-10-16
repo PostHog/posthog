@@ -391,7 +391,7 @@ export default function EditSurveyOld(): JSX.Element {
                                         icon={<IconCancel />}
                                         size="small"
                                         status="stealth"
-                                        onClick={() => onChange(undefined)}
+                                        onClick={() => onChange(null)}
                                         aria-label="close"
                                     />
                                 )}

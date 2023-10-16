@@ -104,6 +104,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
+        resetTargeting: true,
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -290,6 +291,14 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
             actions.loadSurveyUserStats()
         },
+        resetTargeting: () => {
+            actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
+            actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
+            actions.setSurveyValue('linked_flag', NEW_SURVEY.linked_flag)
+            actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
+            actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
+            actions.setSurveyValue('remove_targeting_flag', true)
+        },
     })),
     reducers({
         isEditingSurvey: [
@@ -379,6 +388,18 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        hasTargetingSet: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                const hasLinkedFlag =
+                    !!survey.linked_flag_id || (survey.linked_flag && Object.keys(survey.linked_flag).length > 0)
+                const hasTargetingFlag =
+                    (survey.targeting_flag && Object.keys(survey.targeting_flag).length > 0) ||
+                    (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0)
+                const hasOtherConditions = survey.conditions && Object.keys(survey.conditions).length > 0
+                return !!hasLinkedFlag || !!hasTargetingFlag || !!hasOtherConditions
             },
         ],
         breadcrumbs: [
