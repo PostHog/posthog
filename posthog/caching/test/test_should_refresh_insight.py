@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
 from time import sleep
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 from django.http import HttpRequest
 
-import pytz
 from freezegun import freeze_time
 from rest_framework.request import Request
 from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME
@@ -25,7 +25,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_should_return_true_if_refresh_not_requested(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1)
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1)
         )
 
         # .GET["refresh"] is absent in the request below!
@@ -47,7 +47,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_should_return_true_if_refresh_requested(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1)
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1)
         )
 
         should_refresh_now, refresh_frequency = should_refresh_insight(insight, None, request=self.refresh_request)
@@ -67,7 +67,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_shared_insights_can_be_refreshed_less_often(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1)
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1)
         )
 
         should_refresh_now, refresh_frequency = should_refresh_insight(
@@ -130,7 +130,7 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_should_return_true_if_was_recently_refreshed(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC"))
+            last_refresh=datetime.now(tz=ZoneInfo("UTC"))
         )
         request = HttpRequest()
 
@@ -143,10 +143,10 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_should_return_true_if_refresh_just_about_to_time_out_elsewhere(self, mock_sleep):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1),
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1),
             # This insight is being calculated _somewhere_, since it was last refreshed
             # earlier than the recent refresh has been queued
-            last_refresh_queued_at=datetime.now(tz=pytz.timezone("UTC"))
+            last_refresh_queued_at=datetime.now(tz=ZoneInfo("UTC"))
             - timedelta(seconds=CLICKHOUSE_MAX_EXECUTION_TIME - 0.5),  # Half a second before timeout
         )
 
@@ -161,10 +161,10 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_should_return_true_if_refresh_timed_out_elsewhere_before(self):
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
         InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC")) - timedelta(days=1),
+            last_refresh=datetime.now(tz=ZoneInfo("UTC")) - timedelta(days=1),
             # last_refresh is earlier than last_refresh_queued_at BUT last_refresh_queued_at is more than
             # CLICKHOUSE_MAX_EXECUTION_TIME seconds ago. This means the query CANNOT be running at this time.
-            last_refresh_queued_at=datetime.now(tz=pytz.timezone("UTC")) - timedelta(seconds=500),
+            last_refresh_queued_at=datetime.now(tz=ZoneInfo("UTC")) - timedelta(seconds=500),
         )
 
         should_refresh_now, _ = should_refresh_insight(insight, None, request=self.refresh_request)

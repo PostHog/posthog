@@ -4,7 +4,7 @@ import re
 from math import ceil
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -361,11 +361,13 @@ class DateMixin(BaseParamMixin):
             if isinstance(self._date_to, str):
                 try:
                     return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
-                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=pytz.UTC
+                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("UTC")
                     )
                 except ValueError:
                     try:
-                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(
+                            tzinfo=ZoneInfo("UTC")
+                        )
                     except ValueError:
                         date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to, self.team.timezone_info, always_truncate=True)  # type: ignore
                         self.date_to_delta_mapping = delta_mapping

@@ -8,7 +8,7 @@
             "name": "Celery",
             "type": "python",
             "request": "launch",
-            "module": "celery",
+            "program": "${workspaceFolder}/env/bin/celery",
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}",
@@ -96,6 +96,31 @@
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Pytest: Current File",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${file}", "-vvv"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "(lldb) Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "/Users/twixes/.pyenv/versions/3.10.10/envs/posthog-3.10/bin/python",
+            "MIMode": "lldb"
+        },
+        {
+            "name": "Python C++ Debugger: Current File",
+            "type": "pythoncpp",
+            "request": "launch",
+            "pythonConfig": "custom",
+            "pythonLaunchName": "Pytest: Current File",
+            "cppConfig": "custom",
+            "cppAttachName": "(lldb) Attach"
         }
     ],
     "compounds": [

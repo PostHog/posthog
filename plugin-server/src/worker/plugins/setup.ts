@@ -26,8 +26,11 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
-            pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
-
+            if (hub.PLUGIN_LOAD_SEQUENTIALLY) {
+                await loadPlugin(hub, pluginConfig)
+            } else {
+                pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
+            }
             if (prevConfig) {
                 void teardownPlugins(hub, prevConfig)
             }

@@ -25,6 +25,7 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element {
     return (
         <>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className="page-title-row flex justify-between" style={style}>
                 <div className="min-w-0">
                     {notebookProps ? (

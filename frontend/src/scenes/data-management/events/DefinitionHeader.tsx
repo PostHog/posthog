@@ -108,7 +108,7 @@ function RawDefinitionHeader({
     const isLink = asLink && fullDetailUrl
 
     const innerContent = (
-        <span className={clsx('definition-column-name-content-title', asLink && 'text-primary cursor-pointer')}>
+        <span className={clsx('definition-column-name-content-title', asLink && 'text-link cursor-pointer')}>
             <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon />
         </span>
     )

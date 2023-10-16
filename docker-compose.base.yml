@@ -35,7 +35,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
+        image: ghcr.io/posthog/kafka-container:v2.8.2
         restart: on-failure
         depends_on:
             - zookeeper

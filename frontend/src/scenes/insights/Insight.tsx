@@ -11,7 +11,7 @@ import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
-
+import { Node } from '~/queries/schema'
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
@@ -30,7 +30,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     // insightDataLogic
     const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -48,6 +48,12 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const actuallyShowQueryEditor =
         insightMode === ItemMode.Edit &&
         ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
+
+    const setQuery = (query: Node): void => {
+        if (!isInsightVizNode(query)) {
+            setInsightQuery(query)
+        }
+    }
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>

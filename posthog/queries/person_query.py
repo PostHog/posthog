@@ -144,6 +144,7 @@ class PersonQuery:
             {distinct_id_condition} {email_condition}
             {order}
             {limit_offset}
+            SETTINGS optimize_aggregation_in_order = 1
             """,
             {
                 **updated_after_params,

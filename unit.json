@@ -1,0 +1,16 @@
+{
+    "listeners": {
+        "*:8000": {
+            "pass": "applications/posthog"
+        }
+    },
+    "applications": {
+        "posthog": {
+            "type": "python 3.10",
+            "processes": 1,
+            "working_directory": "/code",
+            "path": ".",
+            "module": "posthog.wsgi"
+        }
+    }
+}

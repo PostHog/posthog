@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
+from posthog.caching.utils import is_stale_filter
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import User
@@ -74,9 +75,12 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 route = "unknown"
 
             if cached_result_package and cached_result_package.get("result"):
-                cached_result_package["is_cached"] = True
-                statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
-                return cached_result_package
+                if not is_stale_filter(team, filter, cached_result_package):
+                    cached_result_package["is_cached"] = True
+                    statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
+                    return cached_result_package
+                else:
+                    statsd.incr("posthog_cached_function_cache_stale", tags={"route": route})
             else:
                 statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
 

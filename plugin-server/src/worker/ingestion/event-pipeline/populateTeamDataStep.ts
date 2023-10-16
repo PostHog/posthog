@@ -72,7 +72,6 @@ export async function populateTeamDataStep(
     event = {
         ...event,
         team_id: team.id,
-        ip: team.anonymize_ips ? null : event.ip,
     }
 
     return event as PluginEvent

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { Textfit } from 'react-textfit'
+import Textfit from './Textfit'
 import clsx from 'clsx'
 
 import { insightLogic } from '../../insightLogic'
@@ -41,6 +41,9 @@ function useBoldNumberTooltip({
         const divRect = divRef.current?.getBoundingClientRect()
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
+        if (isTooltipShown) {
+            tooltipEl.style.display = 'initial'
+        }
 
         const seriesResult = insightData?.result?.[0]
 
@@ -66,10 +69,10 @@ function useBoldNumberTooltip({
             () => {
                 const tooltipRect = tooltipEl.getBoundingClientRect()
                 if (divRect) {
-                    tooltipEl.style.top = `${
-                        window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-                    }px`
-                    tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
+                    const desiredTop = window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+                    const desiredLeft = divRect.left + divRect.width / 2 - tooltipRect.width / 2
+                    tooltipEl.style.top = `${Math.min(desiredTop, window.innerHeight)}px`
+                    tooltipEl.style.left = `${Math.min(desiredLeft, window.innerWidth)}px`
                 }
             }
         )
@@ -81,7 +84,6 @@ function useBoldNumberTooltip({
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
-    const [textFitTimer, setTextFitTimer] = useState<NodeJS.Timeout | null>(null)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
@@ -89,28 +91,9 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const showComparison = !!trendsFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
-    useEffect(() => {
-        // sometimes text fit can get stuck and leave text too small
-        // force a resize after a small delay
-        const timer = setTimeout(() => window.dispatchEvent(new CustomEvent('resize')), 300)
-        setTextFitTimer(timer)
-        return () => clearTimeout(timer)
-    }, [])
-
     return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit
-                mode="single"
-                min={32}
-                max={120}
-                onReady={() => {
-                    // if fontsize has calculated then no need for a resize event
-                    if (textFitTimer) {
-                        clearTimeout(textFitTimer)
-                    }
-                }}
-                style={{ lineHeight: 1 }}
-            >
+            <Textfit min={32} max={120}>
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={

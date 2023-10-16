@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import dataclasses
 import datetime
@@ -34,6 +35,8 @@ import lzstring
 import posthoganalytics
 import pytz
 import structlog
+from asgiref.sync import async_to_sync
+from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -128,13 +131,13 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     period_end: datetime.datetime = datetime.datetime.combine(
         at - datetime.timedelta(days=1),
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the previous day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the previous day
 
     return (period_start, period_end)
@@ -152,20 +155,20 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
     period_end: datetime.datetime = datetime.datetime.combine(
         at,
         datetime.time.max,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
-        tzinfo=pytz.UTC,
+        tzinfo=ZoneInfo("UTC"),
     )  # very start of the reference day
 
     return (period_start, period_end)
 
 
 def relative_date_parse_with_delta_mapping(
-    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
 ) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -188,7 +191,7 @@ def relative_date_parse_with_delta_mapping(
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    parsed_dt = dt.datetime.now().astimezone(timezone_info)
+    parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping
@@ -240,8 +243,10 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping
 
 
-def relative_date_parse(input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate)[0]
+def relative_date_parse(
+    input: str, timezone_info: ZoneInfo, *, always_truncate: bool = False, now: Optional[datetime.datetime] = None
+) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
 
 
 def get_git_branch() -> Optional[str]:
@@ -857,7 +862,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         None,
     ):
-        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.SOCIAL_SSO in license.available_features):
             output["google-oauth2"] = True
         else:
             logger.warning("You have Google login set up, but not the required license!")
@@ -1085,7 +1090,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) ->
     if isinstance(timestamp, str):
         timestamp = parser.isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -1180,7 +1185,24 @@ def get_week_start_for_country_code(country_code: str) -> int:
     return 1  # Monday
 
 
-def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
+def sleep_time_generator() -> Generator[float, None, None]:
+    # a generator that yield an exponential back off between 0.1 and 3 seconds
+    for _ in range(10):
+        yield 0.1  # 1 second in total
+    for _ in range(5):
+        yield 0.2  # 1 second in total
+    for _ in range(5):
+        yield 0.4  # 2 seconds in total
+    for _ in range(5):
+        yield 0.8  # 4 seconds in total
+    for _ in range(10):
+        yield 1.5  # 15 seconds in total
+    while True:
+        yield 3.0
+
+
+@async_to_sync
+async def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.timedelta] = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
@@ -1190,10 +1212,38 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
 
     start_time = timezone.now()
 
+    sleep_generator = sleep_time_generator()
+
     while not task.ready():
         if timezone.now() - start_time > max_timeout:
+            child_states = []
+            child: AsyncResult
+            children = task.children or []
+            for child in children:
+                child_states.append(child.state)
+                # this child should not be retried...
+                if child.state in ["PENDING", "STARTED"]:
+                    # terminating here terminates the process not the task
+                    # but if the task is in PENDING or STARTED after 10 minutes
+                    # we have to assume the celery process isn't processing another task
+                    # see: https://docs.celeryq.dev/en/stable/userguide/workers.html#revoke-revoking-tasks
+                    # and: https://docs.celeryq.dev/en/latest/reference/celery.result.html
+                    # we terminate the process to avoid leaking an instance of Chrome
+                    child.revoke(terminate=True)
+
+            logger.error(
+                "Timed out waiting for celery task to finish",
+                ready=task.ready(),
+                successful=task.successful(),
+                failed=task.failed(),
+                task_state=task.state,
+                child_states=child_states,
+                timeout=max_timeout,
+                start_time=start_time,
+            )
             raise TimeoutError("Timed out waiting for celery task to finish")
-        time.sleep(0.1)
+
+        await asyncio.sleep(next(sleep_generator))
     return task
 
 

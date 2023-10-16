@@ -1,16 +1,19 @@
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightShortId, NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
-import { useJsonNodeState } from './utils'
-import { useMemo } from 'react'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps, NotebookNodeWidgetSettings } from '../Notebook/utils'
+import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { containsHogQLQuery, isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-import api from 'lib/api'
+
+import './NotebookNodeQuery.scss'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -23,20 +26,48 @@ const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const [query] = useJsonNodeState<QuerySchema>(props.node.attrs, props.updateAttributes, 'query')
-    const { expanded } = useValues(notebookNodeLogic)
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
+    const { query, nodeId } = attributes
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { expanded } = useValues(nodeLogic)
+    const { setTitlePlaceholder } = useActions(nodeLogic)
+
+    useEffect(() => {
+        let title = 'Query'
+
+        if (query.kind === NodeKind.DataTableNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Data exploration'
+            }
+        }
+        if (query.kind === NodeKind.InsightVizNode) {
+            if (query.source.kind) {
+                title = query.source.kind.replace('Node', '').replace('Query', '')
+            } else {
+                title = 'Insight'
+            }
+        }
+        if (query.kind === NodeKind.SavedInsightNode) {
+            const logic = insightLogic.findMounted({ dashboardItemId: query.shortId })
+            title = (logic?.values.insight.name || logic?.values.insight.derived_name) ?? 'Saved Insight'
+        }
+
+        setTitlePlaceholder(title)
+    }, [query])
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
-        if (NodeKind.DataTableNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
+        if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.full = false
             modifiedQuery.showHogQLEditor = false
             modifiedQuery.embedded = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+        }
+
+        if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
             modifiedQuery.showHeader = false
             modifiedQuery.showTable = false
@@ -55,7 +86,7 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeQueryAttributes>): J
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={props.node.attrs.nodeId} />
+            <Query query={modifiedQuery} uniqueKey={nodeId} readOnly={true} />
         </div>
     )
 }
@@ -67,19 +98,32 @@ type NotebookNodeQueryAttributes = {
 export const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeWidgetSettings<NotebookNodeQueryAttributes>): JSX.Element => {
-    const [query, setQuery] = useJsonNodeState<QuerySchema>(attributes, updateAttributes, 'query')
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element => {
+    const { query } = attributes
 
     const modifiedQuery = useMemo(() => {
-        const modifiedQuery = { ...query }
+        const modifiedQuery = { ...query, full: false }
 
-        if (NodeKind.DataTableNode === modifiedQuery.kind) {
-            // We don't want to show the insights button for now
+        if (NodeKind.DataTableNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showOpenEditorButton = false
             modifiedQuery.showHogQLEditor = true
             modifiedQuery.showResultsTable = false
+
             modifiedQuery.showReload = true
-        } else if (NodeKind.InsightVizNode === modifiedQuery.kind) {
+            modifiedQuery.showElapsedTime = false
+            modifiedQuery.showTimings = false
+
+            modifiedQuery.embedded = true
+            modifiedQuery.showActions = true
+
+            modifiedQuery.showDateRange = true
+            modifiedQuery.showEventFilter = true
+            modifiedQuery.showSearch = true
+            modifiedQuery.showPropertyFilter = true
+            modifiedQuery.showColumnConfigurator = true
+        }
+
+        if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = true
             modifiedQuery.showResults = false
             modifiedQuery.embedded = true
@@ -88,15 +132,60 @@ export const Settings = ({
         return modifiedQuery
     }, [query])
 
-    return (
+    const detachSavedInsight = (): void => {
+        if (attributes.query.kind === NodeKind.SavedInsightNode) {
+            const insightProps: InsightLogicProps = { dashboardItemId: attributes.query.shortId }
+            const dataLogic = insightDataLogic.findMounted(insightProps)
+
+            if (dataLogic) {
+                updateAttributes({ query: dataLogic.values.query as QuerySchema })
+            }
+        }
+    }
+
+    return attributes.query.kind === NodeKind.SavedInsightNode ? (
+        <div className="p-3 space-y-2">
+            <div className="text-lg font-semibold">Insight created outside of this notebook</div>
+            <div>
+                Changes made to the original insight will be reflected in the notebook. Or you can detach from the
+                insight to make changes independently in the notebook.
+            </div>
+
+            <div className="space-y-2">
+                <LemonButton
+                    center={true}
+                    type="secondary"
+                    fullWidth
+                    className="flex flex-1"
+                    to={urls.insightEdit(attributes.query.shortId)}
+                >
+                    Edit the insight
+                </LemonButton>
+                <LemonButton
+                    center={true}
+                    fullWidth
+                    type="secondary"
+                    className="flex flex-1"
+                    onClick={detachSavedInsight}
+                >
+                    Detach from insight
+                </LemonButton>
+            </div>
+        </div>
+    ) : (
         <div className="p-3">
             <Query
                 query={modifiedQuery}
-                setQuery={(t) => {
-                    setQuery({ ...query, source: (t as DataTableNode | InsightVizNode).source } as QuerySchema)
-                }}
-                readOnly={false}
                 uniqueKey={attributes.nodeId}
+                readOnly={false}
+                setQuery={(t) => {
+                    updateAttributes({
+                        query: {
+                            ...attributes.query,
+                            source: (t as DataTableNode | InsightVizNode).source,
+                        } as QuerySchema,
+                    })
+                }}
             />
         </div>
     )
@@ -104,39 +193,20 @@ export const Settings = ({
 
 export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttributes>({
     nodeType: NotebookNodeType.Query,
-    title: async (attributes) => {
-        const query = attributes.query
-        let title = 'HogQL'
-        if (NodeKind.SavedInsightNode === query.kind) {
-            const response = await api.insights.loadInsight(query.shortId)
-            title = response.results[0].name || 'Saved insight'
-        } else if (NodeKind.DataTableNode === query.kind) {
-            if (query.source.kind) {
-                title = query.source.kind.replace('Node', '').replace('Query', '')
-            } else {
-                title = 'Data exploration'
-            }
-        }
-        return Promise.resolve(title)
-    },
+    titlePlaceholder: 'Query',
     Component,
     heightEstimate: 500,
     minHeight: 200,
-    resizeable: true,
+    resizeable: (attrs) => attrs.query.kind === NodeKind.DataTableNode,
     startExpanded: true,
     attributes: {
         query: {
             default: DEFAULT_QUERY,
         },
     },
-    widgets: [
-        {
-            key: 'settings',
-            label: 'Settings',
-            icon: <IconSettings />,
-            Component: Settings,
-        },
-    ],
+    href: (attrs) =>
+        attrs.query.kind === NodeKind.SavedInsightNode ? urls.insightView(attrs.query.shortId) : undefined,
+    settings: Settings,
     pasteOptions: {
         find: urls.insightView('(.+)' as InsightShortId),
         getAttributes: async (match) => {
@@ -147,5 +217,18 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
                 },
             }
         },
+    },
+    serializedText: (attrs) => {
+        let text = ''
+        const q = attrs.query
+        if (containsHogQLQuery(q)) {
+            if (isHogQLQuery(q)) {
+                text = q.query
+            }
+            if (isNodeWithSource(q)) {
+                text = isHogQLQuery(q.source) ? q.source.query : ''
+            }
+        }
+        return text
     },
 })

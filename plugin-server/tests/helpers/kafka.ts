@@ -11,7 +11,7 @@ import {
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
-    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
@@ -30,7 +30,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_BUFFER,
         KAFKA_GROUPS,
-        KAFKA_SESSION_RECORDING_EVENTS,
+        KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         KAFKA_PERFORMANCE_EVENTS,
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,

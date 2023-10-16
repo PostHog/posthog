@@ -9,7 +9,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_email_materialized
@@ -23,7 +23,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], "pmat_email")
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_list
@@ -46,7 +46,7 @@
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'distinct_id' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_list.1
@@ -69,7 +69,7 @@
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'another_one' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_list.2
@@ -83,7 +83,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_list.3
@@ -97,7 +97,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_list.4
@@ -120,7 +120,7 @@
         HAVING argMax(is_deleted, version) = 0)
      where distinct_id = 'inexistent' )
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_filter_person_prop
@@ -139,7 +139,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_person_property_values
@@ -232,7 +232,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (JSONHas(argMax(person.properties, version), 'email'))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_properties.1
@@ -251,7 +251,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_properties_materialized
@@ -270,7 +270,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (notEmpty(argMax(person."pmat_email", version)))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_properties_materialized.1
@@ -289,7 +289,7 @@
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
   AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search
@@ -328,7 +328,7 @@
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search.1
@@ -367,7 +367,7 @@
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search_materialized
@@ -406,7 +406,7 @@
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'another@gm' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search_materialized.1
@@ -445,7 +445,7 @@
              HAVING argMax(is_deleted, version) = 0)
           WHERE distinct_id = 'distinct_id_3' ))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search_person_id
@@ -486,7 +486,7 @@
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPerson.test_search_person_id_materialized
@@ -527,7 +527,7 @@
                  HAVING argMax(is_deleted, version) = 0)
               WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '
 ---
 # name: TestPersonFromClickhouse.test_filter_person_email
@@ -547,7 +547,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -577,7 +577,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND has(['another@gmail.com'], "pmat_email")
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -616,7 +616,7 @@
            HAVING argMax(is_deleted, version) = 0)
         where distinct_id = 'distinct_id' )
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -655,7 +655,7 @@
            HAVING argMax(is_deleted, version) = 0)
         where distinct_id = 'another_one' )
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -685,7 +685,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -715,7 +715,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -754,7 +754,7 @@
            HAVING argMax(is_deleted, version) = 0)
         where distinct_id = 'inexistent' )
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -789,7 +789,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -898,7 +898,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND (JSONHas(argMax(person.properties, version), 'email'))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -933,7 +933,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%another@gm%')
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -968,7 +968,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND (notEmpty(argMax(person."pmat_email", version)))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1003,7 +1003,7 @@
      AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
      AND (argMax(person."pmat_email", version) ILIKE '%another@gm%')
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1058,7 +1058,7 @@
                 HAVING argMax(is_deleted, version) = 0)
              WHERE distinct_id = 'another@gm' ))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1113,7 +1113,7 @@
                 HAVING argMax(is_deleted, version) = 0)
              WHERE distinct_id = 'distinct_id_3' ))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1168,7 +1168,7 @@
                 HAVING argMax(is_deleted, version) = 0)
              WHERE distinct_id = 'another@gm' ))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1223,7 +1223,7 @@
                 HAVING argMax(is_deleted, version) = 0)
              WHERE distinct_id = 'distinct_id_3' ))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1280,7 +1280,7 @@
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
@@ -1337,7 +1337,7 @@
                     HAVING argMax(is_deleted, version) = 0)
                  WHERE distinct_id = '00000000-0000-4000-8000-000000000000' )))
      ORDER BY argMax(person.created_at, version) DESC, id DESC
-     LIMIT 100) person
+     LIMIT 100 SETTINGS optimize_aggregation_in_order = 1) person
   LEFT JOIN
     (SELECT distinct_id,
             argMax(person_id, version) as person_id

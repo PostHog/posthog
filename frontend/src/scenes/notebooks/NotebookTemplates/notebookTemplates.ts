@@ -93,6 +93,37 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                     ],
                 },
                 { type: 'paragraph' },
+                {
+                    type: 'heading',
+                    attrs: { level: 3 },
+                    content: [{ type: 'text', text: 'Adding within the Notebook' }],
+                },
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'When you have your cursor on an empty line a ' },
+                        { type: 'text', marks: [{ type: 'code' }], text: '+' },
+                        {
+                            type: 'text',
+                            text: ' button will appear. Clicking that gives you a drop down of various things you can add, from a ',
+                        },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Trend graph ' },
+                        { type: 'text', text: 'to an ' },
+                        { type: 'text', marks: [{ type: 'bold' }], text: 'Session Replay list.' },
+                    ],
+                },
+                { type: 'paragraph' },
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'You can also trigger this with a "slash command" by typing ' },
+                        { type: 'text', marks: [{ type: 'code' }], text: '/' },
+                        { type: 'text', text: ' . Try ' },
+                        { type: 'text', marks: [{ type: 'code' }], text: '/insight' },
+                        { type: 'text', text: ' to filter for things you would typically find in Insights.' },
+                    ],
+                },
+                { type: 'paragraph' },
                 { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Drag and Drop' }] },
                 {
                     type: 'paragraph',
@@ -132,11 +163,16 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                     content: [
                         {
                             type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ Recordings' }] }],
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ Replay' }] }],
                         },
                         {
                             type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ Recording Lists' }] }],
+                            content: [
+                                {
+                                    type: 'paragraph',
+                                    content: [{ type: 'text', text: '✅ Replay Playlists (saved filters)' }],
+                                },
+                            ],
                         },
                         {
                             type: 'listItem',
@@ -150,7 +186,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                                     content: [
                                         {
                                             type: 'text',
-                                            text: '🤔 Data Exploration nodes (such as the Event Explorer) (partially)',
+                                            text: '✅ Data Exploration nodes (such as the Event Explorer) (partially)',
                                         },
                                     ],
                                 },
@@ -161,7 +197,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                             content: [
                                 {
                                     type: 'paragraph',
-                                    content: [{ type: 'text', text: '🤔 Feature Flags (partially)' }],
+                                    content: [{ type: 'text', text: '✅ Feature Flags (partially)' }],
                                 },
                             ],
                         },
@@ -170,58 +206,33 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                             content: [
                                 {
                                     type: 'paragraph',
-                                    content: [{ type: 'text', text: '🤔 Insights (partially working)' }],
+                                    content: [{ type: 'text', text: '✅ Insights (partially working)' }],
                                 },
                             ],
+                        },
+                        {
+                            type: 'listItem',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '✅ HogQL' }] }],
                         },
                     ],
                 },
                 { type: 'paragraph' },
+                { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'bold' }], text: "What's next?" }] },
                 {
                     type: 'paragraph',
-                    content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'Still on the roadmap is' }],
-                },
-                {
-                    type: 'bulletList',
                     content: [
                         {
-                            type: 'listItem',
-                            content: [
-                                {
-                                    type: 'paragraph',
-                                    content: [
-                                        {
-                                            type: 'text',
-                                            text: '🚧 Ad hoc queries without the need to create an Insight',
-                                        },
-                                    ],
-                                },
-                            ],
+                            type: 'text',
+                            text: 'We have big plans for Notebooks and given that we develop in the open you can follow our roadmap on Github ',
                         },
                         {
-                            type: 'listItem',
-                            content: [
-                                {
-                                    type: 'paragraph',
-                                    content: [
-                                        { type: 'text', text: '🚧 Full interactivity and controls for Insights' },
-                                    ],
-                                },
+                            type: 'text',
+                            marks: [
+                                { type: 'link', attrs: { href: 'https://github.com/PostHog/posthog/issues/15680' } },
                             ],
+                            text: 'https://github.com/PostHog/posthog/issues/15680',
                         },
-                        {
-                            type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '🚧 HogQL support' }] }],
-                        },
-                        {
-                            type: 'listItem',
-                            content: [
-                                {
-                                    type: 'paragraph',
-                                    content: [{ type: 'text', text: '🚧 Support for unfurling external links ' }],
-                                },
-                            ],
-                        },
+                        { type: 'text', text: ' ' },
                     ],
                 },
                 { type: 'paragraph' },
@@ -229,22 +240,32 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                 {
                     type: 'paragraph',
                     content: [
-                        {
-                            type: 'text',
-                            text: 'Sure!  Below you should see the list of recent recordings. This was added by dragging the header of the Recordings list from the ',
-                        },
-                        { type: 'text', marks: [{ type: 'bold' }], text: 'Session Replay ' },
-                        {
-                            type: 'text',
-                            text: 'page. Just like anything else in the document you can copy and paste it, rearrange it or even copy it and paste it in a different Notebook.',
-                        },
+                        { type: 'text', text: 'Sure! Below is a Trends chart. This was added by typing ' },
+                        { type: 'text', marks: [{ type: 'code' }], text: '/trends' },
+                        { type: 'text', text: ' and pressing enter.' },
                     ],
                 },
                 {
-                    type: 'ph-recording-playlist',
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'If you make a copy of this Notebook you can edit it inline.' }],
+                },
+                { type: 'paragraph' },
+                {
+                    type: 'ph-query',
                     attrs: {
-                        filters:
-                            '{"session_recording_duration":{"type":"recording","key":"duration","value":3600,"operator":"gt"},"properties":[],"events":[],"actions":[],"date_from":"-7d","date_to":null}',
+                        height: null,
+                        title: 'Trends',
+                        nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', math: 'total', name: '$pageview', event: '$pageview' }],
+                                interval: 'day',
+                                trendsFilter: { display: 'ActionsLineGraph' },
+                                filterTestAccounts: false,
+                            },
+                        },
                     },
                 },
             ],

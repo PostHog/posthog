@@ -36,7 +36,6 @@ import {
     getFormula,
     getInterval,
     getSeries,
-    getShownAs,
     getShowLegend,
     getShowPercentStackView,
     getShowValueOnSeries,
@@ -122,7 +121,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
-        shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
@@ -191,7 +189,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         updateDateRange: ({ dateRange }) => {
             const localQuerySource = values.querySource
                 ? values.querySource
@@ -243,6 +241,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
+                if (props.setQuery) {
+                    props.setQuery(query as InsightVizNode)
+                }
+
                 const querySource = query.source
                 const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)

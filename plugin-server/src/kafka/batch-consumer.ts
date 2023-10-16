@@ -1,14 +1,15 @@
-import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka-acosom'
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
+import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
-    commitOffsetsForMessages,
     consumeMessages,
+    countPartitionsPerTopic,
     createKafkaConsumer,
     disconnectConsumer,
     instrumentConsumerMetrics,
+    storeOffsetsForMessages,
 } from './consumer'
 
 export interface BatchConsumer {
@@ -22,6 +23,7 @@ export const startBatchConsumer = async ({
     connectionConfig,
     groupId,
     topic,
+    autoCommit,
     sessionTimeout,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
@@ -31,12 +33,12 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     topicCreationTimeoutMs,
     eachBatch,
-    autoCommit = true,
     queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
     topic: string
+    autoCommit: boolean
     sessionTimeout: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
@@ -46,7 +48,6 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     topicCreationTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
-    autoCommit?: boolean
     queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
@@ -73,9 +74,8 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
-        // We disable auto commit and rather we commit after one batch has
-        // completed.
-        'enable.auto.commit': false,
+        'enable.auto.commit': autoCommit,
+        'enable.auto.offset.store': false,
         /**
          * max.partition.fetch.bytes
          * The maximum amount of data per-partition the server will return.
@@ -120,7 +120,7 @@ export const startBatchConsumer = async ({
     instrumentConsumerMetrics(consumer, groupId)
 
     let isShuttingDown = false
-    let lastLoopTime = Date.now()
+    let lastConsumeTime = 0
 
     // Before subscribing, we need to ensure that the topic exists. We don't
     // currently have a way to manage topic creation elsewhere (we handle this
@@ -145,11 +145,11 @@ export const startBatchConsumer = async ({
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
-        // Start consuming in a loop, fetching a batch of a max of 500 messages then
-        // processing these with eachMessage, and finally calling
+        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize`
+        // messages then processing these with eachMessage, and finally calling
         // consumer.offsetsStore. This will not actually commit offsets on the
         // brokers, but rather just store the offsets locally such that when commit
-        // is called, either manually of via auto-commit, these are the values that
+        // is called, either manually or via auto-commit, these are the values that
         // will be used.
         //
         // Note that we rely on librdkafka handling retries for any Kafka
@@ -164,7 +164,7 @@ export const startBatchConsumer = async ({
         const statusLogInterval = setInterval(() => {
             status.info('🔁', 'main_loop', {
                 messagesPerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
-                lastLoopTime: new Date(lastLoopTime).toISOString(),
+                lastConsumeTime: new Date(lastConsumeTime).toISOString(),
             })
 
             messagesProcessed = 0
@@ -172,10 +172,19 @@ export const startBatchConsumer = async ({
 
         try {
             while (!isShuttingDown) {
-                lastLoopTime = Date.now()
-
                 status.debug('🔁', 'main_loop_consuming')
                 const messages = await consumeMessages(consumer, fetchBatchSize)
+
+                // It's important that we only set the `lastConsumeTime` after a successful consume
+                // call. Even if we received 0 messages, a successful call means we are actually
+                // subscribed and didn't receive, for example, an error about an inconsistent group
+                // protocol. If we never manage to consume, we don't want our health checks to pass.
+                lastConsumeTime = Date.now()
+
+                for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
+                    kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                }
+
                 if (!messages) {
                     status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
                     continue
@@ -199,7 +208,7 @@ export const startBatchConsumer = async ({
                 messagesProcessed += messages.length
 
                 if (autoCommit) {
-                    commitOffsetsForMessages(messages, consumer)
+                    storeOffsetsForMessages(messages, consumer)
                 }
             }
         } catch (error) {
@@ -223,7 +232,7 @@ export const startBatchConsumer = async ({
     const isHealthy = () => {
         // We define health as the last consumer loop having run in the last
         // minute. This might not be bullet-proof, let's see.
-        return Date.now() - lastLoopTime < 60000
+        return Date.now() - lastConsumeTime < 60000
     }
 
     const stop = async () => {
@@ -277,4 +286,10 @@ const consumedMessageSizeBytes = new Histogram({
     help: 'Size of consumed message value in bytes',
     labelNames: ['topic', 'groupId', 'messageType'],
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
+})
+
+const kafkaAbsolutePartitionCount = new Gauge({
+    name: 'kafka_absolute_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Absolute value from the consumer state.)',
+    labelNames: ['topic'],
 })

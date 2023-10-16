@@ -5,7 +5,7 @@ from typing import Dict, List, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from rest_framework import status
@@ -269,7 +269,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         plugin = Plugin.objects.get(id=response.json()["id"])
 
-        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.updated_at, fake_date)
 
         with freeze_time(fake_date.isoformat()):
@@ -715,7 +715,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
 
-        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         with freeze_time(fake_date.isoformat()):
             response = self.client.post(
                 f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
@@ -1281,7 +1281,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         plugin_id = response.json()["id"]
         plugin = Plugin.objects.get(id=plugin_id)
-        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=pytz.UTC)
+        fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.latest_tag_checked_at, fake_date)
 
         with freeze_time(fake_date.isoformat()):

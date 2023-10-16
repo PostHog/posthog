@@ -8,7 +8,7 @@ describe('Signup', () => {
         cy.visit('/signup')
     })
 
-    it('Cannot create acount with existing email', () => {
+    it('Cannot create account with existing email', () => {
         cy.get('[data-attr=signup-email]').type('test@posthog.com').should('have.value', 'test@posthog.com')
         cy.get('[data-attr=password]').type('12345678').should('have.value', '12345678')
         cy.get('[data-attr=signup-start]').click()
@@ -75,8 +75,6 @@ describe('Signup', () => {
     })
 
     it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.visit('/logout')
-        cy.location('pathname').should('include', '/login')
         cy.intercept('https://app.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
@@ -84,10 +82,20 @@ describe('Signup', () => {
                 })
             )
         )
-        cy.visit('/signup?maintenanceRedirect=true')
-        cy.get('.Toastify__toast-body').should(
-            'contain',
-            `You have been redirected to signup on our US instance while we perform maintenance on our other instance.`
-        )
+
+        cy.visit('/logout')
+        cy.location('pathname').should('include', '/login')
+
+        cy.visit('/signup?maintenanceRedirect=true', {
+            onLoad(win: Cypress.AUTWindow) {
+                win.POSTHOG_APP_CONTEXT.preflight.cloud = true
+            },
+        })
+
+        cy.get('[data-attr="info-toast"]')
+            .contains(
+                `You've been redirected to signup on our US instance while we perform maintenance on our other instance.`
+            )
+            .should('be.visible')
     })
 })

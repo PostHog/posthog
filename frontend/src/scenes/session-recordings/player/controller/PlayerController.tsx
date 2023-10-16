@@ -13,9 +13,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 export function PlayerController(): JSX.Element {
-    const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, exportRecordingToFile, openExplorer, setIsFullScreen } =
         useActions(sessionRecordingPlayerLogic)
 
@@ -24,6 +25,8 @@ export function PlayerController(): JSX.Element {
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
+    const showPause = playingState === SessionPlayerState.PLAY
+
     return (
         <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
@@ -31,14 +34,19 @@ export function PlayerController(): JSX.Element {
                 <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
-                    <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
-                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP, SessionPlayerState.BUFFER].includes(
-                            currentPlayerState
-                        ) ? (
-                            <IconPause className="text-2xl" />
-                        ) : (
-                            <IconPlay className="text-2xl" />
-                        )}
+
+                    <LemonButton
+                        status="primary-alt"
+                        size="small"
+                        onClick={togglePlayPause}
+                        tooltip={
+                            <>
+                                {showPause ? 'Pause' : 'Play'}
+                                <KeyboardShortcut space />
+                            </>
+                        }
+                    >
+                        {showPause ? <IconPause className="text-2xl" /> : <IconPlay className="text-2xl" />}
                     </LemonButton>
                     <SeekSkip direction="forward" />
                 </div>
@@ -83,10 +91,7 @@ export function PlayerController(): JSX.Element {
                             }}
                         >
                             <IconSkipInactivity
-                                className={clsx(
-                                    'text-2xl',
-                                    skipInactivitySetting ? 'text-primary' : 'text-primary-alt'
-                                )}
+                                className={clsx('text-2xl', skipInactivitySetting ? 'text-link' : 'text-primary-alt')}
                                 enabled={skipInactivitySetting}
                             />
                         </LemonButton>
@@ -100,7 +105,7 @@ export function PlayerController(): JSX.Element {
                             }}
                         >
                             <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-primary' : 'text-primary-alt')}
+                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
                             />
                         </LemonButton>
                     </Tooltip>

@@ -2,7 +2,7 @@ import datetime
 import json
 from typing import Dict, Optional, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
@@ -27,7 +27,7 @@ def raw_create_group_ch(
     DON'T USE DIRECTLY - `create_group` is the correct option,
     unless you specifically want to sync Postgres state from ClickHouse yourself."""
     if timestamp is None:
-        timestamp = now().astimezone(pytz.utc)
+        timestamp = now().astimezone(ZoneInfo("UTC"))
     data = {
         "group_type_index": group_type_index,
         "group_key": group_key,
@@ -58,7 +58,7 @@ def create_group(
     if isinstance(timestamp, str):
         timestamp = isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp, timestamp=timestamp, sync=sync)
     group = Group.objects.create(

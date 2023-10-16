@@ -18,7 +18,7 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.session_query import SessionQuery
+from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL

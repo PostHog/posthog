@@ -28,7 +28,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -44,6 +44,7 @@ export function ensureTooltipElement(): HTMLElement {
         tooltipEl = document.createElement('div')
         tooltipEl.id = 'InsightTooltipWrapper'
         tooltipEl.classList.add('InsightTooltipWrapper')
+        tooltipEl.style.display = 'none'
         document.body.appendChild(tooltipEl)
     }
     return tooltipEl
@@ -206,6 +207,7 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     inCardView?: boolean
+    inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
@@ -215,6 +217,9 @@ export interface LineGraphProps {
     showValueOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    hideAnnotations?: boolean
+    hideXAxis?: boolean
+    hideYAxis?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -236,6 +241,7 @@ export function LineGraph_({
     showPersonsModal = true,
     compare = false,
     inCardView,
+    inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
@@ -245,6 +251,9 @@ export function LineGraph_({
     showValueOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    hideAnnotations,
+    hideXAxis,
+    hideYAxis,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -272,7 +281,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
-    const showAnnotations = isTrends && !isHorizontal
+    const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
@@ -432,6 +441,7 @@ export function LineGraph_({
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
+                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -471,8 +481,27 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string =>
-                                            formatPercentStackAxisValue(trendsFilter, value, isPercentStackView))
+                                        ((value: number): string => {
+                                            if (!isPercentStackView) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            const total = seriesData.reduce((a, b) => a + b.count, 0)
+                                            const percentageLabel: number = parseFloat(
+                                                ((value / total) * 100).toFixed(1)
+                                            )
+
+                                            const isNaN = Number.isNaN(percentageLabel)
+
+                                            if (isNaN) {
+                                                return formatAggregationAxisValue(trendsFilter, value)
+                                            }
+
+                                            return `${formatAggregationAxisValue(
+                                                trendsFilter,
+                                                value
+                                            )} (${percentageLabel}%)`
+                                        })
                                     }
                                     entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -501,8 +530,8 @@ export function LineGraph_({
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = tooltipClientTop + 'px'
-                        tooltipEl.style.left = tooltipClientLeft + 'px'
+                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
+                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
                     },
                 },
                 ...(!isBar
@@ -543,6 +572,7 @@ export function LineGraph_({
         if (type === GraphType.Bar) {
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
@@ -552,9 +582,11 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -567,8 +599,8 @@ export function LineGraph_({
         } else if (type === GraphType.Line) {
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: tickOptions,
                     grid: {
                         ...gridOptions,
@@ -577,10 +609,11 @@ export function LineGraph_({
                     },
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
-                    display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -593,9 +626,10 @@ export function LineGraph_({
         } else if (isHorizontal) {
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: {
+                        display: !hideXAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -605,8 +639,15 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
+                    display: true,
                     beforeFit: (scale) => {
-                        if (shouldAutoResize) {
+                        if (inSurveyView) {
+                            const ROW_HEIGHT = 60
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = dynamicHeight
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else if (shouldAutoResize) {
                             // automatically resize the chart container to fit the number of rows
                             const MIN_HEIGHT = 575
                             const ROW_HEIGHT = 16
@@ -633,7 +674,10 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
-                    grid: gridOptions,
+                    grid: {
+                        ...gridOptions,
+                        display: !inSurveyView,
+                    },
                 },
             }
             options.indexAxis = 'y'

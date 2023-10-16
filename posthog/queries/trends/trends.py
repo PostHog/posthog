@@ -3,14 +3,15 @@ import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from zoneinfo import ZoneInfo
 
-import pytz
 from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import (
+    INSIGHT_LIFECYCLE,
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
     TRENDS_CUMULATIVE,
@@ -38,7 +39,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, person_on_events_mode=team.person_on_events_mode
             ).get_query()
-        elif filter.shown_as == TRENDS_LIFECYCLE:
+        elif filter.insight == INSIGHT_LIFECYCLE or filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
         else:
@@ -49,7 +50,6 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
-
         if not team.strict_caching_enabled or filter.breakdown or filter.display != TRENDS_LINEAR:
             return None
 
@@ -80,7 +80,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             latest_date = cached_result[0]["days"][len(cached_result[0]["days"]) - 1]
 
             parsed_latest_date = parser.parse(latest_date)
-            parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
+            parsed_latest_date = parsed_latest_date.replace(tzinfo=ZoneInfo(team.timezone))
             _is_present = is_filter_date_present(filter, parsed_latest_date)
         else:
             _is_present = False

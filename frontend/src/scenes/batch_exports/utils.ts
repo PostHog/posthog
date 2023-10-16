@@ -4,6 +4,7 @@ export function intervalToFrequency(interval: BatchExportConfiguration['interval
     return {
         day: 'daily',
         hour: 'hourly',
+        'every 5 minutes': 'every 5 minutes',
     }[interval]
 }
 
@@ -22,6 +23,10 @@ export function humanizeDestination(destination: BatchExportDestination): string
 
     if (destination.type === 'Postgres') {
         return `postgresql://${destination.config.user}:***@${destination.config.host}:${destination.config.port}/${destination.config.database}`
+    }
+
+    if (destination.type === 'BigQuery') {
+        return `bigquery:${destination.config.project_id}:${destination.config.dataset_id}:${destination.config.table_id}`
     }
 
     return 'Unknown'

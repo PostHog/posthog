@@ -1,5 +1,4 @@
 @import '../../../styles/mixins';
-@import '../../../styles/mixins';
 
 .EditorFiltersWrapper {
     flex-shrink: 0;
@@ -48,38 +47,6 @@
                 display: block;
                 padding-right: 1rem;
             }
-            &.anim--enter {
-                width: 0px;
-
-                .EditorFilters {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
-                }
-            }
-
-            &.anim--enter-active {
-                width: var(--editor-panel-width);
-                transition: width 250ms;
-                .EditorFilters {
-                    transform: translateX(0px);
-                    transition: transform 250ms;
-                }
-            }
-
-            &.anim--exit {
-                width: var(--editor-panel-width);
-                .EditorFilters {
-                    transform: translateX(0px);
-                }
-            }
-
-            &.anim--exit-active {
-                width: 0px;
-                transition: width 250ms;
-                .EditorFilters {
-                    transform: translateX(calc(-1 * var(--editor-panel-width)));
-                    transition: transform 250ms;
-                }
-            }
         }
 
         .EditorFilters {
@@ -92,6 +59,17 @@
 
             > * + * {
                 margin-top: 1rem;
+            }
+        }
+    }
+
+    &.EditorFiltersWrapper--embedded {
+        margin-right: 0rem;
+
+        @include screen($xl) {
+            .EditorFilters {
+                width: 100%;
+                padding-right: 0rem;
             }
         }
     }

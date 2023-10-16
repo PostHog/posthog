@@ -17,7 +17,7 @@ PLAYLIST_CONTENT = lambda: {
 FEATURE_FLAG_CONTENT = lambda id: {
     "type": "ph-feature-flag",
     "attrs": {
-        "id": id or "feature_flag_id",
+        "id": id or 1,
     },
 }
 
@@ -42,7 +42,7 @@ INSIGHT_COMMENT = lambda id: {
     },
 }
 
-BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}]}
+BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}], "text_content": text}
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
@@ -62,26 +62,54 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["some text", [0]],
-            ["other text", [1]],
-            ["text", [0, 1]],
+            ["i ride", [0]],
+            ["pony", [0]],
+            ["ponies", [0]],
+            ["my hobby", [1]],
+            ["around", [0, 1]],
             ["random", []],
         ]
     )
     def test_filters_based_on_title(self, search_text: str, expected_match_indexes: List[int]) -> None:
         notebook_ids = [
-            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="some text"),
-            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="other text"),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="i ride around on a pony"),
+            self._create_notebook_with_content([BASIC_TEXT("my important notes")], title="my hobby is to fish around"),
         ]
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?s={search_text}",
+            f"/api/projects/{self.team.id}/notebooks?search={search_text}",
         )
         assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
         assert len(results) == len(expected_match_indexes)
         assert sorted([r["id"] for r in results]) == sorted([notebook_ids[i] for i in expected_match_indexes])
+
+        @parameterized.expand(
+            [
+                ["pony", [0]],
+                ["pOnY", [0]],
+                ["ponies", [0]],
+                ["goat", [1]],
+                ["ride", [0, 1]],
+                ["neither", []],
+            ]
+        )
+        def test_filters_based_on_text_content(self, search_text: str, expected_match_indexes: List[int]) -> None:
+            notebook_ids = [
+                # will match both pony and ponies
+                self._create_notebook_with_content([BASIC_TEXT("you may ride a pony")], title="never matches"),
+                self._create_notebook_with_content([BASIC_TEXT("but may not ride a goat")], title="never matches"),
+            ]
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/notebooks?search={search_text}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            results = response.json()["results"]
+            assert len(results) == len(expected_match_indexes)
+            assert sorted([r["id"] for r in results]) == sorted([notebook_ids[i] for i in expected_match_indexes])
 
     def test_filters_based_on_params(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
@@ -106,7 +134,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
     def test_filtering_by_types(self) -> None:
         playlist_content_notebook = self._create_notebook_with_content([PLAYLIST_CONTENT()])
         insight_content_notebook = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id")])
-        feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT("feature_flag_id")])
+        feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT(1)])
         person_content_notebook = self._create_notebook_with_content([PERSON_CONTENT("person_id")])
         recording_comment_notebook = self._create_notebook_with_content(
             [RECORDING_COMMENT_CONTENT("session_recording_id", None)]
@@ -150,7 +178,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
     def test_filtering_by_abscence_of_types(self) -> None:
         playlist_content_notebook = self._create_notebook_with_content([PLAYLIST_CONTENT()])
         insight_content_notebook = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id")])
-        feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT("feature_flag_id")])
+        feature_flag_content_notebook = self._create_notebook_with_content([FEATURE_FLAG_CONTENT(1)])
         person_content_notebook = self._create_notebook_with_content([PERSON_CONTENT("person_id")])
         recording_comment_notebook = self._create_notebook_with_content(
             [RECORDING_COMMENT_CONTENT("session_recording_id", None)]
@@ -242,9 +270,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
     @parameterized.expand([["insight"], ["insights"]])
     def test_filtering_by_just_the_target_name_is_truthy(self, target_name: str) -> None:
         insight_content_notebook_one = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id_one")])
-        _feature_flag_content_notebook_one = self._create_notebook_with_content(
-            [FEATURE_FLAG_CONTENT("feature_flag_id_one")]
-        )
+        _feature_flag_content_notebook_one = self._create_notebook_with_content([FEATURE_FLAG_CONTENT(1)])
         filter_response = self.client.get(f"/api/projects/{self.team.id}/notebooks?contains={target_name}")
         assert sorted([n["id"] for n in filter_response.json()["results"]]) == sorted(
             [
@@ -258,12 +284,8 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         insight_content_notebook_one = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id_one")])
         _insight_content_notebook_two = self._create_notebook_with_content([INSIGHT_COMMENT("insight_id_two")])
 
-        feature_flag_content_notebook_one = self._create_notebook_with_content(
-            [FEATURE_FLAG_CONTENT("feature_flag_id_one")]
-        )
-        _feature_flag_content_notebook_two = self._create_notebook_with_content(
-            [FEATURE_FLAG_CONTENT("feature_flag_id_two")]
-        )
+        feature_flag_content_notebook_one = self._create_notebook_with_content([FEATURE_FLAG_CONTENT(1)])
+        _feature_flag_content_notebook_two = self._create_notebook_with_content([FEATURE_FLAG_CONTENT(2)])
 
         person_content_notebook_one = self._create_notebook_with_content([PERSON_CONTENT("person_id_one")])
         _person_content_notebook_two = self._create_notebook_with_content([PERSON_CONTENT("person_id_two")])
@@ -298,7 +320,7 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
 
         # filter by feature flag
         feature_flag_filter_response = self.client.get(
-            f"/api/projects/{self.team.id}/notebooks?contains=feature-flag:feature_flag_id_one"
+            f"/api/projects/{self.team.id}/notebooks?contains=feature-flag:1"
         )
         assert sorted([n["id"] for n in feature_flag_filter_response.json()["results"]]) == sorted(
             [

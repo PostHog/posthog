@@ -12,39 +12,46 @@ async function runSingleTeamPluginOnEvent(
     pluginConfig: PluginConfig,
     onEvent: any
 ): Promise<void> {
-    // Runs onEvent for a single plugin without any retries
-    const metricName = 'plugin.on_event'
-    const metricTags = {
-        plugin: pluginConfig.plugin?.name ?? '?',
-        teamId: event.team_id.toString(),
-    }
-
-    const timer = new Date()
+    const timeout = setTimeout(() => {
+        status.warn('⌛', `Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`)
+    }, 10 * 1000) // 10 seconds
     try {
-        await onEvent!(event)
-        await hub.appMetrics.queueMetric({
-            teamId: event.team_id,
-            pluginConfigId: pluginConfig.id,
-            category: 'onEvent',
-            successes: 1,
-        })
-    } catch (error) {
-        hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
-        await processError(hub, pluginConfig, error, event)
-        await hub.appMetrics.queueError(
-            {
+        // Runs onEvent for a single plugin without any retries
+        const metricName = 'plugin.on_event'
+        const metricTags = {
+            plugin: pluginConfig.plugin?.name ?? '?',
+            teamId: event.team_id.toString(),
+        }
+
+        const timer = new Date()
+        try {
+            await onEvent!(event)
+            await hub.appMetrics.queueMetric({
                 teamId: event.team_id,
                 pluginConfigId: pluginConfig.id,
                 category: 'onEvent',
-                failures: 1,
-            },
-            {
-                error,
-                event,
-            }
-        )
+                successes: 1,
+            })
+        } catch (error) {
+            hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
+            await processError(hub, pluginConfig, error, event)
+            await hub.appMetrics.queueError(
+                {
+                    teamId: event.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    category: 'onEvent',
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
+        }
+        hub.statsd?.timing(metricName, timer, metricTags)
+    } finally {
+        clearTimeout(timeout)
     }
-    hub.statsd?.timing(metricName, timer, metricTags)
 }
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {

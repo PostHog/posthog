@@ -41,4 +41,5 @@ export interface PropertyFilterInternalProps {
     orFiltering?: boolean
     addText?: string | null
     hasRowOperator?: boolean
+    hogQLTable?: string
 }

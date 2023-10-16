@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, Optional, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -67,16 +67,16 @@ PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
     "month": "toIntervalMonth",
 }
 
+
 # TODO: refactor since this is only used in one spot now
 def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
     if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
         # Then we convert it back to UTC (08:00 in UTC)
-        if timestamp.tzinfo and timestamp.tzinfo != pytz.UTC:
+        if timestamp.tzinfo and timestamp.tzinfo != ZoneInfo("UTC"):
             raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
-        timestamp = pytz.timezone(convert_to_timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
-
+        timestamp = timestamp.replace(tzinfo=ZoneInfo(convert_to_timezone)).astimezone(ZoneInfo("UTC"))
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
