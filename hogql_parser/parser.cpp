@@ -431,8 +431,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* next_join = PyObject_GetAttrString(last_join, "next_join");
     while (!Py_IsNone(next_join)) {
       last_join = next_join;
+      Py_DECREF(next_join);
       next_join = PyObject_GetAttrString(last_join, "next_join");
     }
+    Py_DECREF(next_join);
     PyObject_SetAttrString(last_join, "next_join", join2);
     Py_DECREF(join2);
 
@@ -465,8 +467,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* next_join = PyObject_GetAttrString(last_join, "next_join");
     while (!Py_IsNone(next_join)) {
       last_join = next_join;
+      Py_DECREF(next_join);
       next_join = PyObject_GetAttrString(last_join, "next_join");
     }
+    Py_DECREF(next_join);
     PyObject_SetAttrString(last_join, "next_join", join2);
     Py_DECREF(join2);
 
