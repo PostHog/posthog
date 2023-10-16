@@ -27,6 +27,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                     "session_having": self.session_having(),
                     "breakdown_by": self.bounce_breakdown(),
                 },
+                backend="cpp",
             )
         with self.timings.measure("counts_query"):
             counts_query = parse_select(
@@ -36,6 +37,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                     "counts_where": self.events_where(),
                     "breakdown_by": self.counts_breakdown(),
                 },
+                backend="cpp",
             )
         with self.timings.measure("top_pages_query"):
             top_sources_query = parse_select(
@@ -60,6 +62,7 @@ LIMIT 10
                     "counts_query": counts_query,
                     "bounce_rate_query": bounce_rate_query,
                 },
+                backend="cpp",
             )
         return top_sources_query
 

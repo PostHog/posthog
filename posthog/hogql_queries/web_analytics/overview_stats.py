@@ -17,9 +17,9 @@ class WebOverviewStatsQueryRunner(WebAnalyticsQueryRunner):
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):
             # TODO use the date range, with a previous period, trends query does this so look at that for insp
-            start = parse_expr("today() - 14")
-            mid = parse_expr("today() - 7")
-            end = parse_expr("today()")
+            start = parse_expr("today() - 14", backend="cpp")
+            mid = parse_expr("today() - 7", backend="cpp")
+            end = parse_expr("today()", backend="cpp")
         with self.timings.measure("overview_stats_query"):
             overview_stats_query = parse_select(
                 """
@@ -42,6 +42,7 @@ WHERE
                 """,
                 timings=self.timings,
                 placeholders={"start": start, "mid": mid, "end": end, "event_properties": self.event_properties()},
+                backend="cpp",
             )
         return overview_stats_query
 
