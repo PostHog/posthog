@@ -11,7 +11,7 @@ import {
 } from '~/queries/schema'
 import { BaseMathType, FunnelVizType, InsightType, PathType, RetentionPeriod } from '~/types'
 
-const trendsQueryDefault: TrendsQuery = {
+export const trendsQueryDefault: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
     series: [
         {
@@ -24,7 +24,7 @@ const trendsQueryDefault: TrendsQuery = {
     trendsFilter: {},
 }
 
-const funnelsQueryDefault: FunnelsQuery = {
+export const funnelsQueryDefault: FunnelsQuery = {
     kind: NodeKind.FunnelsQuery,
     series: [
         {
