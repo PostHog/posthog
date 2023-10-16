@@ -281,7 +281,6 @@ export async function startPluginsServer(
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
                 {
                     hub: hub,
-                    piscina: piscina,
                 }
             )
 
@@ -297,7 +296,6 @@ export async function startPluginsServer(
             const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
                 await startAnalyticsEventsIngestionHistoricalConsumer({
                     hub: hub,
-                    piscina: piscina,
                 })
 
             analyticsEventsIngestionHistoricalConsumer = queue
@@ -311,7 +309,6 @@ export async function startPluginsServer(
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
-                piscina: piscina,
             })
         }
 
@@ -323,7 +320,6 @@ export async function startPluginsServer(
             const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
-                    piscina: piscina,
                 })
 
             onEventHandlerConsumer = onEventQueue
