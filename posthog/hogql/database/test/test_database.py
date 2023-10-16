@@ -7,6 +7,8 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.models import FieldTraverser, StringDatabaseField
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
 from posthog.hogql.query import execute_hogql_query
@@ -62,3 +64,15 @@ class TestDatabase(BaseTest):
             response.clickhouse,
             f"SELECT whatever.id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
+
+    def test_database_group_type_mappings(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="test", group_type_index=0)
+        db = create_hogql_database(team_id=self.team.pk)
+
+        assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
+
+    def test_database_group_type_mappings_overwrite(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="event", group_type_index=0)
+        db = create_hogql_database(team_id=self.team.pk)
+
+        assert db.events.fields["event"] == StringDatabaseField(name="event")

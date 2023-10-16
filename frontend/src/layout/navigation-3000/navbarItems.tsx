@@ -1,18 +1,18 @@
 import {
+    IconHome,
+    IconDashboard,
+    IconDatabase,
     IconApps,
-    IconBarChart,
-    IconCohort,
-    IconComment,
-    IconCottage,
-    IconExperiment,
-    IconFlag,
-    IconGauge,
-    IconLive,
     IconPerson,
-    IconRecording,
-    IconTools,
-    IconUnverifiedEvent,
-} from 'lib/lemon-ui/icons'
+    IconQuestion,
+    IconPeople,
+    IconTestTube,
+    IconToggle,
+    IconRewindPlay,
+    IconGraph,
+    IconToolbar,
+    IconLive,
+} from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { NavbarItem } from './types'
@@ -32,19 +32,19 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.ProjectHomepage,
             label: 'Project homepage',
-            icon: <IconCottage />,
+            icon: <IconHome />,
             to: urls.projectHomepage(),
         },
         {
             identifier: Scene.Dashboards,
             label: 'Dashboards',
-            icon: <IconGauge />,
+            icon: <IconDashboard />,
             logic: dashboardsSidebarLogic,
         },
         {
             identifier: Scene.DataManagement,
             label: 'Data management',
-            icon: <IconUnverifiedEvent />,
+            icon: <IconDatabase />,
             logic: dataManagementSidebarLogic,
         },
         {
@@ -56,13 +56,13 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Cohorts,
             label: 'Cohorts',
-            icon: <IconCohort />,
+            icon: <IconPeople />,
             logic: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Annotations,
             label: 'Annotations',
-            icon: <IconComment />,
+            icon: <IconQuestion />, // TODO: Should be bubble
             logic: annotationsSidebarLogic,
         },
     ],
@@ -75,30 +75,30 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.SavedInsights,
             label: 'Product Analytics',
-            icon: <IconBarChart />,
+            icon: <IconGraph />,
             logic: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
             label: 'Session Replay',
-            icon: <IconRecording />,
+            icon: <IconRewindPlay />,
         },
         {
             identifier: Scene.FeatureFlags,
             label: 'Feature Flags',
-            icon: <IconFlag />,
+            icon: <IconToggle />,
             logic: featureFlagsSidebarLogic,
         },
         {
             identifier: Scene.Experiments,
             label: 'A/B Testing',
-            icon: <IconExperiment />,
+            icon: <IconTestTube />,
             logic: experimentsSidebarLogic,
         },
         {
             identifier: Scene.ToolbarLaunch,
             label: 'Toolbar',
-            icon: <IconTools />,
+            icon: <IconToolbar />,
             logic: toolbarSidebarLogic,
         },
     ],

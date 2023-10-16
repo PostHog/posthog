@@ -147,13 +147,13 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Pins the notebook to the right, allowing you to view it while navigating the rest of
-                                PostHog. This is great for dragging and dropping elements like Insights, Recordings or
-                                even Feature Flags into your active Notebook.
+                                Opens the notebook in a popover, that can be accessed from anywhere in the PostHog app.
+                                This is great for dragging and dropping elements like Insights, Recordings or even
+                                Feature Flags into your active Notebook.
                             </>
                         }
                     >
-                        Pin to side
+                        Open in popover
                     </LemonButton>
                 </div>
             </div>

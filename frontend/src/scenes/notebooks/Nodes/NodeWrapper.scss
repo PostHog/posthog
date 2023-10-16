@@ -4,7 +4,7 @@
     --border-color: var(--border);
 
     transform: translate3d(0, 0, 0);
-    margin: 0px 0px 1rem 0px;
+    margin: 0.65rem 0px 0.35rem 0px;
 
     .NotebookNode__box {
         transform: translate3d(0, 0, 0);
@@ -94,5 +94,20 @@
         height: 100%;
         width: 100%;
         object-fit: contain;
+    }
+}
+
+.NotebookNodeTitle {
+    padding: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &--editable {
+        border-radius: var(--radius);
+        transition: background-color 150ms linear;
+        &:hover {
+            background-color: var(--border);
+        }
     }
 }

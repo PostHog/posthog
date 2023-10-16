@@ -10,23 +10,46 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { HogQLQuery } from '~/queries/schema'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'
 
-export function DebugScene(): JSX.Element {
-    const { query } = useValues(debugSceneLogic)
-    const { setQuery } = useActions(debugSceneLogic)
-
+interface QueryDebugProps {
+    queryKey: string
+    query: string
+    setQuery: (query: string) => void
+}
+function QueryDebug({ query, setQuery, queryKey }: QueryDebugProps): JSX.Element {
     let parsed: Record<string, any> | undefined
     try {
         parsed = JSON.parse(query)
     } catch (e) {
         // do nothing
     }
-
-    const showQueryEditor = !(
-        parsed &&
-        parsed.kind == 'DataTableNode' &&
-        parsed.source.kind == 'HogQLQuery' &&
-        (parsed.full || parsed.showHogQLEditor)
+    return (
+        <>
+            {parsed && parsed?.kind === 'HogQLQuery' ? (
+                <HogQLDebug
+                    queryKey={queryKey}
+                    query={parsed as HogQLQuery}
+                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                />
+            ) : (
+                <Query
+                    query={query}
+                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    context={{
+                        showQueryEditor:
+                            parsed &&
+                            parsed.kind == 'DataTableNode' &&
+                            parsed.source.kind == 'HogQLQuery' &&
+                            (parsed.full || parsed.showHogQLEditor),
+                    }}
+                />
+            )}
+        </>
     )
+}
+
+export function DebugScene(): JSX.Element {
+    const { query1, query2 } = useValues(debugSceneLogic)
+    const { setQuery1, setQuery2 } = useActions(debugSceneLogic)
 
     return (
         <div className="QueryScene">
@@ -34,21 +57,24 @@ export function DebugScene(): JSX.Element {
                 title="Query Debugger"
                 buttons={
                     <>
+                        <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>
+                            Split
+                        </LemonButton>
                         <LemonButton
-                            active={query === stringifiedExamples.HogQLRaw}
-                            onClick={() => setQuery(stringifiedExamples.HogQLRaw)}
+                            active={query1 === stringifiedExamples.HogQLRaw}
+                            onClick={() => setQuery1(stringifiedExamples.HogQLRaw)}
                         >
                             HogQL Debug
                         </LemonButton>
                         <LemonButton
-                            active={query === stringifiedExamples.HogQLTable}
-                            onClick={() => setQuery(stringifiedExamples.HogQLTable)}
+                            active={query1 === stringifiedExamples.HogQLTable}
+                            onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
                         >
                             HogQL Table
                         </LemonButton>
                         <LemonButton
-                            active={query === stringifiedExamples.Events}
-                            onClick={() => setQuery(stringifiedExamples.Events)}
+                            active={query1 === stringifiedExamples.Events}
+                            onClick={() => setQuery1(stringifiedExamples.Events)}
                         >
                             Any Query
                         </LemonButton>
@@ -62,7 +88,7 @@ export function DebugScene(): JSX.Element {
                                     })}
                                 onChange={(v) => {
                                     if (v) {
-                                        setQuery(v)
+                                        setQuery1(v)
                                     }
                                 }}
                             />
@@ -70,20 +96,16 @@ export function DebugScene(): JSX.Element {
                     </>
                 }
             />
-            {parsed && parsed?.kind === 'HogQLQuery' ? (
-                <HogQLDebug
-                    query={parsed as HogQLQuery}
-                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
-                />
-            ) : (
-                <Query
-                    query={query}
-                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
-                    context={{
-                        showQueryEditor: showQueryEditor,
-                    }}
-                />
-            )}
+            <div className="flex gap-2">
+                <div className="flex-1 w-1/2">
+                    <QueryDebug query={query1} setQuery={setQuery1} queryKey="hogql-debug-1" />
+                </div>
+                {query2 ? (
+                    <div className="flex-1 w-1/2">
+                        <QueryDebug query={query2} setQuery={setQuery2} queryKey="hogql-debug-2" />
+                    </div>
+                ) : null}
+            </div>
         </div>
     )
 }

@@ -77,7 +77,7 @@ type NotebookNodeImageAttributes = {
 
 export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
-    defaultTitle: 'Image',
+    titlePlaceholder: 'Image',
     Component,
     serializedText: (attrs) => {
         // TODO file is null when this runs... should it be?

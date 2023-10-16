@@ -22,6 +22,7 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
+import { NotFound } from 'lib/components/NotFound'
 
 const HEIGHT = 500
 const MIN_HEIGHT = 400
@@ -47,7 +48,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         scrollIntoView,
     } = useActions(notebookNodeLogic)
 
-    const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
+        sessionRecordingDataLogic(recordingLogicProps)
+    )
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
@@ -99,6 +102,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
         })
     }, [])
 
+    if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
+        return <NotFound object="replay" />
+    }
+
     return !expanded ? (
         <div>
             {sessionPlayerMetaData ? (
@@ -135,7 +142,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    defaultTitle: 'Session replay',
+    titlePlaceholder: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
