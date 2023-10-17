@@ -48,12 +48,11 @@
             }
         },
         {
-            "name": "Frontend",
-            "command": "npm start",
+            "name": "Launch Chrome",
+            "type": "chrome",
             "request": "launch",
-            "type": "node-terminal",
-            "cwd": "${workspaceFolder}",
-            "localRoot": "${workspaceFolder}/frontend"
+            "url": "http://localhost:8000",
+            "webRoot": "${workspaceFolder}/frontend"
         },
         {
             "name": "Backend",
@@ -127,7 +126,7 @@
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery", "Frontend", "Plugin Server", "Temporal Worker"],
+            "configurations": ["Backend", "Celery", "Launch Chrome", "Plugin Server", "Temporal Worker"],
             "stopAll": true
         }
     ]

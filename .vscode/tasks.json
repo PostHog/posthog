@@ -1,0 +1,11 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Frontend",
+            "type": "npm",
+            "script": "start",
+            "problemMatcher": []
+        }
+    ]
+}
