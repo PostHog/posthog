@@ -24,7 +24,7 @@ class PersonsQueryRunner(QueryRunner):
         query: PersonsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[int] = None,
+        in_export_context: Optional[bool] = False,
     ):
         super().__init__(query=query, team=team, timings=timings, in_export_context=in_export_context)
         if isinstance(query, PersonsQuery):

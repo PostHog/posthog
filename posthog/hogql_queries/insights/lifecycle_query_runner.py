@@ -27,7 +27,7 @@ class LifecycleQueryRunner(QueryRunner):
         query: LifecycleQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[int] = None,
+        in_export_context: Optional[bool] = False,
     ):
         super().__init__(query, team, timings, in_export_context)
 
