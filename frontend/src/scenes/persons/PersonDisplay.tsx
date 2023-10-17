@@ -18,6 +18,7 @@ export interface PersonDisplayProps {
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
+    isCentered?: boolean
 }
 
 export function PersonIcon({
@@ -37,13 +38,20 @@ export function PersonIcon({
     return <ProfilePicture {...props} name={display} email={email} />
 }
 
-export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink }: PersonDisplayProps): JSX.Element {
+export function PersonDisplay({
+    person,
+    withIcon,
+    noEllipsis,
+    noPopover,
+    noLink,
+    isCentered,
+}: PersonDisplayProps): JSX.Element {
     const href = asLink(person)
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     let content = (
-        <span className="flex items-center">
+        <span className={clsx('flex', 'items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>

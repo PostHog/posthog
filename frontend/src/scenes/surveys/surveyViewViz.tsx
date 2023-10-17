@@ -5,6 +5,7 @@ import {
     QuestionResultsReady,
     SurveySingleChoiceResults,
     SurveyMultipleChoiceResults,
+    SurveyOpenTextResults,
     SurveyUserStats,
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
@@ -12,6 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
 import { useEffect } from 'react'
@@ -60,7 +62,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     return (
         <>
             {total > 0 && (
-                <div className="mb-6">
+                <div className="mb-8">
                     <div className="w-full mx-auto h-10 mb-4">
                         {[
                             {
@@ -421,6 +423,58 @@ export function MultipleChoiceQuestionBarChart({
                         </BindLogic>
                     </div>
                 </div>
+            )}
+        </div>
+    )
+}
+
+export function OpenTextViz({
+    questionIndex,
+    surveyOpenTextResults,
+    surveyOpenTextResultsReady,
+}: {
+    questionIndex: number
+    surveyOpenTextResults: SurveyOpenTextResults
+    surveyOpenTextResultsReady: QuestionResultsReady
+}): JSX.Element {
+    const { loadSurveyOpenTextResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.Open) {
+        throw new Error(`Question type must be ${SurveyQuestionType.Open}`)
+    }
+
+    useEffect(() => {
+        loadSurveyOpenTextResults({ questionIndex })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveyOpenTextResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyOpenTextResults[questionIndex].events.length ? (
+                <></>
+            ) : (
+                <>
+                    <div className="font-semibold text-muted-alt">Open text</div>
+                    <div className="text-xl font-bold mb-4">
+                        {question.question} • <span className="">Latest responses</span>
+                    </div>
+                    <div className="mt-4 mb-8 masonry-container">
+                        {surveyOpenTextResults[questionIndex].events.map((event, i) => (
+                            <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
+                                <div className="masonry-item-text italic font-semibold px-5 py-4">
+                                    {event.properties[surveyResponseField]}
+                                </div>
+                                <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <PersonDisplay person={event} withIcon={true} noEllipsis={false} isCentered />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </>
             )}
         </div>
     )
