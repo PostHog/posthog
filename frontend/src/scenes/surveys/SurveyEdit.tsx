@@ -458,7 +458,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         'number'
                                                                                             ? [
                                                                                                   {
-                                                                                                      label: '1 - 10',
+                                                                                                      label: '0 - 10',
                                                                                                       value: 10,
                                                                                                   },
                                                                                               ]

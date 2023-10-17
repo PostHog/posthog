@@ -176,6 +176,14 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
+                    <FlaggedFeature flag={FEATURE_FLAGS.WEB_ANALYTICS}>
+                        <PageButton
+                            icon={<IconWeb />}
+                            identifier={Scene.WebAnalytics}
+                            to={urls.webAnalytics()}
+                            highlight="alpha"
+                        />
+                    </FlaggedFeature>
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
 
                     <div className="SideBar__heading">Feature Management</div>
@@ -200,15 +208,6 @@ function Pages(): JSX.Element {
                         to={urls.surveys()}
                         highlight="beta"
                     />
-
-                    <FlaggedFeature flag={FEATURE_FLAGS.WEB_ANALYTICS}>
-                        <PageButton
-                            icon={<IconWeb />}
-                            identifier={Scene.WebAnalytics}
-                            to={urls.webAnalytics()}
-                            highlight="alpha"
-                        />
-                    </FlaggedFeature>
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton

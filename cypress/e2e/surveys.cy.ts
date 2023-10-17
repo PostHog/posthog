@@ -92,7 +92,7 @@ describe('Surveys', () => {
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]')
             .invoke('html')
-            .should('include', '1 - 10')
+            .should('include', '0 - 10')
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.upperBoundLabel"]').should(
             'have.value',
