@@ -23,15 +23,6 @@ const ERROR_FILTER_WHITELIST = [
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
-    // 'loadPersons',
-    // 'loadCustomEvents',
-    // 'loadAllGroupTypes',
-    // 'loadDashboards',
-    // 'loadInsights',
-    // 'loadRecentInsights',
-    // 'loadEarlyAccessFeatures',
-    // 'loadPluginConfigs',
-    // 'loadSessionRecordings',
 ]
 
 interface InitKeaProps {
