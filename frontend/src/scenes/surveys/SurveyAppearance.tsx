@@ -371,9 +371,9 @@ const NumberRating = ({
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 gridTemplateColumns: `repeat(${ratingSurveyQuestion.scale}, minmax(0, 1fr))`,
             }}
-            className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
+            className={`rating-options-buttons ${ratingSurveyQuestion.scale === 6 ? '' : 'max-numbers'}`}
         >
-            {(ratingSurveyQuestion.scale === 5 ? [0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(
+            {(ratingSurveyQuestion.scale === 6 ? [0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map(
                 (num, idx) => {
                     const active = activeNumber === num
                     return (
