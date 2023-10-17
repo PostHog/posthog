@@ -44,8 +44,9 @@ class HeartbeatDetails(typing.NamedTuple):
 
         async def heartbeat() -> None:
             """Heartbeat factor times every heartbeat_timeout."""
-            await asyncio.sleep(heartbeat_timeout.total_seconds() / factor)
-            temporalio.activity.heartbeat(self)
+            while True:
+                await asyncio.sleep(heartbeat_timeout.total_seconds() / factor)
+                temporalio.activity.heartbeat(self)
 
         async def heartbeat_while_running(*args, **kwargs):
             """Wrap 'function_to_run' to asynchronously heartbeat while awaiting."""
