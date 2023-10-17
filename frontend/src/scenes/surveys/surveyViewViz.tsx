@@ -464,7 +464,7 @@ export function OpenTextViz({
                                 <div className="masonry-item-text italic font-semibold px-5 py-4">
                                     {event.properties[surveyResponseField]}
                                 </div>
-                                <div className="items-center px-5 py-4 border-t truncate w-full">
+                                <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
                                     <PersonDisplay person={event} withIcon={true} noEllipsis={false} isCentered />
                                 </div>
                             </div>
