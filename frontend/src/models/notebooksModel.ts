@@ -1,7 +1,7 @@
-import { actions, BuiltLogic, connect, kea, path, reducers } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
+import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, NotebookType } from '~/types'
 
 import api from 'lib/api'
 import posthog from 'posthog-js'
@@ -16,6 +16,8 @@ import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import { urls } from 'scenes/urls'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { router } from 'kea-router'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
@@ -74,6 +76,7 @@ export const notebooksModel = kea<notebooksModelType>([
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
+        createNotebookFromDashboard: (dashboard: DashboardType) => ({ dashboard }),
     }),
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -143,5 +146,50 @@ export const notebooksModel = kea<notebooksModelType>([
                 // In the future we can load these from remote
             },
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        createNotebookFromDashboard: async ({ dashboard }) => {
+            const queries = dashboard.tiles.reduce((acc, tile) => {
+                if (!tile.insight) {
+                    return acc
+                }
+                if (tile.insight.query) {
+                    return [
+                        ...acc,
+                        {
+                            title: tile.insight.name,
+                            query: tile.insight.query,
+                        },
+                    ]
+                }
+                const node = filtersToQueryNode(tile.insight.filters)
+
+                if (!node) {
+                    return acc
+                }
+
+                return [
+                    ...acc,
+                    {
+                        title: tile.insight.name,
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: node,
+                        },
+                    },
+                ]
+            }, [] as { title: string; query: InsightVizNode | Node }[])
+
+            const resources = queries.map((x) => ({
+                type: NotebookNodeType.Query,
+                attrs: {
+                    title: x.title,
+                    query: x.query,
+                },
+            }))
+
+            await actions.createNotebook(dashboard.name + ' (copied)', NotebookTarget.Auto, resources)
+        },
     })),
 ])
