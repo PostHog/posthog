@@ -28,8 +28,14 @@ class TrendsQueryRunner(QueryRunner):
     query_type = TrendsQuery
     series: List[SeriesWithExtras]
 
-    def __init__(self, query: TrendsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(query, team, timings)
+    def __init__(
+        self,
+        query: TrendsQuery | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[int] = None,
+    ):
+        super().__init__(query, team, timings, in_export_context)
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):

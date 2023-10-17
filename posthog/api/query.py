@@ -212,7 +212,7 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team, query_json: Dict, in_export_context: Optional[bool] = False, request: Optional[Request] = None
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
@@ -221,10 +221,10 @@ def process_query(
 
     if query_kind in QUERY_WITH_RUNNER:
         refresh_requested = refresh_requested_by_client(request) if request else False
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
     elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.model_validate(query_json)
@@ -240,7 +240,7 @@ def process_query(
             filters=hogql_query.filters,
             modifiers=hogql_query.modifiers,
             placeholders=values,
-            default_limit=default_limit,
+            in_export_context=in_export_context,
             explain=hogql_query.explain,
         )
         return _unwrap_pydantic_dict(hogql_response)
