@@ -26,7 +26,7 @@ export async function eachMessageAppsOnEventHandlers(
         )?.capabilities?.methods?.includes('onEvent')
     )
 
-    if (pluginConfigs) {
+    if (pluginConfigs && pluginConfigs.length > 0) {
         // Elements parsing can be extremely slow, so we skip it for some plugins
         // # SKIP_ELEMENTS_PARSING_PLUGINS
         const skipElementsChain = pluginConfigs.every((pluginConfig) =>
