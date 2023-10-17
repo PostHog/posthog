@@ -1240,3 +1240,24 @@ class TestInviteSignupAPI(APIBaseTest):
             },
         )
         self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
+
+    def test_invite_an_already_existing_user(self):
+        # Given an existing user
+        user = self._create_user("test+29@posthog.com", "test_password")
+
+        # IF an invitation is sent to that particular user
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email=user.email, organization=self.organization
+        )
+
+        # AND if the user is trying to accept the invite.
+        response = self.client.get(f"/api/signup/{invite.id}/")
+
+        # THEN the request should fail
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # AND then
+        self.assertEqual(response.json()["code"], "account_exists")
+
+        # AND then
+        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
