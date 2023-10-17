@@ -69,6 +69,12 @@ export interface SurveyMultipleChoiceResults {
     }
 }
 
+export interface SurveyOpenTextResults {
+    [key: number]: {
+        events: { properties: Record<string, any>; distinct_id: string }[]
+    }
+}
+
 export interface QuestionResultsReady {
     [key: string]: boolean
 }
@@ -232,7 +238,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 const { results } = responseJSON
 
                 let total = 0
-                const data = new Array(question.scale).fill(0)
+                const dataSize = question.scale === 10 ? 11 : question.scale
+                const data = new Array(dataSize).fill(0)
                 results?.forEach(([value, count]) => {
                     total += count
                     data[value - 1] = count
@@ -328,6 +335,45 @@ export const surveyLogic = kea<surveyLogicType>([
                 const labels = results?.map((r) => r[1])
 
                 return { ...values.surveyRatingResults, [questionIndex]: { labels, data } }
+            },
+        },
+        surveyOpenTextResults: {
+            loadSurveyOpenTextResults: async ({
+                questionIndex,
+            }: {
+                questionIndex: number
+            }): Promise<SurveyOpenTextResults> => {
+                const { survey } = values
+
+                const question = values.survey.questions[questionIndex]
+                if (question.type !== SurveyQuestionType.Open) {
+                    throw new Error(`Survey question type must be ${SurveyQuestionType.Open}`)
+                }
+
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT properties, distinct_id
+                        FROM events
+                        WHERE event == 'survey sent'
+                            AND properties.$survey_id == '${survey.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        LIMIT 20
+                    `,
+                }
+
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+
+                const events = results?.map((r) => ({ properties: JSON.parse(r[0]), distinct_id: r[1] }))
+
+                return { ...values.surveyRatingResults, [questionIndex]: { events } }
             },
         },
     })),
@@ -457,6 +503,17 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyMultipleChoiceResultsSuccess: (state, { payload }) => {
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
+                },
+            },
+        ],
+        surveyOpenTextResultsReady: [
+            {},
+            {
+                loadSurveyOpenTextResultsSuccess: (state, { payload }) => {
                     if (!payload || !payload.hasOwnProperty('questionIndex')) {
                         return { ...state }
                     }

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -10,7 +10,7 @@ from posthog.models.team.team import Team
 class BreakdownValues:
     team: Team
     event_name: str
-    breakdown_field: str
+    breakdown_field: Union[str, float]
     breakdown_type: str
     query_date_range: QueryDateRange
     histogram_bin_count: Optional[int]
@@ -20,7 +20,7 @@ class BreakdownValues:
         self,
         team: Team,
         event_name: str,
-        breakdown_field: str,
+        breakdown_field: Union[str, float],
         query_date_range: QueryDateRange,
         breakdown_type: str,
         histogram_bin_count: Optional[float] = None,
@@ -35,16 +35,25 @@ class BreakdownValues:
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
 
     def get_breakdown_values(self) -> List[str]:
-        select_field = ast.Alias(
-            alias="value",
-            expr=ast.Field(
-                chain=get_properties_chain(
-                    breakdown_type=self.breakdown_type,
-                    breakdown_field=self.breakdown_field,
-                    group_type_index=self.group_type_index,
-                )
-            ),
-        )
+        if self.breakdown_type == "cohort":
+            return [int(self.breakdown_field)]
+
+        if self.breakdown_type == "hogql":
+            select_field = ast.Alias(
+                alias="value",
+                expr=parse_expr(self.breakdown_field),
+            )
+        else:
+            select_field = ast.Alias(
+                alias="value",
+                expr=ast.Field(
+                    chain=get_properties_chain(
+                        breakdown_type=self.breakdown_type,
+                        breakdown_field=self.breakdown_field,
+                        group_type_index=self.group_type_index,
+                    )
+                ),
+            )
 
         query = parse_select(
             """

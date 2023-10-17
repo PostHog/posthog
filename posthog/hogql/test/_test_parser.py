@@ -6,11 +6,18 @@ from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException, SyntaxException
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.visitor import clear_locations
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 
 def parser_test_factory(backend: Literal["python", "cpp"]):
-    class TestParser(BaseTest):
+    base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
+
+    class TestParser(*base_classes):
+        MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
+        MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT = 0.1
+        MEMORY_PRIMING_RUNS_N = 2
+        MEMORY_LEAK_CHECK_RUNS_N = 100
+
         maxDiff = None
 
         def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:

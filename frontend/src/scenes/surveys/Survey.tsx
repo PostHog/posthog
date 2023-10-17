@@ -11,13 +11,10 @@ import { Survey, SurveyUrlMatchType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { SurveyView } from './SurveyView'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import EditSurveyOld from './EditSurveyOld'
-import EditSurveyNew from './EditSurveyNew'
+import SurveyEdit from './SurveyEdit'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -51,7 +48,6 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -86,7 +82,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 }
             />
             <LemonDivider />
-            {featureFlags[FEATURE_FLAGS.SURVEYS_NEW_CREATION_FLOW] ? <EditSurveyNew /> : <EditSurveyOld />}
+            <SurveyEdit />
             <LemonDivider />
             <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
             <LemonDivider />

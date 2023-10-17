@@ -203,6 +203,13 @@ export function SurveyView(): JSX.Element {
     return <App />
 }
 
+export function SurveyTemplates(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.surveyTemplates())
+    }, [])
+    return <App />
+}
+
 export function SurveyNotFound(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.survey('1234566789'))
