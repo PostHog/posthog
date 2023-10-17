@@ -77,6 +77,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             return runner.run().results
 
     def test_is_not_set_boolean(self):
+        # see https://github.com/PostHog/posthog/issues/18030
         self._create_boolean_field_test_events()
         results = self._run_boolean_field_query(
             EventPropertyFilter(
