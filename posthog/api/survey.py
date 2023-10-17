@@ -89,6 +89,23 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
+    def validate_appearance(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Appearance must be an object")
+
+        thank_you_message = value.get("thankYouMessageHeader")
+        if thank_you_message and nh3.is_html(thank_you_message):
+            value["thankYouMessageHeader"] = nh3.clean(thank_you_message)
+
+        thank_you_description = value.get("thankYouMessageDescription")
+        if thank_you_description and nh3.is_html(thank_you_description):
+            value["thankYouMessageDescription"] = nh3.clean(thank_you_description)
+
+        return value
+
     def validate_questions(self, value):
         if value is None:
             return value
