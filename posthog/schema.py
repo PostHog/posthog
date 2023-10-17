@@ -495,35 +495,32 @@ class WebOverviewStatsQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class WebStatsBreakdown(str, Enum):
+    Page = "Page"
+    InitialPage = "InitialPage"
+    InitialReferringDomain = "InitialReferringDomain"
+    InitialUTMSource = "InitialUTMSource"
+    InitialUTMCampaign = "InitialUTMCampaign"
+    Browser = "Browser"
+    OS = "OS"
+    DeviceType = "DeviceType"
+
+
+class WebStatsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class WebTopClicksQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
-class WebTopPagesQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
-class WebTopSourcesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -744,8 +741,19 @@ class WebOverviewStatsQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
-    properties: List[EventPropertyFilter]
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebOverviewStatsQueryResponse] = None
+
+
+class WebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    response: Optional[WebStatsTableQueryResponse] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -754,28 +762,8 @@ class WebTopClicksQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
-    properties: List[EventPropertyFilter]
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
-
-
-class WebTopPagesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
-    properties: List[EventPropertyFilter]
-    response: Optional[WebTopPagesQueryResponse] = None
-
-
-class WebTopSourcesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
-    properties: List[EventPropertyFilter]
-    response: Optional[WebTopSourcesQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1169,9 +1157,8 @@ class DataTableNode(BaseModel):
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
         WebOverviewStatsQuery,
-        WebTopSourcesQuery,
+        WebStatsTableQuery,
         WebTopClicksQuery,
-        WebTopPagesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -1451,9 +1438,8 @@ class Model(RootModel):
             HogQLQuery,
             HogQLMetadata,
             WebOverviewStatsQuery,
-            WebTopSourcesQuery,
+            WebStatsTableQuery,
             WebTopClicksQuery,
-            WebTopPagesQuery,
         ],
     ]
 

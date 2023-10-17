@@ -80,7 +80,7 @@ function PresentationTypeCard({
     )
 }
 
-export default function EditSurveyNew(): JSX.Element {
+export default function SurveyEdit(): JSX.Element {
     const { survey, hasTargetingFlag, urlMatchTypeValidationError, writingHTMLDescription, hasTargetingSet } =
         useValues(surveyLogic)
     const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription, resetTargeting } =
@@ -458,7 +458,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                         'number'
                                                                                             ? [
                                                                                                   {
-                                                                                                      label: '1 - 10',
+                                                                                                      label: '0 - 10',
                                                                                                       value: 10,
                                                                                                   },
                                                                                               ]

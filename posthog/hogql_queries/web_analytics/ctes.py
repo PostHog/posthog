@@ -2,61 +2,6 @@
 # while these queries are under development they are left as CTEs so that they can be iterated
 # on without needing database migrations
 
-SESSION_CTE = """
-SELECT
-    events.properties.`$session_id` AS session_id,
-    min(events.timestamp) AS min_timestamp,
-    max(events.timestamp) AS max_timestamp,
-    dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
-
-    any(events.properties.$initial_referring_domain) AS $initial_referring_domain,
-    any(events.properties.$set_once.$initial_pathname) AS $initial_pathname,
-    any(events.properties.$set_once.$initial_utm_source) AS $initial_utm_source,
-
-    countIf(events.event == '$pageview') AS num_pageviews,
-    countIf(events.event == '$autocapture') AS num_autocaptures,
-    -- in v1 we'd also want to count whether there were any conversion events
-
-    any(events.person_id) as person_id,
-    -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
-    (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
-FROM
-    events
-WHERE
-    session_id IS NOT NULL
-    AND ({session_where})
-GROUP BY
-    events.properties.`$session_id`
-HAVING
-    ({session_having})
-    """
-
-SOURCE_CTE = """
-SELECT
-    events.properties.$set_once.$initial_utm_source AS $initial_utm_source,
-    count() as total_pageviews,
-    uniq(events.person_id) as unique_visitors
-FROM
-    events
-WHERE
-    (event = '$pageview')
-    AND ({source_where})
-    GROUP BY $initial_utm_source
-"""
-
-PATHNAME_CTE = """
-SELECT
-    events.properties.`$pathname` AS $pathname,
-    count() as total_pageviews,
-    uniq(events.person_id) as unique_visitors
-FROM
-    events
-WHERE
-    (event = '$pageview')
-    AND ({pathname_where})
-    GROUP BY $pathname
-"""
-
 PATHNAME_SCROLL_CTE = """
 SELECT
     events.properties.`$prev_pageview_pathname` AS $pathname,
@@ -73,3 +18,47 @@ WHERE
     AND ({pathname_scroll_where})
 GROUP BY $pathname
 """
+
+COUNTS_CTE = """
+SELECT
+    {breakdown_by} AS breakdown_value,
+    count() as total_pageviews,
+    uniq(events.person_id) as unique_visitors
+FROM
+    events
+WHERE
+    (event = '$pageview')
+    AND ({counts_where})
+    GROUP BY breakdown_value
+"""
+
+BOUNCE_RATE_CTE = """
+SELECT
+    breakdown_value,
+    avg(session.is_bounce) as bounce_rate
+FROM (
+    SELECT
+        events.properties.`$session_id` AS session_id,
+        min(events.timestamp) AS min_timestamp,
+        max(events.timestamp) AS max_timestamp,
+        dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
+        countIf(events.event == '$pageview') AS num_pageviews,
+        countIf(events.event == '$autocapture') AS num_autocaptures,
+        {breakdown_by} AS breakdown_value,
+
+        -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
+        (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
+    FROM
+        events
+    WHERE
+        session_id IS NOT NULL
+        AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
+        AND ({session_where})
+    GROUP BY
+        events.properties.`$session_id`
+    HAVING
+        ({session_having})
+) AS session
+GROUP BY
+    breakdown_value
+    """

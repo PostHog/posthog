@@ -30,7 +30,7 @@ interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    surveyQuestionItem: SurveyQuestion
     description?: string | null
     link?: string | null
     preview?: boolean
@@ -365,27 +365,31 @@ const NumberRating = ({
     preview?: boolean
 }): JSX.Element => {
     const [activeNumber, setActiveNumber] = useState<number | undefined>()
+
+    const totalNumbers = ratingSurveyQuestion.scale === 10 ? 11 : ratingSurveyQuestion.scale
     return (
         <div
             style={{
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
-                gridTemplateColumns: `repeat(${ratingSurveyQuestion.scale}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${totalNumbers}, minmax(0, 1fr))`,
             }}
             className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
         >
-            {(ratingSurveyQuestion.scale === 5 ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map((num, idx) => {
-                const active = activeNumber === num
-                return (
-                    <RatingButton
-                        preview={preview}
-                        key={idx}
-                        active={active}
-                        appearance={appearance}
-                        num={num}
-                        setActiveNumber={setActiveNumber}
-                    />
-                )
-            })}
+            {(ratingSurveyQuestion.scale === 10 ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map(
+                (num, idx) => {
+                    const active = activeNumber === num
+                    return (
+                        <RatingButton
+                            preview={preview}
+                            key={idx}
+                            active={active}
+                            appearance={appearance}
+                            num={num}
+                            setActiveNumber={setActiveNumber}
+                        />
+                    )
+                }
+            )}
         </div>
     )
 }

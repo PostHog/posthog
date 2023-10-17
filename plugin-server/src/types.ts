@@ -138,6 +138,7 @@ export interface PluginsServerConfig {
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -228,6 +229,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
