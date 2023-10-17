@@ -17,11 +17,12 @@ import {
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
+import { Plugin } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { runOnEvent } from '../../../src/worker/plugins/run'
-import { pluginConfig39 } from '../../helpers/plugins'
+import { plugin22, pluginConfig39 } from '../../helpers/plugins'
 
 jest.mock('../../../src/worker/plugins/run')
 
@@ -145,8 +146,32 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchAppsOnEventHandlers', () => {
-        it('calls runOnEvent when useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [pluginConfig39])
+        it('calls runOnEvent when plugin set in config and has onEvent', async () => {
+            const plugin = { ...plugin22 }
+            plugin.capabilities = { methods: ['onEvent'] }
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [{ ...pluginConfig39, plugin: plugin }])
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            // TODO fix to jest spy on the actual function
+            expect(runOnEvent).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    uuid: 'uuid1',
+                    team_id: 2,
+                    distinct_id: 'my_id',
+                })
+            )
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
+        it('calls runOnEvent when plugin not set in config and plugin has onEvent', async () => {
+            // Types don't guarantee that pluginConfig.plugin is defined, so verify the alternative
+            const plugin = { ...plugin22 }
+            plugin.capabilities = { methods: ['onEvent'] }
+            queue.pluginsServer.plugins = new Map<number, Plugin>()
+            queue.pluginsServer.plugins.set(22, plugin)
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [{ pluginConfig39, plugin_id: 22 }])
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             // TODO fix to jest spy on the actual function
             expect(runOnEvent).toHaveBeenCalledWith(
@@ -171,10 +196,25 @@ describe('eachBatchX', () => {
                 expect.any(Date)
             )
         })
+        it('skip runOnEvent when no onEvent plugin for team', async () => {
+            const plugin = { ...plugin22 }
+            plugin.capabilities = { methods: ['other'] }
+            queue.pluginsServer.plugins = { 22: plugin }
+            queue.pluginsServer.pluginConfigsPerTeam.clear()
+            queue.pluginsServer.pluginConfigsPerTeam.set(2, [{ ...pluginConfig39, plugin_id: 22, plugin: plugin }])
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+            expect(runOnEvent).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
         it('parses elements when useful', async () => {
+            const plugin = { ...plugin22 }
+            plugin.capabilities = { methods: ['onEvent'] }
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 33 },
+                { ...pluginConfig39, plugin_id: 60, plugin: plugin },
+                { ...pluginConfig39, plugin_id: 33, plugin: plugin },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -192,9 +232,11 @@ describe('eachBatchX', () => {
             )
         })
         it('skips elements parsing when not useful', async () => {
+            const plugin = { ...plugin22 }
+            plugin.capabilities = { methods: ['onEvent'] }
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 100 },
+                { ...pluginConfig39, plugin_id: 60, plugin: plugin },
+                { ...pluginConfig39, plugin_id: 100, plugin: plugin },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(

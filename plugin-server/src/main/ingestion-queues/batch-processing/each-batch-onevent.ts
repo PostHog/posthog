@@ -19,8 +19,11 @@ export async function eachMessageAppsOnEventHandlers(
 ): Promise<void> {
     let pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
     // filter out plugins that don't have onEvent handlers
+    // TODO: ideally we'd do this when we load pluginConfigsPerTeam in the first place ... one step at a time
     pluginConfigs = pluginConfigs?.filter((pluginConfig) =>
-        pluginConfig.plugin?.capabilities?.methods?.includes('onEvent')
+        (
+            pluginConfig.plugin || queue.pluginsServer.plugins.get(pluginConfig.plugin_id)
+        )?.capabilities?.methods?.includes('onEvent')
     )
 
     if (pluginConfigs) {

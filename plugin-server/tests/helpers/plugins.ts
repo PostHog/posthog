@@ -55,6 +55,14 @@ export const pluginConfig39: PluginConfig = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }
+export const plugin22: Plugin = {
+    id: 22,
+    organization_id: commonOrganizationId,
+    plugin_type: 'custom',
+    name: 'test-plugin',
+    is_global: true,
+    capabilities: {},
+}
 
 function mockSourceFileFields(
     name: string,
