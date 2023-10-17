@@ -30,33 +30,32 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                 loading={dataWarehouseSourcesLoading}
                 columns={[
                     {
-                        title: 'Name',
+                        title: 'Source Type',
                         key: 'name',
                         width: 0,
-                        render: function RenderName() {
-                            return ''
-                        },
-                    },
-                    {
-                        title: 'Source',
-                        key: 'source',
-                        render: function RenderType() {
-                            return <>{'some source'}</>
+                        render: function RenderName(_, source) {
+                            return source.source_type
                         },
                     },
                     {
                         title: 'Status',
                         key: 'status',
                         width: 0,
-                        render: function RenderStatus() {
-                            return 'Something'
+                        render: function RenderStatus(_, source) {
+                            return <LemonTag type="primary">{source.status}</LemonTag>
                         },
                     },
 
                     {
                         width: 0,
                         render: function Render() {
-                            const menuItems: LemonMenuItems = []
+                            const menuItems: LemonMenuItems = [
+                                {
+                                    label: 'Remove',
+                                    status: 'danger',
+                                    onClick: () => {},
+                                },
+                            ]
                             return (
                                 <LemonMenu items={menuItems} placement="left">
                                     <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />

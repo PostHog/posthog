@@ -3145,7 +3145,8 @@ export interface AirbyteStripeResource {
     id: string
     source_id: string
     connection_id: string
-    loading: boolean
+    status: string
+    source_type: string
 }
 
 export type BatchExportDestinationS3 = {

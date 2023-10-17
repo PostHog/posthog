@@ -22,14 +22,8 @@ class AirbyteResourceSerializers(serializers.ModelSerializer):
 
     class Meta:
         model = AirbyteResource
-        fields = ["id", "source_id", "created_at", "created_by", "status", "client_secret", "account_id"]
-        read_only_fields = [
-            "id",
-            "source_id",
-            "created_by",
-            "created_at",
-            "status",
-        ]
+        fields = ["id", "source_id", "created_at", "created_by", "status", "client_secret", "account_id", "source_type"]
+        read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type"]
 
 
 class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -49,14 +43,19 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotAuthenticated()
 
         if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by")
-                .order_by(self.ordering)
-            )
+            return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
 
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+    def list(self, request, *args, **kwargs):
+        # queryset = self.get_queryset()
+        # TODO: temporary as this will spam
+        # for airbyte_resource in queryset:
+        #     job = retrieve_sync(airbyte_resource.connection_id)
+        #     airbyte_resource.status = job["status"]
+        #     airbyte_resource.save()
+
+        return super().list(request, *args, **kwargs)
 
     def retrieve(self, *args, **kwargs):
         super_cls = super()

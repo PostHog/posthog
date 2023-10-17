@@ -296,6 +296,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="delete expired exported assets",
         )
 
+    sender.add_periodic_task(
+        crontab(minute="30", hour="*/12"),
+        sync_datawarehouse_sources.s(),
+        name="sync datawarehouse sources that have settled in s3 bucket",
+    )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -986,3 +992,13 @@ def ee_persist_finished_recordings():
         pass
     else:
         persist_finished_recordings()
+
+
+@app.task(ignore_result=True)
+def sync_datawarehouse_sources():
+    try:
+        from posthog.warehouse.sync_resource import sync_resources
+    except ImportError:
+        pass
+    else:
+        sync_resources()
