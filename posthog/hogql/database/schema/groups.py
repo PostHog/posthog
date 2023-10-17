@@ -69,7 +69,7 @@ class RawGroupsTable(Table):
         return "groups"
 
     def to_printed_hogql(self):
-        return "groups"
+        return "raw_groups"
 
 
 class GroupsTable(LazyTable):
