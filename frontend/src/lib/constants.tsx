@@ -139,6 +139,7 @@ export const FEATURE_FLAGS = {
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-monitoring
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
