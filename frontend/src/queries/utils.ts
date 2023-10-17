@@ -1,37 +1,36 @@
 import {
     ActionsNode,
+    DatabaseSchemaQuery,
     DataTableNode,
     DateRange,
     EventsNode,
     EventsQuery,
-    HogQLQuery,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
+    HogQLMetadata,
+    HogQLQuery,
     InsightFilter,
     InsightFilterProperty,
+    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleQuery,
     Node,
     NodeKind,
+    PathsQuery,
     PersonsNode,
+    PersonsQuery,
+    RetentionQuery,
+    SavedInsightNode,
+    StickinessQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
-    InsightNodeKind,
     TimeToSeeDataWaterfallNode,
-    TimeToSeeDataJSONNode,
-    DatabaseSchemaQuery,
-    SavedInsightNode,
-    WebTopSourcesQuery,
-    WebTopClicksQuery,
-    WebTopPagesQuery,
+    TrendsQuery,
     WebOverviewStatsQuery,
-    PersonsQuery,
-    HogQLMetadata,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -117,16 +116,12 @@ export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverview
     return node?.kind === NodeKind.WebOverviewStatsQuery
 }
 
-export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {
-    return node?.kind === NodeKind.WebTopSourcesQuery
+export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+    return node?.kind === NodeKind.WebStatsTableQuery
 }
 
 export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
-}
-
-export function isWebTopPagesQuery(node?: Node | null): node is WebTopPagesQuery {
-    return node?.kind === NodeKind.WebTopPagesQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {

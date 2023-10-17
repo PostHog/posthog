@@ -34,7 +34,13 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = <PropertyKeyInfo value={trimQuotes(key.substring(11))} type={PropertyFilterType.Event} disableIcon />
     } else if (key.startsWith('context.columns.')) {
         const column = trimQuotes(key.substring(16))
-        title = context?.columns?.[column]?.title ?? column.replace('_', ' ')
+        const queryContextColumn = context?.columns?.[column]
+        const Component = queryContextColumn?.renderTitle
+        title = Component ? (
+            <Component columnName={column} query={query} />
+        ) : (
+            queryContextColumn?.title ?? column.replace('_', ' ')
+        )
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
