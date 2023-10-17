@@ -254,15 +254,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
-    [NodeKind.WebTopSourcesQuery]: {
-        name: 'Top Sources',
-        description: 'View top sources for a website',
-        icon: InsightsTrendsIcon,
-        inMenu: true,
-    },
-    [NodeKind.WebTopPagesQuery]: {
-        name: 'Top Pages',
-        description: 'View top pages for a website',
+    [NodeKind.WebStatsTableQuery]: {
+        name: 'Web Table',
+        description: 'A table of results from web analytics, with a breakdown',
         icon: InsightsTrendsIcon,
         inMenu: true,
     },
