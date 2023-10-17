@@ -199,7 +199,7 @@ class MemoryLeakTestMixin:
     MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
     """Parsing more than once can never increase memory by this much (on average)"""
     MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT: float
-    """Parsing more than once can never increase memory by more than this factor * first run's increase (on average)"""
+    """Parsing cannot increase memory by more than this factor * priming's increase (on average)"""
     MEMORY_PRIMING_RUNS_N: int
     """How many times to run every test method to prime the heap"""
     MEMORY_LEAK_CHECK_RUNS_N: int
