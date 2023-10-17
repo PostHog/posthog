@@ -452,14 +452,14 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                             : []),
                                                                                         {
                                                                                             label: '0 - 5',
-                                                                                            value: 5,
+                                                                                            value: 6,
                                                                                         },
                                                                                         ...(question.display ===
                                                                                         'number'
                                                                                             ? [
                                                                                                   {
                                                                                                       label: '0 - 10',
-                                                                                                      value: 10,
+                                                                                                      value: 11,
                                                                                                   },
                                                                                               ]
                                                                                             : []),
