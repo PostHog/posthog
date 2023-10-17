@@ -47,7 +47,7 @@ class TestCohort(BaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
+            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM raw_cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
         )
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
