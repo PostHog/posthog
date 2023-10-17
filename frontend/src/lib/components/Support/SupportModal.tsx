@@ -56,13 +56,36 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
 
-    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+    const handleReportTypeChange = (
+        kind: string = supportLogic.values.sendSupportRequest.kind ??
+            supportLogic.values.sendSupportLoggedOutRequest.kind ??
+            ''
+    ): void => {
+        const message = loggedIn
+            ? supportLogic.values.sendSupportRequest.message
+            : supportLogic.values.sendSupportLoggedOutRequest.message
+
+        // do not overwrite modified message
+        if (
+            !(
+                message === SUPPORT_TICKET_TEMPLATES.bug ||
+                message === SUPPORT_TICKET_TEMPLATES.feedback ||
+                message === SUPPORT_TICKET_TEMPLATES.support ||
+                !message
+            )
+        ) {
+            return
+        }
+
         if (kind === 'bug') {
             supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+            supportLogic.values.sendSupportLoggedOutRequest.message = SUPPORT_TICKET_TEMPLATES.bug
         } else if (kind === 'feedback') {
             supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+            supportLogic.values.sendSupportLoggedOutRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
         } else if (kind === 'support') {
             supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+            supportLogic.values.sendSupportLoggedOutRequest.message = SUPPORT_TICKET_TEMPLATES.support
         }
     }
 
