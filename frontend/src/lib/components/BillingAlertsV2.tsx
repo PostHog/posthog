@@ -36,6 +36,7 @@ export function BillingAlertsV2(): JSX.Element | null {
                 type={billingAlert.status}
                 action={showButton ? buttonProps : undefined}
                 onClose={billingAlert.status !== 'error' ? () => setAlertHidden(true) : undefined}
+                dismissKey={billingAlert.dismissKey}
             >
                 <b>{billingAlert.title}</b>
                 <br />

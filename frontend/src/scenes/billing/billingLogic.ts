@@ -24,6 +24,7 @@ export interface BillingAlertConfig {
     message?: string
     contactSupport?: boolean
     buttonCTA?: string
+    dismissKey?: string
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -216,6 +217,7 @@ export const billingLogic = kea<billingLogicType>([
                         title: `Switch to annual billing to save up to 20% on your bill.`,
                         contactSupport: true,
                         buttonCTA: 'Contact sales',
+                        dismissKey: 'annual-billing-cta',
                     }
                 }
             },
