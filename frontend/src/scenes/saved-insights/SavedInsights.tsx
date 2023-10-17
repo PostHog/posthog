@@ -182,6 +182,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
+    [NodeKind.PersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table',
@@ -240,6 +246,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
         icon: InsightSQLIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebOverviewStatsQuery]: {
+        name: 'Overview Stats',
+        description: 'View overview stats for a website',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebStatsTableQuery]: {
+        name: 'Web Table',
+        description: 'A table of results from web analytics, with a breakdown',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.WebTopClicksQuery]: {
+        name: 'Top Clicks',
+        description: 'View top clicks for a website',
+        icon: InsightsTrendsIcon,
         inMenu: true,
     },
 }

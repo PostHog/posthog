@@ -1,8 +1,7 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { Meta } from '@storybook/react'
@@ -27,7 +26,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     linked_flag_id: null,
     targeting_flag: null,
     targeting_flag_filters: undefined,
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     start_date: null,
     end_date: null,
     archived: false,
@@ -47,7 +46,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         email: 'test2@posthog.com',
     },
     questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
-    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
     conditions: { url: 'posthog', selector: '' },
     linked_flag: {
         id: 7,
@@ -184,7 +183,6 @@ const meta: Meta = {
 }
 export default meta
 export function SurveysList(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.surveys())
     }, [])
@@ -192,7 +190,6 @@ export function SurveysList(): JSX.Element {
 }
 
 export function NewSurvey(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.survey('new'))
     }, [])
@@ -200,9 +197,22 @@ export function NewSurvey(): JSX.Element {
 }
 
 export function SurveyView(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.SURVEYS])
     useEffect(() => {
         router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
+    }, [])
+    return <App />
+}
+
+export function SurveyTemplates(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.surveyTemplates())
+    }, [])
+    return <App />
+}
+
+export function SurveyNotFound(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.survey('1234566789'))
     }, [])
     return <App />
 }

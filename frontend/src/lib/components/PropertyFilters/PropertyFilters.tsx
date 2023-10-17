@@ -17,6 +17,7 @@ interface PropertyFiltersProps {
     disablePopover?: boolean
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    hogQLTable?: string
     showNestedArrow?: boolean
     eventNames?: string[]
     logicalRowDivider?: boolean
@@ -36,6 +37,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
+    hogQLTable,
     style = {},
     showNestedArrow = false,
     eventNames = [],
@@ -88,6 +90,7 @@ export function PropertyFilters({
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
+                                            hogQLTable={hogQLTable}
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}

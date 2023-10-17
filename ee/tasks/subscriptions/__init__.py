@@ -3,8 +3,7 @@ from typing import Optional
 
 import structlog
 from prometheus_client import Counter
-from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
+from sentry_sdk import capture_exception, capture_message
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
@@ -42,10 +41,14 @@ def _deliver_subscription_report(
             # Same value as before so nothing to do
             return
 
+    insights, assets = generate_assets(subscription)
+
+    if not assets:
+        capture_message("No assets are in this subscription", tags={"subscription_id": subscription.id})
+        return
+
     if subscription.target_type == "email":
         SUBSCRIPTION_QUEUED.labels(destination="email").inc()
-
-        insights, assets = generate_assets(subscription)
 
         # Send emails
         emails = subscription.target_value.split(",")
@@ -64,7 +67,13 @@ def _deliver_subscription_report(
                 )
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
-                logger.error(e)
+                logger.error(
+                    "sending subscription failed",
+                    subscription_id=subscription.id,
+                    next_delivery_date=subscription.next_delivery_date,
+                    destination=subscription.target_type,
+                    exc_info=True,
+                )
                 capture_exception(e)
 
         SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
@@ -72,7 +81,6 @@ def _deliver_subscription_report(
     elif subscription.target_type == "slack":
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
-        insights, assets = generate_assets(subscription)
         try:
             send_slack_subscription_report(
                 subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
@@ -80,7 +88,13 @@ def _deliver_subscription_report(
             SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
         except Exception as e:
             SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
-            logger.error(e)
+            logger.error(
+                "sending subscription failed",
+                subscription_id=subscription.id,
+                next_delivery_date=subscription.next_delivery_date,
+                destination=subscription.target_type,
+                exc_info=True,
+            )
             capture_exception(e)
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
@@ -106,6 +120,12 @@ def schedule_all_subscriptions() -> None:
     )
 
     for subscription in subscriptions:
+        logger.info(
+            "Scheduling subscription",
+            subscription_id=subscription.id,
+            next_delivery_date=subscription.next_delivery_date,
+            destination=subscription.target_type,
+        )
         deliver_subscription_report.delay(subscription.id)
 
 

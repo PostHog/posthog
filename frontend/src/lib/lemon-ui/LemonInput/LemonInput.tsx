@@ -44,6 +44,8 @@ interface LemonInputPropsBase
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
+    /** Whether to stop propagation of events from the input */
+    stopPropagation?: boolean
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -80,6 +82,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         value,
         transparentBackground = false,
         size = 'medium',
+        stopPropagation = false,
         ...textProps
     },
     ref
@@ -160,6 +163,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
                 onChange={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     if (type === 'number') {
                         onChange?.(
                             !isNaN(event.currentTarget.valueAsNumber) ? event.currentTarget.valueAsNumber : undefined
@@ -169,14 +175,23 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     }
                 }}
                 onFocus={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     setFocused(true)
                     onFocus?.(event)
                 }}
                 onBlur={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     setFocused(false)
                     onBlur?.(event)
                 }}
                 onKeyDown={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     if (onPressEnter && event.key === 'Enter') {
                         onPressEnter(event)
                     }

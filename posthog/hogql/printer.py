@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
-    HogQLSettings,
+    HogQLGlobalSettings,
 )
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
@@ -58,9 +58,9 @@ def print_ast(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
-    settings: Optional[HogQLSettings] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> str:
-    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack)
+    prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings)
 
 
@@ -69,9 +69,10 @@ def prepare_ast_for_printing(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id)
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
@@ -80,6 +81,15 @@ def prepare_ast_for_printing(
             node = resolve_property_types(node, context)
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, stack, context)
+
+        # We support global query settings, and local subquery settings.
+        # If the global query is a select query with settings, merge the two.
+        if isinstance(node, ast.SelectQuery) and node.settings is not None and settings is not None:
+            for key, value in node.settings.model_dump().items():
+                if value is not None:
+                    settings.__setattr__(key, value)
+            node.settings = None
+
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -89,7 +99,7 @@ def print_prepared_ast(
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
-    settings: Optional[HogQLSettings] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
@@ -110,7 +120,7 @@ class _Printer(Visitor):
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
         stack: Optional[List[AST]] = None,
-        settings: Optional[HogQLSettings] = None,
+        settings: Optional[HogQLGlobalSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
@@ -125,18 +135,9 @@ class _Printer(Visitor):
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
                 raise HogQLException("Settings can only be applied to SELECT queries")
-            settings = []
-            for key, value in self.settings:
-                if not isinstance(value, (int, float, str)):
-                    raise HogQLException(f"Setting {key} must be a string, int, or float")
-                if not re.match(r"^[a-zA-Z0-9_]+$", key):
-                    raise HogQLException(f"Setting {key} is not supported")
-                if isinstance(value, int) or isinstance(value, float):
-                    settings.append(f"{key}={value}")
-                else:
-                    settings.append(f"{key}={self._print_escaped_string(value)}")
-            if len(settings) > 0:
-                response += f" SETTINGS {', '.join(settings)}"
+            settings = self._print_settings(self.settings)
+            if settings is not None:
+                response += " " + settings
 
         return response
 
@@ -239,6 +240,11 @@ class _Printer(Visitor):
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
             if node.limit_by is not None:
                 clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
+
+        if node.settings is not None and self.dialect == "clickhouse":
+            settings = self._print_settings(node.settings)
+            if settings is not None:
+                clauses.append(settings)
 
         response = " ".join([clause for clause in clauses if clause])
 
@@ -405,6 +411,11 @@ class _Printer(Visitor):
         nullable_left = self._is_nullable(node.left)
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
+
+        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
+        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
+        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+            not_nullable = True
 
         constant_lambda = None
         value_if_one_side_is_null = False
@@ -683,7 +694,7 @@ class _Printer(Visitor):
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.insert(1, self._get_week_start_day().clickhouse_mode)
+                    args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
@@ -759,7 +770,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -778,7 +789,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -822,7 +833,7 @@ class _Printer(Visitor):
             or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
@@ -985,5 +996,25 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
+
         # we don't know if it's nullable, so we assume it can be
         return True
+
+    def _print_settings(self, settings):
+        pairs = []
+        for key, value in settings:
+            if value is None:
+                continue
+            if not isinstance(value, (int, float, str)):
+                raise HogQLException(f"Setting {key} must be a string, int, or float")
+            if not re.match(r"^[a-zA-Z0-9_]+$", key):
+                raise HogQLException(f"Setting {key} is not supported")
+            if isinstance(value, bool):
+                pairs.append(f"{key}={1 if value else 0}")
+            elif isinstance(value, int) or isinstance(value, float):
+                pairs.append(f"{key}={value}")
+            else:
+                pairs.append(f"{key}={self._print_escaped_string(value)}")
+        if len(pairs) > 0:
+            return f"SETTINGS {', '.join(pairs)}"
+        return None

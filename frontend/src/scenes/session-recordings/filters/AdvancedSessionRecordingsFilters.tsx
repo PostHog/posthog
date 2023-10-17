@@ -4,20 +4,15 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import {
-    EntityTypes,
-    FilterType,
-    FilterableLogLevel,
-    RecordingDurationFilter,
-    RecordingFilters,
-    PropertyFilterType,
-} from '~/types'
+import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { groupsModel } from '~/models/groupsModel'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -32,17 +27,13 @@ export const AdvancedSessionRecordingsFilters = ({
     setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
 }): JSX.Element => {
-    const { currentTeam } = useValues(teamLogic)
-    const hasGroupFilters = (currentTeam?.test_account_filters || [])
-        .map((x) => x.type)
-        .includes(PropertyFilterType.Group)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
         <div className="space-y-2">
             <TestAccountFilter
                 filters={filters}
                 onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                disabledReason={hasGroupFilters ? 'Session replay does not support group filters' : false}
             />
 
             <LemonLabel>Time and duration</LemonLabel>
@@ -99,6 +90,7 @@ export const AdvancedSessionRecordingsFilters = ({
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    ...groupsTaxonomicTypes,
                 ]}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{
@@ -128,78 +120,97 @@ export const AdvancedSessionRecordingsFilters = ({
                 </>
             )}
 
-            <LemonLabel info="Show recordings that have captured console log messages">
-                Filter by console logs
-            </LemonLabel>
-            <ConsoleFilters
-                filters={filters}
-                setConsoleFilters={(x) =>
-                    setFilters({
-                        console_logs: x,
-                    })
-                }
-            />
+            <ConsoleFilters filters={filters} setFilters={setFilters} />
         </div>
     )
 }
 
 function ConsoleFilters({
     filters,
-    setConsoleFilters,
+    setFilters,
 }: {
     filters: RecordingFilters
-    setConsoleFilters: (selection: FilterableLogLevel[]) => void
+    setFilters: (filterS: RecordingFilters) => void
 }): JSX.Element {
-    function updateChoice(checked: boolean, level: FilterableLogLevel): void {
+    function updateLevelChoice(checked: boolean, level: FilterableLogLevel): void {
         const newChoice = filters.console_logs?.filter((c) => c !== level) || []
         if (checked) {
-            setConsoleFilters([...newChoice, level])
+            setFilters({
+                console_logs: [...newChoice, level],
+            })
         } else {
-            setConsoleFilters(newChoice)
+            setFilters({
+                console_logs: newChoice,
+            })
         }
     }
 
     return (
-        <LemonButtonWithDropdown
-            status="stealth"
-            type="secondary"
-            data-attr={'console-filters'}
-            dropdown={{
-                sameWidth: true,
-                closeOnClickInside: false,
-                overlay: [
-                    <>
-                        <LemonCheckbox
-                            size="small"
-                            fullWidth
-                            checked={!!filters.console_logs?.includes('log')}
-                            onChange={(checked) => {
-                                updateChoice(checked, 'log')
-                            }}
-                            label={'log'}
-                        />
-                        <LemonCheckbox
-                            size="small"
-                            fullWidth
-                            checked={!!filters.console_logs?.includes('warn')}
-                            onChange={(checked) => updateChoice(checked, 'warn')}
-                            label={'warn'}
-                        />
-                        <LemonCheckbox
-                            size="small"
-                            fullWidth
-                            checked={!!filters.console_logs?.includes('error')}
-                            onChange={(checked) => updateChoice(checked, 'error')}
-                            label={'error'}
-                        />
-                    </>,
-                ],
-                actionable: true,
-            }}
-        >
-            {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
-                <span className={'text-muted'}>Console types to filter for...</span>
-            )}
-        </LemonButtonWithDropdown>
+        <>
+            <LemonLabel>Filter by console logs</LemonLabel>
+            <FlaggedFeature flag={FEATURE_FLAGS.CONSOLE_RECORDING_SEARCH}>
+                <div className={'flex flex-row space-x-2'}>
+                    <LemonInput
+                        className={'grow'}
+                        placeholder={'containing text'}
+                        value={filters.console_search_query}
+                        onChange={(s: string): void => {
+                            setFilters({
+                                console_search_query: s,
+                            })
+                        }}
+                    />
+
+                    <Tooltip
+                        placement="bottom"
+                        title={<>Filter recordings by console logs. Only matches recordings since October 4th.</>}
+                    >
+                        <LemonTag type={'highlight'}>Beta</LemonTag>
+                    </Tooltip>
+                </div>
+            </FlaggedFeature>
+            <LemonButtonWithDropdown
+                status="stealth"
+                type="secondary"
+                data-attr={'console-filters'}
+                fullWidth={true}
+                dropdown={{
+                    sameWidth: true,
+                    closeOnClickInside: false,
+                    overlay: [
+                        <>
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                checked={!!filters.console_logs?.includes('log')}
+                                onChange={(checked) => {
+                                    updateLevelChoice(checked, 'log')
+                                }}
+                                label={'log'}
+                            />
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                checked={!!filters.console_logs?.includes('warn')}
+                                onChange={(checked) => updateLevelChoice(checked, 'warn')}
+                                label={'warn'}
+                            />
+                            <LemonCheckbox
+                                size="small"
+                                fullWidth
+                                checked={!!filters.console_logs?.includes('error')}
+                                onChange={(checked) => updateLevelChoice(checked, 'error')}
+                                label={'error'}
+                            />
+                        </>,
+                    ],
+                    actionable: true,
+                }}
+            >
+                {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
+                    <span className={'text-muted'}>Console types to filter for...</span>
+                )}
+            </LemonButtonWithDropdown>
+        </>
     )
 }

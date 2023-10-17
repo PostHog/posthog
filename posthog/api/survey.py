@@ -26,6 +26,10 @@ from typing import Any
 
 from posthog.utils_cors import cors_response
 
+import nh3
+
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+
 
 class SurveySerializer(serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
@@ -84,6 +88,36 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "archived",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
+
+    def validate_questions(self, value):
+        if value is None:
+            return value
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Questions must be a list of objects")
+
+        cleaned_questions = []
+        for raw_question in value:
+            if not isinstance(raw_question, dict):
+                raise serializers.ValidationError("Questions must be a list of objects")
+
+            cleaned_question = {
+                **raw_question,
+            }
+            question_text = raw_question.get("question")
+
+            if not question_text:
+                raise serializers.ValidationError("Question text is required")
+
+            description = raw_question.get("description")
+            if nh3.is_html(question_text):
+                cleaned_question["question"] = nh3.clean(question_text)
+            if description and nh3.is_html(description):
+                cleaned_question["description"] = nh3.clean(description)
+
+            cleaned_questions.append(cleaned_question)
+
+        return cleaned_questions
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
@@ -174,7 +208,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         return super().update(instance, validated_data)
 
     def _create_new_targeting_flag(self, name, filters):
-        feature_flag_key = slugify(f"survey-targeting-{name}")
+        feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,

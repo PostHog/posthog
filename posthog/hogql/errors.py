@@ -23,7 +23,7 @@ class HogQLException(Exception):
 
 
 class SyntaxException(HogQLException):
-    """Invalid HogQL syntax."""
+    """The input does not conform to HogQL syntax."""
 
     pass
 
@@ -36,6 +36,12 @@ class QueryException(HogQLException):
 
 class NotImplementedException(HogQLException):
     """This feature isn't implemented in HogQL (yet)."""
+
+    pass
+
+
+class ParsingException(HogQLException):
+    """An internal problem in the parser layer."""
 
     pass
 

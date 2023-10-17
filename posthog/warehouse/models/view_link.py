@@ -4,6 +4,7 @@ from posthog.models.team import Team
 from .datawarehouse_saved_query import DataWarehouseSavedQuery
 from typing import Dict, Any
 from posthog.hogql.errors import HogQLException
+from ...schema import HogQLQueryModifiers
 
 
 class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -16,7 +17,9 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     @property
     def join_function(self):
-        def _join_function(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+        def _join_function(
+            from_table: str, to_table: str, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers
+        ):
             from posthog.hogql import ast
             from posthog.hogql.parser import parse_select
 

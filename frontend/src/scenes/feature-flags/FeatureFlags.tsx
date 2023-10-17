@@ -279,7 +279,7 @@ export function OverViewTab({
                                                 { label: 'Multiple variants', value: 'multivariant' },
                                                 { label: 'Experiment', value: 'experiment' },
                                             ]}
-                                            value="all"
+                                            value={filters.type ?? 'all'}
                                         />
                                     </>
                                 )}
@@ -304,7 +304,7 @@ export function OverViewTab({
                                         { label: 'Enabled', value: 'true' },
                                         { label: 'Disabled', value: 'false' },
                                     ]}
-                                    value="all"
+                                    value={filters.active ?? 'all'}
                                 />
                                 <span className="ml-1">
                                     <b>Created by</b>
@@ -323,7 +323,7 @@ export function OverViewTab({
                                         }
                                     }}
                                     options={uniqueCreators}
-                                    value="any"
+                                    value={filters.created_by ?? 'any'}
                                 />
                             </div>
                         </div>

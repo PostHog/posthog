@@ -191,7 +191,7 @@ const featureFlagActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
+                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
                 </>,
             ],
         }

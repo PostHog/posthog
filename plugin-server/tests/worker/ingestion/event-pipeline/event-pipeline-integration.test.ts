@@ -9,7 +9,10 @@ import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
-import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import {
+    processOnEventStep,
+    processWebhooksStep,
+} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -31,7 +34,7 @@ describe('Event Pipeline integration test', () => {
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return Promise.all([
-            runner.runAppsOnEventPipeline(postIngestionEvent),
+            processOnEventStep(runner.hub, postIngestionEvent),
             processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
         ])
     }
@@ -45,7 +48,15 @@ describe('Event Pipeline integration test', () => {
         actionManager = new ActionManager(hub.db.postgres)
         await actionManager.prepare()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
-        hookCannon = new HookCommander(hub.db.postgres, hub.teamManager, hub.organizationManager)
+        hookCannon = new HookCommander(
+            hub.db.postgres,
+            hub.teamManager,
+            hub.organizationManager,
+            new Set(hub.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
+            hub.appMetrics,
+            undefined,
+            hub.EXTERNAL_REQUEST_TIMEOUT_MS
+        )
 
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'createPerson')

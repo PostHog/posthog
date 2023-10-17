@@ -26,7 +26,7 @@ export function ExperimentResult(): JSX.Element {
         areTrendResultsConfusing,
         experimentResultCalculationError,
         sortedExperimentResultVariants,
-        experimentCountPerUserMath,
+        experimentMathAggregationForTrends,
     } = useValues(experimentLogic)
 
     return (
@@ -116,7 +116,10 @@ export function ExperimentResult(): JSX.Element {
                                                                 />
                                                             )}
                                                             <span className="pl-1">
-                                                                {experimentCountPerUserMath ? 'metric' : 'count'}:
+                                                                {experimentMathAggregationForTrends
+                                                                    ? 'metric'
+                                                                    : 'count'}
+                                                                :
                                                             </span>
                                                         </Row>
                                                     </b>{' '}

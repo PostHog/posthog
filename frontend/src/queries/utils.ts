@@ -1,38 +1,52 @@
 import {
     ActionsNode,
+    DatabaseSchemaQuery,
     DataTableNode,
     DateRange,
     EventsNode,
     EventsQuery,
-    HogQLQuery,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
+    HogQLMetadata,
+    HogQLQuery,
     InsightFilter,
     InsightFilterProperty,
+    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleQuery,
     Node,
     NodeKind,
+    PathsQuery,
     PersonsNode,
+    PersonsQuery,
+    RetentionQuery,
+    SavedInsightNode,
+    StickinessQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
-    InsightNodeKind,
     TimeToSeeDataWaterfallNode,
-    TimeToSeeDataJSONNode,
-    DatabaseSchemaQuery,
-    SavedInsightNode,
+    TrendsQuery,
+    WebOverviewStatsQuery,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
-    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
+    return (
+        isEventsNode(node) ||
+        isActionsNode(node) ||
+        isPersonsNode(node) ||
+        isTimeToSeeDataSessionsQuery(node) ||
+        isEventsQuery(node) ||
+        isPersonsQuery(node) ||
+        isHogQLQuery(node) ||
+        isHogQLMetadata(node)
+    )
 }
 
 function isTimeToSeeDataJSONNode(node?: Node | null): node is TimeToSeeDataJSONNode {
@@ -74,6 +88,10 @@ export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
 
+export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
+    return node?.kind === NodeKind.PersonsQuery
+}
+
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
@@ -88,6 +106,22 @@ export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
 
 export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
+    return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverviewStatsQuery {
+    return node?.kind === NodeKind.WebOverviewStatsQuery
+}
+
+export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+    return node?.kind === NodeKind.WebStatsTableQuery
+}
+
+export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
+    return node?.kind === NodeKind.WebTopClicksQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {
@@ -242,7 +276,7 @@ export function escapePropertyAsHogQlIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
-export function taxonomicFilterToHogQl(
+export function taxonomicEventFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
@@ -253,6 +287,19 @@ export function taxonomicFilterToHogQl(
         return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
+export function taxonomicPersonFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
         return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {

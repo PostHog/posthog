@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
+import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
@@ -91,8 +92,8 @@ describe('EventPipelineRunner', () => {
                 increment: jest.fn(),
                 timing: jest.fn(),
             },
+            eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
-        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = 'drop_token:drop_id,drop_token_all:*'
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
@@ -240,20 +241,6 @@ describe('EventPipelineRunner', () => {
                 expect(hub.db.kafkaProducer.queueMessage).not.toHaveBeenCalled()
                 expect(hub.statsd.increment).not.toHaveBeenCalledWith('events_added_to_dead_letter_queue')
             })
-        })
-    })
-
-    describe('runAppsOnEventPipeline()', () => {
-        it('runs remaining steps', async () => {
-            jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
-
-            await runner.runAppsOnEventPipeline({
-                ...preIngestionEvent,
-                person_properties: {},
-                person_created_at: '2020-02-23T02:11:00.000Z' as ISOTimestamp,
-            })
-
-            expect(runner.steps).toEqual(['processOnEventStep'])
         })
     })
 })

@@ -9,4 +9,16 @@
         height: 270px;
         width: 100%;
     }
+
+    .NotebookNode & {
+        background-color: var(--danger-highlight);
+        margin: 0;
+        max-width: 100%;
+        padding: 2rem;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
 }

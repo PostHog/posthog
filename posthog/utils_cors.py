@@ -6,6 +6,8 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "request-context",
     "x-amzn-trace-id",
     "x-cloud-trace-context",
+    "Sentry-Trace",
+    "Baggage",
 )
 
 
