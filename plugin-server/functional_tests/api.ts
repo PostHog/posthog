@@ -5,6 +5,7 @@ import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
     ActionStep,
     Hook,
@@ -13,8 +14,7 @@ import {
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
-    RawPerformanceEvent,
-    RawSessionRecordingEvent,
+    RawSessionReplayEvent,
 } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
@@ -62,8 +62,8 @@ export const capture = async ({
     now = new Date(),
     $set = undefined,
     $set_once = undefined,
-    topic = ['$performance_event', '$snapshot'].includes(event)
-        ? 'session_recording_events'
+    topic = ['$performance_event', '$snapshot_items'].includes(event)
+        ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         : 'events_plugin_ingestion',
 }: {
     teamId: number | null
@@ -80,7 +80,7 @@ export const capture = async ({
     $set_once?: object
 }) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
-    // from the capture endpoint, but there is no guarantee that is is 100%
+    // from the capture endpoint, but there is no guarantee that it is 100%
     // accurate.
     return await produce({
         topic,
@@ -300,25 +300,17 @@ export const fetchPostgresPersons = async (teamId: number) => {
     return rows
 }
 
-export const fetchSessionRecordingsEvents = async (teamId: number, uuid?: string) => {
+export const fetchSessionReplayEvents = async (teamId: number, sessionId?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
-            uuid ? ` AND uuid = '${uuid}'` : ''
-        } ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionRecordingEvent>
+        `SELECT min(min_first_timestamp) as min_fs_ts, any(team_id), any(distinct_id), session_id FROM session_replay_events WHERE team_id = ${teamId} ${
+            sessionId ? ` AND session_id = '${sessionId}'` : ''
+        } group by session_id ORDER BY min_fs_ts ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawSessionReplayEvent>
     return queryResult.data.map((event) => {
         return {
             ...event,
-            snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
-}
-
-export const fetchPerformanceEvents = async (teamId: number) => {
-    const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
-    return queryResult.data
 }
 
 export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {

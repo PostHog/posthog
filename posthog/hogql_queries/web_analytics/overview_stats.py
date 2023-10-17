@@ -2,6 +2,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
@@ -15,9 +16,10 @@ class WebOverviewStatsQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):
-            start = parse_expr("today() - 14")
-            mid = parse_expr("today() - 7")
-            end = parse_expr("today()")
+            # TODO use the date range, with a previous period, trends query does this so look at that for insp
+            start = parse_expr("today() - 14", backend="cpp")
+            mid = parse_expr("today() - 7", backend="cpp")
+            end = parse_expr("today()", backend="cpp")
         with self.timings.measure("overview_stats_query"):
             overview_stats_query = parse_select(
                 """
@@ -35,10 +37,12 @@ FROM
 WHERE
     event = '$pageview' AND
     timestamp >= {start} AND
-    timestamp < {end}
+    timestamp < {end} AND
+    {event_properties}
                 """,
                 timings=self.timings,
-                placeholders={"start": start, "mid": mid, "end": end},
+                placeholders={"start": start, "mid": mid, "end": end, "event_properties": self.event_properties()},
+                backend="cpp",
             )
         return overview_stats_query
 
@@ -57,3 +61,6 @@ WHERE
     @cached_property
     def query_date_range(self):
         return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
+
+    def event_properties(self) -> ast.Expr:
+        return property_to_expr(self.query.properties, team=self.team)

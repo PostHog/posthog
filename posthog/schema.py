@@ -228,6 +228,26 @@ class HogQLNotice(BaseModel):
     start: Optional[float] = None
 
 
+class PersonsArgMaxVersion(str, Enum):
+    auto = "auto"
+    v1 = "v1"
+    v2 = "v2"
+
+
+class PersonsOnEventsMode(str, Enum):
+    disabled = "disabled"
+    v1_enabled = "v1_enabled"
+    v2_enabled = "v2_enabled"
+
+
+class HogQLQueryModifiers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
+    personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+
+
 class IntervalType(str, Enum):
     hour = "hour"
     day = "day"
@@ -475,35 +495,32 @@ class WebOverviewStatsQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class WebStatsBreakdown(str, Enum):
+    Page = "Page"
+    InitialPage = "InitialPage"
+    InitialReferringDomain = "InitialReferringDomain"
+    InitialUTMSource = "InitialUTMSource"
+    InitialUTMCampaign = "InitialUTMCampaign"
+    Browser = "Browser"
+    OS = "OS"
+    DeviceType = "DeviceType"
+
+
+class WebStatsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
 class WebTopClicksQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
-class WebTopPagesQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[List] = None
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: List
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
-
-
-class WebTopSourcesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -566,6 +583,7 @@ class EventsQueryResponse(BaseModel):
     )
     columns: List
     hasMore: Optional[bool] = None
+    hogql: str
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
@@ -643,7 +661,9 @@ class HogQLQueryResponse(BaseModel):
     )
     clickhouse: Optional[str] = None
     columns: Optional[List] = None
+    explain: Optional[List[str]] = None
     hogql: Optional[str] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: Optional[str] = None
     results: Optional[List] = None
     timings: Optional[List[QueryTiming]] = None
@@ -720,9 +740,20 @@ class WebOverviewStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebOverviewStatsQueryResponse] = None
+
+
+class WebStatsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownBy: WebStatsBreakdown
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
+    response: Optional[WebStatsTableQueryResponse] = None
 
 
 class WebTopClicksQuery(BaseModel):
@@ -730,29 +761,9 @@ class WebTopClicksQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filters: Any
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
+    properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
-
-
-class WebTopPagesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    filters: Any
-    kind: Literal["WebTopPagesQuery"] = "WebTopPagesQuery"
-    response: Optional[WebTopPagesQueryResponse] = None
-
-
-class WebTopSourcesQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    filters: Any
-    kind: Literal["WebTopSourcesQuery"] = "WebTopSourcesQuery"
-    response: Optional[WebTopSourcesQueryResponse] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -915,8 +926,10 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    explain: Optional[bool] = None
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    modifiers: Optional[HogQLQueryModifiers] = None
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(
@@ -1144,9 +1157,8 @@ class DataTableNode(BaseModel):
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
         WebOverviewStatsQuery,
-        WebTopSourcesQuery,
+        WebStatsTableQuery,
         WebTopClicksQuery,
-        WebTopPagesQuery,
     ] = Field(..., description="Source of the events")
 
 
@@ -1426,9 +1438,8 @@ class Model(RootModel):
             HogQLQuery,
             HogQLMetadata,
             WebOverviewStatsQuery,
-            WebTopSourcesQuery,
+            WebStatsTableQuery,
             WebTopClicksQuery,
-            WebTopPagesQuery,
         ],
     ]
 

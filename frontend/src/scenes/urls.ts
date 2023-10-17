@@ -106,12 +106,13 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
+    surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (): string => '/warehouse',
     dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
-    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
@@ -183,9 +184,6 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
-    notebooks: (): string =>
-        combineUrl(urls.dashboards(), {
-            tab: 'notebooks',
-        }).url,
+    notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
 }

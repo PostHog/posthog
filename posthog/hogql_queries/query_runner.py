@@ -11,6 +11,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
+from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
@@ -18,11 +19,11 @@ from posthog.schema import (
     QueryTiming,
     TrendsQuery,
     LifecycleQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
     WebOverviewStatsQuery,
     PersonsQuery,
+    EventsQuery,
+    WebStatsTableQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -64,17 +65,20 @@ class CachedQueryResponse(QueryResponse):
 
 RunnableQueryNode = Union[
     TrendsQuery,
-    PersonsQuery,
     LifecycleQuery,
+    EventsQuery,
+    PersonsQuery,
     WebOverviewStatsQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
+    WebStatsTableQuery,
 ]
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode, team: Team, timings: Optional[HogQLTimings] = None
+    query: Dict[str, Any] | RunnableQueryNode,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    default_limit: Optional[int] = None,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -87,9 +91,15 @@ def get_query_runner(
 
         return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
     if kind == "TrendsQuery":
-        from .insights.trends_query_runner import TrendsQueryRunner
+        from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+    if kind == "EventsQuery":
+        from .events_query_runner import EventsQueryRunner
+
+        return EventsQueryRunner(
+            query=cast(EventsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+        )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
 
@@ -98,18 +108,14 @@ def get_query_runner(
         from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 
         return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopSourcesQuery":
-        from .web_analytics.top_sources import WebTopSourcesQueryRunner
-
-        return WebTopSourcesQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopPagesQuery":
-        from .web_analytics.top_pages import WebTopPagesQueryRunner
+    if kind == "WebStatsTableQuery":
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
+        return WebStatsTableQueryRunner(query=query, team=team, timings=timings)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -134,7 +140,7 @@ class QueryRunner(ABC):
         # Due to the way schema.py is generated, we don't have a good inheritance story here.
         raise NotImplementedError()
 
-    def run(self, refresh_requested: bool) -> CachedQueryResponse:
+    def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
         cache_key = self._cache_key()
         tag_queries(cache_key=cache_key)
 
@@ -173,7 +179,12 @@ class QueryRunner(ABC):
         with self.timings.measure("to_hogql"):
             return print_ast(
                 self.to_query(),
-                HogQLContext(team_id=self.team.pk, enable_select_queries=True, timings=self.timings),
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    timings=self.timings,
+                    modifiers=create_default_modifiers_for_team(self.team),
+                ),
                 "hogql",
             )
 

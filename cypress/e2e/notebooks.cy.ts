@@ -20,18 +20,19 @@ describe('Notebooks', () => {
 
         cy.fixture('api/notebooks/notebook.json').then((notebook) => {
             cy.intercept('GET', /api\/projects\/\d+\/notebooks\/.*\//, { body: notebook }).as('loadNotebook')
-            // this means saving doesn't work but so what?
-            cy.intercept('PATCH', /api\/projects\/\d+\/notebooks\/.*\//, (req, res) => {
-                res.reply(req.body)
+            // bounce the notebook patch back as if it succeeded,
+            // this means saving doesn't work in Cypress but so what?
+            cy.intercept('PATCH', /api\/projects\/\d+\/notebooks\/.*\//, (req) => {
+                req.reply(req.body)
             }).as('patchNotebook')
         })
 
-        cy.clickNavMenu('dashboards')
-        cy.location('pathname').should('include', '/dashboard')
+        cy.clickNavMenu('notebooks')
+        cy.location('pathname').should('include', '/notebooks')
     })
 
     it('Notebooks are enabled', () => {
-        cy.get('h1').should('contain', 'Dashboards & Notebooks')
+        cy.get('h1').should('contain', 'Notebooks')
         cy.get('li').contains('Notebooks').should('exist').click()
     })
 
@@ -42,19 +43,20 @@ describe('Notebooks', () => {
 
     it('Insertion suggestions can be dismissed', () => {
         cy.visit(urls.notebook('h11RoiwV'))
+        cy.get('.node-ph-replay-timestamp').click()
         cy.get('.NotebookEditor').type('{enter}')
 
-        cy.get('.NotebookRecordingTimestamp--preview').should('exist')
+        cy.get('.NotebookRecordingTimestamp.opacity-50').should('exist')
 
         cy.get('.NotebookEditor').type('{esc}')
-        cy.get('.NotebookFloatingButton .LemonButton').should('exist')
+        cy.get('.NotebookRecordingTimestamp.opacity-50').should('not.exist')
     })
 
     it('Can comment on a recording', () => {
         cy.visit(urls.replay())
-        cy.get('[data-attr="notebooks-replay-comment-button"]').click()
+        cy.get('[data-attr="notebooks-add-button"]').click()
 
-        cy.get('.LemonButton').contains('Comment in a new notebook').click()
+        cy.get('.LemonButton').contains('New notebook').click()
 
         cy.get('.Notebook.Notebook--editable').should('be.visible')
         cy.get('.ph-recording.NotebookNode').should('be.visible')
@@ -66,8 +68,8 @@ describe('Notebooks', () => {
             cy.get('li').contains('Notebooks').should('exist').click()
             cy.get('[data-attr="new-notebook"]').click()
             // we don't actually get a new notebook because the API is mocked
-            // so, "exit" the timestamp block we start in
-            cy.get('.NotebookEditor').type('{esc}{enter}{enter}')
+            // so, we need to clear the text
+            cy.get('.NotebookEditor').type('{selectAll}{backSpace}{enter}')
         })
 
         it('Can add a number list', () => {
@@ -84,7 +86,7 @@ describe('Notebooks', () => {
 
         it('Can add bold', () => {
             cy.get('.NotebookEditor').type('**bold**')
-            cy.get('.NotebookEditor p').last().should('contain.html', '<strong>bold</strong>')
+            cy.get('.NotebookEditor p').first().should('contain.html', '<strong>bold</strong>')
         })
 
         it('Can add bullet list', () => {

@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 from posthog.hogql.errors import HogQLException
+from posthog.schema import HogQLQueryModifiers
 
 PERSON_DISTINCT_IDS_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -34,7 +35,9 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]
     )
 
 
-def join_with_person_distinct_ids_table(from_table: str, to_table: str, requested_fields: Dict[str, List[str]]):
+def join_with_person_distinct_ids_table(
+    from_table: str, to_table: str, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers
+):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -69,7 +72,7 @@ class RawPersonDistinctIdsTable(Table):
 class PersonDistinctIdsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         return select_from_person_distinct_ids_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

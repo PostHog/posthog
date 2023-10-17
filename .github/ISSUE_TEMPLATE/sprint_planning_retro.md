@@ -13,14 +13,6 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 2.
 3.
 
-## Retro: What can we do better next sprint?
-
-1.
-2.
-3.
-4.
-5.
-
 
 # Team sprint planning
 

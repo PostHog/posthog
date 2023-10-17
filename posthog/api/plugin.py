@@ -298,6 +298,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
+    @action(methods=["GET"], detail=False)
+    def unused(self, request: request.Request, **kwargs):
+        ids = Plugin.objects.exclude(
+            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
+        ).values_list("id", flat=True)
+        return Response(ids)
+
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="installation")

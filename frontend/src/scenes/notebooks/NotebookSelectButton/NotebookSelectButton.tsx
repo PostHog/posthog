@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
-import { IconJournalPlus, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconNotebook, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
@@ -17,7 +17,7 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -50,8 +50,22 @@ function NotebooksChoiceList(props: {
             ) : (
                 props.notebooks.map((notebook, i) => {
                     return (
-                        <LemonButton key={i} fullWidth onClick={() => props.onClick(notebook.short_id)}>
-                            {notebook.title || `Untitled (${notebook.short_id})`}
+                        <LemonButton
+                            key={i}
+                            sideIcon={
+                                notebook.created_by ? (
+                                    <ProfilePicture
+                                        name={notebook.created_by?.first_name}
+                                        email={notebook.created_by?.email}
+                                        size="md"
+                                        title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
+                                    />
+                                ) : null
+                            }
+                            fullWidth
+                            onClick={() => props.onClick(notebook.short_id)}
+                        >
+                            <span className="truncate">{notebook.title || `Untitled (${notebook.short_id})`}</span>
                         </LemonButton>
                     )
                 })
@@ -204,7 +218,11 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     const button = (
         <LemonButton
-            icon={<IconJournalPlus />}
+            icon={
+                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
+                    <IconNotebook />
+                </IconWithCount>
+            }
             data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
             sideIcon={null}
             {...props}
@@ -224,13 +242,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
 
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? (
-                button
-            ) : (
-                <IconWithCount count={notebooksContainingResource.length ?? 0} showZero={false}>
-                    <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
-                </IconWithCount>
-            )}
+            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
         </FlaggedFeature>
     )
 }
