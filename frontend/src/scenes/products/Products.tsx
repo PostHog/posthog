@@ -17,7 +17,6 @@ import * as Icons from '@posthog/icons'
 
 export const scene: SceneExport = {
     component: Products,
-    // logic: featureFlagsLogic,
 }
 
 function OnboardingCompletedButton({
