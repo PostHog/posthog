@@ -227,7 +227,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 const { results } = responseJSON
 
                 let total = 0
-                const data = new Array(question.scale).fill(0)
+                const dataSize = question.scale === 10 ? 11 : question.scale
+                const data = new Array(dataSize).fill(0)
                 results?.forEach(([value, count]) => {
                     total += count
                     data[value - 1] = count
