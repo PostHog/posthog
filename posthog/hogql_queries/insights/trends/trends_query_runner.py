@@ -286,4 +286,4 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.trendsFilter is not None:
             filter_dict.update(self.query.trendsFilter.__dict__)
 
-        return filter_dict
+        return {k: v for k, v in filter_dict.items() if v is not None}
