@@ -14,6 +14,7 @@ import { status } from '../utils/status'
 export type KafkaProducerConfig = {
     KAFKA_PRODUCER_LINGER_MS: number
     KAFKA_PRODUCER_BATCH_SIZE: number
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
 }
 
 // Kafka production related functions using node-rdkafka.
@@ -26,6 +27,7 @@ export const createKafkaProducer = async (globalConfig: ProducerGlobalConfig, pr
         // default 5 inflight requests.
         'linger.ms': producerConfig.KAFKA_PRODUCER_LINGER_MS,
         'batch.size': producerConfig.KAFKA_PRODUCER_BATCH_SIZE,
+        'queue.buffering.max.messages': producerConfig.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
         'compression.codec': 'snappy',
         // Ensure that librdkafka handled producer retries do not produce duplicates. Note this
         // doesn't mean that if we manually retry a message that it will be idempotent. May reduce

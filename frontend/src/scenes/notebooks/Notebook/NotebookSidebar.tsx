@@ -47,7 +47,9 @@ const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.E
                 </>
             }
         >
-            {Settings ? <Settings attributes={nodeAttributes} updateAttributes={updateAttributes} /> : null}
+            {Settings ? (
+                <Settings key={nodeAttributes.nodeId} attributes={nodeAttributes} updateAttributes={updateAttributes} />
+            ) : null}
         </LemonWidget>
     )
 }
