@@ -21,8 +21,9 @@ export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
-    message: string
+    message?: string
     contactSupport?: boolean
+    buttonCTA?: string
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -130,9 +131,22 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
+        projectedTotalAmountUsd: [
+            (s) => [s.billing],
+            (billing: BillingV2Type): number => {
+                if (!billing) {
+                    return 0
+                }
+                let projectedTotal = 0
+                for (const product of billing.products || []) {
+                    projectedTotal += parseFloat(product.projected_amount_usd || '0')
+                }
+                return projectedTotal
+            },
+        ],
         billingAlert: [
-            (s) => [s.billing, s.preflight],
-            (billing, preflight): BillingAlertConfig | undefined => {
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (billing, preflight, projectedTotalAmountUsd): BillingAlertConfig | undefined => {
                 if (!billing || !preflight?.cloud) {
                     return
                 }
@@ -163,7 +177,7 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
-                const productOverLimit = billing.products?.find((x) => {
+                const productOverLimit = billing.products?.find((x: BillingProductV2Type) => {
                     return x.percentage_usage > 1
                 })
 
@@ -188,6 +202,20 @@ export const billingLogic = kea<billingLogicType>([
                         message: `You have currently used ${parseFloat(
                             (productApproachingLimit.percentage_usage * 100).toFixed(2)
                         )}% of your ${productApproachingLimit.usage_key.toLowerCase()} allocation.`,
+                    }
+                }
+
+                if (
+                    billing.current_total_amount_usd_after_discount &&
+                    (parseFloat(billing.current_total_amount_usd_after_discount) > 1000 ||
+                        projectedTotalAmountUsd > 1000) &&
+                    billing.billing_period?.interval === 'month'
+                ) {
+                    return {
+                        status: 'info',
+                        title: `Switch to annual billing to save up to 20% on your bill.`,
+                        contactSupport: true,
+                        buttonCTA: 'Contact sales',
                     }
                 }
             },
@@ -276,7 +304,6 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
     })),
-
     afterMount(({ actions }) => {
         actions.loadBilling()
     }),
