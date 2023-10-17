@@ -48,7 +48,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     results: DataT
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[Tuple[str, str]]] = None
+    types: Optional[List[Union[Tuple[str, str], str]]] = None
     columns: Optional[List[str]] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
