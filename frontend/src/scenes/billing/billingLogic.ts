@@ -214,7 +214,7 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return {
                         status: 'info',
-                        title: `Switch to annual billing to save up to 20% on your bill.`,
+                        title: `Switch to annual up-front billing to save up to 20% on your bill.`,
                         contactSupport: true,
                         buttonCTA: 'Contact sales',
                         dismissKey: 'annual-billing-cta',
