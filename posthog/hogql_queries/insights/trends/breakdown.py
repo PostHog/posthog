@@ -47,11 +47,15 @@ class Breakdown:
     def column_expr(self) -> ast.Expr:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
-
-        if self.query.breakdown.breakdown_type == "hogql":
+        elif self.query.breakdown.breakdown_type == "hogql":
             return ast.Alias(
                 alias="breakdown_value",
                 expr=parse_expr(self.query.breakdown.breakdown),
+            )
+        elif self.query.breakdown.breakdown_type == "cohort":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=ast.Constant(value=int(self.query.breakdown.breakdown)),
             )
 
         return ast.Alias(
@@ -60,6 +64,13 @@ class Breakdown:
         )
 
     def events_where_filter(self) -> ast.Expr:
+        if self.query.breakdown.breakdown_type == "cohort":
+            return ast.CompareOperation(
+                left=ast.Field(chain=["person_id"]),
+                op=ast.CompareOperationOp.InCohort,
+                right=ast.Constant(value=int(self.query.breakdown.breakdown)),
+            )
+
         if self.query.breakdown.breakdown_type == "hogql":
             left = parse_expr(self.query.breakdown.breakdown)
         else:
