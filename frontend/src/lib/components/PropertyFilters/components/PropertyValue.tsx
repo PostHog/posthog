@@ -157,6 +157,7 @@ export function PropertyValue({
                 selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
+                matchWidth={false}
                 onChange={(nextVal: string[]) => {
                     setValue(nextVal)
                 }}

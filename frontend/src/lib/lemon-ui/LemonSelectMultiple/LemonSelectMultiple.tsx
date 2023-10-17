@@ -19,6 +19,7 @@ export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption
 export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
 
 export type LemonSelectMultipleProps = {
+    matchWidth?: boolean
     selectClassName?: string
     options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[]
     value?: string | string[] | null
@@ -51,6 +52,7 @@ export function LemonSelectMultiple({
     filterOption = true,
     mode = 'single',
     selectClassName,
+    matchWidth = true,
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const optionsAsList: LemonSelectMultipleOptionItem[] = Array.isArray(options)
@@ -114,6 +116,7 @@ export function LemonSelectMultiple({
                 }
                 filterOption={filterOption}
                 tagRender={({ label, onClose }) => <LemonSnack onClose={onClose}>{label}</LemonSnack>}
+                dropdownMatchSelectWidth={matchWidth}
             />
         </div>
     )
