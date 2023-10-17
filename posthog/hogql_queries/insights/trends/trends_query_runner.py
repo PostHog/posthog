@@ -199,6 +199,9 @@ class TrendsQueryRunner(QueryRunner):
         return [new_result]
 
     def _is_breakdown_field_boolean(self):
+        if self.query.breakdown.breakdown_type == "hogql":
+            return False
+
         if self.query.breakdown.breakdown_type == "person":
             property_type = PropertyDefinition.Type.PERSON
         elif self.query.breakdown.breakdown_type == "group":
