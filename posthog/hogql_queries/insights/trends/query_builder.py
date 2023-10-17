@@ -237,4 +237,10 @@ class TrendsQueryBuilder:
 
     @cached_property
     def _breakdown(self):
-        return Breakdown(team=self.team, query=self.query, series=self.series, query_date_range=self.query_date_range)
+        return Breakdown(
+            team=self.team,
+            query=self.query,
+            series=self.series,
+            query_date_range=self.query_date_range,
+            timings=self.timings,
+        )
