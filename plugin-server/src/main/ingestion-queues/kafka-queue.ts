@@ -11,7 +11,6 @@ import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import Piscina from '../../worker/piscina'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -33,13 +32,7 @@ export class KafkaJSIngestionConsumer {
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
 
-    constructor(
-        pluginsServer: Hub,
-        piscina: Piscina,
-        topic: string,
-        consumerGroupId: string,
-        batchHandler: KafkaJSBatchFunction
-    ) {
+    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: KafkaJSBatchFunction) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.topic = topic
@@ -192,13 +185,7 @@ export class IngestionConsumer {
     public eachBatch: EachBatchFunction
     public consumer?: BatchConsumer
 
-    constructor(
-        pluginsServer: Hub,
-        piscina: Piscina,
-        topic: string,
-        consumerGroupId: string,
-        batchHandler: EachBatchFunction
-    ) {
+    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
         this.pluginsServer = pluginsServer
         this.topic = topic
         this.consumerGroupId = consumerGroupId

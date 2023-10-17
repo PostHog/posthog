@@ -15,7 +15,6 @@ from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -164,14 +163,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            filter = SessionRecordingsFilter(request=request, team=self.team)
-            recordings = list_recordings(filter, request, context=self.get_serializer_context())
-            return Response(recordings)
-        except Exception as ex:
-            # error here weren't making it to sentry, let's be explicit
-            capture_exception(ex, tags={"team_id": self.team.pk})
-            raise ex
+        filter = SessionRecordingsFilter(request=request, team=self.team)
+        recordings = list_recordings(filter, request, context=self.get_serializer_context())
+        return Response(recordings)
 
     @extend_schema(
         description="""

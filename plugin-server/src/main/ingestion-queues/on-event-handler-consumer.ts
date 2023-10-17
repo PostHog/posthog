@@ -13,17 +13,14 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
-import Piscina from '../../worker/piscina'
 import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
 export const startAsyncOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    piscina,
 }: {
     hub: Hub
-    piscina: Piscina
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -36,7 +33,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
     */
     status.info('🔁', `Starting onEvent handler consumer`)
 
-    const queue = buildOnEventIngestionConsumer({ hub, piscina })
+    const queue = buildOnEventIngestionConsumer({ hub })
 
     await queue.start()
 
@@ -141,10 +138,9 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     }
 }
 
-export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {
     return new KafkaJSIngestionConsumer(
         hub,
-        piscina,
         KAFKA_EVENTS_JSON,
         `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
         eachBatchAppsOnEventHandlers

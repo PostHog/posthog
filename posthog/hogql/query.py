@@ -29,6 +29,7 @@ def execute_hogql_query(
     modifiers: Optional[HogQLQueryModifiers] = None,
     default_limit: Optional[int] = None,
     timings: Optional[HogQLTimings] = None,
+    explain: Optional[bool] = False,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
@@ -136,6 +137,20 @@ def execute_hogql_query(
             readonly=True,
         )
 
+    if explain:
+        with timings.measure("explain"):
+            explain_results = sync_execute(
+                f"EXPLAIN {clickhouse_sql}",
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=workload,
+                team_id=team.pk,
+                readonly=True,
+            )
+            explain_output = [str(r[0]) for r in explain_results[0]]
+    else:
+        explain_output = None
+
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,
@@ -145,4 +160,5 @@ def execute_hogql_query(
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
+        explain=explain_output,
     )
