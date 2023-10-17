@@ -22,7 +22,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     _create_person(
                         team_id=self.team.pk,
                         distinct_ids=[distinct_id],
-                        properties={"name": distinct_id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                        properties={
+                            "name": distinct_id,
+                        },
                     )
                 )
                 _create_event(
