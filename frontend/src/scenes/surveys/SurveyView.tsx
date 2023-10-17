@@ -230,8 +230,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                 ? survey.questions[0].link
                                                                 : undefined
                                                         }
-                                                        readOnly={true}
-                                                        onAppearanceChange={() => {}}
                                                     />
                                                 </div>
                                             ) : (

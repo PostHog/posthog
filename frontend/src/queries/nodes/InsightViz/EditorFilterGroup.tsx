@@ -16,7 +16,7 @@ export interface EditorFilterGroupProps {
     query: InsightQueryNode
 }
 
-export function EditorFilterGroup({ query, insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
+export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
     const { title, count, defaultExpanded = true, editorFilters } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
 
@@ -50,17 +50,11 @@ export function EditorFilterGroup({ query, insightProps, editorFilterGroup }: Ed
                         return (
                             <div key={key}>
                                 <PureField
-                                    label={
-                                        typeof Label === 'function' ? (
-                                            <Label query={query} insightProps={insightProps} />
-                                        ) : (
-                                            Label
-                                        )
-                                    }
+                                    label={typeof Label === 'function' ? <Label insightProps={insightProps} /> : Label}
                                     info={tooltip}
                                     showOptional={showOptional}
                                 >
-                                    {Component ? <Component query={query} insightProps={insightProps} /> : null}
+                                    {Component ? <Component insightProps={insightProps} /> : null}
                                 </PureField>
                             </div>
                         )

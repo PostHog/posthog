@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain, series_event_name
@@ -47,14 +48,25 @@ class Breakdown:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
 
+        if self.query.breakdown.breakdown_type == "hogql":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=parse_expr(self.query.breakdown.breakdown),
+            )
+
         return ast.Alias(
             alias="breakdown_value",
             expr=ast.Field(chain=self._properties_chain),
         )
 
     def events_where_filter(self) -> ast.Expr:
+        if self.query.breakdown.breakdown_type == "hogql":
+            left = parse_expr(self.query.breakdown.breakdown)
+        else:
+            left = ast.Field(chain=self._properties_chain)
+
         return ast.CompareOperation(
-            left=ast.Field(chain=self._properties_chain),
+            left=left,
             op=ast.CompareOperationOp.In,
             right=self._breakdown_values_ast,
         )

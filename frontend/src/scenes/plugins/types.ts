@@ -17,7 +17,7 @@ export enum PluginRepositoryEntryType {
 }
 
 export interface PluginTypeWithConfig extends PluginType {
-    pluginConfig: PluginConfigType
+    pluginConfig: Omit<PluginConfigType, 'id'> & { id?: number }
     updateStatus: PluginUpdateStatusType
     hasMoved?: boolean
 }
@@ -37,6 +37,7 @@ export enum PluginInstallationType {
 
 export enum PluginTab {
     Apps = 'apps',
+    AppsManagement = 'apps_management',
     BatchExports = 'batch_exports',
     History = 'history',
 }

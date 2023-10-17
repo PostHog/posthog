@@ -1,8 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel } from '../../src/types'
-import Piscina, { makePiscina } from '../../src/worker/piscina'
+import { Hub, LogLevel } from '../../src/types'
+import { runEventPipeline } from '../../src/worker/ingestion/event-pipeline/runner'
+import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
@@ -21,8 +22,8 @@ const defaultEvent: PluginEvent = {
 }
 
 describe('teardown', () => {
-    const processEvent = async (piscina: Piscina, event: PluginEvent) => {
-        const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
+    const processEvent = async (hub: Hub, event: PluginEvent) => {
+        const result = await runEventPipeline(hub, event)
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -38,7 +39,7 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { piscina, stop } = await startPluginsServer(
+        const { hub, stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
@@ -50,7 +51,7 @@ describe('teardown', () => {
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await processEvent(piscina!, defaultEvent)
+        await processEvent(hub!, defaultEvent)
 
         await stop?.()
 

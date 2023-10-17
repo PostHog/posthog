@@ -162,6 +162,7 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
+    SURVEYS_NEW_CREATION_FLOW: 'surveys-new-creation-flow', // owner: @liyiy
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
 } as const

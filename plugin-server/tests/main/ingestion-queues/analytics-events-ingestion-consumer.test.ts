@@ -9,6 +9,11 @@ import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
+jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
+    runEventPipeline: jest.fn().mockResolvedValue('default value'),
+}))
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
+
 const captureEndpointEvent = {
     uuid: 'uuid1',
     distinct_id: 'id',
@@ -53,10 +58,8 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
                 },
                 db: 'database',
             },
-            workerMethods: {
-                runEventPipeline: jest.fn(() => Promise.resolve({})),
-            },
         }
+        jest.mock('./../../../src/worker/ingestion/event-pipeline/runner')
     })
 
     it('reroutes events with no key to OVERFLOW topic', async () => {
@@ -87,7 +90,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         })
 
         // Event is not processed here
-        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+        expect(runEventPipeline).not.toHaveBeenCalled()
     })
 
     it('reroutes excess events to OVERFLOW topic', async () => {
@@ -111,7 +114,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         })
 
         // Event is not processed here
-        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+        expect(runEventPipeline).not.toHaveBeenCalled()
     })
 
     it('does not reroute if not over capacity limit', async () => {
@@ -127,6 +130,6 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         expect(captureIngestionWarning).not.toHaveBeenCalled()
         expect(queue.pluginsServer.kafkaProducer.produce).not.toHaveBeenCalled()
         // Event is processed
-        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+        expect(runEventPipeline).toHaveBeenCalled()
     })
 })

@@ -119,7 +119,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
-
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -739,7 +738,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
 
     def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
-
         ff_key = "a-b-test"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -945,7 +943,6 @@ class TestExperimentCRUD(APILicensedTest):
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
-
         journeys_for(
             {
                 "person1": [
@@ -1031,7 +1028,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_with_hogql_aggregation(self):
-
         journeys_for(
             {
                 "person1": [
@@ -1150,7 +1146,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
 
     def test_experiment_flow_with_event_results_cached(self):
-
         journeys_for(
             {
                 "person1": [
@@ -1248,7 +1243,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
 
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
-
         journeys_for(
             {
                 "person1": [

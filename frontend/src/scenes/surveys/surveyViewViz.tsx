@@ -185,7 +185,9 @@ export function RatingQuestionBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
+                    <div className="font-semibold text-muted-alt">{`${
+                        question.scale === 10 ? '0 - 10' : '1 - 5'
+                    } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className=" h-50 border rounded pt-6 pb-2 px-2">
                         <div className="relative h-full w-full">
@@ -216,9 +218,11 @@ export function RatingQuestionBarChart({
                                             hoverBackgroundColor: barColor,
                                         },
                                     ]}
-                                    labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
-                                        (n) => n
-                                    )}
+                                    labels={
+                                        question.scale === 10
+                                            ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+                                            : ['1', '2', '3', '4', '5']
+                                    }
                                 />
                             </BindLogic>
                         </div>
