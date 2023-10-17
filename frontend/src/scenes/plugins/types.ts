@@ -17,7 +17,7 @@ export enum PluginRepositoryEntryType {
 }
 
 export interface PluginTypeWithConfig extends PluginType {
-    pluginConfig: Omit<PluginConfigType, 'id'> & { id?: number }
+    pluginConfig: PluginConfigType
     updateStatus: PluginUpdateStatusType
     hasMoved?: boolean
 }
