@@ -33,7 +33,9 @@ import {
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
     MultipleChoiceQuestionBarChart,
+    OpenTextViz,
 } from './surveyViewViz'
+import './SurveyView.scss'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
@@ -268,6 +270,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveySingleChoiceResultsReady,
         surveyMultipleChoiceResults,
         surveyMultipleChoiceResultsReady,
+        surveyOpenTextResults,
+        surveyOpenTextResultsReady,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -302,6 +306,15 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     key={`survey-q-${i}`}
                                     surveyMultipleChoiceResults={surveyMultipleChoiceResults}
                                     surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.Open) {
+                            return (
+                                <OpenTextViz
+                                    key={`survey-q-${i}`}
+                                    surveyOpenTextResults={surveyOpenTextResults}
+                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
                                     questionIndex={i}
                                 />
                             )
