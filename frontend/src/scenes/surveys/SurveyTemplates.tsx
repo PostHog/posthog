@@ -36,7 +36,11 @@ export function SurveyTemplates(): JSX.Element {
                             data-attr="survey-template"
                             key={idx}
                             onClick={() => {
-                                setSurveyTemplateValues({ name: template.type, questions: template.questions })
+                                setSurveyTemplateValues({
+                                    name: template.type,
+                                    questions: template.questions,
+                                    appearance: template.appearance,
+                                })
                                 reportSurveyTemplateClicked(template.type)
                             }}
                         >
