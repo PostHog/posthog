@@ -1459,7 +1459,7 @@ export interface JobSpec {
 }
 
 export interface PluginConfigType {
-    id: number
+    id?: number
     plugin: number
     team_id: number
     enabled: boolean
