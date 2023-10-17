@@ -272,9 +272,9 @@ jobs:
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
-                  add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
+                  add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
-                  pull: --rebase --autostash # Make sure we're up to date with other segments' updates
+                  pull: --rebase --autostash # Make sure we're up-to-date with other segments' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 

@@ -7,6 +7,10 @@ import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
+jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
+    runEventPipeline: jest.fn().mockResolvedValue('default value'),
+}))
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 const captureEndpointEvent = {
     uuid: 'uuid1',
@@ -53,9 +57,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                 },
                 db: 'database',
             },
-            workerMethods: {
-                runEventPipeline: jest.fn(() => Promise.resolve({})),
-            },
         }
     })
 
@@ -81,7 +82,7 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         )
 
         // Event is processed
-        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+        expect(runEventPipeline).toHaveBeenCalled()
     })
 
     it('does not raise ingestion warning when under threshold', async () => {
@@ -99,6 +100,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
 
         // Event is processed
-        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+        expect(runEventPipeline).toHaveBeenCalled()
     })
 })

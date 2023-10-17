@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { kea, path, props, key, listeners, afterMount, reducers, actions, selectors, connect } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
@@ -113,6 +113,8 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
+        setSurveyTemplateValues: (template: any) => ({ template }),
+        resetTargeting: true,
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -127,7 +129,11 @@ export const surveyLogic = kea<surveyLogicType>([
                         throw error
                     }
                 }
-                return { ...NEW_SURVEY }
+                if (props.id === 'new' && router.values.hashParams.fromTemplate) {
+                    return values.survey
+                } else {
+                    return { ...NEW_SURVEY }
+                }
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -226,7 +232,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 const { results } = responseJSON
 
                 let total = 0
-                const data = new Array(question.scale).fill(0)
+                const dataSize = question.scale === 10 ? 11 : question.scale
+                const data = new Array(dataSize).fill(0)
                 results?.forEach(([value, count]) => {
                     total += count
                     data[value - 1] = count
@@ -358,6 +365,14 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
             actions.loadSurveyUserStats()
         },
+        resetTargeting: () => {
+            actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
+            actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
+            actions.setSurveyValue('linked_flag', NEW_SURVEY.linked_flag)
+            actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
+            actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
+            actions.setSurveyValue('remove_targeting_flag', true)
+        },
     })),
     reducers({
         isEditingSurvey: [
@@ -404,6 +419,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             thankYouMessageHeader,
                         },
                     }
+                },
+                setSurveyTemplateValues: (_, { template }) => {
+                    const newTemplateSurvey = { ...NEW_SURVEY, ...template }
+                    return newTemplateSurvey
                 },
             },
         ],
@@ -458,6 +477,18 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
+            },
+        ],
+        hasTargetingSet: [
+            (s) => [s.survey],
+            (survey: Survey): boolean => {
+                const hasLinkedFlag =
+                    !!survey.linked_flag_id || (survey.linked_flag && Object.keys(survey.linked_flag).length > 0)
+                const hasTargetingFlag =
+                    (survey.targeting_flag && Object.keys(survey.targeting_flag).length > 0) ||
+                    (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0)
+                const hasOtherConditions = survey.conditions && Object.keys(survey.conditions).length > 0
+                return !!hasLinkedFlag || !!hasTargetingFlag || !!hasOtherConditions
             },
         ],
         breadcrumbs: [
@@ -676,6 +707,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.resetSurvey()
                 }
             }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setSurveyTemplateValues: () => {
+            const hashParams = router.values.hashParams
+            hashParams['fromTemplate'] = true
+
+            return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
     afterMount(async ({ props, actions }) => {

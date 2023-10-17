@@ -22,6 +22,7 @@ DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
 MAX_SELECT_RETURNED_ROWS = 10000
 
+
 # Settings applied at the SELECT level
 class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -99,7 +99,6 @@ class PersonsQueryRunner(QueryRunner):
         return min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit)
 
     def to_query(self) -> ast.SelectQuery:
-
         with self.timings.measure("columns"):
             columns = []
             group_by = []

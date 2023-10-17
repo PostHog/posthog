@@ -58,6 +58,12 @@ class Breakdown:
                 expr=ast.Constant(value=int(self.query.breakdown.breakdown)),
             )
 
+        if self.query.breakdown.breakdown_type == "hogql":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=parse_expr(self.query.breakdown.breakdown),
+            )
+
         return ast.Alias(
             alias="breakdown_value",
             expr=ast.Field(chain=self._properties_chain),

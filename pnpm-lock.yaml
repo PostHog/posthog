@@ -39,8 +39,8 @@ dependencies:
     specifier: ^0.1.3
     version: 0.1.3(react-dom@16.14.0)(react@16.14.0)
   '@posthog/plugin-scaffold':
-    specifier: ^1.3.2
-    version: 1.3.4
+    specifier: ^1.4.3
+    version: 1.4.3
   '@react-hook/size':
     specifier: ^2.1.2
     version: 2.1.2(react@16.14.0)
@@ -207,8 +207,8 @@ dependencies:
     specifier: ^5.4.1
     version: 5.4.1
   posthog-js:
-    specifier: 1.83.0
-    version: 1.83.0
+    specifier: 1.83.2
+    version: 1.83.2
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -3342,8 +3342,8 @@ packages:
       react-dom: 16.14.0(react@16.14.0)
     dev: false
 
-  /@posthog/plugin-scaffold@1.3.4:
-    resolution: {integrity: sha512-69AC7GA3sU/z5X6SVlH7mgj+0XgolvOp9IUtvRNA4CXF/OglFM81SXbTkURxL9VBSNfdAZxRp+8x+h4rmyj4dw==}
+  /@posthog/plugin-scaffold@1.4.3:
+    resolution: {integrity: sha512-fzWJ8lvAUlbTcffaFVcfhV9QiAVGL4j1OnXDc+p+bqWMP/yTwvljXDiwV96w3mti9r40E1NBz/yQRykyB78+EA==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false
@@ -5273,7 +5273,7 @@ packages:
     dependencies:
       '@storybook/channels': 7.4.6
       '@types/babel__core': 7.20.2
-      '@types/express': 4.17.18
+      '@types/express': 4.17.19
       file-system-cache: 2.3.0
     dev: true
 
@@ -5847,7 +5847,7 @@ packages:
     resolution: {integrity: sha512-oyl4jvAfTGX9Bt6Or4H9ni1Z447/tQuxnZsytsCaExKlmJiU8sFgnIBRzJUpKwB5eWn9HuBYlUlVA74q/yN0eQ==}
     dependencies:
       '@types/connect': 3.4.36
-      '@types/node': 18.18.4
+      '@types/node': 18.11.9
     dev: true
 
   /@types/chart.js@2.9.37:
@@ -5875,7 +5875,7 @@ packages:
   /@types/connect@3.4.36:
     resolution: {integrity: sha512-P63Zd/JUGq+PdrM1lv0Wv5SBYeA2+CORvbrXbngriYY0jzLUWfQMQQxOhjONEz/wlHOAxOdY7CY65rgQdTjq2w==}
     dependencies:
-      '@types/node': 18.18.4
+      '@types/node': 18.11.9
     dev: true
 
   /@types/cookie@0.4.1:
@@ -6153,7 +6153,7 @@ packages:
   /@types/express-serve-static-core@4.17.37:
     resolution: {integrity: sha512-ZohaCYTgGFcOP7u6aJOhY9uIZQgZ2vxC2yWoArY+FeDXlqeH66ZVBjgvg+RLVAS/DWNq4Ap9ZXu1+SUQiiWYMg==}
     dependencies:
-      '@types/node': 18.18.4
+      '@types/node': 18.11.9
       '@types/qs': 6.9.8
       '@types/range-parser': 1.2.5
       '@types/send': 0.17.2
@@ -6168,8 +6168,8 @@ packages:
       '@types/serve-static': 1.15.2
     dev: true
 
-  /@types/express@4.17.18:
-    resolution: {integrity: sha512-Sxv8BSLLgsBYmcnGdGjjEjqET2U+AKAdCRODmMiq02FgjwuV75Ut85DRpvFjyw/Mk0vgUOliGRU0UUmuuZHByQ==}
+  /@types/express@4.17.19:
+    resolution: {integrity: sha512-UtOfBtzN9OvpZPPbnnYunfjM7XCI4jyk1NvnFhTVz5krYAnW4o5DCoIekvms+8ApqhB4+9wSge1kBijdfTSmfg==}
     dependencies:
       '@types/body-parser': 1.19.3
       '@types/express-serve-static-core': 4.17.37
@@ -6493,7 +6493,7 @@ packages:
     resolution: {integrity: sha512-aAG6yRf6r0wQ29bkS+x97BIs64ZLxeE/ARwyS6wrldMm3C1MdKwCcnnEwMC1slI8wuxJOpiUH9MioC0A0i+GJw==}
     dependencies:
       '@types/mime': 1.3.3
-      '@types/node': 18.18.4
+      '@types/node': 18.11.9
     dev: true
 
   /@types/serve-static@1.15.2:
@@ -6509,7 +6509,7 @@ packages:
     dependencies:
       '@types/http-errors': 2.0.2
       '@types/mime': 3.0.2
-      '@types/node': 18.18.4
+      '@types/node': 18.11.9
     dev: true
 
   /@types/set-cookie-parser@2.4.2:
@@ -13225,7 +13225,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.10
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -15144,8 +15144,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.83.0:
-    resolution: {integrity: sha512-3dp/yNbRCYsOgvJovFUMCLv9/KxnwmGBy5Ft27Q7/rbW++iJXVR64liX7i0NrXkudjoL9j1GW1LGh84rV7kv8Q==}
+  /posthog-js@1.83.2:
+    resolution: {integrity: sha512-SC+04/LBFclwspY8xFaaTQ7lO7+f9R8xmgVkXiPrxKDUSZTDR6MlfQdJfmriXWqecdZ05ZJRcdYtL585gz1nFA==}
     dependencies:
       fflate: 0.4.8
     dev: false

@@ -45,6 +45,7 @@ QUERY_WITH_RUNNER = [
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
+    "WebStatsTableQuery",
 ]
 QUERY_WITH_RUNNER_NO_CACHE = [
     "EventsQuery",
@@ -240,6 +241,7 @@ def process_query(
             modifiers=hogql_query.modifiers,
             placeholders=values,
             default_limit=default_limit,
+            explain=hogql_query.explain,
         )
         return _unwrap_pydantic_dict(hogql_response)
     elif query_kind == "HogQLMetadata":

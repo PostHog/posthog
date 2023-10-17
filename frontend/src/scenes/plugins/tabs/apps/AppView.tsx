@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonMenuItem, LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import {
     IconLink,
-    IconCheckmark,
     IconCloudDownload,
     IconSettings,
     IconEllipsis,
@@ -24,15 +23,8 @@ export function AppView({
 }: {
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
-    const {
-        installingPluginUrl,
-        pluginsNeedingUpdates,
-        pluginsUpdating,
-        showAppMetricsForPlugin,
-        loading,
-        sortableEnabledPlugins,
-    } = useValues(pluginsLogic)
-    const { installPlugin, editPlugin, toggleEnabled, updatePlugin, openReorderModal } = useActions(pluginsLogic)
+    const { installingPluginUrl, showAppMetricsForPlugin, loading, sortableEnabledPlugins } = useValues(pluginsLogic)
+    const { installPlugin, editPlugin, toggleEnabled, openReorderModal } = useActions(pluginsLogic)
 
     const pluginConfig = 'pluginConfig' in plugin ? plugin.pluginConfig : null
     const isConfigured = !!pluginConfig?.id
@@ -134,20 +126,6 @@ export function AppView({
                                 }
                             >
                                 Enable
-                            </LemonButton>
-                        )}
-
-                        {'updateStatus' in plugin && pluginsNeedingUpdates.find((x) => x.id === plugin.id) && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => {
-                                    plugin.updateStatus?.updated ? editPlugin(plugin.id) : updatePlugin(plugin.id)
-                                }}
-                                loading={pluginsUpdating.includes(plugin.id)}
-                                icon={plugin.updateStatus?.updated ? <IconCheckmark /> : <IconCloudDownload />}
-                            >
-                                {plugin.updateStatus?.updated ? 'Updated' : 'Update'}
                             </LemonButton>
                         )}
 

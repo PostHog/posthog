@@ -133,7 +133,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def test_people_endpoint_paginated(self):
-
         for index in range(0, 150):
             _create_person(team_id=self.team.pk, distinct_ids=["person" + str(index)])
             _create_event(
