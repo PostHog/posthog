@@ -1,14 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
-import { ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind, TrendsQuery } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
 
 const Insight123 = '123' as InsightShortId
@@ -247,6 +247,59 @@ describe('insightVizDataLogic', () => {
                 ...funnelsQueryDefault.funnelsFilter,
                 layout: FunnelLayout.horizontal,
             })
+        })
+    })
+
+    describe('activeUsersMath', () => {
+        it('returns null without active users math', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: null })
+        })
+
+        it('returns weekly active users math type', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: BaseMathType.WeeklyActiveUsers })
+        })
+
+        it('returns monthly active users math type', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.MonthlyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: BaseMathType.MonthlyActiveUsers })
         })
     })
 })

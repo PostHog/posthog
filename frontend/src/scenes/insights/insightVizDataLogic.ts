@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -183,6 +183,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
+
+        activeUsersMath: [
+            (s) => [s.series],
+            (series): BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null => {
+                for (const seriesItem of series || []) {
+                    if (seriesItem.math === BaseMathType.WeeklyActiveUsers) {
+                        return BaseMathType.WeeklyActiveUsers
+                    }
+
+                    if (seriesItem.math === BaseMathType.MonthlyActiveUsers) {
+                        return BaseMathType.MonthlyActiveUsers
+                    }
+                }
+
+                return null
+            },
+        ],
 
         erroredQueryId: [
             (s) => [s.insightDataError],
