@@ -65,7 +65,7 @@ export const defaultSurveyFieldValues = {
                 question: 'How likely are you to recommend us to a friend?',
                 description: '',
                 display: 'number',
-                scale: 10,
+                scale: 11,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
             },
