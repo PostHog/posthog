@@ -29,6 +29,7 @@ pnpm-error.log
 yalc.lock
 .vscode/*
 !.vscode/launch.json
+!.vscode/tasks.json
 cypress/screenshots/
 cypress/downloads/
 cypress/**/*.diff.png
