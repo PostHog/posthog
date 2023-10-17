@@ -22,8 +22,8 @@ const EXPORT_MAX_LIMIT = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_MAX_LIMIT }
-        : { source: query.source, max_limit: EXPORT_MAX_LIMIT }
+        ? { path: getPersonsEndpoint(query.source) }
+        : { source: query.source }
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
