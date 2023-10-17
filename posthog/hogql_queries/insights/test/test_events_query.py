@@ -88,7 +88,6 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        # You might not think that p_null should be here, see comments in posthog/hogql/property.py for why it is
         self.assertEqual({"p_notset", "p_null"}, set(row[0]["distinct_id"] for row in results))
 
     def test_is_set_boolean(self):
@@ -103,4 +102,4 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_true", "p_false", "p_null"}, set(row[0]["distinct_id"] for row in results))
+        self.assertEqual({"p_true", "p_false"}, set(row[0]["distinct_id"] for row in results))

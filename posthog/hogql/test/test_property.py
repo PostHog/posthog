@@ -63,7 +63,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
-            self._parse_expr("JSONHas(properties, 'a')"),
+            self._parse_expr("properties.a != NULL"),
         )
         self.assertEqual(
             self._parse_expr("properties.a = NULL OR (NOT JSONHas(properties, 'a'))"),

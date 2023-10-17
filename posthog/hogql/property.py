@@ -133,10 +133,8 @@ def property_to_expr(
         properties_field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:
-            return ast.Call(name="JSONHas", args=[properties_field, ast.Constant(value=property.key)])
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.is_not_set:
-            # This will return true for if the property is "set" but equals null. This is to maintain backwards
-            # compatibility with prop_filter_json_extract in posthog/models/property/util.py
             return ast.Or(
                 exprs=[
                     ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None)),
