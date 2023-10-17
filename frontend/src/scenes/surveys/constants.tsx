@@ -210,6 +210,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description: 'Works best after a checkout or support flow.',
+        appearance: { ratingButtonColor: '#c9c6c6' },
     },
     {
         type: SurveyTemplateType.CES,
@@ -225,6 +226,7 @@ export const defaultSurveyTemplates = [
             },
         ],
         description: 'Works well with churn surveys.',
+        appearance: { ratingButtonColor: '#c9c6c6' },
     },
     {
         type: SurveyTemplateType.CCR,
