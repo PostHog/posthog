@@ -321,8 +321,10 @@ def create_batch_export_run(
     as only the Workflows themselves can know when they start.
 
     Args:
-        data_interval_start:
-        data_interval_end:
+        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
+        data_interval_start: The start of the period of data exported in this BatchExportRun.
+        data_interval_end: The end of the period of data exported in this BatchExportRun.
+        status: The initial status for the created BatchExportRun.
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
@@ -420,9 +422,13 @@ def create_batch_export_backfill(
 ):
     """Create a BatchExportBackfill.
 
+
     Args:
-        data_interval_start:
-        data_interval_end:
+        batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
+        team_id: The id of the Team the BatchExportBackfill to create belongs to.
+        start_at: The start of the period to backfill in this BatchExportBackfill.
+        end_at: The end of the period to backfill in this BatchExportBackfill.
+        status: The initial status for the created BatchExportBackfill.
     """
     backfill = BatchExportBackfill(
         batch_export_id=batch_export_id,
@@ -441,6 +447,7 @@ def update_batch_export_backfill_status(backfill_id: UUID, status: str):
 
     Arguments:
         id: The id of the BatchExportBackfill to update.
+        status: The new status to assign to the BatchExportBackfill.
     """
     updated = BatchExportBackfill.objects.filter(id=backfill_id).update(status=status)
     if not updated:
