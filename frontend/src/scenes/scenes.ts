@@ -9,6 +9,7 @@ import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { EventsQuery } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { ProjectCreate } from './project/Create'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -26,6 +27,11 @@ export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.ErrorProjectUnavailable]: {
         name: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
+        sceneParams: emptySceneParams,
+    },
+    [Scene.ProjectCreateFirst]: {
+        name: Scene.ProjectCreateFirst,
+        component: ProjectCreate,
         sceneParams: emptySceneParams,
     },
 }

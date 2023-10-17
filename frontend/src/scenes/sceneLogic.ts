@@ -140,7 +140,7 @@ export const sceneLogic = kea<sceneLogicType>({
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
                 return isCurrentTeamUnavailable && scene && sceneConfigurations[scene]?.projectBased
-                    ? Scene.ErrorProjectUnavailable
+                    ? Scene.ProjectCreateFirst
                     : scene
             },
         ],

@@ -23,6 +23,15 @@ const ERROR_FILTER_WHITELIST = [
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
+    // 'loadPersons',
+    // 'loadCustomEvents',
+    // 'loadAllGroupTypes',
+    // 'loadDashboards',
+    // 'loadInsights',
+    // 'loadRecentInsights',
+    // 'loadEarlyAccessFeatures',
+    // 'loadPluginConfigs',
+    // 'loadSessionRecordings',
 ]
 
 interface InitKeaProps {
@@ -81,7 +90,11 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 if (
                     !ERROR_FILTER_WHITELIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
-                        (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
+                        (error?.status !== undefined && ![200, 201, 204].includes(error.status))) &&
+                    !(
+                        error?.detail.includes('project ID is unknown') || // hide errors for unknown project ID
+                        error?.detail.includes('endpoint requires a project')
+                    )
                 ) {
                     lemonToast.error(
                         `${identifierToHuman(actionKey)} failed: ${

@@ -20,7 +20,6 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export type PluginForm = FormInstance
 
@@ -424,7 +423,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (plugins, pluginConfigs, updateStatus): PluginTypeWithConfig[] => {
                 const { currentTeam } = teamLogic.values
                 if (!currentTeam) {
-                    lemonToast.error("Can't list installed plugins with no user or team!")
+                    // disable toast to prevent errors showing, allow user to create project if allowed
+                    // lemonToast.error("Can't list installed plugins with no user or team!")
                     return []
                 }
 
