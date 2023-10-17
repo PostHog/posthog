@@ -17,7 +17,12 @@ export async function eachMessageAppsOnEventHandlers(
     clickHouseEvent: RawClickHouseEvent,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
-    const pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
+    let pluginConfigs = queue.pluginsServer.pluginConfigsPerTeam.get(clickHouseEvent.team_id)
+    // filter out plugins that don't have onEvent handlers
+    pluginConfigs = pluginConfigs?.filter((pluginConfig) =>
+        pluginConfig.plugin?.capabilities?.methods?.includes('onEvent')
+    )
+
     if (pluginConfigs) {
         // Elements parsing can be extremely slow, so we skip it for some plugins
         // # SKIP_ELEMENTS_PARSING_PLUGINS
