@@ -77,7 +77,7 @@ def prepare_ast_for_printing(
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == "join":
+    if context.modifiers.inCohortVia == "leftjoin":
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, stack, context)
     if dialect == "clickhouse":

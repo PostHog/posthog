@@ -86,6 +86,6 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select * from persons where id in cohort {cohort.pk}",
             team=self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="join"),
+            modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
         assert "LEFT JOIN" in response.clickhouse

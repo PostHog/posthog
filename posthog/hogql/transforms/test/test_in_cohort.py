@@ -39,7 +39,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="join"),
+            modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
         self.assertEqual(
             response.clickhouse,
@@ -61,7 +61,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="join"),
+            modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
         self.assertEqual(
             response.clickhouse,
@@ -82,7 +82,7 @@ class TestInCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
-            modifiers=HogQLQueryModifiers(inCohortVia="join"),
+            modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
         self.assertEqual(
             response.clickhouse,

@@ -133,7 +133,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
-    inCohortVia?: 'join' | 'subquery'
+    inCohortVia?: 'leftjoin' | 'subquery'
 }
 
 export interface HogQLQueryResponse {
