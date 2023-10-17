@@ -70,6 +70,7 @@
 }
 
 .NavbarButton {
+    position: relative;
     .LemonButton__icon {
         transition: color 100ms ease, transform 100ms ease;
     }
@@ -88,6 +89,20 @@
         .LemonButton__icon {
             color: var(--default);
             transform: translateY(-0.25rem);
+        }
+    }
+    &.NavbarButton--popover {
+        &::before {
+            content: '';
+            position: absolute;
+            top: 0.1875rem;
+            right: 0.1875rem;
+            width: 0;
+            height: 0;
+            border-radius: 1px;
+            border: 0.1875rem solid transparent;
+            border-top-color: currentColor;
+            border-right-color: currentColor;
         }
     }
 }

@@ -15,12 +15,13 @@ export interface NavbarButtonProps {
     to?: string
     persistentTooltip?: boolean
     active?: boolean
+    popoverMarker?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, title, onClick, persistentTooltip, here, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, title, onClick, persistentTooltip, popoverMarker, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -44,7 +45,11 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         setHasBeenClicked(true)
                         onClick?.()
                     }}
-                    className={clsx('NavbarButton', here && 'NavbarButton--here')}
+                    className={clsx(
+                        'NavbarButton',
+                        here && 'NavbarButton--here',
+                        popoverMarker && 'NavbarButton--popover'
+                    )}
                     {...buttonProps}
                 />
             </Tooltip>
