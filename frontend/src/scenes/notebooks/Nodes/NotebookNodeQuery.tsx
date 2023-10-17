@@ -1,5 +1,5 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import './NotebookNodeQuery.scss'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { JSONContent } from '@tiptap/core'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -232,3 +233,19 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         return text
     },
 })
+
+export function buildInsightVizQueryContent(source: InsightQueryNode): JSONContent {
+    return buildNodeQueryContent({ kind: NodeKind.InsightVizNode, source: source })
+}
+
+export function buildNodeQueryContent(query: QuerySchema): JSONContent {
+    return {
+        type: NotebookNodeType.Query,
+        attrs: {
+            query: query,
+            __init: {
+                showSettings: true,
+            },
+        },
+    }
+}
