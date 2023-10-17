@@ -164,9 +164,12 @@ export class ConsoleLogsIngester {
             })
         }
     }
+
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+
         const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+
         this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
