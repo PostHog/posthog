@@ -110,7 +110,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         for step in attrs["steps"]:
             for prop in step["properties"]:
-                if prop["value"] is None:
+                if prop["type"] != "hogql" and (prop["value"] is None or not prop["value"]):
                     invalid_property = True
 
         if colliding_action_ids:
@@ -142,7 +142,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
-
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps

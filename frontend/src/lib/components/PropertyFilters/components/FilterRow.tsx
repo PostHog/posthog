@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isPropertyFilterDataValid, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import './FilterRow.scss'
 import clsx from 'clsx'
@@ -82,6 +82,7 @@ export const FilterRow = React.memo(function FilterRow({
                             <PropertyFilterButton
                                 onClick={() => setOpen(!open)}
                                 onClose={() => onRemove(index)}
+                                style={{ background: isPropertyFilterDataValid(item) ? '' : 'var(--warning)' }}
                                 item={item}
                             />
                         ) : (

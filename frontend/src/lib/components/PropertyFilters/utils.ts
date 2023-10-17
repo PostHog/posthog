@@ -60,9 +60,19 @@ export function isValidPropertyFilter(
 ): filter is AnyPropertyFilter {
     return (
         !!filter && // is not falsy
-        'key' in filter && // has a "key" property
-        ((filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)) // contains some properties with values
+        Object.values(filter).some((v) => !!v) // contains some properties with values
     )
+}
+
+/** Checks if the AnyPropertyFilter has valid data */
+export function isPropertyFilterDataValid(
+    filter: AnyPropertyFilter | AnyFilterLike | Record<string, any>
+): filter is AnyPropertyFilter {
+    if (!!filter && 'key' in filter && Array.isArray(filter.value)) {
+        return filter.value.length != 0
+    } else {
+        return !!filter && 'key' in filter && ((filter.type === 'hogql' && !!filter.key) || !!filter.value)
+    }
 }
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
