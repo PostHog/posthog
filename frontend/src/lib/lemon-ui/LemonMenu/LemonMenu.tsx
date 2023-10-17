@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -243,28 +243,28 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
             { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
             ref
         ): JSX.Element => {
-            const button =
-                typeof label === 'function' ? (
-                    <label key="x" />
-                ) : (
-                    <LemonButton
-                        ref={ref}
-                        tooltipPlacement={tooltipPlacement}
-                        status="stealth"
-                        fullWidth
-                        role="menuitem"
-                        size={size}
-                        {...buttonProps}
-                    >
-                        {label}
-                        {keyboardShortcut && (
-                            <div className="-mr-0.5 inline-flex grow justify-end">
-                                {/* Show the keyboard shortcut on the right */}
-                                <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
-                            </div>
-                        )}
-                    </LemonButton>
-                )
+            const Label = typeof label === 'function' ? label : null
+            const button = Label ? (
+                <Label key="x" />
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    tooltipPlacement={tooltipPlacement}
+                    status="stealth"
+                    fullWidth
+                    role="menuitem"
+                    size={size}
+                    {...buttonProps}
+                >
+                    {label as ReactNode}
+                    {keyboardShortcut && (
+                        <div className="-mr-0.5 inline-flex grow justify-end">
+                            {/* Show the keyboard shortcut on the right */}
+                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                        </div>
+                    )}
+                </LemonButton>
+            )
 
             return items ? (
                 <LemonMenu
