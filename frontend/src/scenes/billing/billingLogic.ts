@@ -56,6 +56,7 @@ export const billingLogic = kea<billingLogicType>([
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         registerInstrumentationProps: true,
         setRedirectPath: true,
@@ -258,6 +259,11 @@ export const billingLogic = kea<billingLogicType>([
         },
         reportBillingAlertShown: ({ alertConfig }) => {
             posthog.capture('billing alert shown', {
+                ...alertConfig,
+            })
+        },
+        reportBillingAlertActionClicked: ({ alertConfig }) => {
+            posthog.capture('billing alert action clicked', {
                 ...alertConfig,
             })
         },
