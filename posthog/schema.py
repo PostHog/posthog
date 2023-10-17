@@ -228,6 +228,11 @@ class HogQLNotice(BaseModel):
     start: Optional[float] = None
 
 
+class InCohortVia(str, Enum):
+    join = "join"
+    subquery = "subquery"
+
+
 class PersonsArgMaxVersion(str, Enum):
     auto = "auto"
     v1 = "v1"
@@ -244,7 +249,7 @@ class HogQLQueryModifiers(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    inCohortViaJoin: Optional[bool] = None
+    inCohortVia: Optional[InCohortVia] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
 

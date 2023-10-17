@@ -507,7 +507,7 @@ class Resolver(CloningVisitor):
                 )
             )
 
-        if not self.context.modifiers.inCohortViaJoin:
+        if self.context.modifiers.inCohortVia != "join":
             if node.op == ast.CompareOperationOp.InCohort:
                 return self.visit(
                     ast.CompareOperation(

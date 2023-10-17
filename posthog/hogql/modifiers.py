@@ -19,7 +19,7 @@ def create_default_modifiers_for_team(
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = "auto"
 
-    if modifiers.inCohortViaJoin is None:
-        modifiers.inCohortViaJoin = True
+    if modifiers.inCohortVia is None:
+        modifiers.inCohortVia = "join"
 
     return modifiers

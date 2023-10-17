@@ -63,19 +63,19 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         />
                     </LemonLabel>
                     <LemonLabel>
-                        In Cohort Via Join:
+                        In Cohort Via:
                         <LemonSelect
                             options={[
-                                { value: true, label: 'true' },
-                                { value: false, label: 'false' },
+                                { value: 'join', label: 'join' },
+                                { value: 'subquery', label: 'subquery' },
                             ]}
                             onChange={(value) =>
                                 setQuery({
                                     ...query,
-                                    modifiers: { ...query.modifiers, inCohortViaJoin: value },
+                                    modifiers: { ...query.modifiers, inCohortVia: value },
                                 } as HogQLQuery)
                             }
-                            value={query.modifiers?.inCohortViaJoin ?? response?.modifiers?.inCohortViaJoin}
+                            value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
                         />
                     </LemonLabel>{' '}
                 </div>
