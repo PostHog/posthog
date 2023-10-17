@@ -150,7 +150,7 @@ class QueryRunner(ABC):
         query: RunnableQueryNode | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[int] = None,
+        in_export_context: Optional[bool] = False,
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
