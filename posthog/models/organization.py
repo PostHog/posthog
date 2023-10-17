@@ -306,7 +306,16 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
 
-    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
+    def validate(
+        self,
+        *,
+        user: Optional["User"] = None,
+        email: Optional[str] = None,
+        invite_email: Optional[str] = None,
+        request_path: Optional[str] = None,
+    ) -> None:
+        from .user import User
+
         _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
@@ -319,6 +328,9 @@ class OrganizationInvite(UUIDModel):
             raise exceptions.ValidationError(
                 "This invite has expired. Please ask your admin for a new one.", code="expired"
             )
+
+        if user is None and User.objects.filter(email=invite_email).exists():
+            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
