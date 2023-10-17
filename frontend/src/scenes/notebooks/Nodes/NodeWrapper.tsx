@@ -329,6 +329,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 nodeId: {
                     default: null,
                 },
+                __init: { default: null },
                 ...attributes,
             }
         },

@@ -68,6 +68,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         selectNode: true,
         toggleEditing: true,
         scrollIntoView: true,
+        initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
     }),
@@ -219,12 +220,26 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 props.notebookLogic.values.editingNodeId === props.nodeId ? null : props.nodeId
             )
         },
+        initializeNode: () => {
+            const { __init } = values.nodeAttributes
+
+            if (__init) {
+                if (__init.expanded) {
+                    actions.setExpanded(true)
+                }
+                if (__init.showSettings) {
+                    actions.toggleEditing()
+                }
+                props.updateAttributes({ __init: null })
+            }
+        },
     })),
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
+        logic.actions.initializeNode()
     }),
 
     beforeUnmount((logic) => {

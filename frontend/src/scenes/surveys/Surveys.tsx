@@ -8,6 +8,7 @@ import {
     LemonTag,
     LemonTagType,
     Spinner,
+    LemonButtonWithSideAction,
 } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -78,9 +79,25 @@ export function Surveys(): JSX.Element {
                 }
                 buttons={
                     <>
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
+                        <LemonButtonWithSideAction
+                            to={urls.surveyTemplates()}
+                            type="primary"
+                            data-attr="new-survey"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-start',
+                                    actionable: true,
+                                    overlay: (
+                                        <LemonButton size="small" to={urls.survey('new')}>
+                                            New from blank
+                                        </LemonButton>
+                                    ),
+                                },
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                        >
                             New survey
-                        </LemonButton>
+                        </LemonButtonWithSideAction>
                         <LemonButton
                             type="secondary"
                             icon={<IconSettings />}
@@ -145,7 +162,7 @@ export function Surveys(): JSX.Element {
                         description={
                             'Use surveys to gather qualitative feedback from your users on new or existing features.'
                         }
-                        action={() => router.actions.push(urls.survey('new'))}
+                        action={() => router.actions.push(urls.surveyTemplates())}
                         isEmpty={surveys.length === 0}
                         productKey={ProductKey.SURVEYS}
                     />

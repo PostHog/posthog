@@ -30,7 +30,7 @@ interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    surveyQuestionItem: SurveyQuestion
     description?: string | null
     link?: string | null
     preview?: boolean
