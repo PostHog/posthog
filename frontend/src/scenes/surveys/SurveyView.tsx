@@ -12,7 +12,6 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import { SurveyAppearance } from './SurveyAppearance'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -25,7 +24,7 @@ import {
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -36,6 +35,7 @@ import {
     OpenTextViz,
 } from './surveyViewViz'
 import './SurveyView.scss'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
@@ -44,6 +44,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+    const [activePreview, setActivePreview] = useState(0)
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -221,17 +223,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             )}
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
-                                                    <SurveyAppearance
-                                                        type={survey.questions[0].type}
-                                                        surveyQuestionItem={survey.questions[0]}
-                                                        appearance={survey.appearance || defaultSurveyAppearance}
-                                                        question={survey.questions[0].question}
-                                                        description={survey.questions[0].description}
-                                                        link={
-                                                            survey.questions[0].type === SurveyQuestionType.Link
-                                                                ? survey.questions[0].link
-                                                                : undefined
+                                                    <SurveyFormAppearance
+                                                        activePreview={activePreview}
+                                                        survey={survey}
+                                                        showThankYou={
+                                                            !!(
+                                                                survey.appearance.displayThankYouMessage &&
+                                                                activePreview >= survey.questions.length
+                                                            )
                                                         }
+                                                        setActivePreview={(preview) => setActivePreview(preview)}
                                                     />
                                                 </div>
                                             ) : (
