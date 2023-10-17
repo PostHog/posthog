@@ -30,7 +30,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                 </div>
                 <div className="flex gap-2">
                     <LemonLabel>
-                        POE Version:
+                        POE:
                         <LemonSelect
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
@@ -47,7 +47,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         />
                     </LemonLabel>
                     <LemonLabel>
-                        Persons ArgMax Version
+                        Persons ArgMax:
                         <LemonSelect
                             options={[
                                 { value: 'v1', label: 'V1' },
@@ -62,6 +62,22 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                             value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
                         />
                     </LemonLabel>
+                    <LemonLabel>
+                        In Cohort Via Join:
+                        <LemonSelect
+                            options={[
+                                { value: true, label: 'true' },
+                                { value: false, label: 'false' },
+                            ]}
+                            onChange={(value) =>
+                                setQuery({
+                                    ...query,
+                                    modifiers: { ...query.modifiers, inCohortViaJoin: value },
+                                } as HogQLQuery)
+                            }
+                            value={query.modifiers?.inCohortViaJoin ?? response?.modifiers?.inCohortViaJoin}
+                        />
+                    </LemonLabel>{' '}
                 </div>
                 {dataLoading ? (
                     <>

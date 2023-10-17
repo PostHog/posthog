@@ -134,6 +134,7 @@ export interface DataNode extends Node {
 export interface HogQLQueryModifiers {
     personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
+    inCohortViaJoin?: boolean
 }
 
 export interface HogQLQueryResponse {
