@@ -12,10 +12,11 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
-import { NotebookSidebar } from './NotebookSidebar'
+import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { NotebookColumnRight } from './NotebookColumnRight'
 
 export type NotebookProps = {
     shortId: string
@@ -102,10 +103,11 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                 ) : null}
 
                 <div className="flex flex-1 justify-center">
-                    <NotebookSidebar />
+                    <NotebookColumnLeft />
                     <ErrorBoundary>
                         <Editor />
                     </ErrorBoundary>
+                    <NotebookColumnRight />
                 </div>
             </div>
         </BindLogic>

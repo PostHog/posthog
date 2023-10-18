@@ -123,7 +123,7 @@
         }
     }
 
-    .NotebookSidebar {
+    .NotebookColumn {
         position: relative;
         width: 0px;
         transition: width var(--notebook-popover-transition-properties);
@@ -134,7 +134,7 @@
             --notebook-sidebar-height: calc(100vh - 11rem);
         }
 
-        .NotebookSidebar__content {
+        .NotebookColumn__content {
             position: sticky;
             align-self: flex-start;
             top: 0px;
@@ -148,22 +148,41 @@
             }
         }
 
-        &--showing {
-            width: var(--notebook-sidebar-width);
-            margin-right: 1rem;
-
-            .NotebookSidebar__content {
-                transform: translateX(0);
+        &--left {
+            .NotebookColumn__content {
+                transform: translateX(-100%);
             }
         }
 
-        .NotebookHistory {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            height: var(--notebook-sidebar-height);
-            overflow: hidden;
+        &--right {
+            .NotebookColumn__content {
+                transform: translateX(100%);
+            }
         }
+
+        &--showing {
+            width: var(--notebook-sidebar-width);
+
+            &.NotebookColumn--left {
+                margin-right: 1rem;
+            }
+
+            &.NotebookColumn--right {
+                margin-left: 1rem;
+            }
+
+            .NotebookColumn__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookHistory {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: var(--notebook-sidebar-height);
+        overflow: hidden;
     }
 
     .NotebookInlineMenu {
@@ -176,7 +195,7 @@
         }
     }
 
-    .NotebookSidebar__widget {
+    .NotebookColumnLeft__widget {
         > .LemonWidget__content {
             max-height: calc(100vh - 220px);
             overflow: auto;
