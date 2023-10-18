@@ -197,7 +197,6 @@ export function RatingQuestionBarChart({
                                 <LineGraph
                                     inSurveyView={true}
                                     hideYAxis={true}
-                                    hideXAxis={true}
                                     showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
