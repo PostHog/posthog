@@ -16,24 +16,7 @@ def create_destination(team_id: int) -> AirbyteDestination:
 
     payload = {
         "configuration": {
-            "format": {
-                "format_type": "Avro",
-                "compression_codec": {
-                    "0": "U",
-                    "1": "N",
-                    "2": "C",
-                    "3": "O",
-                    "4": "M",
-                    "5": "P",
-                    "6": "R",
-                    "7": "E",
-                    "8": "S",
-                    "9": "S",
-                    "10": "E",
-                    "11": "D",
-                    "codec": "no compression",
-                },
-            },
+            "format": {"format_type": "Parquet", "compression_codec": "UNCOMPRESSED"},
             "destinationType": "s3",
             "s3_bucket_region": "us-east-1",
             "access_key_id": settings.AIRBYTE_BUCKET_KEY,
