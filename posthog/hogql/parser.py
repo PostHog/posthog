@@ -46,7 +46,7 @@ def parse_expr(
         node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+                node = replace_placeholders(node, placeholders)
     return node
 
 
@@ -63,7 +63,7 @@ def parse_order_expr(
         node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
         if placeholders:
             with timings.measure("replace_placeholders"):
-                return replace_placeholders(node, placeholders)
+                node = replace_placeholders(node, placeholders)
     return node
 
 

@@ -19,4 +19,7 @@ def create_default_modifiers_for_team(
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = "auto"
 
+    if modifiers.inCohortVia is None:
+        modifiers.inCohortVia = "subquery"
+
     return modifiers
