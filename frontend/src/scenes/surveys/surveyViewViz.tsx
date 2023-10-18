@@ -465,7 +465,7 @@ export function OpenTextViz({
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => (
                             <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                <div className="masonry-item-text italic font-semibold px-5 py-4">
+                                <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
                                     {event.properties[surveyResponseField]}
                                 </div>
                                 <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
