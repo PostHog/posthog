@@ -492,7 +492,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 in_export_context=True,
             )
 
-        self.assertEqual(len(response.get("results", [])), 10)
+        self.assertEqual(len(response.get("results", [])), 15)
 
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
