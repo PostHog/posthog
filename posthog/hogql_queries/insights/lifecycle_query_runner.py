@@ -22,8 +22,14 @@ class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     query_type = LifecycleQuery
 
-    def __init__(self, query: LifecycleQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(query, team, timings)
+    def __init__(
+        self,
+        query: LifecycleQuery | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[bool] = False,
+    ):
+        super().__init__(query, team, timings, in_export_context)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         placeholders = {

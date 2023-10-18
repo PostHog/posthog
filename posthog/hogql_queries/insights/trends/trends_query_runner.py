@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
 from math import ceil
@@ -18,6 +19,7 @@ from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import ActionsNode, EventsNode, HogQLQueryResponse, TrendsQuery, TrendsQueryResponse
@@ -28,8 +30,14 @@ class TrendsQueryRunner(QueryRunner):
     query_type = TrendsQuery
     series: List[SeriesWithExtras]
 
-    def __init__(self, query: TrendsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(query, team, timings)
+    def __init__(
+        self,
+        query: TrendsQuery | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[int] = None,
+    ):
+        super().__init__(query, team, timings, in_export_context)
         self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
@@ -63,7 +71,13 @@ class TrendsQueryRunner(QueryRunner):
                 else:
                     query_date_range = self.query_previous_date_range
 
-                query_builder = TrendsQueryBuilder(self.query, self.team, query_date_range, series.series, self.timings)
+                query_builder = TrendsQueryBuilder(
+                    trends_query=series.overriden_query or self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series.series,
+                    timings=self.timings,
+                )
                 queries.append(query_builder.build_query())
 
         return queries
@@ -105,6 +119,7 @@ class TrendsQueryRunner(QueryRunner):
                 "days": [item.strftime("%Y-%m-%d") for item in val[0]],  # TODO: Add back in hour formatting
                 "count": float(sum(val[1])),
                 "label": "All events" if self.series_event(series.series) is None else self.series_event(series.series),
+                "filter": self._query_to_filter(),
                 "action": {  # TODO: Populate missing props in `action`
                     "id": self.series_event(series.series),
                     "type": "events",
@@ -136,6 +151,12 @@ class TrendsQueryRunner(QueryRunner):
                     remapped_label = self._convert_boolean(val[2])
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     series_object["breakdown_value"] = remapped_label
+                elif self.query.breakdown.breakdown_type == "cohort":
+                    cohort_id = val[2]
+                    cohort_name = Cohort.objects.get(pk=cohort_id).name
+
+                    series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
+                    series_object["breakdown_value"] = val[2]
                 else:
                     series_object["label"] = "{} - {}".format(series_object["label"], val[2])
                     series_object["breakdown_value"] = val[2]
@@ -161,14 +182,40 @@ class TrendsQueryRunner(QueryRunner):
         return None
 
     def setup_series(self) -> List[SeriesWithExtras]:
+        series_with_extras = [SeriesWithExtras(series, None, None) for series in self.query.series]
+
+        if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
+            updated_series = []
+            for cohort_id in self.query.breakdown.breakdown:
+                for series in series_with_extras:
+                    copied_query = deepcopy(self.query)
+                    copied_query.breakdown.breakdown = cohort_id
+
+                    updated_series.append(
+                        SeriesWithExtras(
+                            series=series.series,
+                            is_previous_period_series=series.is_previous_period_series,
+                            overriden_query=copied_query,
+                        )
+                    )
+            series_with_extras = updated_series
+
         if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
             updated_series = []
-            for series in self.query.series:
-                updated_series.append(SeriesWithExtras(series, is_previous_period_series=False))
-                updated_series.append(SeriesWithExtras(series, is_previous_period_series=True))
-            return updated_series
+            for series in series_with_extras:
+                updated_series.append(
+                    SeriesWithExtras(
+                        series=series.series, is_previous_period_series=False, overriden_query=series.overriden_query
+                    )
+                )
+                updated_series.append(
+                    SeriesWithExtras(
+                        series=series.series, is_previous_period_series=True, overriden_query=series.overriden_query
+                    )
+                )
+            series_with_extras = updated_series
 
-        return [SeriesWithExtras(series, is_previous_period_series=False) for series in self.query.series]
+        return series_with_extras
 
     def apply_formula(self, formula: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
@@ -199,7 +246,7 @@ class TrendsQueryRunner(QueryRunner):
         return [new_result]
 
     def _is_breakdown_field_boolean(self):
-        if self.query.breakdown.breakdown_type == "hogql":
+        if self.query.breakdown.breakdown_type == "hogql" or self.query.breakdown.breakdown_type == "cohort":
             return False
 
         if self.query.breakdown.breakdown_type == "person":
@@ -225,3 +272,24 @@ class TrendsQueryRunner(QueryRunner):
             type=field_type,
             group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
         ).property_type
+
+    def _query_to_filter(self) -> Dict[str, any]:
+        filter_dict = {
+            "insight": "TRENDS",
+            "properties": self.query.properties,
+            "filter_test_accounts": self.query.filterTestAccounts,
+            "date_to": self.query_date_range.date_to(),
+            "date_from": self.query_date_range.date_from(),
+            "entity_type": "events",
+            "sampling_factor": self.query.samplingFactor,
+            "aggregation_group_type_index": self.query.aggregation_group_type_index,
+            "interval": self.query.interval,
+        }
+
+        if self.query.breakdown is not None:
+            filter_dict.update(self.query.breakdown.__dict__)
+
+        if self.query.trendsFilter is not None:
+            filter_dict.update(self.query.trendsFilter.__dict__)
+
+        return {k: v for k, v in filter_dict.items() if v is not None}

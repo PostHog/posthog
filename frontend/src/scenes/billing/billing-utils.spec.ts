@@ -1,4 +1,10 @@
-import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
+import {
+    convertAmountToUsage,
+    convertLargeNumberToWords,
+    convertUsageToAmount,
+    projectUsage,
+    summarizeUsage,
+} from './billing-utils'
 import tk from 'timekeeper'
 import { dayjs } from 'lib/dayjs'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
@@ -158,4 +164,14 @@ describe('convertAmountToUsageWithPercentDiscount', () => {
             }
         }
     )
+})
+
+describe('convertLargeNumberToWords', () => {
+    it('should convert large numbers to words', () => {
+        expect(convertLargeNumberToWords(250, null, true, 'survey')).toEqual('First 250 surveys/mo')
+        expect(convertLargeNumberToWords(500, 250, true, 'survey')).toEqual('251-500')
+        expect(convertLargeNumberToWords(1000, 500, true, 'survey')).toEqual('501-1k')
+        expect(convertLargeNumberToWords(10000, 1000, true, 'survey')).toEqual('1-10k')
+        expect(convertLargeNumberToWords(10000000, 1000000, true, 'survey')).toEqual('1-10 million')
+    })
 })
