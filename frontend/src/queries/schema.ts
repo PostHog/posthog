@@ -60,6 +60,7 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+    InsightPersonsQuery = 'InsightPersonsQuery',
 
     // Web analytics queries
     WebOverviewStatsQuery = 'WebOverviewStatsQuery',
@@ -83,6 +84,7 @@ export type AnyDataNode =
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | PersonsQuery
+    | InsightPersonsQuery
     | HogQLQuery
     | HogQLMetadata
     | WebOverviewStatsQuery
@@ -535,7 +537,7 @@ export interface PersonsQueryResponse {
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
-    source?: LifecycleQuery | HogQLQuery
+    source?: InsightPersonsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -621,6 +623,15 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
+
+export interface InsightPersonsQuery {
+    kind: NodeKind.InsightPersonsQuery
+    source: InsightQueryNode
+    day?: string
+    status?: string
+    // TODO: breakdowns
+    response?: PersonsQueryResponse
+}
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
     if (!source) {

@@ -25,6 +25,7 @@ from posthog.schema import (
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
+    InsightPersonsQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -120,6 +121,15 @@ def get_query_runner(
 
         return PersonsQueryRunner(
             query=cast(PersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "InsightPersonsQuery":
+        from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
+
+        return InsightPersonsQueryRunner(
+            query=cast(InsightPersonsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             in_export_context=in_export_context,

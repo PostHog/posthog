@@ -1301,6 +1301,36 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class InsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    full: Optional[bool] = Field(
+        default=None, description="Show with most visual options enabled. Used in insight scene."
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showResults: Optional[bool] = None
+    showTable: Optional[bool] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+
+
+class InsightPersonsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[str] = None
+    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
+    response: Optional[PersonsQueryResponse] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    status: Optional[str] = None
+
+
 class PersonsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1344,7 +1374,7 @@ class PersonsQuery(BaseModel):
     response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[LifecycleQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightPersonsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):
@@ -1403,25 +1433,6 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
-class InsightVizNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
-    full: Optional[bool] = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
-    )
-    kind: Literal["InsightVizNode"] = "InsightVizNode"
-    showCorrelationTable: Optional[bool] = None
-    showFilters: Optional[bool] = None
-    showHeader: Optional[bool] = None
-    showLastComputation: Optional[bool] = None
-    showLastComputationRefresh: Optional[bool] = None
-    showResults: Optional[bool] = None
-    showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
-
-
 class Model(RootModel):
     root: Union[
         DataTableNode,
@@ -1442,6 +1453,7 @@ class Model(RootModel):
             TimeToSeeDataSessionsQuery,
             EventsQuery,
             PersonsQuery,
+            InsightPersonsQuery,
             HogQLQuery,
             HogQLMetadata,
             WebOverviewStatsQuery,
