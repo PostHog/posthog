@@ -534,6 +534,7 @@ export interface PersonsQueryResponse {
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
+    source?: LifecycleQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
