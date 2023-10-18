@@ -142,6 +142,7 @@ DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
