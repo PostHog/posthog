@@ -551,12 +551,12 @@ export interface PersonsQuery extends DataNode {
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
-    dateRange?: DateRange
+    dateRange: DateRange
+    properties: WebAnalyticsPropertyFilters
 }
 
 export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebOverviewStatsQuery
-    properties: WebAnalyticsPropertyFilters
     response?: WebOverviewStatsQueryResponse
 }
 
@@ -568,7 +568,6 @@ export interface WebOverviewStatsQueryResponse extends QueryResponse {
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopClicksQuery
-    properties: WebAnalyticsPropertyFilters
     response?: WebTopClicksQueryResponse
 }
 export interface WebTopClicksQueryResponse extends QueryResponse {
@@ -590,7 +589,6 @@ export enum WebStatsBreakdown {
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
-    properties: WebAnalyticsPropertyFilters
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
 }
