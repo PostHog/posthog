@@ -32,10 +32,10 @@ class RedshiftInsertInputs(PostgresInsertInputs):
     fields: list[tuple[str, str]] = [
         ("uuid", "VARCHAR(200)"),
         ("event", "VARCHAR(200)"),
-        ("properties", "VARCHAR"),
-        ("elements", "VARCHAR"),
-        ("set", "VARCHAR"),
-        ("set_once", "VARCHAR"),
+        ("properties", "VARCHAR(65535)"),
+        ("elements", "VARCHAR(65535)"),
+        ("set", "VARCHAR(65535)"),
+        ("set_once", "VARCHAR(65535)"),
         ("distinct_id", "VARCHAR(200)"),
         ("team_id", "INTEGER"),
         ("ip", "VARCHAR(200)"),
@@ -67,6 +67,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RedshiftBatchExportInputs):
+        """Workflow implementation to export data to Redshift."""
         logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
         logger.info("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
@@ -91,6 +92,8 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
+        properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
+
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
@@ -105,6 +108,19 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=[
+                ("uuid", "VARCHAR(200)"),
+                ("event", "VARCHAR(200)"),
+                ("properties", properties_type),
+                ("elements", properties_type),
+                ("set", properties_type),
+                ("set_once", properties_type),
+                ("distinct_id", "VARCHAR(200)"),
+                ("team_id", "INTEGER"),
+                ("ip", "VARCHAR(200)"),
+                ("site_url", "VARCHAR(200)"),
+                ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ],
         )
 
         await execute_batch_export_insert_activity(

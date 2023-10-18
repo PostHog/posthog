@@ -106,7 +106,7 @@ class PostgresBatchExportInputs:
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
-    pass
+    properties_data_type: str = "varchar"
 
 
 @dataclass
