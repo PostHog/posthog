@@ -33,6 +33,7 @@ export enum Scene {
     Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
+    ExportDestinationEdit = 'ExportDestinationEdit',
     BatchExports = 'BatchExports',
     BatchExport = 'BatchExport',
     BatchExportEdit = 'BatchExportEdit',

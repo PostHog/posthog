@@ -15,6 +15,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Events]: () => import('./events/Events'),
     [Scene.BatchExports]: () => import('./batch_exports/BatchExportsListScene'),
     [Scene.BatchExportEdit]: () => import('./batch_exports/BatchExportEditScene'),
+    [Scene.ExportDestinationEdit]: () => import('./plugins/tabs/exports/NewDestination'),
     [Scene.BatchExport]: () => import('./batch_exports/BatchExportScene'),
     [Scene.Actions]: () => import('./actions/ActionsTable'),
     [Scene.EventDefinitions]: () => import('./data-management/events/EventDefinitionsTable'),

@@ -117,6 +117,7 @@ export const urls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
+    newExportDestination: (): string => `/exports/new`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,

@@ -36,6 +36,7 @@ export enum PluginInstallationType {
 }
 
 export enum PluginTab {
+    Destinations = 'destinations',
     Apps = 'apps',
     AppsManagement = 'apps_management',
     BatchExports = 'batch_exports',
