@@ -298,6 +298,12 @@ order by count() desc
             return chain
         },
     },
+    {
+        title: 'Map',
+        search: 'map',
+        icon: <IconRecording />,
+        command: (chain) => chain.insertContent({ type: NotebookNodeType.Map, attrs: {} }),
+    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
