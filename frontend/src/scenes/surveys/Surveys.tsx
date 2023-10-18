@@ -88,7 +88,7 @@ export function Surveys(): JSX.Element {
                                     actionable: true,
                                     overlay: (
                                         <LemonButton size="small" to={urls.survey('new')}>
-                                            New from blank
+                                            Create blank survey
                                         </LemonButton>
                                     ),
                                 },
