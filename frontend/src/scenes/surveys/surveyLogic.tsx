@@ -32,6 +32,13 @@ import {
 } from './constants'
 import { sanitize } from 'dompurify'
 
+export enum SurveyEditSection {
+    Steps = 'steps',
+    Presentation = 'presentation',
+    Appearance = 'appearance',
+    Customization = 'customization',
+    Targeting = 'targeting',
+}
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -120,6 +127,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
+        setSelectedQuestion: (idx: number | null) => ({ idx }),
+        setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
     }),
     loaders(({ props, actions, values }) => ({
@@ -474,6 +483,19 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        selectedQuestion: [
+            0 as number | null,
+            {
+                setSelectedQuestion: (_, { idx }) => idx,
+            },
+        ],
+        selectedSection: [
+            SurveyEditSection.Steps as SurveyEditSection | null,
+            {
+                setSelectedSection: (_, { section }) => section,
+            },
+        ],
+        // TODO: remove this currentQuestionIndexAndType once surveys visualisation flag is rolled out
         currentQuestionIndexAndType: [
             { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
             {
