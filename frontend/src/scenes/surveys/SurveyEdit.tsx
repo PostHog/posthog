@@ -161,14 +161,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                         <HTMLEditor
                                                                             value={value}
                                                                             onChange={onChange}
-                                                                            showScriptWarning={
-                                                                                !!(
-                                                                                    question.description &&
-                                                                                    question.description
-                                                                                        ?.toLowerCase()
-                                                                                        .includes('<script')
-                                                                                )
-                                                                            }
                                                                             writingHTMLDescription={
                                                                                 writingHTMLDescription
                                                                             }
@@ -558,21 +550,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   thankYouMessageDescription: val,
                                                                               })
                                                                           }
-                                                                          showScriptWarning={
-                                                                              !!(
-                                                                                  survey.appearance
-                                                                                      .thankYouMessageDescription &&
-                                                                                  survey.appearance.thankYouMessageDescription
-                                                                                      ?.toLowerCase()
-                                                                                      .includes('<script')
-                                                                              )
-                                                                          }
                                                                           writingHTMLDescription={
                                                                               writingHTMLDescription
                                                                           }
                                                                           setWritingHTMLDescription={
                                                                               setWritingHTMLDescription
                                                                           }
+                                                                          textPlaceholder="ex: We really appreciate it."
                                                                       />
                                                                   </PureField>
                                                               </>
@@ -915,15 +899,15 @@ export default function SurveyEdit(): JSX.Element {
 export function HTMLEditor({
     value,
     onChange,
-    showScriptWarning,
     writingHTMLDescription,
     setWritingHTMLDescription,
+    textPlaceholder,
 }: {
     value?: string
     onChange: (value: any) => void
     writingHTMLDescription: boolean
     setWritingHTMLDescription: (writingHTML: boolean) => void
-    showScriptWarning: boolean
+    textPlaceholder?: string
 }): JSX.Element {
     return (
         <>
@@ -936,10 +920,10 @@ export function HTMLEditor({
                         label: <span className="text-sm">Text</span>,
                         content: (
                             <LemonTextArea
-                                data-attr="survey-description"
                                 minRows={2}
                                 value={value}
                                 onChange={(v) => onChange(v)}
+                                placeholder={textPlaceholder}
                             />
                         ),
                     },
@@ -972,7 +956,7 @@ export function HTMLEditor({
                     },
                 ]}
             />
-            {showScriptWarning && (
+            {value && value?.toLowerCase().includes('<script') && (
                 <LemonBanner type="warning">
                     Scripts won't run in the survey popup and we'll remove these on save. Use the API question mode to
                     run your own scripts in surveys.
