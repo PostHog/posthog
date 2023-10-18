@@ -113,6 +113,7 @@ const SurveysOnboarding = (): JSX.Element => {
                 usersAction="taking surveys"
                 sdkInstructionMap={SurveysSDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
     )
