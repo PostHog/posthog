@@ -68,11 +68,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
-    const {
-        saveInsight: saveQueryBasedInsight,
-        toggleQueryEditorPanel,
-        setQuery,
-    } = useActions(insightDataLogic(insightProps))
+    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -235,15 +231,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             data-attr={`edit-insight-sql`}
                                                             status="stealth"
                                                             onClick={() => {
-                                                                setQuery({
-                                                                    kind: NodeKind.DataTableNode,
-                                                                    source: {
-                                                                        kind: NodeKind.HogQLQuery,
-                                                                        query: hogQL,
-                                                                    },
-                                                                    full: true,
-                                                                } as DataTableNode)
-                                                                setInsightMode(ItemMode.Edit, null)
+                                                                router.actions.push(
+                                                                    urls.insightNew(
+                                                                        undefined,
+                                                                        undefined,
+                                                                        JSON.stringify({
+                                                                            kind: NodeKind.DataTableNode,
+                                                                            source: {
+                                                                                kind: NodeKind.HogQLQuery,
+                                                                                query: hogQL,
+                                                                            },
+                                                                            full: true,
+                                                                        } as DataTableNode)
+                                                                    )
+                                                                )
                                                             }}
                                                             fullWidth
                                                         >
