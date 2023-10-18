@@ -191,7 +191,7 @@ export function RatingQuestionBarChart({
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className=" h-50 border rounded pt-6 pb-2 px-2">
+                    <div className=" h-50 border rounded pt-6 pb-2">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
