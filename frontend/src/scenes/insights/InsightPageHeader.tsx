@@ -42,7 +42,7 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -67,8 +67,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const {
+        saveInsight: saveQueryBasedInsight,
+        toggleQueryEditorPanel,
+        setQuery,
+    } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -226,6 +230,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             {showQueryEditor ? 'Hide source' : 'View source'}
                                                         </LemonButton>
                                                     ) : null}
+                                                    {hogQL && (
+                                                        <LemonButton
+                                                            data-attr={`edit-insight-sql`}
+                                                            status="stealth"
+                                                            onClick={() => {
+                                                                setQuery({
+                                                                    kind: NodeKind.DataTableNode,
+                                                                    source: {
+                                                                        kind: NodeKind.HogQLQuery,
+                                                                        query: hogQL,
+                                                                    },
+                                                                    full: true,
+                                                                } as DataTableNode)
+                                                                setInsightMode(ItemMode.Edit, null)
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Edit SQL directly
+                                                        </LemonButton>
+                                                    )}
                                                     <LemonDivider />
                                                 </>
                                             )}
