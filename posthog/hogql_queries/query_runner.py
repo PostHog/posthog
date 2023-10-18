@@ -24,6 +24,7 @@ from posthog.schema import (
     PersonsQuery,
     EventsQuery,
     WebStatsTableQuery,
+    HogQLQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -64,6 +65,7 @@ class CachedQueryResponse(QueryResponse):
 
 
 RunnableQueryNode = Union[
+    HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
     EventsQuery,
@@ -118,6 +120,15 @@ def get_query_runner(
 
         return PersonsQueryRunner(
             query=cast(PersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "HogQLQuery":
+        from .hogql_query_runner import HogQLQueryRunner
+
+        return HogQLQueryRunner(
+            query=cast(HogQLQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             in_export_context=in_export_context,

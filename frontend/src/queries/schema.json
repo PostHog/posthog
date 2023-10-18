@@ -1718,6 +1718,16 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
