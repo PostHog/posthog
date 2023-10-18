@@ -5,15 +5,14 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import AirbyteResource, DataWarehouseCredential
+from posthog.warehouse.models import AirbyteResource
 from posthog.warehouse.airbyte.source import StripeSourcePayload, create_stripe_source
 from posthog.warehouse.airbyte.connection import create_connection, retrieve_sync
-from posthog.warehouse.api.table import TableSerializer
+from posthog.warehouse.airbyte.destination import create_destination
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
 from typing import Any
-from django.conf import settings
 
 
 class AirbyteResourceSerializers(serializers.ModelSerializer):
@@ -76,35 +75,14 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             client_secret=client_secret,
         )
         new_source = create_stripe_source(stripe_payload)
-        new_connection = create_connection(new_source.source_id)
+        new_destination = create_destination(self.team_id)
+        new_connection = create_connection(new_source.source_id, new_destination.destination_id)
 
         AirbyteResource.objects.create(
             source_id=new_source.source_id,
             connection_id=new_connection.connection_id,
             team=self.request.user.current_team,
-            loading=True,
+            status="running",
         )
-
-        credential = DataWarehouseCredential.objects.create(
-            team_id=self.team_id,
-            access_key=settings.AIRBYTE_BUCKET_KEY,
-            access_secret=settings.AIRBYTE_BUCKET_SECRET,
-        )
-
-        # TODO: make sure env vars are properly managed
-        new_table = TableSerializer(
-            data={
-                "credential": {
-                    "access_key": credential.access_key,
-                    "access_secret": credential.access_secret,
-                },
-                "name": "stripe_customers",
-                "format": "Parquet",
-                "url_pattern": "https://databeach-hackathon.s3.amazonaws.com/airbyte-test/customers/*.parquet",
-            },
-            context=self.get_serializer_context(),
-        )
-        new_table.is_valid(raise_exception=True)
-        new_table.save()
 
         return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source.source_id})

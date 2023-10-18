@@ -15,7 +15,7 @@ class AirbyteConnection(BaseModel):
     workspace_id: str
 
 
-def create_connection(source_id: str) -> AirbyteConnection:
+def create_connection(source_id: str, destination_id: str) -> AirbyteConnection:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
@@ -26,7 +26,7 @@ def create_connection(source_id: str) -> AirbyteConnection:
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
         "namespaceFormat": None,
         "sourceId": source_id,
-        "destinationId": settings.AIRBYTE_DESTINATION_ID,
+        "destinationId": destination_id,
     }
 
     response = requests.post(AIRBYTE_CONNECTION_URL, json=payload, headers=headers)
