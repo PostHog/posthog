@@ -158,93 +158,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                     label="Description (optional)"
                                                                 >
                                                                     {({ value, onChange }) => (
-                                                                        <>
-                                                                            <LemonTabs
-                                                                                activeKey={
-                                                                                    writingHTMLDescription
-                                                                                        ? 'html'
-                                                                                        : 'text'
-                                                                                }
-                                                                                onChange={(key) =>
-                                                                                    setWritingHTMLDescription(
-                                                                                        key === 'html'
-                                                                                    )
-                                                                                }
-                                                                                tabs={[
-                                                                                    {
-                                                                                        key: 'text',
-                                                                                        label: (
-                                                                                            <span className="text-sm">
-                                                                                                Text
-                                                                                            </span>
-                                                                                        ),
-                                                                                        content: (
-                                                                                            <LemonTextArea
-                                                                                                data-attr="survey-description"
-                                                                                                minRows={2}
-                                                                                                value={value}
-                                                                                                onChange={(v) =>
-                                                                                                    onChange(v)
-                                                                                                }
-                                                                                            />
-                                                                                        ),
-                                                                                    },
-                                                                                    {
-                                                                                        key: 'html',
-                                                                                        label: (
-                                                                                            <span className="text-sm">
-                                                                                                HTML
-                                                                                            </span>
-                                                                                        ),
-                                                                                        content: (
-                                                                                            <div>
-                                                                                                <CodeEditor
-                                                                                                    className="border"
-                                                                                                    language="html"
-                                                                                                    value={value}
-                                                                                                    onChange={(v) =>
-                                                                                                        onChange(
-                                                                                                            v ?? ''
-                                                                                                        )
-                                                                                                    }
-                                                                                                    height={150}
-                                                                                                    options={{
-                                                                                                        minimap: {
-                                                                                                            enabled:
-                                                                                                                false,
-                                                                                                        },
-                                                                                                        wordWrap: 'on',
-                                                                                                        scrollBeyondLastLine:
-                                                                                                            false,
-                                                                                                        automaticLayout:
-                                                                                                            true,
-                                                                                                        fixedOverflowWidgets:
-                                                                                                            true,
-                                                                                                        lineNumbers:
-                                                                                                            'off',
-                                                                                                        glyphMargin:
-                                                                                                            false,
-                                                                                                        folding: false,
-                                                                                                    }}
-                                                                                                />
-                                                                                            </div>
-                                                                                        ),
-                                                                                    },
-                                                                                ]}
-                                                                            />
-                                                                            {question.description &&
-                                                                                question.description
-                                                                                    ?.toLowerCase()
-                                                                                    .includes('<script') && (
-                                                                                    <LemonBanner type="warning">
-                                                                                        Scripts won't run in the survey
-                                                                                        popup and we'll remove these on
-                                                                                        save. Use the API question mode
-                                                                                        to run your own scripts in
-                                                                                        surveys.
-                                                                                    </LemonBanner>
-                                                                                )}
-                                                                        </>
+                                                                        <HTMLEditor
+                                                                            value={value}
+                                                                            onChange={onChange}
+                                                                            writingHTMLDescription={
+                                                                                writingHTMLDescription
+                                                                            }
+                                                                            setWritingHTMLDescription={
+                                                                                setWritingHTMLDescription
+                                                                            }
+                                                                        />
                                                                     )}
                                                                 </Field>
                                                                 <Field
@@ -616,7 +539,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                       />
                                                                   </PureField>
                                                                   <PureField label="Thank you description">
-                                                                      <LemonTextArea
+                                                                      <HTMLEditor
                                                                           value={
                                                                               survey.appearance
                                                                                   .thankYouMessageDescription
@@ -627,8 +550,13 @@ export default function SurveyEdit(): JSX.Element {
                                                                                   thankYouMessageDescription: val,
                                                                               })
                                                                           }
-                                                                          minRows={2}
-                                                                          placeholder="ex: We really appreciate it."
+                                                                          writingHTMLDescription={
+                                                                              writingHTMLDescription
+                                                                          }
+                                                                          setWritingHTMLDescription={
+                                                                              setWritingHTMLDescription
+                                                                          }
+                                                                          textPlaceholder="ex: We really appreciate it."
                                                                       />
                                                                   </PureField>
                                                               </>
@@ -965,5 +893,75 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
         </div>
+    )
+}
+
+export function HTMLEditor({
+    value,
+    onChange,
+    writingHTMLDescription,
+    setWritingHTMLDescription,
+    textPlaceholder,
+}: {
+    value?: string
+    onChange: (value: any) => void
+    writingHTMLDescription: boolean
+    setWritingHTMLDescription: (writingHTML: boolean) => void
+    textPlaceholder?: string
+}): JSX.Element {
+    return (
+        <>
+            <LemonTabs
+                activeKey={writingHTMLDescription ? 'html' : 'text'}
+                onChange={(key) => setWritingHTMLDescription(key === 'html')}
+                tabs={[
+                    {
+                        key: 'text',
+                        label: <span className="text-sm">Text</span>,
+                        content: (
+                            <LemonTextArea
+                                minRows={2}
+                                value={value}
+                                onChange={(v) => onChange(v)}
+                                placeholder={textPlaceholder}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'html',
+                        label: <span className="text-sm">HTML</span>,
+                        content: (
+                            <div>
+                                <CodeEditor
+                                    className="border"
+                                    language="html"
+                                    value={value}
+                                    onChange={(v) => onChange(v ?? '')}
+                                    height={150}
+                                    options={{
+                                        minimap: {
+                                            enabled: false,
+                                        },
+                                        wordWrap: 'on',
+                                        scrollBeyondLastLine: false,
+                                        automaticLayout: true,
+                                        fixedOverflowWidgets: true,
+                                        lineNumbers: 'off',
+                                        glyphMargin: false,
+                                        folding: false,
+                                    }}
+                                />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+            {value && value?.toLowerCase().includes('<script') && (
+                <LemonBanner type="warning">
+                    Scripts won't run in the survey popup and we'll remove these on save. Use the API question mode to
+                    run your own scripts in surveys.
+                </LemonBanner>
+            )}
+        </>
     )
 }

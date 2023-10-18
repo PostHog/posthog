@@ -685,6 +685,10 @@ class TestSurveyQuestionValidation(APIBaseTest):
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
             },
             format="json",
         )
@@ -702,6 +706,10 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "question": "<b>What</b> do you think of the new notebooks feature?",
             },
         ]
+        assert response_data["appearance"] == {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+        }
         assert response_data["created_by"]["id"] == self.user.id
 
     def test_update_basic_survey_question_validation(self):
@@ -728,6 +736,9 @@ class TestSurveyQuestionValidation(APIBaseTest):
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
+                "appearance": {
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
             },
             format="json",
         )
@@ -745,6 +756,9 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "question": "<b>What</b> do you think of the new notebooks feature?",
             },
         ]
+        assert response_data["appearance"] == {
+            "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+        }
         assert response_data["created_by"]["id"] == self.user.id
 
     def test_cleaning_empty_questions(self):
@@ -755,6 +769,10 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [],
+                "appearance": {
+                    "thankYouMessageHeader": " ",
+                    "thankYouMessageDescription": "",
+                },
             },
             format="json",
         )
@@ -763,6 +781,25 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert Survey.objects.filter(id=response_data["id"]).exists()
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["questions"] == []
+        assert response_data["appearance"] == {
+            "thankYouMessageHeader": " ",
+            "thankYouMessageDescription": "",
+        }
+
+    def test_validate_thank_you_with_invalid_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": "invalid",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Appearance must be an object"
 
     def test_validate_question_with_missing_text(self):
         response = self.client.post(
