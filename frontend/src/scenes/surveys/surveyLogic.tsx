@@ -225,7 +225,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        SELECT JSONExtractString(properties, '${surveyResponseField}') AS survey_response, COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
@@ -266,7 +266,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        SELECT JSONExtractString(properties, '${surveyResponseField}') AS survey_response, COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
@@ -303,10 +303,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
+                const surveyResponseField =
+                    questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) AS choice
+                        SELECT count(), arrayJoin(JSONExtractArrayRaw(properties, '${surveyResponseField}')) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
