@@ -8,6 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 export type ProjectNoticeVariant =
     | 'demo_project'
@@ -117,20 +118,28 @@ export const navigationLogic = kea<navigationLogicType>({
         mobileLayout: (window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     }),
     selectors: {
-        /** `bareNav` whether the current scene should display a sidebar at all */
-        bareNav: [
+        /** `noSidebar` whether the current scene should display a sidebar at all */
+        noSidebar: [
             (s) => [s.fullscreen, s.sceneConfig],
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
+        minimalTopBar: [
+            (s) => [s.fullscreen, s.sceneConfig],
+            () => {
+                const activeScene = sceneLogic.values.activeScene
+                const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
+                return activeScene && minimalTopBarScenes.includes(activeScene)
+            },
+        ],
         isSideBarShown: [
-            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
-            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
-                !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
+            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
+            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, noSidebar) =>
+                !noSidebar && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
         ],
         isActivationSideBarShown: [
-            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
-            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, bareNav) =>
-                !bareNav &&
+            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
+            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, noSidebar) =>
+                !noSidebar &&
                 (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
         ],
         systemStatus: [
