@@ -75,7 +75,9 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     Has all parameters needed for a successful decide request.
     """
 
-    session_recording_sample_rate = serializers.DecimalField(min_value=0, max_value=1, max_digits=3, decimal_places=2)
+    session_recording_sample_rate = serializers.DecimalField(
+        min_value=0, max_value=1, max_digits=3, decimal_places=2, required=False
+    )
 
     class Meta:
         model = Team
@@ -101,7 +103,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
-    session_recording_sample_rate = serializers.DecimalField(min_value=0, max_value=1, max_digits=3, decimal_places=2)
+    session_recording_sample_rate = serializers.DecimalField(
+        min_value=0, max_value=1, max_digits=3, decimal_places=2, required=False
+    )
 
     class Meta:
         model = Team
