@@ -194,7 +194,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
 
                                 <div className="flex-1 flex gap-2 overflow-hidden">
                                     {invite.is_expired ? (
-                                        <b>Expired! Delete and recreate</b>
+                                        <b>Expired – please recreate</b>
                                     ) : (
                                         <>
                                             {preflight?.email_service_available ? (

@@ -1,4 +1,4 @@
-import { PropsWithChildren, ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,11 +24,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 
-interface InsightDisplayConfigProps {
-    disableTable: boolean
-}
-
-export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
+export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
@@ -89,8 +85,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
-                {showDateRange && !disableTable && (
+            <div className="flex items-center gap-x-2 flex-wrap my-2 gap-y-2">
+                {showDateRange && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={disableDateRange} />
                     </ConfigFilter>
@@ -127,7 +123,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-2 flex-wrap my-2 grow justify-end">
+            <div className="flex items-center gap-x-2 flex-wrap my-2">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
@@ -157,6 +153,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 }
 
-function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
+    return <span className="space-x-2 flex items-center text-sm">{children}</span>
 }

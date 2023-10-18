@@ -79,20 +79,19 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                             <EditorFilters query={query.source} showing={showingFilters} embedded={embedded} />
                         )}
 
-                        {showingResults && (
-                            <div className="insights-container" data-attr="insight-view">
-                                <InsightContainer
-                                    insightMode={insightMode}
-                                    context={context}
-                                    disableHeader={disableHeader}
-                                    disableTable={disableTable}
-                                    disableCorrelationTable={disableCorrelationTable}
-                                    disableLastComputation={disableLastComputation}
-                                    disableLastComputationRefresh={disableLastComputationRefresh}
-                                    embedded={embedded}
-                                />
-                            </div>
-                        )}
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer
+                                insightMode={insightMode}
+                                context={context}
+                                disableHeader={disableHeader}
+                                disableTable={disableTable}
+                                disableCorrelationTable={disableCorrelationTable}
+                                disableLastComputation={disableLastComputation}
+                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                showingResults={showingResults}
+                                embedded={embedded}
+                            />
+                        </div>
                     </div>
                 </BindLogic>
             </BindLogic>

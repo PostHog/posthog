@@ -22,7 +22,7 @@ const dataManagementActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed description to <strong>"{change?.after}"</strong>
+                    changed description to <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }

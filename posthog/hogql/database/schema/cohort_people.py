@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+from posthog.schema import HogQLQueryModifiers
 
 COHORT_PEOPLE_FIELDS = {
     "person_id": StringDatabaseField(name="person_id"),
@@ -56,7 +57,7 @@ class RawCohortPeople(Table):
 class CohortPeople(LazyTable):
     fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, Any]):
+    def lazy_select(self, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers):
         return select_from_cohort_people_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

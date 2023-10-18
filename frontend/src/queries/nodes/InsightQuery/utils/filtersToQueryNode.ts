@@ -177,7 +177,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
             aggregation_axis_postfix: filters.aggregation_axis_postfix,
             formula: filters.formula,
-            shown_as: filters.shown_as,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
             show_percent_stack_view: filters.show_percent_stack_view,
@@ -245,7 +244,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             compare: filters.compare,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
-            shown_as: filters.shown_as,
             show_values_on_series: filters.show_values_on_series,
         })
     }
@@ -253,12 +251,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // lifecycle filter
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
-            shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
             show_values_on_series: filters.show_values_on_series,
         })
     }
 
     // remove undefined and empty array/objects and return
-    return objectCleanWithEmpty(query as Record<string, any>) as InsightQueryNode
+    return objectCleanWithEmpty(query as Record<string, any>, ['series']) as InsightQueryNode
 }
