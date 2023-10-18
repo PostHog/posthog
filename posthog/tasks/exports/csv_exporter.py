@@ -13,6 +13,7 @@ from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
 from .ordered_csv_renderer import OrderedCsvRenderer
 from ..exporter import EXPORT_FAILED_COUNTER, EXPORT_ASSET_UNKNOWN_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from ...constants import CSV_EXPORT_LIMIT
 
 logger = structlog.get_logger(__name__)
 
@@ -164,20 +165,15 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
-
     all_csv_rows: List[Any] = []
 
     if resource.get("source"):
-        from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-
         query = resource.get("source")
-        query_response = process_query(
-            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
-        )
+        query_response = process_query(team=exported_asset.team, query_json=query, in_export_context=True)
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:
@@ -189,7 +185,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
         )
 
-        while len(all_csv_rows) < max_limit:
+        while len(all_csv_rows) < CSV_EXPORT_LIMIT:
             response = make_api_call(access_token, body, limit, method, next_url, path)
 
             if response.status_code != 200:
@@ -269,14 +265,14 @@ def make_api_call(
         raise ex
 
 
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
         limit = 1000
 
     try:
         if exported_asset.export_format == "text/csv":
             with EXPORT_TIMER.labels(type="csv").time():
-                _export_to_csv(exported_asset, limit, max_limit)
+                _export_to_csv(exported_asset, limit)
             EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
         else:
             EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()

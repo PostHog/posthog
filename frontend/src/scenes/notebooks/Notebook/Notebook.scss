@@ -29,6 +29,9 @@
                 content: attr(data-placeholder);
                 float: left;
                 color: rgba(0, 0, 0, 0.2);
+                [theme='dark'] & {
+                    color: rgba(255, 255, 255, 0.2);
+                }
                 pointer-events: none;
                 height: 0;
             }
@@ -171,14 +174,6 @@
             border: 0px;
             min-height: 0px;
         }
-
-        .LemonButton {
-            min-height: 1.75rem;
-
-            .LemonButton__icon {
-                font-size: 1rem;
-            }
-        }
     }
 
     .NotebookSidebar__widget {
@@ -196,6 +191,7 @@
 
     .NotebookRecordingTimestamp {
         display: inline-flex;
+        max-height: 22px;
     }
 
     // overriding ::selection is necessary here because

@@ -1,13 +1,12 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
+import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
-import { stringToBoolean } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -15,12 +14,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { processOnEventStep } from './runAsyncHandlersStep'
 
-export const silentFailuresAsyncHandlers = new Counter({
-    name: 'async_handlers_silent_failure',
-    help: 'Number silent failures from async handlers.',
-})
 const pipelineStepCompletionCounter = new Counter({
     name: 'events_pipeline_step_executed_total',
     help: 'Number of events that have completed the step',
@@ -59,28 +53,22 @@ class StepErrorNoRetry extends Error {
     }
 }
 
+export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
+    const runner = new EventPipelineRunner(hub, event)
+    return runner.runEventPipeline(event)
+}
+
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PipelineEvent | ProcessedPluginEvent
+    originalEvent: PipelineEvent
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
-    private delayAcks: boolean
-    private eventsToDropByToken: Map<string, string[]>
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
         this.hub = hub
-        this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
-
-        // TODO: remove after successful rollout
-        this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
-
-        this.eventsToDropByToken = new Map()
-        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID?.split(',').forEach((pair) => {
-            const [token, distinctID] = pair.split(':')
-            this.eventsToDropByToken.set(token, [...(this.eventsToDropByToken.get(token) || []), distinctID])
-        })
+        this.originalEvent = event
     }
 
     isEventBlacklisted(event: PipelineEvent): boolean {
@@ -90,11 +78,12 @@ export class EventPipelineRunner {
         if (!key) {
             return false // for safety don't drop events here, they are later dropped in teamDataPopulation
         }
-        const dropIds = this.eventsToDropByToken.get(key)
+        const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.originalEvent = event
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
@@ -132,10 +121,7 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        if (
-            process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
-            process.env.POE_EMBRACE_JOIN_FOR_TEAMS?.split(',').includes(event.team_id.toString())
-        ) {
+        if (this.hub.poeEmbraceJoinForTeams?.(event.team_id)) {
             // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
             // We're not using the buffer anymore
             // instead we'll (if within timeframe) merge into the newer personId
@@ -158,32 +144,8 @@ export class EventPipelineRunner {
             [this, preparedEvent, person],
             event.team_id
         )
-        if (this.delayAcks) {
-            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
-        } else {
-            await eventAck
-            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
-        }
-    }
 
-    async runAppsOnEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'onEvent' })
-            await this.runStep(processOnEventStep, [this, event], event.teamId, false)
-            this.hub.statsd?.increment('kafka_queue.onevent.processed')
-            return this.registerLastStep('processOnEventStep', event.teamId, [event])
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            silentFailuresAsyncHandlers.inc()
-
-            return { lastStep: error.step, args: [], error: error.message }
-        }
+        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
     }
 
     registerLastStep(

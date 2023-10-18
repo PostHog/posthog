@@ -39,6 +39,7 @@ export type NotebookNodeLogicProps = {
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded: boolean
+    titlePlaceholder: string
 } & NotebookNodeAttributeProperties<any>
 
 const computeResizeable = (
@@ -65,8 +66,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
+        toggleEditing: true,
         scrollIntoView: true,
+        initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
+        setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -111,12 +115,23 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setMessageListeners: (_, { listeners }) => listeners,
             },
         ],
+
+        titlePlaceholder: [
+            props.titlePlaceholder,
+            {
+                setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
     })),
 
     selectors({
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         settings: [(_, p) => [p.settings], (settings) => settings],
+        title: [
+            (s) => [s.titlePlaceholder, s.nodeAttributes],
+            (titlePlaceholder, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
+        ],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -200,12 +215,31 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
         },
+        toggleEditing: () => {
+            props.notebookLogic.actions.setEditingNodeId(
+                props.notebookLogic.values.editingNodeId === props.nodeId ? null : props.nodeId
+            )
+        },
+        initializeNode: () => {
+            const { __init } = values.nodeAttributes
+
+            if (__init) {
+                if (__init.expanded) {
+                    actions.setExpanded(true)
+                }
+                if (__init.showSettings) {
+                    actions.toggleEditing()
+                }
+                props.updateAttributes({ __init: null })
+            }
+        },
     })),
 
     afterMount(async (logic) => {
         logic.props.notebookLogic.actions.registerNodeLogic(logic as any)
         const resizeable = computeResizeable(logic.props.resizeable, logic.props.attributes)
         logic.actions.setResizeable(resizeable)
+        logic.actions.initializeNode()
     }),
 
     beforeUnmount((logic) => {

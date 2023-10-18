@@ -84,7 +84,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "errors": [
                     {
-                        "message": "Alias 'true' is a reserved keyword",
+                        "message": '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
                         "start": 0,
                         "end": 9,
                         "fix": None,

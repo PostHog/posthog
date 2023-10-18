@@ -103,13 +103,10 @@
                     "$ref": "#/definitions/WebOverviewStatsQuery"
                 },
                 {
-                    "$ref": "#/definitions/WebTopSourcesQuery"
+                    "$ref": "#/definitions/WebStatsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/WebTopClicksQuery"
-                },
-                {
-                    "$ref": "#/definitions/WebTopPagesQuery"
                 }
             ]
         },
@@ -412,13 +409,10 @@
                             "$ref": "#/definitions/WebOverviewStatsQuery"
                         },
                         {
-                            "$ref": "#/definitions/WebTopSourcesQuery"
+                            "$ref": "#/definitions/WebStatsTableQuery"
                         },
                         {
                             "$ref": "#/definitions/WebTopClicksQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebTopPagesQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -821,6 +815,9 @@
                 "hasMore": {
                     "type": "boolean"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -841,7 +838,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results"],
+            "required": ["columns", "types", "results", "hogql"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -1206,12 +1203,18 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "explain": {
+                    "type": "boolean"
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },
                 "kind": {
                     "const": "HogQLQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "query": {
                     "type": "string"
@@ -1228,6 +1231,25 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "HogQLQueryModifiers": {
+            "additionalProperties": false,
+            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "properties": {
+                "inCohortVia": {
+                    "enum": ["leftjoin", "subquery"],
+                    "type": "string"
+                },
+                "personsArgMaxVersion": {
+                    "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsOnEventsMode": {
+                    "enum": ["disabled", "v1_enabled", "v2_enabled"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "HogQLQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1238,8 +1260,17 @@
                     "items": {},
                     "type": "array"
                 },
+                "explain": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "hogql": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "query": {
                     "type": "string"
@@ -1687,6 +1718,16 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        }
+                    ]
                 }
             },
             "required": ["kind"],
@@ -2387,28 +2428,113 @@
             "required": ["results"],
             "type": "object"
         },
-        "WebAnalyticsFilters": {},
+        "WebAnalyticsPropertyFilters": {
+            "items": {
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    {
+                        "$ref": "#/definitions/HogQLPropertyFilter"
+                    }
+                ]
+            },
+            "type": "array"
+        },
         "WebOverviewStatsQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebOverviewStatsQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebOverviewStatsQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["dateRange", "kind", "properties"],
             "type": "object"
         },
         "WebOverviewStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebStatsBreakdown": {
+            "enum": [
+                "Page",
+                "InitialPage",
+                "InitialReferringDomain",
+                "InitialUTMSource",
+                "InitialUTMCampaign",
+                "Browser",
+                "OS",
+                "DeviceType"
+            ],
+            "type": "string"
+        },
+        "WebStatsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownBy": {
+                    "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebStatsTableQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebStatsTableQueryResponse"
+                }
+            },
+            "required": ["breakdownBy", "dateRange", "kind", "properties"],
+            "type": "object"
+        },
+        "WebStatsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
@@ -2451,135 +2577,21 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebTopClicksQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["dateRange", "kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "hogql": {
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "type": "string"
-                },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "WebTopPagesQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
-                "kind": {
-                    "const": "WebTopPagesQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTopPagesQueryResponse"
-                }
-            },
-            "required": ["kind", "filters"],
-            "type": "object"
-        },
-        "WebTopPagesQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "hogql": {
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "type": "string"
-                },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "WebTopSourcesQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
-                "kind": {
-                    "const": "WebTopSourcesQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTopSourcesQueryResponse"
-                }
-            },
-            "required": ["kind", "filters"],
-            "type": "object"
-        },
-        "WebTopSourcesQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "columns": {

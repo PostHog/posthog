@@ -100,16 +100,8 @@ export const createTaskRunner =
                 }
                 return response
             },
-            (transactionDuration: number) => {
-                if (
-                    task === 'runEventPipeline' ||
-                    task === 'runWebhooksHandlersEventPipeline' ||
-                    task === 'runAppsOnEventPipeline'
-                ) {
-                    return transactionDuration > 0.5 ? 1 : 0.01
-                } else {
-                    return 1
-                }
+            (_) => {
+                return 1
             }
         )
 

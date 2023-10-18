@@ -31,9 +31,10 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
-from posthog.hogql.visitor import Visitor
+from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -50,6 +51,13 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
+    )
+
+
+def to_printed_hogql(query: ast.Expr, team_id: int) -> str:
+    """Prints the HogQL query without mutating the node"""
+    return print_ast(
+        clone_expr(query), dialect="hogql", context=HogQLContext(team_id=team_id, enable_select_queries=True)
     )
 
 
@@ -72,10 +80,13 @@ def prepare_ast_for_printing(
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id)
+        context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    if context.modifiers.inCohortVia == "leftjoin":
+        with context.timings.measure("resolve_in_cohorts"):
+            resolve_in_cohorts(node, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
@@ -412,6 +423,11 @@ class _Printer(Visitor):
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right
 
+        # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
+        # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
+        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+            not_nullable = True
+
         constant_lambda = None
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
@@ -477,7 +493,7 @@ class _Printer(Visitor):
                 lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
-            raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
+            raise HogQLException(f"Unknown CompareOperationOp: {node.op.name}")
 
         # Try to see if we can take shortcuts
 
@@ -765,7 +781,7 @@ class _Printer(Visitor):
                 and type.name == "properties"
                 and type.table_type.field == "poe"
             ):
-                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -784,7 +800,7 @@ class _Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
-                if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+                if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                     field_sql = "person_properties"
                 else:
                     field_sql = "person_props"
@@ -828,7 +844,7 @@ class _Printer(Visitor):
             or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:
                 materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
             else:
                 materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
@@ -991,6 +1007,7 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
+
         # we don't know if it's nullable, so we assume it can be
         return True
 

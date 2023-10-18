@@ -411,7 +411,6 @@ class TestExportMixin(APIBaseTest):
                     f"/api/projects/{self.team.pk}/exports/",
                     {
                         "export_context": {
-                            "max_limit": 10000,
                             "path": path,
                         },
                         "export_format": "text/csv",

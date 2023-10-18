@@ -7,13 +7,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState, useEffect } from 'react'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Query } from '~/queries/Query/Query'
 import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import { SurveyAppearance } from './SurveyAppearance'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -24,22 +22,30 @@ import {
     SurveyType,
 } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Summary } from './surveyViewViz'
+import {
+    Summary,
+    RatingQuestionBarChart,
+    SingleChoiceQuestionPieChart,
+    MultipleChoiceQuestionBarChart,
+    OpenTextViz,
+} from './surveyViewViz'
+import './SurveyView.scss'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, surveyPlugin, showSurveyAppWarning } = useValues(surveyLogic)
+    const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { editPlugin } = useActions(pluginsLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+    const [activePreview, setActivePreview] = useState(0)
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -74,7 +80,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     Archive
                                                 </LemonButton>
                                             )}
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteSurvey(id)}>
+                                            <LemonButton
+                                                status="danger"
+                                                data-attr="delete-survey"
+                                                fullWidth
+                                                onClick={() => deleteSurvey(id)}
+                                            >
                                                 Delete survey
                                             </LemonButton>
                                         </>
@@ -84,6 +95,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 {!survey.start_date ? (
                                     <LemonButton
                                         type="primary"
+                                        data-attr="launch-survey"
                                         onClick={() => {
                                             launchSurvey()
                                         }}
@@ -120,14 +132,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    {!surveyLoading && showSurveyAppWarning && (
-                        <LemonBanner type="error">
-                            Surveys requires the{' '}
-                            <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be
-                            enabled. You also need to make sure you have the "opt_in_site_apps" setting in your PostHog
-                            initialization code.
-                        </LemonBanner>
-                    )}
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -219,19 +223,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             )}
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
-                                                    <SurveyAppearance
-                                                        type={survey.questions[0].type}
-                                                        surveyQuestionItem={survey.questions[0]}
-                                                        appearance={survey.appearance || defaultSurveyAppearance}
-                                                        question={survey.questions[0].question}
-                                                        description={survey.questions[0].description}
-                                                        link={
-                                                            survey.questions[0].type === SurveyQuestionType.Link
-                                                                ? survey.questions[0].link
-                                                                : undefined
+                                                    <SurveyFormAppearance
+                                                        activePreview={activePreview}
+                                                        survey={survey}
+                                                        showThankYou={
+                                                            !!(
+                                                                survey.appearance.displayThankYouMessage &&
+                                                                activePreview >= survey.questions.length
+                                                            )
                                                         }
-                                                        readOnly={true}
-                                                        onAppearanceChange={() => {}}
+                                                        setActivePreview={(preview) => setActivePreview(preview)}
                                                     />
                                                 </div>
                                             ) : (
@@ -264,6 +265,14 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         currentQuestionIndexAndType,
         surveyUserStats,
         surveyUserStatsLoading,
+        surveyRatingResults,
+        surveyRatingResultsReady,
+        surveySingleChoiceResults,
+        surveySingleChoiceResultsReady,
+        surveyMultipleChoiceResults,
+        surveyMultipleChoiceResultsReady,
+        surveyOpenTextResults,
+        surveyOpenTextResultsReady,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -271,9 +280,50 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     return (
         <>
             {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                <>
+                    <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                    {survey.questions.map((question, i) => {
+                        if (question.type === SurveyQuestionType.Rating) {
+                            return (
+                                <RatingQuestionBarChart
+                                    key={`survey-q-${i}`}
+                                    surveyRatingResults={surveyRatingResults}
+                                    surveyRatingResultsReady={surveyRatingResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.SingleChoice) {
+                            return (
+                                <SingleChoiceQuestionPieChart
+                                    key={`survey-q-${i}`}
+                                    surveySingleChoiceResults={surveySingleChoiceResults}
+                                    surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                            return (
+                                <MultipleChoiceQuestionBarChart
+                                    key={`survey-q-${i}`}
+                                    surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                                    surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.Open) {
+                            return (
+                                <OpenTextViz
+                                    key={`survey-q-${i}`}
+                                    surveyOpenTextResults={surveyOpenTextResults}
+                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        }
+                    })}
+                </>
             )}
-            {surveyMetricsQueries && (
+            {surveyMetricsQueries && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
                 <div className="flex flex-row gap-4 mb-4">
                     <div className="flex-1">
                         <Query query={surveyMetricsQueries.surveysShown} />
@@ -283,7 +333,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     </div>
                 </div>
             )}
-            {survey.questions.length > 1 && (
+            {survey.questions.length > 1 && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
                 <div className="mb-4 max-w-80">
                     <LemonSelect
                         dropdownMatchSelectWidth
@@ -301,25 +351,26 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     />
                 </div>
             )}
-            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating && (
-                <div className="mb-4">
-                    <Query query={surveyRatingQuery} />
-                    {featureFlags[FEATURE_FLAGS.SURVEY_NPS_RESULTS] &&
-                        (survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
+            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating &&
+                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                    <div className="mb-4">
+                        <Query query={surveyRatingQuery} />
+                        {(survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
                             <>
                                 <LemonDivider className="my-4" />
                                 <h2>NPS Score</h2>
                                 <SurveyNPSResults survey={survey as Survey} />
                             </>
                         )}
-                </div>
-            )}
+                    </div>
+                )}
             {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
-                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
-                <div className="mb-4">
-                    <Query query={surveyMultipleChoiceQuery} />
-                </div>
-            )}
+                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) &&
+                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                    <div className="mb-4">
+                        <Query query={surveyMultipleChoiceQuery} />
+                    </div>
+                )}
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
         </>
     )

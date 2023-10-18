@@ -96,9 +96,9 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs
-                usersAction="loading flags"
+                usersAction="loading flags & experiments"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>

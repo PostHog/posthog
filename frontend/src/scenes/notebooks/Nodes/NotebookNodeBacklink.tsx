@@ -10,7 +10,7 @@ import {
     IconLive,
     IconPerson,
     IconCohort,
-    IconJournal,
+    IconNotebook,
 } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
@@ -31,7 +31,7 @@ const ICON_MAP = {
     events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
-    notebooks: <IconJournal />,
+    notebooks: <IconNotebook />,
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {

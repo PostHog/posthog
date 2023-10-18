@@ -3,10 +3,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
-import { AvailableFeature, ReplayTabs } from '~/types'
+import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -20,9 +19,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -46,7 +47,7 @@ export function SessionsRecordings(): JSX.Element {
     })
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
-    const { filters, totalFiltersCount } = useValues(sessionRecordingsListLogic({ updateSearchParams: true }))
+    const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
     const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({ filters }, true)
         reportRecordingPlaylistCreated('filters')
@@ -61,6 +62,15 @@ export function SessionsRecordings(): JSX.Element {
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
                             <>
+                                <NotebookSelectButton
+                                    resource={{
+                                        attrs: {
+                                            filters: filters,
+                                        },
+                                        type: NotebookNodeType.RecordingPlaylist,
+                                    }}
+                                    type="secondary"
+                                />
                                 <LemonButton
                                     fullWidth={false}
                                     data-attr={'session-recordings-filters-save-as-playlist'}
@@ -161,7 +171,9 @@ export function SessionsRecordings(): JSX.Element {
                 {!tab ? (
                     <Spinner />
                 ) : tab === ReplayTabs.Recent ? (
-                    <SessionRecordingsPlaylist updateSearchParams />
+                    <div className="SessionRecordingPlaylistHeightWrapper">
+                        <SessionRecordingsPlaylist updateSearchParams />
+                    </div>
                 ) : tab === ReplayTabs.Playlists ? (
                     <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
                 ) : tab === ReplayTabs.FilePlayback ? (

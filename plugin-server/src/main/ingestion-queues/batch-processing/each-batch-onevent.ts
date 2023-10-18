@@ -4,6 +4,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { RawClickHouseEvent } from '../../../types'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { processOnEventStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
@@ -20,15 +21,13 @@ export async function eachMessageAppsOnEventHandlers(
     if (pluginConfigs) {
         // Elements parsing can be extremely slow, so we skip it for some plugins
         // # SKIP_ELEMENTS_PARSING_PLUGINS
-        const skipElementsChain = pluginConfigs.every(
-            (pluginConfig) =>
-                queue.pluginsServer.pluginConfigsToSkipElementsParsing &&
-                queue.pluginsServer.pluginConfigsToSkipElementsParsing(pluginConfig.plugin_id)
+        const skipElementsChain = pluginConfigs.every((pluginConfig) =>
+            queue.pluginsServer.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)
         )
 
         const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
         await runInstrumentedFunction({
-            func: () => queue.workerMethods.runAppsOnEventPipeline(event),
+            func: () => processOnEventStep(queue.pluginsServer, event),
             statsKey: `kafka_queue.process_async_handlers_on_event`,
             timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
             timeoutContext: () => ({

@@ -10,7 +10,6 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 
 export interface Node extends PMNode {}
@@ -27,7 +26,11 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
-    title: string
+    title?: string
+    __init?: {
+        expanded?: boolean
+        showSettings?: boolean
+    }
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -38,13 +41,7 @@ export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttribut
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
 }
 
-export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<
-    NodeViewProps,
-    'node' | 'updateAttributes'
-> &
-    NotebookNodeAttributeProperties<T> & {
-        node: NotebookNode
-    }
+export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
 
 export type NotebookNodeSettings =
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
@@ -64,6 +61,7 @@ export interface NotebookEditor {
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void
+    setTextSelection: (position: number | EditorRange) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     deleteRange: (range: EditorRange) => EditorCommands
@@ -123,6 +121,8 @@ export const textContent = (node: any): string => {
         'ph-recording-playlist': customOrTitleSerializer,
         'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
+        'ph-group': customOrTitleSerializer,
+        'ph-cohort': customOrTitleSerializer,
     }
 
     return getText(node, {
