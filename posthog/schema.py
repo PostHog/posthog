@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 from typing_extensions import Literal
 
 
-class Model(RootModel):
+class SchemaRoot(RootModel):
     root: Any
 
 
