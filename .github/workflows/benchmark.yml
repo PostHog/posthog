@@ -18,7 +18,7 @@ jobs:
         environment: clickhouse-benchmarks
 
         # Benchmarks are expensive to run so we only run them (periodically) against master branch and for PRs labeled `performance`
-        if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'performance')  }}
+        if: ${{ github.repository == 'PostHog/posthog' && (github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'performance'))  }}
 
         env:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
