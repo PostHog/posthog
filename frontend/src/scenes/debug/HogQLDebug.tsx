@@ -37,6 +37,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                             options={[
                                 { value: 'disabled', label: 'Disabled' },
                                 { value: 'v1_enabled', label: 'V1 Enabled' },
+                                { value: 'v1_mixed', label: 'V1 Mixed' },
                                 { value: 'v2_enabled', label: 'V2 Enabled' },
                             ]}
                             onChange={(value) =>
