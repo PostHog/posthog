@@ -4,6 +4,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -128,6 +129,9 @@ class TrendsQueryBuilder:
             query.select.append(self._breakdown.column_expr())
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
+            if self._breakdown.is_session_type:
+                query.select_from = self._breakdown_session.session_inner_join()
+
         return query
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
@@ -214,6 +218,14 @@ class TrendsQueryBuilder:
         # Breakdown
         if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
             filters.append(self._breakdown.events_where_filter())
+        if self._breakdown.is_session_type:
+            filters.append(
+                ast.CompareOperation(
+                    left=self._breakdown_session.session_duration_field(),
+                    op=ast.CompareOperationOp.NotEq,
+                    right=ast.Constant(value=None),
+                )
+            )
 
         if len(filters) == 0:
             return ast.Constant(value=True)
@@ -226,7 +238,7 @@ class TrendsQueryBuilder:
         if self.series.math == "hogql":
             return parse_expr(self.series.math_hogql)
 
-        return parse_expr("count(*)")
+        return parse_expr("count(e.uuid)")
 
     # Using string interpolation for SAMPLE due to HogQL limitations with `UNION ALL` and `SAMPLE` AST nodes
     def _sample_value(self) -> str:
@@ -244,3 +256,7 @@ class TrendsQueryBuilder:
             query_date_range=self.query_date_range,
             timings=self.timings,
         )
+
+    @cached_property
+    def _breakdown_session(self):
+        return BreakdownSession(self.query_date_range)
