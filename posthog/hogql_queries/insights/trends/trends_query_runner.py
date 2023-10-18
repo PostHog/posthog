@@ -246,7 +246,11 @@ class TrendsQueryRunner(QueryRunner):
         return [new_result]
 
     def _is_breakdown_field_boolean(self):
-        if self.query.breakdown.breakdown_type == "hogql" or self.query.breakdown.breakdown_type == "cohort":
+        if (
+            self.query.breakdown.breakdown_type == "hogql"
+            or self.query.breakdown.breakdown_type == "cohort"
+            or self.query.breakdown.breakdown_type == "session"
+        ):
             return False
 
         if self.query.breakdown.breakdown_type == "person":
@@ -286,10 +290,10 @@ class TrendsQueryRunner(QueryRunner):
             "interval": self.query.interval,
         }
 
-        if self.query.breakdown is not None:
-            filter_dict.update(self.query.breakdown.__dict__)
-
         if self.query.trendsFilter is not None:
             filter_dict.update(self.query.trendsFilter.__dict__)
+
+        if self.query.breakdown is not None:
+            filter_dict.update(**self.query.breakdown.__dict__)
 
         return {k: v for k, v in filter_dict.items() if v is not None}

@@ -779,6 +779,7 @@ class TestResolver(BaseTest):
                     chain=["elements_chain"], type=ast.FieldType(name="elements_chain", table_type=events_table_type)
                 ),
                 ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_type)),
+                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=events_table_type)),
                 ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=events_table_type)),
                 ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=events_table_type)),
                 ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=events_table_type)),
@@ -815,6 +816,9 @@ class TestResolver(BaseTest):
                 ),
                 ast.Field(
                     chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_alias_type)
+                ),
+                ast.Field(
+                    chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=events_table_alias_type)
                 ),
                 ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=events_table_alias_type)),
                 ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=events_table_alias_type)),
@@ -892,6 +896,7 @@ class TestResolver(BaseTest):
                 "distinct_id": ast.FieldType(name="distinct_id", table_type=events_table_type),
                 "elements_chain": ast.FieldType(name="elements_chain", table_type=events_table_type),
                 "created_at": ast.FieldType(name="created_at", table_type=events_table_type),
+                "$session_id": ast.FieldType(name="$session_id", table_type=events_table_type),
                 "$group_0": ast.FieldType(name="$group_0", table_type=events_table_type),
                 "$group_1": ast.FieldType(name="$group_1", table_type=events_table_type),
                 "$group_2": ast.FieldType(name="$group_2", table_type=events_table_type),
@@ -913,6 +918,7 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
                 ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
+                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=inner_select_type)),
                 ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=inner_select_type)),
                 ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=inner_select_type)),
                 ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=inner_select_type)),
@@ -950,6 +956,7 @@ class TestResolver(BaseTest):
                         "distinct_id": ast.FieldType(name="distinct_id", table_type=events_table_type),
                         "elements_chain": ast.FieldType(name="elements_chain", table_type=events_table_type),
                         "created_at": ast.FieldType(name="created_at", table_type=events_table_type),
+                        "$session_id": ast.FieldType(name="$session_id", table_type=events_table_type),
                         "$group_0": ast.FieldType(name="$group_0", table_type=events_table_type),
                         "$group_1": ast.FieldType(name="$group_1", table_type=events_table_type),
                         "$group_2": ast.FieldType(name="$group_2", table_type=events_table_type),
@@ -974,6 +981,7 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
                 ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
+                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=inner_select_type)),
                 ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=inner_select_type)),
                 ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=inner_select_type)),
                 ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=inner_select_type)),
