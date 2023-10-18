@@ -191,13 +191,12 @@ export function RatingQuestionBarChart({
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className=" h-50 border rounded pt-6 pb-2 px-2">
+                    <div className=" h-50 border rounded pt-6 pb-2">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
                                     inSurveyView={true}
                                     hideYAxis={true}
-                                    hideXAxis={true}
                                     showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
@@ -465,7 +464,7 @@ export function OpenTextViz({
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => (
                             <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                <div className="masonry-item-text italic font-semibold px-5 py-4">
+                                <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
                                     {event.properties[surveyResponseField]}
                                 </div>
                                 <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
