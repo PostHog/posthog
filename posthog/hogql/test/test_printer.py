@@ -10,7 +10,7 @@ from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 from posthog.test.base import BaseTest
@@ -49,6 +49,11 @@ class TestPrinter(BaseTest):
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
+
+    def test_to_printed_hogql(self):
+        expr = parse_select("select 1 + 2, 3 from events")
+        repsponse = to_printed_hogql(expr, self.team.pk)
+        self.assertEqual(repsponse, "SELECT plus(1, 2), 3 FROM events LIMIT 10000")
 
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
