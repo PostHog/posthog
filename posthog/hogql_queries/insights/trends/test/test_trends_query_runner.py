@@ -1,18 +1,20 @@
+from dataclasses import dataclass
 from typing import List, Optional
 from freezegun import freeze_time
-from pydantic import BaseModel
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
 from posthog.schema import DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
-class Series(BaseModel):
+@dataclass
+class Series:
     event: str
     timestamps: List[str]
 
 
-class SeriesTestData(BaseModel):
+@dataclass
+class SeriesTestData:
     distinct_id: str
     events: List[Series]
 
