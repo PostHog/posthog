@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError
 
@@ -484,6 +485,26 @@ class TestTeamAPI(APIBaseTest):
             response.json()["detail"]
             == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
         )
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Welwyn Garden City", "invalid_input", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than one", "1.5", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.534", "max_decimal_places", "Ensure that there are no more than 2 decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_sample_rates(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_sample_rate": provided_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_sample_rate",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
