@@ -1,5 +1,4 @@
 {
-    "$ref": "#/definitions/QuerySchema",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "ActionsNode": {
@@ -144,6 +143,46 @@
                 }
             ]
         },
+        "AnyResponseType": {
+            "anyOf": [
+                {
+                    "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/HogQLMetadataResponse"
+                },
+                {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "next": {
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/EventType"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "not": {}
+                        }
+                    ],
+                    "description": "Return a limited set of data"
+                },
+                {
+                    "$ref": "#/definitions/EventsQueryResponse"
+                }
+            ]
+        },
         "BaseMathType": {
             "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
             "type": "string"
@@ -283,6 +322,20 @@
                 "p99_count_per_actor"
             ],
             "type": "string"
+        },
+        "DataNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
         },
         "DataTableNode": {
             "additionalProperties": false,
@@ -554,6 +607,69 @@
             "additionalProperties": false,
             "type": "object"
         },
+        "EntityNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "EntityType": {
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
@@ -805,6 +921,34 @@
             "required": ["kind", "select"],
             "type": "object"
         },
+        "EventsQueryPersonColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "properties": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "email": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "type": "object"
+        },
         "EventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -868,6 +1012,105 @@
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
+        },
+        "FilterType": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "aggregation_group_type_index": {
+                    "type": "number"
+                },
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType"
+                },
+                "breakdown_group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "entity_id": {
+                    "type": ["string", "number"]
+                },
+                "entity_math": {
+                    "type": "string"
+                },
+                "entity_type": {
+                    "$ref": "#/definitions/EntityType"
+                },
+                "events": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "explicit_date": {
+                    "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                    "type": ["boolean", "string", "null"]
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "from_dashboard": {
+                    "type": ["boolean", "number"]
+                },
+                "insight": {
+                    "$ref": "#/definitions/InsightType"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                },
+                "new_entity": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ]
+                },
+                "sampling_factor": {
+                    "type": ["number", "null"]
+                }
+            },
+            "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -1070,6 +1313,19 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "HasPropertiesNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                }
+            ]
         },
         "HogQLExpression": {
             "type": "string"
@@ -1292,6 +1548,50 @@
             },
             "type": "object"
         },
+        "InsightFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsFilter"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsFilter"
+                },
+                {
+                    "$ref": "#/definitions/RetentionFilter"
+                },
+                {
+                    "$ref": "#/definitions/PathsFilter"
+                },
+                {
+                    "$ref": "#/definitions/StickinessFilter"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleFilter"
+                }
+            ]
+        },
+        "InsightFilterProperty": {
+            "enum": [
+                "trendsFilter",
+                "funnelsFilter",
+                "retentionFilter",
+                "pathsFilter",
+                "stickinessFilter",
+                "lifecycleFilter"
+            ],
+            "type": "string"
+        },
+        "InsightNodeKind": {
+            "enum": [
+                "TrendsQuery",
+                "FunnelsQuery",
+                "RetentionQuery",
+                "PathsQuery",
+                "StickinessQuery",
+                "LifecycleQuery"
+            ],
+            "type": "string"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -1315,6 +1615,10 @@
             ]
         },
         "InsightShortId": {
+            "type": "string"
+        },
+        "InsightType": {
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -1358,6 +1662,47 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "InsightsQueryBase": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "IntervalType": {
@@ -1479,6 +1824,56 @@
         },
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
+            "type": "string"
+        },
+        "NamedParameters<typeof dateRangeForFilter>": {
+            "additionalProperties": false,
+            "properties": {
+                "source": {
+                    "$ref": "#/definitions/FilterType"
+                }
+            },
+            "type": "object"
+        },
+        "Node": {
+            "additionalProperties": false,
+            "description": "Node base class, everything else inherits from here",
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "NodeKind": {
+            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run generate:schema:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run generate:schema:python\"",
+            "enum": [
+                "EventsNode",
+                "ActionsNode",
+                "EventsQuery",
+                "PersonsNode",
+                "HogQLQuery",
+                "HogQLMetadata",
+                "PersonsQuery",
+                "DataTableNode",
+                "SavedInsightNode",
+                "InsightVizNode",
+                "TrendsQuery",
+                "FunnelsQuery",
+                "RetentionQuery",
+                "PathsQuery",
+                "StickinessQuery",
+                "LifecycleQuery",
+                "WebOverviewStatsQuery",
+                "WebTopClicksQuery",
+                "WebStatsTableQuery",
+                "TimeToSeeDataSessionsQuery",
+                "TimeToSeeDataQuery",
+                "TimeToSeeDataSessionsJSONNode",
+                "TimeToSeeDataSessionsWaterfallNode",
+                "DatabaseSchemaQuery"
+            ],
             "type": "string"
         },
         "PathCleaningFilter": {
@@ -1769,6 +2164,21 @@
             "required": ["results", "columns", "types", "hogql"],
             "type": "object"
         },
+        "PropertyFilterType": {
+            "enum": [
+                "meta",
+                "event",
+                "person",
+                "element",
+                "feature",
+                "session",
+                "cohort",
+                "recording",
+                "group",
+                "hogql"
+            ],
+            "type": "string"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -1855,6 +2265,35 @@
                 "max"
             ],
             "type": "string"
+        },
+        "QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "QuerySchema": {
             "anyOf": [
@@ -2245,6 +2684,60 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "TimeToSeeDataJSONNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataSessionsJSONNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/TimeToSeeDataQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "TimeToSeeDataNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TimeToSeeDataJSONNode"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataWaterfallNode"
+                }
+            ]
+        },
+        "TimeToSeeDataQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "sessionEnd": {
+                    "type": "string"
+                },
+                "sessionId": {
+                    "description": "Project to filter on. Defaults to current session",
+                    "type": "string"
+                },
+                "sessionStart": {
+                    "description": "Session start time. Defaults to current time - 2 hours",
+                    "type": "string"
+                },
+                "teamId": {
+                    "description": "Project to filter on. Defaults to current project",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "TimeToSeeDataSessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -2279,6 +2772,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TimeToSeeDataWaterfallNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataSessionsWaterfallNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/TimeToSeeDataQuery"
+                }
+            },
+            "required": ["kind", "source"],
             "type": "object"
         },
         "TrendsFilter": {
@@ -2440,6 +2947,19 @@
                 ]
             },
             "type": "array"
+        },
+        "WebAnalyticsQueryBase": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["dateRange", "properties"],
+            "type": "object"
         },
         "WebOverviewStatsQuery": {
             "additionalProperties": false,
