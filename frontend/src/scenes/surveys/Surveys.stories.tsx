@@ -6,6 +6,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -192,6 +193,42 @@ export function SurveysList(): JSX.Element {
 export function NewSurvey(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
+    }, [])
+    return <App />
+}
+
+export function NewSurveyCustomisationSection(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+    }, [])
+    return <App />
+}
+
+export function NewSurveyPresentationSection(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
+    }, [])
+    return <App />
+}
+
+export function NewSurveyTargetingSection(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+    }, [])
+    return <App />
+}
+
+export function NewSurveyAppearanceSection(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
     }, [])
     return <App />
 }

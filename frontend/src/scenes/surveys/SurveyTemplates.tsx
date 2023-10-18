@@ -24,7 +24,7 @@ export function SurveyTemplates(): JSX.Element {
                 title={'New survey'}
                 buttons={
                     <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
-                        Create blank survey
+                        New from blank
                     </LemonButton>
                 }
             />
@@ -44,10 +44,10 @@ export function SurveyTemplates(): JSX.Element {
                                 reportSurveyTemplateClicked(template.type)
                             }}
                         >
-                            <span className="mb-2 text-md">
+                            <span className="text-md">
                                 <b>{template.type}</b>
                             </span>
-                            <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-2">
+                            <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-3">
                                 {template.description}
                             </span>
                             <div className="SurveyTemplateContainer">

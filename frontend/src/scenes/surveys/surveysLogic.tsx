@@ -9,7 +9,6 @@ import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
@@ -34,7 +33,7 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [pluginsLogic, ['loading as pluginsLoading', 'enabledPlugins'], userLogic, ['user']],
+        values: [userLogic, ['user']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -162,12 +161,6 @@ export const surveysLogic = kea<surveysLogicType>([
         whitelabelAvailable: [
             (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
-        ],
-        usingSurveysSiteApp: [
-            (s) => [s.enabledPlugins, s.pluginsLoading],
-            (enabledPlugins, pluginsLoading): boolean => {
-                return !!(!pluginsLoading && enabledPlugins.find((plugin) => plugin.name === 'Surveys app'))
-            },
         ],
     }),
     afterMount(({ actions }) => {
