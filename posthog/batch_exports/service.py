@@ -103,6 +103,13 @@ class PostgresBatchExportInputs:
 
 
 @dataclass
+class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+    """Inputs for Redshift export workflow."""
+
+    pass
+
+
+@dataclass
 class BigQueryBatchExportInputs:
     """Inputs for BigQuery export workflow."""
 

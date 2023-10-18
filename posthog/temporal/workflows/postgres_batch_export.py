@@ -69,7 +69,7 @@ def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name:
 
 @dataclass
 class PostgresInsertInputs:
-    """Inputs for Postgres."""
+    """Inputs for Postgres insert activity."""
 
     team_id: int
     user: str
@@ -84,6 +84,19 @@ class PostgresInsertInputs:
     port: int = 5432
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    fields: list[tuple[str, str]] = [
+        ("uuid", "VARCHAR(200)"),
+        ("event", "VARCHAR(200)"),
+        ("properties", "JSONB"),
+        ("elements", "JSONB"),
+        ("set", "JSONB"),
+        ("set_once", "JSONB"),
+        ("distinct_id", "VARCHAR(200)"),
+        ("team_id", "INTEGER"),
+        ("ip", "VARCHAR(200)"),
+        ("site_url", "VARCHAR(200)"),
+        ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+    ]
 
 
 @activity.defn
@@ -137,21 +150,17 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                 result = cursor.execute(
                     sql.SQL(
                         """
-                        CREATE TABLE IF NOT EXISTS {} (
-                            "uuid" VARCHAR(200),
-                            "event" VARCHAR(200),
-                            "properties" JSONB,
-                            "elements" JSONB,
-                            "set" JSONB,
-                            "set_once" JSONB,
-                            "distinct_id" VARCHAR(200),
-                            "team_id" INTEGER,
-                            "ip" VARCHAR(200),
-                            "site_url" VARCHAR(200),
-                            "timestamp" TIMESTAMP WITH TIME ZONE
+                        CREATE TABLE IF NOT EXISTS {table} (
+                            {fields}
                         )
                         """
-                    ).format(table_identifier)
+                    ).format(
+                        table=table_identifier,
+                        fields=sql.SQL(",").join(
+                            sql.SQL("{field} {type}").format(field=sql.Identifier(field), type=sql.SQL(field_type))
+                            for field, field_type in inputs.fields
+                        ),
+                    )
                 )
 
         schema_columns = [
