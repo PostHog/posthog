@@ -323,6 +323,17 @@
             ],
             "type": "string"
         },
+        "DashboardFilter": {
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "DataNode": {
             "additionalProperties": false,
             "properties": {

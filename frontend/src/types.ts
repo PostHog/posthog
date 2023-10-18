@@ -26,7 +26,13 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, HogQLQuery, InsightVizNode, Node } from './queries/schema'
+import type {
+    DashboardFilter,
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightVizNode,
+    Node,
+} from './queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
@@ -1345,7 +1351,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {

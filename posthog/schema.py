@@ -86,6 +86,11 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
+class DashboardFilter(BaseModel):
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

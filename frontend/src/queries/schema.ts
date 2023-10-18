@@ -699,3 +699,9 @@ export interface BreakdownFilter {
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
+
+export interface DashboardFilter {
+    date_from?: string | null
+    date_to?: string | null
+    [s: string]: any
+}
