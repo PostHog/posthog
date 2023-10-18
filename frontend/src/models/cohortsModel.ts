@@ -85,7 +85,6 @@ export const cohortsModel = kea<cohortsModelType>({
                 export_format: ExporterFormat.CSV,
                 export_context: {
                     path: `/api/cohort/${id}/persons`,
-                    max_limit: 10000,
                 },
             }
             if (columns && columns.length > 0) {

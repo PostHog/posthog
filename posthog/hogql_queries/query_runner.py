@@ -78,7 +78,7 @@ def get_query_runner(
     query: Dict[str, Any] | RunnableQueryNode,
     team: Team,
     timings: Optional[HogQLTimings] = None,
-    default_limit: Optional[int] = None,
+    in_export_context: Optional[bool] = False,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -89,21 +89,39 @@ def get_query_runner(
     if kind == "LifecycleQuery":
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
-        return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
+        return LifecycleQueryRunner(
+            query=cast(LifecycleQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
-        return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+        return TrendsQueryRunner(
+            query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
 
         return EventsQueryRunner(
-            query=cast(EventsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+            query=cast(EventsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
         )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
 
-        return PersonsQueryRunner(query=cast(PersonsQuery | Dict[str, Any], query), team=team, timings=timings)
+        return PersonsQueryRunner(
+            query=cast(PersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
     if kind == "WebOverviewStatsQuery":
         from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
 
@@ -125,10 +143,18 @@ class QueryRunner(ABC):
     query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
+    in_export_context: bool
 
-    def __init__(self, query: RunnableQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(
+        self,
+        query: RunnableQueryNode | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[bool] = False,
+    ):
         self.team = team
         self.timings = timings or HogQLTimings()
+        self.in_export_context = in_export_context or False
         if isinstance(query, self.query_type):
             self.query = query  # type: ignore
         else:
@@ -141,7 +167,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key()
+        cache_key = self._cache_key() + ("_export" if self.in_export_context else "")
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
