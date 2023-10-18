@@ -1235,6 +1235,10 @@
             "additionalProperties": false,
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
+                "inCohortVia": {
+                    "enum": ["leftjoin", "subquery"],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"

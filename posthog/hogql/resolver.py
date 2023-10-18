@@ -4,11 +4,10 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
 from posthog.hogql.errors import ResolverException
-from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -508,22 +507,23 @@ class Resolver(CloningVisitor):
                 )
             )
 
-        if node.op == ast.CompareOperationOp.InCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+        if self.context.modifiers.inCohortVia != "leftjoin":
+            if node.op == ast.CompareOperationOp.InCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
                 )
-            )
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotIn,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+            elif node.op == ast.CompareOperationOp.NotInCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
                 )
-            )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
