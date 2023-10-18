@@ -220,6 +220,15 @@ export function NewSurveyTargetingSection(): JSX.Element {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Targeting)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+            groups: [
+                {
+                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                    rollout_percentage: 20,
+                },
+            ],
+        })
     }, [])
     return <App />
 }
