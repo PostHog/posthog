@@ -1,8 +1,8 @@
 from typing import List, Optional
 from freezegun import freeze_time
 from pydantic import BaseModel
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from posthog.hogql_queries.insights.trends_query_runner import TrendsQueryRunner
 from posthog.schema import DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -118,21 +118,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_trends_query(self.default_date_from, self.default_date_to, IntervalType.day)
 
-        self.assertEqual("$pageview", response.result[0]["label"])
+        self.assertEqual("$pageview", response.results[0]["label"])
 
     def test_trends_query_count(self):
         self._create_test_events()
 
         response = self._run_trends_query(self.default_date_from, self.default_date_to, IntervalType.day)
 
-        self.assertEqual(10, response.result[0]["count"])
+        self.assertEqual(10, response.results[0]["count"])
 
     def test_trends_query_data(self):
         self._create_test_events()
 
         response = self._run_trends_query(self.default_date_from, self.default_date_to, IntervalType.day)
 
-        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.result[0]["data"])
+        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
 
     def test_trends_query_days(self):
         self._create_test_events()
@@ -153,7 +153,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-18",
                 "2020-01-19",
             ],
-            response.result[0]["days"],
+            response.results[0]["days"],
         )
 
     def test_trends_query_labels(self):
@@ -175,7 +175,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "18-Jan-2020",
                 "19-Jan-2020",
             ],
-            response.result[0]["labels"],
+            response.results[0]["labels"],
         )
 
     def test_trends_query_multiple_series(self):
@@ -188,16 +188,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
         )
 
-        self.assertEqual(2, len(response.result))
+        self.assertEqual(2, len(response.results))
 
-        self.assertEqual("$pageview", response.result[0]["label"])
-        self.assertEqual("$pageleave", response.result[1]["label"])
+        self.assertEqual("$pageview", response.results[0]["label"])
+        self.assertEqual("$pageleave", response.results[1]["label"])
 
-        self.assertEqual(10, response.result[0]["count"])
-        self.assertEqual(6, response.result[1]["count"])
+        self.assertEqual(10, response.results[0]["count"])
+        self.assertEqual(6, response.results[1]["count"])
 
-        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.result[0]["data"])
-        self.assertEqual([0, 0, 1, 1, 3, 0, 0, 1, 0, 0, 0], response.result[1]["data"])
+        self.assertEqual([1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual([0, 0, 1, 1, 3, 0, 0, 1, 0, 0, 0], response.results[1]["data"])
 
     def test_trends_query_formula(self):
         self._create_test_events()
@@ -210,10 +210,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+B"),
         )
 
-        self.assertEqual(1, len(response.result))
-        self.assertEqual(16, response.result[0]["count"])
-        self.assertEqual("Formula (A+B)", response.result[0]["label"])
-        self.assertEqual([1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1], response.result[0]["data"])
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(16, response.results[0]["count"])
+        self.assertEqual("Formula (A+B)", response.results[0]["label"])
+        self.assertEqual([1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1], response.results[0]["data"])
 
     def test_trends_query_compare(self):
         self._create_test_events()
@@ -222,13 +222,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "2020-01-15", "2020-01-19", IntervalType.day, [EventsNode(event="$pageview")], TrendsFilter(compare=True)
         )
 
-        self.assertEqual(2, len(response.result))
+        self.assertEqual(2, len(response.results))
 
-        self.assertEqual(True, response.result[0]["compare"])
-        self.assertEqual(True, response.result[1]["compare"])
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
 
-        self.assertEqual("current", response.result[0]["compare_label"])
-        self.assertEqual("previous", response.result[1]["compare_label"])
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
 
         self.assertEqual(
             [
@@ -238,7 +238,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-18",
                 "2020-01-19",
             ],
-            response.result[0]["days"],
+            response.results[0]["days"],
         )
         self.assertEqual(
             [
@@ -248,11 +248,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-13",
                 "2020-01-14",
             ],
-            response.result[1]["days"],
+            response.results[1]["days"],
         )
 
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.result[0]["labels"])
-        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.result[1]["labels"])
+        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[0]["labels"])
+        self.assertEqual(["day 0", "day 1", "day 2", "day 3", "day 4"], response.results[1]["labels"])
 
     def test_trends_query_formula_with_compare(self):
         self._create_test_events()
@@ -265,16 +265,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(formula="A+B", compare=True),
         )
 
-        self.assertEqual(2, len(response.result))
+        self.assertEqual(2, len(response.results))
 
-        self.assertEqual(5, response.result[0]["count"])
-        self.assertEqual(10, response.result[1]["count"])
+        self.assertEqual(5, response.results[0]["count"])
+        self.assertEqual(10, response.results[1]["count"])
 
-        self.assertEqual(True, response.result[0]["compare"])
-        self.assertEqual(True, response.result[1]["compare"])
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
 
-        self.assertEqual("current", response.result[0]["compare_label"])
-        self.assertEqual("previous", response.result[1]["compare_label"])
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
 
-        self.assertEqual("Formula (A+B)", response.result[0]["label"])
-        self.assertEqual("Formula (A+B)", response.result[1]["label"])
+        self.assertEqual("Formula (A+B)", response.results[0]["label"])
+        self.assertEqual("Formula (A+B)", response.results[1]["label"])
