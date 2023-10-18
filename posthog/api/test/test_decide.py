@@ -162,6 +162,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
 
+    def test_session_recording_sample_rate(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sampleRate"], None)
+
+        self._update_team({"session_recording_sample_rate": 0.8})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sampleRate"], 0.8)
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
@@ -1759,6 +1769,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_decide_doesnt_error_out_when_database_is_down(self, *args):
         ALL_TEAM_PARAMS_FOR_DECIDE = {
             "session_recording_opt_in": True,
+            "session_recording_sample_rate": 0.2,
             "capture_console_log_opt_in": True,
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
@@ -1771,7 +1782,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
+            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": 0.2},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
@@ -1785,7 +1796,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
+                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": 0.2},
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
@@ -2289,6 +2300,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     def test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached(self, *args):
         ALL_TEAM_PARAMS_FOR_DECIDE = {
             "session_recording_opt_in": True,
+            "session_recording_sample_rate": 0.4,
             "capture_console_log_opt_in": True,
             "inject_web_apps": True,
             "recording_domains": ["https://*.example.com"],
@@ -2326,7 +2338,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True},
+                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": 0.4},
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])

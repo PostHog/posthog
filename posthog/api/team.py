@@ -75,6 +75,8 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     Has all parameters needed for a successful decide request.
     """
 
+    session_recording_sample_rate = serializers.DecimalField(min_value=0, max_value=1, max_digits=3, decimal_places=2)
+
     class Meta:
         model = Team
         fields = [
@@ -88,6 +90,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
+            "session_recording_sample_rate",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -98,6 +101,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
+    session_recording_sample_rate = serializers.DecimalField(min_value=0, max_value=1, max_digits=3, decimal_places=2)
 
     class Meta:
         model = Team
@@ -128,6 +132,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
+            "session_recording_sample_rate",
             "effective_membership_level",
             "access_control",
             "week_start_day",

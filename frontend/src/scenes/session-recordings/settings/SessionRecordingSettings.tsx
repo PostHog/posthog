@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SampleRate } from '~/types'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean
@@ -102,6 +105,45 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                 </p>
                 <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />
             </div>
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
+                <>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonLabel className="text-base">Sampling</LemonLabel>
+                        <LemonSelect
+                            onChange={(v) => {
+                                updateCurrentTeam({ session_recording_sample_rate: v as SampleRate })
+                            }}
+                            options={[
+                                {
+                                    label: '100%',
+                                    value: '1.00',
+                                },
+                                {
+                                    label: '75%',
+                                    value: '0.75',
+                                },
+                                {
+                                    label: '50%',
+                                    value: '0.50',
+                                },
+                                {
+                                    label: '25%',
+                                    value: '0.25',
+                                },
+                            ]}
+                            value={
+                                (currentTeam?.session_recording_sample_rate === undefined
+                                    ? '1.00'
+                                    : currentTeam?.session_recording_sample_rate) as SampleRate
+                            }
+                        />
+                    </div>
+                    <p>
+                        Use this setting to restrict the percentage of sessions that will be recorded. This is useful if
+                        you want to reduce the amount of data you collect.
+                    </p>
+                </>
+            </FlaggedFeature>
         </div>
     )
 }

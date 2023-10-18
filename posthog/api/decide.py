@@ -224,6 +224,7 @@ def get_decide(request: HttpRequest):
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
+                    "sampleRate": team.session_recording_sample_rate or None,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False
