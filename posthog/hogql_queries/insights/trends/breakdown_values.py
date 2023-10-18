@@ -2,8 +2,10 @@ from typing import List, Optional, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 
 
@@ -43,6 +45,8 @@ class BreakdownValues:
                 alias="value",
                 expr=parse_expr(self.breakdown_field),
             )
+        elif self.breakdown_type == "session":
+            select_field = ast.Alias(alias="value", expr=self._breakdown_session.session_duration_field())
         else:
             select_field = ast.Alias(
                 alias="value",
@@ -55,22 +59,20 @@ class BreakdownValues:
                 ),
             )
 
-        query = parse_select(
+        inner_events_query = parse_select(
             """
-                SELECT groupArray(value) FROM (
-                    SELECT
-                        {select_field},
-                        count(*) as count
-                    FROM
-                        events e
-                    WHERE
-                        {events_where}
-                    GROUP BY
-                        value
-                    ORDER BY
-                        count DESC,
-                        value DESC
-                )
+                SELECT
+                    {select_field},
+                    count(e.uuid) as count
+                FROM
+                    events e
+                WHERE
+                    {events_where}
+                GROUP BY
+                    value
+                ORDER BY
+                    count DESC,
+                    value DESC
             """,
             placeholders={
                 "events_where": self._where_filter(),
@@ -78,9 +80,20 @@ class BreakdownValues:
             },
         )
 
+        query = parse_select(
+            """
+                SELECT groupArray(value) FROM ({inner_events_query})
+            """,
+            placeholders={
+                "inner_events_query": inner_events_query,
+            },
+        )
+
         if self.histogram_bin_count is not None:
-            expr = self._to_bucketing_expression()
-            query.select = [expr]
+            query.select = [self._to_bucketing_expression()]
+
+        if self.breakdown_type == "session":
+            inner_events_query.select_from = self._breakdown_session.session_inner_join()
 
         response = execute_hogql_query(
             query_type="TrendsQueryBreakdownValues",
@@ -127,3 +140,7 @@ class BreakdownValues:
             qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
         return parse_expr(f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))")
+
+    @cached_property
+    def _breakdown_session(self):
+        return BreakdownSession(self.query_date_range)

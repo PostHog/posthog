@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from dateutil.parser import isoparse
 
@@ -17,7 +17,7 @@ def replace_filters(node: ast.Expr, filters: HogQLFilters, team: Team) -> ast.Ex
 
 
 class ReplaceFilters(CloningVisitor):
-    def __init__(self, filters: HogQLFilters, team: Team = None):
+    def __init__(self, filters: Optional[HogQLFilters], team: Team = None):
         super().__init__()
         self.filters = filters
         self.team = team

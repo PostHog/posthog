@@ -51,7 +51,6 @@ export function Surveys(): JSX.Element {
         surveysLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
-        usingSurveysSiteApp,
         searchTerm,
         filters,
         uniqueCreators,
@@ -89,7 +88,7 @@ export function Surveys(): JSX.Element {
                                     actionable: true,
                                     overlay: (
                                         <LemonButton size="small" to={urls.survey('new')}>
-                                            New from blank
+                                            Create blank survey
                                         </LemonButton>
                                     ),
                                 },
@@ -147,9 +146,7 @@ export function Surveys(): JSX.Element {
                         }}
                         className="mb-2"
                     >
-                        {usingSurveysSiteApp
-                            ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
-                            : 'Survey popups are currently disabled for this project.'}
+                        Survey popovers are currently disabled for this project.
                     </LemonBanner>
                 ) : null}
             </div>
