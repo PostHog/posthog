@@ -2444,7 +2444,7 @@
                     "$ref": "#/definitions/WebOverviewStatsQueryResponse"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": ["dateRange", "kind", "properties"],
             "type": "object"
         },
         "WebOverviewStatsQueryResponse": {
@@ -2517,7 +2517,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 }
             },
-            "required": ["kind", "properties", "breakdownBy"],
+            "required": ["breakdownBy", "dateRange", "kind", "properties"],
             "type": "object"
         },
         "WebStatsTableQueryResponse": {
@@ -2574,7 +2574,7 @@
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["kind", "properties"],
+            "required": ["dateRange", "kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {
