@@ -304,6 +304,12 @@ order by count() desc
         icon: <IconRecording />,
         command: (chain) => chain.insertContent({ type: NotebookNodeType.Map, attrs: {} }),
     },
+    {
+        title: 'Properties',
+        search: 'properties',
+        icon: <IconRecording />,
+        command: (chain) => chain.insertContent({ type: NotebookNodeType.Properties, attrs: {} }),
+    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(

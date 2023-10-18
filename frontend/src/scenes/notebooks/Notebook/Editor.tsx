@@ -25,6 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -111,6 +112,7 @@ export function Editor(): JSX.Element {
             NotebookNodeSurvey,
             NotebookNodeImage,
             NotebookNodeMap,
+            NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
