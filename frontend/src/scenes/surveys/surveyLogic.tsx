@@ -787,6 +787,10 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
     if (!surveyPayload.questions) {
         return surveyPayload
     }
+
+    const sanitizedThankYouHeader = sanitize(surveyPayload.appearance?.thankYouMessageHeader || '')
+    const sanitizedThankYouDescription = sanitize(surveyPayload.appearance?.thankYouMessageDescription || '')
+
     return {
         ...surveyPayload,
         questions: surveyPayload.questions?.map((rawQuestion) => {
@@ -796,5 +800,10 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
                 question: sanitize(rawQuestion.question || ''),
             }
         }),
+        appearance: {
+            ...surveyPayload.appearance,
+            ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
+            ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
+        },
     }
 }

@@ -269,7 +269,7 @@ export function BaseAppearance({
                     </div>
                 )}
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question">{question}</div>
+                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
                     {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
                     They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
                     you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
@@ -638,8 +638,14 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                         {cancel}
                     </button>
                 </div>
-                <h3 className="thank-you-message-header">{appearance?.thankYouMessageHeader || 'Thank you!'}</h3>
-                <div className="thank-you-message-body">{appearance?.thankYouMessageDescription || ''}</div>
+                <h3
+                    className="thank-you-message-header"
+                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageHeader || 'Thank you!') }}
+                />
+                <div
+                    className="thank-you-message-body"
+                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageDescription || '') }}
+                />
                 <Button appearance={appearance} onSubmit={() => undefined}>
                     Close
                 </Button>
