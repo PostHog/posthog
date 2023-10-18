@@ -23,9 +23,10 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
         <BubbleMenu
             editor={editor}
             tippyOptions={{
+                interactive: false,
                 duration: [100, 0],
                 // placement: 'right',
-                offset: [0, 0],
+                // offset: [24, 0],
             }}
             className="NotebookFloatingButton"
             shouldShow={({ editor }: { editor: TTEditor }) => {

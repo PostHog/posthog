@@ -101,7 +101,7 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center">
+                <div className="relative flex flex-1 justify-center">
                     <NotebookSidebar />
                     <ErrorBoundary>
                         <Editor />

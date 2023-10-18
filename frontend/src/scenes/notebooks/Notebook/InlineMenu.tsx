@@ -11,7 +11,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const menuRef = useRef<HTMLDivElement>(null)
     const { ref: setRef, height } = useResizeObserver()
 
-    const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+    const [position, setPosition] = useState<{ top: number }>({ top: 0 })
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -25,16 +25,26 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
         const selection = window.getSelection()
 
         if (selection && selection.anchorNode && selection.anchorNode.parentElement) {
-            const position = selection.anchorNode.parentElement.getBoundingClientRect()
-            console.log(position)
-            setPosition({ x: position.height, y: 0 })
+            if (selection.anchorNode.nodeType === Node.ELEMENT_NODE) {
+                // const position = (selection.anchorNode as HTMLElement).getBoundingClientRect()
+                // console.log(position)
+
+                const editorPos = editor.view.dom.getBoundingClientRect()
+                const selectionPos = (selection.anchorNode as HTMLElement).getBoundingClientRect()
+
+                setPosition({ top: selectionPos.top - editorPos.top })
+            }
         }
     }
 
     useEffect(() => {
         editor.on('update', handleUpdate)
+        editor.on('selectionUpdate', handleUpdate)
         setRef(editor.view.dom)
-        return () => editor.off('update', handleUpdate)
+        return () => {
+            editor.off('update', handleUpdate)
+            editor.off('selectionUpdate', handleUpdate)
+        }
     }, [])
 
     useEffect(() => {
@@ -43,7 +53,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
 
     return (
         <>
-            <div style={{ position: 'absolute', top: position.x, left: 0 }}>David</div>
+            <div style={{ position: 'absolute', top: position.top, left: 0 }}>David</div>
             <BubbleMenu
                 editor={editor}
                 shouldShow={({ editor: { isEditable }, view, state, from, to }) => {
