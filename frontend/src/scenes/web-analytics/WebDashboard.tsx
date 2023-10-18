@@ -13,6 +13,7 @@ import {
 } from '~/queries/schema'
 import { useCallback } from 'react'
 import { UnexpectedNeverError } from 'lib/utils'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -132,17 +133,20 @@ const queryContext: QueryContext = {
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { tiles, webAnalyticsFilters } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { tiles, webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
+    const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     return (
         <div>
             <div className="sticky top-0 bg-white z-20 pt-2">
-                <PropertyFilters
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                    onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
-                    propertyFilters={webAnalyticsFilters}
-                    pageKey={'web-analytics'}
-                />
+                <div className="flex flex-row flex-wrap gap-2">
+                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <PropertyFilters
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                        onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
+                        propertyFilters={webAnalyticsFilters}
+                        pageKey={'web-analytics'}
+                    />
+                </div>
                 <div className={'bg-border h-px w-full mt-2'} />
             </div>
             <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
