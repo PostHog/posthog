@@ -43,7 +43,7 @@ class TestInCohort(BaseTest):
         )
         self.assertEqual(
             response.clickhouse,
-            f"SELECT events.event FROM events LEFT JOIN (SELECT cohortpeople.person_id, 1 AS matched FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__{cohort.pk} ON equals(in_cohort__{cohort.pk}.person_id, events.person_id) WHERE and(equals(events.team_id, 1), ifNull(equals(in_cohort__{cohort.pk}.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+            f"SELECT events.event FROM events LEFT JOIN (SELECT cohortpeople.person_id, 1 AS matched FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__{cohort.pk} ON equals(in_cohort__{cohort.pk}.person_id, events.person_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(in_cohort__{cohort.pk}.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
         self.assertEqual(
             response.hogql,
