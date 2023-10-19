@@ -244,7 +244,9 @@ def backfill_range(
         current_end = current + step
 
         if current_end > end_at:
-            current_end = end_at
+            # Do not yield a range that is less than step.
+            # Same as built-in range.
+            break
 
         yield current, current_end
 
