@@ -80,6 +80,7 @@ const Session = ({ session }: SessionProps): JSX.Element => {
                         onClick={() => setIsFolded((state) => !state)}
                     />
                     <b className="ml-2">{humanFriendlyDetailedTime(startTime)}</b>
+                    <span className="text-muted-3000 font-bold ml-1">({session.events.length} events)</span>
                 </div>
                 <div className="flex items-center">
                     <span>{humanFriendlyDuration(durationSeconds)}</span>
