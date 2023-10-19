@@ -263,6 +263,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[
                         # Raised on missing permissions
                         "Forbidden",
+                        # Invalid token
+                        "RefreshError",
                     ],
                 ),
             )
