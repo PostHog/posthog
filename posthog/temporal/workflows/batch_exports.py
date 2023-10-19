@@ -138,7 +138,7 @@ def get_results_iterator(
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
-    use_s3_fields: bool = False,
+    include_person_properties: bool = False,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
@@ -158,7 +158,7 @@ def get_results_iterator(
         events_to_include_tuple = ()
 
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=S3_FIELDS if use_s3_fields else FIELDS,
+        fields=S3_FIELDS if include_person_properties else FIELDS,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
         exclude_events=exclude_events_statement,
