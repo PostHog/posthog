@@ -1,5 +1,5 @@
 import './EditSurvey.scss'
-import { surveyLogic } from './surveyLogic'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import {
@@ -40,7 +40,7 @@ import {
     SurveyUrlMatchTypeLabels,
 } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React, { useState } from 'react'
+import React from 'react'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -81,15 +81,24 @@ function PresentationTypeCard({
 }
 
 export default function SurveyEdit(): JSX.Element {
-    const { survey, hasTargetingFlag, urlMatchTypeValidationError, writingHTMLDescription, hasTargetingSet } =
-        useValues(surveyLogic)
-    const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription, resetTargeting } =
-        useActions(surveyLogic)
+    const {
+        survey,
+        hasTargetingFlag,
+        urlMatchTypeValidationError,
+        writingHTMLDescription,
+        hasTargetingSet,
+        selectedQuestion,
+        selectedSection,
+    } = useValues(surveyLogic)
+    const {
+        setSurveyValue,
+        setDefaultForQuestionType,
+        setWritingHTMLDescription,
+        resetTargeting,
+        setSelectedQuestion,
+        setSelectedSection,
+    } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-
-    const [activePreview, setActivePreview] = useState<number>(0)
-
-    const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
     return (
         <div className="flex flex-row gap-4">
@@ -101,16 +110,21 @@ export default function SurveyEdit(): JSX.Element {
                     <LemonTextArea data-attr="survey-description" minRows={2} />
                 </Field>
                 <LemonCollapse
-                    defaultActiveKey="steps"
+                    activeKey={selectedSection || undefined}
+                    onChange={(section) => {
+                        setSelectedSection(section)
+                    }}
                     panels={[
                         {
-                            key: 'steps',
+                            key: SurveyEditSection.Steps,
                             header: 'Steps',
                             content: (
                                 <>
                                     <LemonCollapse
-                                        activeKey={activePreview}
-                                        onChange={(index) => setActivePreview(index || 0)}
+                                        activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                        onChange={(index) => {
+                                            setSelectedQuestion(index)
+                                        }}
                                         panels={[
                                             ...survey.questions.map(
                                                 (
@@ -133,7 +147,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                     data-attr={`delete-survey-question-${index}`}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation()
-                                                                        setActivePreview(index <= 0 ? 0 : index - 1)
+                                                                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
                                                                         setSurveyValue(
                                                                             'questions',
                                                                             survey.questions.filter(
@@ -512,7 +526,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                       data-attr={`delete-survey-confirmation`}
                                                                       onClick={(e) => {
                                                                           e.stopPropagation()
-                                                                          setActivePreview(survey.questions.length - 1)
+                                                                          setSelectedQuestion(
+                                                                              survey.questions.length - 1
+                                                                          )
                                                                           setSurveyValue('appearance', {
                                                                               ...survey.appearance,
                                                                               displayThankYouMessage: false,
@@ -578,7 +594,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.questions,
                                                         { ...defaultSurveyFieldValues.open.questions[0] },
                                                     ])
-                                                    setActivePreview(survey.questions.length)
+                                                    setSelectedQuestion(survey.questions.length)
                                                 }}
                                             >
                                                 Add question
@@ -594,7 +610,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setActivePreview(survey.questions.length)
+                                                    setSelectedQuestion(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -605,7 +621,7 @@ export default function SurveyEdit(): JSX.Element {
                             ),
                         },
                         {
-                            key: 'presentation',
+                            key: SurveyEditSection.Presentation,
                             header: 'Presentation',
                             content: (
                                 <Field name="type">
@@ -673,7 +689,7 @@ export default function SurveyEdit(): JSX.Element {
                         ...(survey.type !== SurveyType.API
                             ? [
                                   {
-                                      key: 'customization',
+                                      key: SurveyEditSection.Customization,
                                       header: 'Customization',
                                       content: (
                                           <Field name="appearance" label="">
@@ -692,7 +708,7 @@ export default function SurveyEdit(): JSX.Element {
                               ]
                             : []),
                         {
-                            key: 'targeting',
+                            key: SurveyEditSection.Targeting,
                             header: 'Targeting',
                             content: (
                                 <PureField>
@@ -886,10 +902,9 @@ export default function SurveyEdit(): JSX.Element {
             <LemonDivider vertical />
             <div className="flex flex-col items-center h-full w-full sticky top-0 pt-8" style={{ maxWidth: 320 }}>
                 <SurveyFormAppearance
-                    activePreview={activePreview}
+                    activePreview={selectedQuestion || 0}
                     survey={survey}
-                    showThankYou={!!showThankYou}
-                    setActivePreview={(preview) => setActivePreview(preview)}
+                    setActivePreview={(preview) => setSelectedQuestion(preview)}
                 />
             </div>
         </div>
@@ -942,6 +957,9 @@ export function HTMLEditor({
                                         minimap: {
                                             enabled: false,
                                         },
+                                        scrollbar: {
+                                            alwaysConsumeMouseWheel: false,
+                                        },
                                         wordWrap: 'on',
                                         scrollBeyondLastLine: false,
                                         automaticLayout: true,
@@ -958,7 +976,7 @@ export function HTMLEditor({
             />
             {value && value?.toLowerCase().includes('<script') && (
                 <LemonBanner type="warning">
-                    Scripts won't run in the survey popup and we'll remove these on save. Use the API question mode to
+                    Scripts won't run in the survey popover and we'll remove these on save. Use the API question mode to
                     run your own scripts in surveys.
                 </LemonBanner>
             )}

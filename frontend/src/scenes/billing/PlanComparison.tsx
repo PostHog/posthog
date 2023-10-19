@@ -49,6 +49,9 @@ const getProductTiers = (
 ): JSX.Element => {
     const tiers = plan?.tiers
 
+    const allTierPrices = tiers?.map((tier) => parseFloat(tier.unit_amount_usd))
+    const sigFigs = allTierPrices?.map((price) => price?.toString().split('.')[1]?.length).sort((a, b) => b - a)[0]
+
     return (
         <>
             {tiers ? (
@@ -63,7 +66,7 @@ const getProductTiers = (
                         <span className="font-bold">
                             {i === 0 && parseFloat(tier.unit_amount_usd) === 0
                                 ? 'Free'
-                                : `$${parseFloat(tier.unit_amount_usd).toFixed(6)}`}
+                                : `$${parseFloat(tier.unit_amount_usd).toFixed(sigFigs)}`}
                         </span>
                     </div>
                 ))

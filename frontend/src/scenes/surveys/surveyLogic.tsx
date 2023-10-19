@@ -32,6 +32,13 @@ import {
 } from './constants'
 import { sanitize } from 'dompurify'
 
+export enum SurveyEditSection {
+    Steps = 'steps',
+    Presentation = 'presentation',
+    Appearance = 'appearance',
+    Customization = 'customization',
+    Targeting = 'targeting',
+}
 export interface SurveyLogicProps {
     id: string | 'new'
 }
@@ -120,6 +127,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
+        setSelectedQuestion: (idx: number | null) => ({ idx }),
+        setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
     }),
     loaders(({ props, actions, values }) => ({
@@ -225,7 +234,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        SELECT JSONExtractString(properties, '${surveyResponseField}') AS survey_response, COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
@@ -266,7 +275,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT properties.${surveyResponseField} AS survey_response, COUNT(survey_response)
+                        SELECT JSONExtractString(properties, '${surveyResponseField}') AS survey_response, COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
@@ -303,10 +312,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
+                const surveyResponseField =
+                    questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT count(), arrayJoin(JSONExtractArrayRaw(properties, '$survey_response')) AS choice
+                        SELECT count(), arrayJoin(JSONExtractArrayRaw(properties, '${surveyResponseField}')) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -471,6 +483,19 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        selectedQuestion: [
+            0 as number | null,
+            {
+                setSelectedQuestion: (_, { idx }) => idx,
+            },
+        ],
+        selectedSection: [
+            SurveyEditSection.Steps as SurveyEditSection | null,
+            {
+                setSelectedSection: (_, { section }) => section,
+            },
+        ],
+        // TODO: remove this currentQuestionIndexAndType once surveys visualisation flag is rolled out
         currentQuestionIndexAndType: [
             { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
             {
