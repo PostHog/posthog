@@ -2,7 +2,6 @@ import { rest, setupWorker } from 'msw'
 import { handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'
 import { DecoratorFunction } from '@storybook/types'
-import { PersistedFeatureFlag } from '~/types'
 
 // Default handlers ensure no request is unhandled by msw
 export const worker = setupWorker(...handlers)
@@ -31,6 +30,6 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
     }
 }
 
-export const useFeatureFlags = (featureFlags: PersistedFeatureFlag[]): void => {
+export const useFeatureFlags = (featureFlags: string[]): void => {
     ;(window as any).POSTHOG_APP_CONTEXT.persisted_feature_flags = featureFlags
 }

@@ -2610,14 +2610,12 @@ export interface TiledIconModuleProps {
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
-export type PersistedFeatureFlag = string | [string, string]
-
 export interface AppContext {
     current_user: UserType | null
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string
-    persisted_feature_flags?: PersistedFeatureFlag[]
+    persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
