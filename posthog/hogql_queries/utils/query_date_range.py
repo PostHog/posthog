@@ -73,6 +73,10 @@ class QueryDateRange:
         return date_from
 
     @cached_property
+    def previous_period_date_from(self) -> datetime:
+        return self.date_from() - (self.date_to() - self.date_from())
+
+    @cached_property
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
 
@@ -83,6 +87,10 @@ class QueryDateRange:
     @cached_property
     def date_from_str(self) -> str:
         return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
+
+    @cached_property
+    def previous_period_date_from_str(self) -> str:
+        return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def is_hourly(self) -> bool:
@@ -104,6 +112,12 @@ class QueryDateRange:
     def date_from_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull", args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])]
+        )
+
+    def previous_period_date_from_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull",
+            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.previous_period_date_from_str))])],
         )
 
     def one_interval_period(self) -> ast.Expr:

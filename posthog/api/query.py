@@ -65,7 +65,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.model_validate(data)
+            schema.QuerySchema.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
