@@ -129,6 +129,21 @@ async def temporal_worker(temporal_client):
             ],
         ),
         (
+            dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2023, 1, 1, 12, 20, 0, tzinfo=dt.timezone.utc),
+            dt.timedelta(hours=1),
+            [
+                (
+                    dt.datetime(2023, 1, 1, 10, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
+                ),
+                (
+                    dt.datetime(2023, 1, 1, 11, 0, 0, tzinfo=dt.timezone.utc),
+                    dt.datetime(2023, 1, 1, 12, 0, 0, tzinfo=dt.timezone.utc),
+                ),
+            ],
+        ),
+        (
             dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
             dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
             dt.timedelta(hours=12),
