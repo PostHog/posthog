@@ -20,11 +20,7 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    return Object.fromEntries(
-        persistedFeatureFlags.map((f) => {
-            return Array.isArray(f) ? f : [f, true]
-        })
-    )
+    return Object.fromEntries(persistedFeatureFlags.map((f) => (Array.isArray(f) ? f : [f, true])))
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
