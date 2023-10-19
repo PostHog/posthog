@@ -1,29 +1,21 @@
-from posthog.schema import HogQLQuery, DashboardFilter, HogQLFilters, DateRange
+from posthog.models import Team
+from posthog.schema import DashboardFilter
 
 
 # Apply the filters from the django-style Dashboard object
-def apply_dashboard_filters(query: dict, filters: dict) -> dict:
+def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
     kind = query.get("kind", None)
 
     if kind == "DataTableNode":
-        source = apply_dashboard_filters(query["source"], filters)
+        source = apply_dashboard_filters(query["source"], filters, team)
         return {**query, "source": source}
 
     dashboard_filter = DashboardFilter(**filters)
 
     if kind == "HogQLQuery":
-        node = HogQLQuery(**query)
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        hogql_filters = node.filters or HogQLFilters()
-        date_range = hogql_filters.dateRange or DateRange()
-        node.filters = hogql_filters
-        hogql_filters.dateRange = date_range
-
-        if dashboard_filter.date_to:
-            date_range.date_to = dashboard_filter.date_to
-        if dashboard_filter.date_from:
-            date_range.date_from = dashboard_filter.date_from
-
-        return node.dict()
+        query_runner = HogQLQueryRunner(query, team)
+        return query_runner.apply_dashboard_filters(dashboard_filter).dict()
     else:
         return query

@@ -7,7 +7,6 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
@@ -158,8 +157,9 @@ class Insight(models.Model):
     def dashboard_query(self, dashboard: Optional[Dashboard]):
         if not dashboard or not self.query:
             return self.query
+        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
 
-        return apply_dashboard_filters(self.query, dashboard.filters)
+        return apply_dashboard_filters(self.query, dashboard.filters, self.team)
 
     @property
     def url(self):
@@ -181,8 +181,9 @@ class InsightViewed(models.Model):
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         if insight.query is not None:
-            # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
-            q = insight.query
+            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+
+            q = apply_dashboard_filters(insight.query, dashboard.filters, insight.team)
             if q.get("source"):
                 q = q["source"]
 
