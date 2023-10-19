@@ -1,0 +1,30 @@
+# name: TestSessionsTimelineQueryRunner.test_simple_sessions_unfiltered
+  '
+  SELECT events.uuid,
+         events.`$session_id`,
+         toTimeZone(events.timestamp, 'UTC'),
+         events.event,
+         events.properties,
+         events.distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'),
+                                                         (SELECT min(toTimeZone(events.timestamp, 'UTC'))
+                                                          FROM events
+                                                          WHERE and(equals(events.team_id, 2), or(in(events.`$session_id`,
+                                                                                                       (SELECT DISTINCT events.`$session_id`
+                                                                                                        FROM events
+                                                                                                        WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T06:00:00Z', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T18:00:00Z', 6, 'UTC')))
+                                                                                                        LIMIT 100)), and(isNull(events.`$session_id`), greater(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T18:00:00Z', 6, 'UTC'))))))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'),
+                                                                                                                                                                                                                                                                                                                                                                                                          (SELECT max(toTimeZone(events.timestamp, 'UTC'))
+                                                                                                                                                                                                                                                                                                                                                                                                           FROM events
+                                                                                                                                                                                                                                                                                                                                                                                                           WHERE and(equals(events.team_id, 2), or(in(events.`$session_id`,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        (SELECT DISTINCT events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                         FROM events
+                                                                                                                                                                                                                                                                                                                                                                                                                                                         WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T06:00:00Z', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T18:00:00Z', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                         LIMIT 100)), and(isNull(events.`$session_id`), greater(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), parseDateTime64BestEffortOrNull('2021-01-01T18:00:00Z', 6, 'UTC'))))))))
+  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1
+  '
+---

@@ -1,6 +1,6 @@
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -8,7 +8,8 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_runner(self, query: SessionsTimelineQuery) -> SessionsTimelineQueryRunner:
         return SessionsTimelineQueryRunner(team=self.team, query=query)
 
-    def test_global_simple_sessions(self):
+    @snapshot_clickhouse_queries
+    def test_simple_sessions_unfiltered(self):
         journeys_for(
             team=self.team,
             events_by_person={
@@ -56,9 +57,10 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
-        runner = self._create_runner(SessionsTimelineQuery(before="2021-01-01T18:00:00Z", after="2021-01-01T06:00:00Z"))
 
+        runner = self._create_runner(SessionsTimelineQuery(before="2021-01-01T18:00:00Z", after="2021-01-01T06:00:00Z"))
         response = runner.calculate()
+
         assert response.results == [
             TimelineEntry(
                 sessionId="s2",
