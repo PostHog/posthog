@@ -89,7 +89,9 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
 
             const latestVersion = values.availableVersions[0].version
 
-            // reverse sort, hence reversed arguments to localeCompare
+            // reverse sort, hence reversed arguments to localeCompare.
+            // We want the highest semantic version to be the latest used one, rather than
+            // the one with the latest timestamp, because secondary installations can spew old versions
             const latestUsedVersion = [...values.usedVersions].sort((a, b) =>
                 b.version.localeCompare(a.version, undefined, { numeric: true })
             )[0].version
