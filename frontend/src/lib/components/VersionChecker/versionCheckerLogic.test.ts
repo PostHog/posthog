@@ -123,6 +123,10 @@ describe('versionCheckerLogic', () => {
             usedVersions: [
                 { version: '1.80.0', timestamp: '2023-01-01T12:00:00Z' },
                 { version: '1.83.1', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.20.1', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.0.890', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '0.89.5', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '0.0.5', timestamp: '2023-01-01T10:00:00Z' },
                 { version: '1.84.0', timestamp: '2023-01-01T08:00:00Z' },
             ],
             expectation: null,
