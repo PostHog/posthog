@@ -14,8 +14,8 @@ export const notebookNodePersonFeedLogic = kea([
     key(({ personId }) => personId),
 
     loaders(() => ({
-        sessionsTimeline: [
-            [],
+        sessions: [
+            null as SessionsTimelineQueryResponse['results'] | null,
             {
                 loadSessionsTimeline: async () => {
                     const result = await query<SessionsTimelineQuery>({
