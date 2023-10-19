@@ -181,13 +181,19 @@ class InsightViewed(models.Model):
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         if insight.query is not None:
-            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+            dashboard_filters = dashboard.filters if dashboard else None
 
-            q = apply_dashboard_filters(insight.query, dashboard.filters, insight.team)
+            if dashboard_filters:
+                from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+
+                q = apply_dashboard_filters(insight.query, dashboard_filters, insight.team)
+            else:
+                q = insight.query
+
             if q.get("source"):
                 q = q["source"]
 
-            return generate_cache_key("{}_{}_{}".format(q, dashboard.filters, insight.team_id))
+            return generate_cache_key("{}_{}_{}".format(q, dashboard_filters, insight.team_id))
 
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
