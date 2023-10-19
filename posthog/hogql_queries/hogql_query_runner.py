@@ -75,4 +75,7 @@ class HogQLQueryRunner(QueryRunner):
             self.query.filters.dateRange.date_to = dashboard_filter.date_to
             self.query.filters.dateRange.date_from = dashboard_filter.date_from
 
+        if dashboard_filter.properties:
+            self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
+
         return self.query
