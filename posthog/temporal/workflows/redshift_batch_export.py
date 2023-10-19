@@ -241,8 +241,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
-        properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
-
         insert_inputs = RedshiftInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
