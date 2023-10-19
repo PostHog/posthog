@@ -24,7 +24,7 @@ amqp==5.1.1
     #   kombu
 annotated-types==0.5.0
     # via pydantic
-antlr4-python3-runtime==4.13.0
+antlr4-python3-runtime==4.13.1
     # via -r requirements.in
 asgiref==3.3.2
     # via django
