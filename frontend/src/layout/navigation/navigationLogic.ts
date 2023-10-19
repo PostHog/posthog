@@ -20,7 +20,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
@@ -124,9 +124,8 @@ export const navigationLogic = kea<navigationLogicType>({
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
         minimalTopBar: [
-            (s) => [s.fullscreen, s.sceneConfig],
-            () => {
-                const activeScene = sceneLogic.values.activeScene
+            (s) => [s.activeScene],
+            (activeScene) => {
                 const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
                 return activeScene && minimalTopBarScenes.includes(activeScene)
             },
