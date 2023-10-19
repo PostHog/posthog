@@ -32,10 +32,6 @@ import {
 } from './constants'
 import { sanitize } from 'dompurify'
 
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
-
 export enum SurveyEditSection {
     Steps = 'steps',
     Presentation = 'presentation',
@@ -82,7 +78,7 @@ export interface SurveyMultipleChoiceResults {
 
 export interface SurveyOpenTextResults {
     [key: number]: {
-        events: { distinct_id: string; properties: Record<string, any>; personProperties: PersonPropType }[]
+        events: { distinct_id: string; properties: Record<string, any>; personProperties: Record<string, any> }[]
     }
 }
 
