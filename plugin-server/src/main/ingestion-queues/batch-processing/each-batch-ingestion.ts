@@ -256,13 +256,9 @@ async function ingestEvent(
     const result = await runEventPipeline(server, event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-    countAndLogEvents()
 
     return result
 }
-
-let messageCounter = 0
-let messageLogDate = 0
 
 function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
@@ -336,19 +332,4 @@ export function splitIngestionBatch(
     }
     output.toProcess = Array.from(batches.values())
     return output
-}
-
-function countAndLogEvents(): void {
-    const now = new Date().valueOf()
-    messageCounter++
-    if (now - messageLogDate > 10000) {
-        status.info(
-            '🕒',
-            `Processed ${messageCounter} events${
-                messageLogDate === 0 ? '' : ` in ${Math.round((now - messageLogDate) / 10) / 100}s`
-            }`
-        )
-        messageCounter = 0
-        messageLogDate = now
-    }
 }
