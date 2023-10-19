@@ -136,15 +136,16 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                                 },
                             ]}
                             value={
-                                (currentTeam?.session_recording_sample_rate === undefined
-                                    ? '1.00'
-                                    : currentTeam?.session_recording_sample_rate) as SampleRate
+                                (typeof currentTeam?.session_recording_sample_rate === 'string'
+                                    ? currentTeam?.session_recording_sample_rate
+                                    : '1.00') as SampleRate
                             }
                         />
                     </div>
                     <p>
                         Use this setting to restrict the percentage of sessions that will be recorded. This is useful if
-                        you want to reduce the amount of data you collect.
+                        you want to reduce the amount of data you collect. 100% means all sessions will be collected.
+                        50% means roughly half of sessions will be collected.
                     </p>
                 </>
             </FlaggedFeature>
