@@ -72,6 +72,18 @@ class SessionsTimelineQueryRunner(QueryRunner):
                 ),
             )
             assert select_query.ctes is not None
+            assert isinstance(select_query.ctes["relevant_session_ids"].expr, ast.SelectQuery)
+            if self.query.personId:
+                select_query.ctes["relevant_session_ids"].expr.where = ast.CompareOperation(
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                    op=ast.CompareOperationOp.Eq,
+                )
+                select_query.where = ast.CompareOperation(
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                    op=ast.CompareOperationOp.Eq,
+                )
             return select_query
 
     def calculate(self) -> SessionsTimelineQueryResponse:
