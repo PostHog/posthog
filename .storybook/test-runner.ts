@@ -144,7 +144,7 @@ async function expectStoryToMatchFullPageSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser)
+    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
 async function expectStoryToMatchSceneSnapshot(
