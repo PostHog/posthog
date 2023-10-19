@@ -31,7 +31,6 @@ import {
     NewSurvey,
 } from './constants'
 import { sanitize } from 'dompurify'
-import { teamLogic } from 'scenes/teamLogic'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -95,8 +94,6 @@ export const surveyLogic = kea<surveyLogicType>([
         actions: [
             surveysLogic,
             ['loadSurveys'],
-            teamLogic,
-            ['updateCurrentTeam'],
             eventUsageLogic,
             [
                 'reportSurveyCreated',
@@ -108,14 +105,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [
-            enabledFlagLogic,
-            ['featureFlags as enabledFlags'],
-            surveysLogic,
-            ['surveys'],
-            teamLogic,
-            ['currentTeam'],
-        ],
+        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['surveys']],
     })),
     actions({
         setSurveyMissing: true,
@@ -140,7 +130,6 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
-        setSurveysOptIn: (optIn: boolean) => ({ optIn }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -400,7 +389,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -416,19 +405,10 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.loadSurveys()
-            if (!values.currentTeam?.surveys_opt_in) {
-                actions.setSurveysOptIn(true)
-            }
             actions.reportSurveyLaunched(survey)
         },
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
-            if (values.currentTeam?.surveys_opt_in) {
-                const activeSurveys = values.surveys.filter((s) => s.start_date && !s.end_date)
-                if (activeSurveys.filter((s) => s.id !== survey.id).length === 0) {
-                    actions.setSurveysOptIn(false)
-                }
-            }
             actions.reportSurveyStopped(survey)
         },
         resumeSurveySuccess: ({ survey }) => {
@@ -449,9 +429,6 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
-        },
-        setSurveysOptIn: ({ optIn }) => {
-            actions.updateCurrentTeam({ surveys_opt_in: optIn })
         },
     })),
     reducers({

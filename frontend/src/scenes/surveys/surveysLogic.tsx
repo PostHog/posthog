@@ -2,7 +2,7 @@ import { afterMount, connect, kea, listeners, path, selectors, actions, reducers
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import Fuse from 'fuse.js'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
@@ -10,6 +10,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -33,7 +34,8 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamLoading']],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -87,10 +89,14 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
+            actions.loadCurrentTeam()
         },
         setSurveysFilters: () => {
             actions.loadSurveys()
             actions.loadResponsesCount()
+        },
+        loadSurveysSuccess: () => {
+            actions.loadCurrentTeam()
         },
     })),
     selectors({
@@ -161,6 +167,17 @@ export const surveysLogic = kea<surveysLogicType>([
         whitelabelAvailable: [
             (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+        ],
+        showSurveyPopupWarning: [
+            (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
+            (currentTeam, currentTeamLoading, surveys) => {
+                return (
+                    !currentTeamLoading &&
+                    currentTeam &&
+                    !currentTeam.surveys_opt_in &&
+                    surveys.some((s) => s.start_date && !s.end_date && s.type !== SurveyType.API)
+                )
+            },
         ],
     }),
     afterMount(({ actions }) => {

@@ -27,7 +27,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { userLogic } from 'scenes/userLogic'
 import { dayjs } from 'lib/dayjs'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { openSurveysSettingsDialog } from './SurveySettings'
@@ -54,15 +53,12 @@ export function Surveys(): JSX.Element {
         searchTerm,
         filters,
         uniqueCreators,
+        showSurveyPopupWarning,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const surveysPopupDisabled =
-        currentTeam && !currentTeam?.surveys_opt_in && surveys.some((s) => s.start_date && !s.end_date)
 
     const [tab, setSurveyTab] = useState(SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
@@ -130,7 +126,7 @@ export function Surveys(): JSX.Element {
             <div className="space-y-2">
                 <VersionCheckerBanner />
 
-                {surveysPopupDisabled ? (
+                {showSurveyPopupWarning ? (
                     <LemonBanner
                         type="warning"
                         action={{
@@ -309,18 +305,6 @@ export function Surveys(): JSX.Element {
                                                                             end_date: dayjs().toISOString(),
                                                                         },
                                                                     })
-                                                                    if (currentTeam && currentTeam.surveys_opt_in) {
-                                                                        const activeSurveys = surveys.filter(
-                                                                            (s) => s.start_date && !s.end_date
-                                                                        )
-                                                                        if (
-                                                                            activeSurveys.filter(
-                                                                                (s) => s.id !== survey.id
-                                                                            ).length === 0
-                                                                        ) {
-                                                                            updateCurrentTeam({ surveys_opt_in: false })
-                                                                        }
-                                                                    }
                                                                 }}
                                                             >
                                                                 Stop survey
@@ -331,9 +315,6 @@ export function Surveys(): JSX.Element {
                                                                 status="stealth"
                                                                 fullWidth
                                                                 onClick={() => {
-                                                                    if (currentTeam && !currentTeam.surveys_opt_in) {
-                                                                        updateCurrentTeam({ surveys_opt_in: true })
-                                                                    }
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: { end_date: null },
