@@ -60,7 +60,8 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const surveysPopupDisabled = currentTeam && !currentTeam?.surveys_opt_in
+    const surveysPopupDisabled =
+        currentTeam && !currentTeam?.surveys_opt_in && surveys.some((s) => s.start_date && !s.end_date)
 
     const [tab, setSurveyTab] = useState(SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
@@ -139,7 +140,8 @@ export function Surveys(): JSX.Element {
                         }}
                         className="mb-2"
                     >
-                        Survey popovers are currently disabled for this project.
+                        Survey popovers are currently disabled for this project but there are active surveys running.
+                        Re-enable them in the settings.
                     </LemonBanner>
                 ) : null}
             </div>

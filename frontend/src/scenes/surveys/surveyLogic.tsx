@@ -424,8 +424,8 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
             if (values.currentTeam?.surveys_opt_in === true) {
-                const allActiveSurveys = values.surveys.filter((s) => s.start_date && !s.end_date)
-                if (allActiveSurveys.length === 0) {
+                const hasActiveSurveys = values.surveys.some((s) => s.start_date && !s.end_date)
+                if (!hasActiveSurveys) {
                     actions.setSurveysOptIn(false)
                 }
             }
