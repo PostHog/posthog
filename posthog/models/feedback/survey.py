@@ -1,5 +1,5 @@
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 
@@ -54,14 +54,15 @@ class Survey(UUIDModel):
     archived: models.BooleanField = models.BooleanField(default=False)
 
 
-@mutable_receiver(post_save, sender=Survey)
+@mutable_receiver([post_save, post_delete], sender=Survey)
 def update_surveys_opt_in(sender, instance, **kwargs):
     active_surveys_count = Survey.objects.filter(
-        team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False, type="popover"
     ).count()
-    if active_surveys_count > 0 and instance.team.surveys_opt_in is (False or None):
+
+    if active_surveys_count > 0 and not instance.team.surveys_opt_in:
         instance.team.surveys_opt_in = True
-        instance.team.save()
+        instance.team.save(update_fields=["surveys_opt_in"])
     elif active_surveys_count == 0 and instance.team.surveys_opt_in is True:
         instance.team.surveys_opt_in = False
-        instance.team.save()
+        instance.team.save(update_fields=["surveys_opt_in"])
