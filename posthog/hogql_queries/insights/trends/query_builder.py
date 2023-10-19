@@ -262,8 +262,7 @@ class TrendsQueryBuilder:
         else:
             return ast.And(exprs=filters)
 
-    # Using string interpolation for SAMPLE due to HogQL limitations with `UNION ALL` and `SAMPLE` AST nodes
-    def _sample_value(self) -> str:
+    def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
             return ast.RatioExpr(left=ast.Constant(value=1))
 

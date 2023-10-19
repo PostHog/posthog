@@ -60,7 +60,7 @@ class AggregationOperations:
         elif self.series.math == "weekly_active":
             return ast.Field(chain=["counts"])
 
-        raise NotImplementedError()
+        return parse_expr("count(e.uuid)")
 
     def requires_query_orchestration(self) -> bool:
         return self.series.math == "weekly_active"
@@ -105,7 +105,7 @@ class AggregationOperations:
             },
         )
 
-    def _events_query(self, events_where_clause: ast.Expr, sample_value: str) -> ast.SelectQuery:
+    def _events_query(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr) -> ast.SelectQuery:
         return parse_select(
             """
                 SELECT
@@ -113,16 +113,13 @@ class AggregationOperations:
                     e.person_id AS actor_id
                 FROM
                     events e
-                %s
+                SAMPLE {sample}
                 WHERE {events_where_clause}
                 GROUP BY
                     timestamp,
                     actor_id
-            """
-            % (sample_value),
-            placeholders={
-                "events_where_clause": events_where_clause,
-            },
+            """,
+            placeholders={"events_where_clause": events_where_clause, "sample": sample_value},
         )
 
     def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: str):
