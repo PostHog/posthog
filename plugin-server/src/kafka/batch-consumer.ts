@@ -146,31 +146,19 @@ export const startBatchConsumer = async ({
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
-        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize`
-        // messages then processing these with eachMessage, and finally calling
-        // consumer.offsetsStore. This will not actually commit offsets on the
-        // brokers, but rather just store the offsets locally such that when commit
-        // is called, either manually or via auto-commit, these are the values that
-        // will be used.
+        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize` messages then
+        // processing these with eachMessage, and finally calling consumer.offsetsStore. This will
+        // not actually commit offsets on the brokers, but rather just store the offsets locally
+        // such that when commit is called, either manually or via auto-commit, these are the values
+        // that will be used.
         //
-        // Note that we rely on librdkafka handling retries for any Kafka
-        // related operations, e.g. it will handle in the background rebalances,
-        // during which time consumeMessages will simply return an empty array.
-        // We also log the number of messages we have processed every 10
-        // seconds, which should give some feedback to the user that things are
-        // functioning as expected. You can increase the log level to debug to
-        // see each loop.
-        let messagesProcessed = 0
-        const statusLogMilliseconds = 10000
-        const statusLogInterval = setInterval(() => {
-            status.info('🔁', 'main_loop', {
-                messagesPerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
-                lastConsumeTime: new Date(lastConsumeTime).toISOString(),
-            })
-
-            messagesProcessed = 0
-        }, statusLogMilliseconds)
-
+        // Note that we rely on librdkafka handling retries for any Kafka related operations, e.g.
+        // it will handle in the background rebalances, during which time consumeMessages will
+        // simply return an empty array.
+        //
+        // We also log the number of messages we have processed every time we go through the loop
+        // and process 1 or more messages, which should give some feedback to the user that things
+        // are functioning as expected.
         try {
             while (!isShuttingDown) {
                 status.debug('🔁', 'main_loop_consuming')
@@ -199,6 +187,8 @@ export const startBatchConsumer = async ({
                     continue
                 }
 
+                const startProcessingTime = new Date().valueOf()
+
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
@@ -208,7 +198,8 @@ export const startBatchConsumer = async ({
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
 
-                messagesProcessed += messages.length
+                const processingTime = new Date().valueOf() - startProcessingTime
+                status.info('🕒', `Processed ${messages.length} events in ${Math.round(processingTime / 10) / 100}s`)
 
                 if (autoCommit) {
                     storeOffsetsForMessages(messages, consumer)
@@ -219,8 +210,6 @@ export const startBatchConsumer = async ({
             throw error
         } finally {
             status.info('🔁', 'main_loop_stopping')
-
-            clearInterval(statusLogInterval)
 
             // Finally, disconnect from the broker. If stored offsets have changed via
             // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
