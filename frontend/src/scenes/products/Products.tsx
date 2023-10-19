@@ -17,7 +17,7 @@ import { productsLogic } from './productsLogic'
 
 export const scene: SceneExport = {
     component: Products,
-    // logic: featureFlagsLogic,
+    logic: productsLogic,
 }
 
 function OnboardingCompletedButton({

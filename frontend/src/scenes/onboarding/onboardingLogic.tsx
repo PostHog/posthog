@@ -27,12 +27,14 @@ export type OnboardingStep = JSX.Element
 
 export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
-        case 'product_analytics':
+        case ProductKey.PRODUCT_ANALYTICS:
             return combineUrl(urls.events(), { onboarding_completed: true }).url
-        case 'session_replay':
+        case ProductKey.SESSION_REPLAY:
             return urls.replay()
-        case 'feature_flags':
+        case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
+        case ProductKey.SURVEYS:
+            return urls.surveys()
         default:
             return urls.default()
     }
