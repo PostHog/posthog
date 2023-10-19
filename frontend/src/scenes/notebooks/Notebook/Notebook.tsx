@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
@@ -18,15 +18,16 @@ import { NotebookHistoryWarning } from './NotebookHistory'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookColumnRight } from './NotebookColumnRight'
 
-export type NotebookProps = {
-    shortId: string
-    editable?: boolean
+export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
+    editable?: boolean
 }
 
-export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId })
-    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+export function Notebook({ shortId, mode, editable = true, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
+    const logicProps: NotebookLogicProps = { shortId, mode }
+    const logic = notebookLogic(logicProps)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
+        useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
@@ -37,7 +38,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         conflictWarningVisible,
         isEditable,
         shortId,
-        editable,
         initialAutofocus,
     })
 
@@ -67,14 +67,14 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         return <NotebookConflictWarning />
     } else if (!notebook && notebookLoading) {
         return <NotebookLoadingState />
-    } else if (!notebook) {
+    } else if (notebookMissing) {
         return <NotFound object="notebook" />
     }
 
     return (
-        <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {notebook.is_template && (
+        <BindLogic logic={notebookLogic} props={logicProps}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', mode && `Notebook--${mode}`)}>
+                {isTemplate && (
                     <LemonBanner
                         type="info"
                         className="my-4"

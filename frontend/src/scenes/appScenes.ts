@@ -79,6 +79,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
+    [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
 }

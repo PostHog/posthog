@@ -25,7 +25,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
@@ -37,6 +37,10 @@ import {
 } from '../Notebook/utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { notebookNodeLogicType } from './notebookNodeLogicType'
+
+// TODO: fix the typing of string to NotebookNodeType
+const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
 
 export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     nodeType: NotebookNodeType
@@ -60,7 +64,7 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
 }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(
-    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'>
+    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Pick<NodeViewProps, 'selected' | 'getPos'>
 ): JSX.Element {
     const {
         titlePlaceholder,
@@ -75,7 +79,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
         expandOnClick = true,
         autoHideMetadata = false,
         minHeight,
-        node,
         getPos,
         attributes,
         updateAttributes,
@@ -91,7 +94,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
     const nodeLogicProps: NotebookNodeLogicProps = {
-        node,
         nodeType,
         attributes,
         updateAttributes,
@@ -259,7 +261,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     )
 }
 
-const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
+export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
     nodeType: NotebookNodeType
@@ -273,13 +275,13 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 
-export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>({
-    Component,
-    pasteOptions,
-    attributes,
-    serializedText,
-    ...wrapperProps
-}: CreatePostHogWidgetNodeOptions<T>): Node {
+export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
+    options: CreatePostHogWidgetNodeOptions<T>
+): Node {
+    const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
+
+    KNOWN_NODES[wrapperProps.nodeType] = options
+
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
         useWhyDidIRender('NodeWrapper(WrappedComponent)', props)
@@ -330,6 +332,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                     default: null,
                 },
                 __init: { default: null },
+                children: {},
                 ...attributes,
             }
         },
@@ -362,4 +365,29 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 : []
         },
     })
+}
+
+export const NotebookNodeChildRenderer = ({
+    nodeLogic,
+    content,
+}: {
+    nodeLogic: notebookNodeLogicType
+    content: NotebookNodeResource
+}): JSX.Element => {
+    const options = KNOWN_NODES[content.type]
+
+    return (
+        <MemoizedNodeWrapper
+            Component={options.Component}
+            nodeType={content.type}
+            titlePlaceholder={options.titlePlaceholder}
+            attributes={content.attrs}
+            updateAttributes={(newAttrs) => {
+                console.log('updated called (TODO)', newAttrs)
+            }}
+            selected={false}
+            getPos={() => 1} // TODO
+        />
+    )
+    // return
 }

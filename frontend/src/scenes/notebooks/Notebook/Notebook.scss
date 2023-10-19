@@ -138,7 +138,7 @@
             position: sticky;
             align-self: flex-start;
             top: 0px;
-            width: var(--notebook-sidebar-width);
+
             transform: translateX(-100%);
             transition: transform var(--notebook-popover-transition-properties);
 
@@ -150,24 +150,26 @@
 
         &--left {
             .NotebookColumn__content {
+                width: var(--notebook-column-left-width);
                 transform: translateX(-100%);
             }
         }
 
         &--right {
             .NotebookColumn__content {
+                width: var(--notebook-column-right-width);
                 transform: translateX(100%);
             }
         }
 
         &--showing {
-            width: var(--notebook-sidebar-width);
-
             &.NotebookColumn--left {
+                width: var(--notebook-column-left-width);
                 margin-right: 1rem;
             }
 
             &.NotebookColumn--right {
+                width: var(--notebook-column-right-width);
                 margin-left: 1rem;
             }
 

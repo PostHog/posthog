@@ -213,7 +213,7 @@ export function renderColumn(
         const personRecord = record as PersonType
         return (
             <Link to={urls.personByDistinctId(personRecord.distinct_ids[0])}>
-                <PersonDisplay noLink withIcon person={personRecord} noPopover />
+                <PersonDisplay withIcon person={personRecord} noPopover />
             </Link>
         )
     } else if (key === 'person' && isPersonsQuery(query.source)) {

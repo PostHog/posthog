@@ -8,16 +8,16 @@ import { IconEyeVisible } from 'lib/lemon-ui/icons'
 import { NotebookHistory } from './NotebookHistory'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingSidebar, showHistory } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)
 
     return (
         <div
             className={clsx('NotebookColumn NotebookColumn--left', {
-                'NotebookColumn--showing': isShowingSidebar,
+                'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >
             <div className="NotebookColumn__content">
-                {isShowingSidebar ? (
+                {isShowingLeftColumn ? (
                     editingNodeLogic ? (
                         <NodeSettings logic={editingNodeLogic} />
                     ) : showHistory ? (
