@@ -370,7 +370,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        SELECT properties, distinct_id
+                        SELECT distinct_id, properties, person.properties
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -383,7 +383,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
 
-                const events = results?.map((r) => ({ properties: JSON.parse(r[0]), distinct_id: r[1] }))
+                const events =
+                    results?.map((r) => {
+                        const distinct_id = r[0]
+                        const properties = JSON.parse(r[1])
+                        const personProperties = JSON.parse(r[2])
+                        properties.email = personProperties.email
+                        return { distinct_id, properties }
+                    }) || []
 
                 return { ...values.surveyRatingResults, [questionIndex]: { events } }
             },

@@ -115,15 +115,18 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
-                            ].map(({ count, label, style }) => (
-                                <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                    <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                    <span className="font-semibold text-muted-alt">{`${label} (${(
-                                        (count / total) *
-                                        100
-                                    ).toFixed(1)}%)`}</span>
-                                </div>
-                            ))}
+                            ].map(
+                                ({ count, label, style }) =>
+                                    count > 0 && (
+                                        <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            <div className="w-3 h-3 rounded-full mr-2" style={style} />
+                                            <span className="font-semibold text-muted-alt">{`${label} (${(
+                                                (count / total) *
+                                                100
+                                            ).toFixed(1)}%)`}</span>
+                                        </div>
+                                    )
+                            )}
                         </div>
                     </div>
                 </div>
