@@ -120,7 +120,22 @@ class TestInsightModel(BaseTest):
         assert filters_hash_one != filters_hash_two
 
     def test_dashboard_with_query_insight_and_filters(self) -> None:
+        browser_equals_firefox = {
+            "key": "$browser",
+            "label": None,
+            "operator": "exact",
+            "type": "event",
+            "value": ["Firefox"],
+        }
+        browser_equals_chrome = {
+            "key": "$browser",
+            "label": None,
+            "operator": "exact",
+            "type": "event",
+            "value": ["Chrome"],
+        }
 
+        # use test cases and a for loop because django TestCase doesn't have parametrization
         test_cases = [
             (
                 # test that query filters are equal when there are no dashboard filters
@@ -145,6 +160,33 @@ class TestInsightModel(BaseTest):
                 {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
                 {"date_from": "all"},
                 {"dateRange": {"date_from": "all", "date_to": None}, "properties": None},
+            ),
+            (
+                # test that if no filters are set then none are outputted
+                {},
+                {},
+                {"dateRange": {"date_from": None, "date_to": None}, "properties": None},
+            ),
+            (
+                # test that properties from the query are used when there are no dashboard properties
+                {"properties": [browser_equals_firefox]},
+                {},
+                {"dateRange": {"date_from": None, "date_to": None}, "properties": [browser_equals_firefox]},
+            ),
+            (
+                # test that properties from the dashboard are used when there are no query properties
+                {},
+                {"properties": [browser_equals_chrome]},
+                {"dateRange": {"date_from": None, "date_to": None}, "properties": [browser_equals_chrome]},
+            ),
+            (
+                # test that properties are merged when set in both query and dashboard
+                {"properties": [browser_equals_firefox]},
+                {"properties": [browser_equals_chrome]},
+                {
+                    "dateRange": {"date_from": None, "date_to": None},
+                    "properties": [browser_equals_firefox, browser_equals_chrome],
+                },
             ),
         ]
 
