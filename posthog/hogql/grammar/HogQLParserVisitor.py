@@ -1,4 +1,4 @@
-# Generated from HogQLParser.g4 by ANTLR 4.13.0
+# Generated from HogQLParser.g4 by ANTLR 4.13.1
 from antlr4 import *
 if "." in __name__:
     from .HogQLParser import HogQLParser
@@ -424,6 +424,16 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#tagElement.
+    def visitTagElement(self, ctx:HogQLParser.TagElementContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#tagAttribute.
+    def visitTagAttribute(self, ctx:HogQLParser.TagAttributeContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#withExprList.
     def visitWithExprList(self, ctx:HogQLParser.WithExprListContext):
         return self.visitChildren(ctx)
@@ -446,6 +456,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#nestedIdentifier.
     def visitNestedIdentifier(self, ctx:HogQLParser.NestedIdentifierContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#TableExprTag.
+    def visitTableExprTag(self, ctx:HogQLParser.TableExprTagContext):
         return self.visitChildren(ctx)
 
 

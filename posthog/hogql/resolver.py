@@ -4,6 +4,7 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
+from posthog.hogql.base import QueryTag
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
@@ -189,6 +190,9 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
+        if isinstance(node.table, QueryTag):
+            node.table = self._convert_query_tag(node.table)
+
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = node.table.chain[0]
@@ -290,6 +294,20 @@ class Resolver(CloningVisitor):
             return node
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
+
+    def _convert_query_tag(self, node: QueryTag):
+        from posthog.hogql_queries.query_runner import get_query_runner
+        from posthog.models import Team
+
+        try:
+            runner = get_query_runner(node.to_dict(), Team.objects.get(pk=self.context.team_id))
+            query = runner.to_query()
+            return query
+        except Exception as e:
+            raise ResolverException(f"Error parsing query tag: {e}", start=node.start, end=node.end)
+
+    def visit_query_tag(self, node: QueryTag):
+        return self.visit(self._convert_query_tag(node))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""

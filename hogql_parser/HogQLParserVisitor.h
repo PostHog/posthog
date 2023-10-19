@@ -1,5 +1,5 @@
 
-// Generated from HogQLParser.g4 by ANTLR 4.13.0
+// Generated from HogQLParser.g4 by ANTLR 4.13.1
 
 #pragma once
 
@@ -185,6 +185,10 @@ public:
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
 
+    virtual std::any visitTagElement(HogQLParser::TagElementContext *context) = 0;
+
+    virtual std::any visitTagAttribute(HogQLParser::TagAttributeContext *context) = 0;
+
     virtual std::any visitWithExprList(HogQLParser::WithExprListContext *context) = 0;
 
     virtual std::any visitWithExprSubquery(HogQLParser::WithExprSubqueryContext *context) = 0;
@@ -194,6 +198,8 @@ public:
     virtual std::any visitColumnIdentifier(HogQLParser::ColumnIdentifierContext *context) = 0;
 
     virtual std::any visitNestedIdentifier(HogQLParser::NestedIdentifierContext *context) = 0;
+
+    virtual std::any visitTableExprTag(HogQLParser::TableExprTagContext *context) = 0;
 
     virtual std::any visitTableExprIdentifier(HogQLParser::TableExprIdentifierContext *context) = 0;
 

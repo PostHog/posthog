@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Any, Dict
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedException
@@ -52,6 +52,18 @@ class CTE(Expr):
     expr: Expr
     # Whether the CTE is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     cte_type: Literal["column", "subquery"]
+
+
+@dataclass(kw_only=True)
+class QueryTag(AST):
+    kind: str
+    attributes: Dict[str, Any]
+
+    def to_dict(self):
+        return {
+            "kind": self.kind,
+            **self.attributes,
+        }
 
 
 @dataclass(kw_only=True)

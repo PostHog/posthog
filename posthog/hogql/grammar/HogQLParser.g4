@@ -4,8 +4,9 @@ options {
     tokenVocab = HogQLLexer;
 }
 
+
 // SELECT statement
-select: (selectUnionStmt | selectStmt) EOF;
+select: (selectUnionStmt | selectStmt | tagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
@@ -167,6 +168,15 @@ columnLambdaExpr:
     ARROW columnExpr
     ;
 
+
+tagElement     :   LT identifier tagAttribute* SLASH GT;
+
+tagAttribute   :   identifier '=' STRING_LITERAL
+               |   identifier '=' LBRACE columnExpr RBRACE
+               |   identifier '=' LBRACE tagElement RBRACE
+               |   identifier
+               ;
+
 withExprList: withExpr (COMMA withExpr)*;
 withExpr
     : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
@@ -186,6 +196,7 @@ tableExpr
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
+    | tagElement                         # TableExprTag
     | PLACEHOLDER                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;

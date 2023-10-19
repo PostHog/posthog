@@ -1,5 +1,5 @@
 
-// Generated from HogQLParser.g4 by ANTLR 4.13.0
+// Generated from HogQLParser.g4 by ANTLR 4.13.1
 
 #pragma once
 
@@ -347,6 +347,14 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitTagElement(HogQLParser::TagElementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTagAttribute(HogQLParser::TagAttributeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitWithExprList(HogQLParser::WithExprListContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -364,6 +372,10 @@ public:
   }
 
   virtual std::any visitNestedIdentifier(HogQLParser::NestedIdentifierContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTableExprTag(HogQLParser::TableExprTagContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -4,7 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleC
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, QueryTag
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
@@ -137,7 +137,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
+        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.tagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
         select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
@@ -787,6 +787,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         return self.visit(ctx.tableFunctionExpr())
 
+    def visitTableExprTag(self, ctx: HogQLParser.TableExprTagContext):
+        return self.visit(ctx.tagElement())
+
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
         name = self.visit(ctx.identifier())
         args = self.visit(ctx.tableArgList()) if ctx.tableArgList() else []
@@ -851,3 +854,30 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprNullish(self, ctx: HogQLParser.ColumnExprNullishContext):
         return ast.Call(name="ifNull", args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))])
+
+    def visitTagElement(self, ctx: HogQLParser.TagElementContext):
+        kind = self.visit(ctx.identifier())
+        attributes = {}
+        for attribute in ctx.tagAttribute():
+            name, value = self.visit(attribute)
+            if isinstance(value, QueryTag):
+                attributes[name] = value.to_dict()
+            else:
+                attributes[name] = value
+        return QueryTag(kind=kind, attributes=attributes)
+
+    def visitTagAttribute(self, ctx: HogQLParser.TagAttributeContext):
+        name = self.visit(ctx.identifier())
+        if ctx.columnExpr():
+            expr = self.visit(ctx.columnExpr())
+            if isinstance(expr, ast.Constant):
+                value = expr.value
+            else:
+                raise SyntaxException(f"Tag attribute value must be a constant", start=ctx.start, end=ctx.stop)
+        elif ctx.tagElement():
+            value = self.visit(ctx.tagElement())
+        elif ctx.STRING_LITERAL():
+            value = parse_string_literal(ctx.STRING_LITERAL())
+        else:
+            value = True
+        return (name, value)
