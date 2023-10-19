@@ -345,7 +345,7 @@ async def test_get_results_iterator(client):
         events=events,
     )
 
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", use_s3_fields=True)
     rows = [row for row in iter_]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
@@ -404,7 +404,7 @@ async def test_get_results_iterator_handles_duplicates(client):
         events=duplicate_events,
     )
 
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", use_s3_fields=True)
     rows = [row for row in iter_]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
@@ -467,7 +467,7 @@ async def test_get_results_iterator_can_exclude_events(client):
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
     iter_ = get_results_iterator(
-        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events, use_s3_fields=True
     )
     rows = [row for row in iter_]
 
@@ -531,7 +531,7 @@ async def test_get_results_iterator_can_include_events(client):
     # Include the latter half of events.
     include_events = (f"test-{i}" for i in range(5000, 10000))
     iter_ = get_results_iterator(
-        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events, use_s3_fields=True
     )
     rows = [row for row in iter_]
 
