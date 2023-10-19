@@ -1,3 +1,4 @@
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import DashboardFilter
 
@@ -10,12 +11,9 @@ def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
         source = apply_dashboard_filters(query["source"], filters, team)
         return {**query, "source": source}
 
-    dashboard_filter = DashboardFilter(**filters)
-
-    if kind == "HogQLQuery":
-        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-
-        query_runner = HogQLQueryRunner(query, team)
-        return query_runner.apply_dashboard_filters(dashboard_filter).dict()
-    else:
+    query_runner = get_query_runner(query, team)
+    try:
+        return query_runner.apply_dashboard_filters(DashboardFilter(**filters)).dict()
+    except NotImplementedError:
+        # TODO when we implement apply_dashboard_filters on more query runners, we can remove the try/catch
         return query
