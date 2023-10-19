@@ -226,14 +226,19 @@ export function overrideWithEnv(
 }
 
 export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {
-    // Builds a ValueMatcher on a coma-separated list of values.
+    // Builds a ValueMatcher on a comma-separated list of values.
     // Optionally, supports a '*' value to match everything
-    if (!config) {
+    if (!config || config.trim().length == 0) {
         return () => false
     } else if (allowStar && config === '*') {
         return () => true
     } else {
-        const values = new Set(config.split(',').map((n) => parseInt(n)))
+        const values = new Set(
+            config
+                .split(',')
+                .map((n) => parseInt(n))
+                .filter((num) => !isNaN(num))
+        )
         return (v: number) => {
             return values.has(v)
         }
