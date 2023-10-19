@@ -154,7 +154,7 @@ class Insight(models.Model):
         else:
             return self.filters
 
-    def dashboard_query(self, dashboard: Optional[Dashboard]):
+    def dashboard_query(self, dashboard: Optional[Dashboard]) -> dict:
         if not dashboard or not self.query:
             return self.query
         from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
@@ -187,7 +187,7 @@ def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard])
             if q.get("source"):
                 q = q["source"]
 
-            return generate_cache_key("{}_{}".format(q, insight.team_id))
+            return generate_cache_key("{}_{}_{}".format(q, dashboard.filters, insight.team_id))
 
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
