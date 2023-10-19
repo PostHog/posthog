@@ -1,14 +1,21 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
 
 import type { sourceModalLogicType } from './sourceModalLogicType'
 import { forms } from 'kea-forms'
 import { AirbyteStripeResourceCreatePayload } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
+import { dataWarehouseTableLogic } from '../dataWarehouseTableLogic'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 
 export interface ConnectorConfigType {
     name: string
     fields: string[]
+    caption: string
+    disabledReason: string | null
 }
 
 // TODO: add icon
@@ -16,6 +23,8 @@ export const CONNECTORS: ConnectorConfigType[] = [
     {
         name: 'Stripe',
         fields: ['accound_id', 'client_secret'],
+        caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
+        disabledReason: null,
     },
 ]
 
@@ -24,6 +33,10 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     actions({
         selectConnector: (connector: ConnectorConfigType | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
+    }),
+    connect({
+        values: [dataWarehouseTableLogic, ['tableLoading'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
+        actions: [dataWarehouseSceneLogic, ['toggleSourceModal'], dataWarehouseTableLogic, ['resetTable']],
     }),
     reducers({
         selectedConnector: [
@@ -44,6 +57,18 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             (s) => [s.selectedConnector, s.isManualLinkFormVisible],
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
+        connectors: [
+            (s) => [s.dataWarehouseSources],
+            (sources) => {
+                return CONNECTORS.map((connector) => ({
+                    ...connector,
+                    disabledReason:
+                        sources && sources.results.find((source) => source.source_type === connector.name)
+                            ? 'Already linked'
+                            : null,
+                }))
+            },
+        ],
     }),
     forms(() => ({
         airbyteResource: {
@@ -56,9 +81,19 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             },
             submit: async (payload: AirbyteStripeResourceCreatePayload) => {
                 const newResource = await api.airbyteResources.create(payload)
-                lemonToast.success('New Data Resource Created')
                 return newResource
             },
+        },
+    })),
+    listeners(({ actions }) => ({
+        submitAirbyteResourceSuccess: () => {
+            lemonToast.success('New Data Resource Created')
+            actions.toggleSourceModal()
+            actions.resetAirbyteResource()
+            router.actions.push(urls.dataWarehouseSettings())
+        },
+        submitAirbyteResourceFailure: () => {
+            lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
         },
     })),
 ])

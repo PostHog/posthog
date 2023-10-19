@@ -1,6 +1,6 @@
-import { LemonButton, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
-import { CONNECTORS, ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
+import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 import { useActions, useValues } from 'kea'
 import { DatawarehouseTableForm } from '../DataWarehouseTable'
 import { Field } from 'lib/forms/Field'
@@ -9,9 +9,10 @@ import stripeLogo from 'public/stripe-logo.svg'
 interface SourceModalProps extends LemonModalProps {}
 
 export default function SourceModal(props: SourceModalProps): JSX.Element {
-    const { isAirbyteResourceSubmitting, selectedConnector, isManualLinkFormVisible, showFooter } =
+    const { tableLoading, isAirbyteResourceSubmitting, selectedConnector, isManualLinkFormVisible, connectors } =
         useValues(sourceModalLogic)
-    const { selectConnector, toggleManualLinkFormVisible } = useActions(sourceModalLogic)
+    const { selectConnector, toggleManualLinkFormVisible, resetAirbyteResource, resetTable } =
+        useActions(sourceModalLogic)
 
     const MenuButton = (config: ConnectorConfigType): JSX.Element => {
         const onClick = (): void => {
@@ -28,6 +29,8 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const onClear = (): void => {
         selectConnector(null)
         toggleManualLinkFormVisible(false)
+        resetAirbyteResource()
+        resetTable()
     }
 
     const onManualLinkClick = (): void => {
@@ -49,17 +52,51 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
                             placeholder="sklive"
                         />
                     </Field>
+                    <LemonDivider className="mt-4" />
+                    <div className="mt-2 flex flex-row justify-end gap-2">
+                        <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
+                            Back
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            center
+                            htmlType="submit"
+                            data-attr="source-link"
+                            loading={isAirbyteResourceSubmitting}
+                        >
+                            Link
+                        </LemonButton>
+                    </div>
                 </Form>
             )
         }
 
         if (isManualLinkFormVisible) {
-            return <DatawarehouseTableForm />
+            return (
+                <div>
+                    <DatawarehouseTableForm />
+                    <LemonDivider className="mt-4" />
+                    <div className="mt-2 flex flex-row justify-end gap-2">
+                        <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
+                            Back
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            center
+                            htmlType="submit"
+                            data-attr="source-link"
+                            loading={tableLoading}
+                        >
+                            Link
+                        </LemonButton>
+                    </div>
+                </div>
+            )
         }
 
         return (
             <div className="flex flex-col gap-2">
-                {CONNECTORS.map((config, index) => (
+                {connectors.map((config, index) => (
                     <MenuButton key={config.name + '_' + index} {...config} />
                 ))}
                 <LemonButton onClick={onManualLinkClick} className="w-100" center type="secondary">
@@ -74,25 +111,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             {...props}
             onAfterClose={() => onClear()}
             title="Data Sources"
-            description="One click link a data source"
-            footer={
-                showFooter ? (
-                    <div className="flex flex-row gap-2">
-                        <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
-                            Back
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            center
-                            htmlType="submit"
-                            data-attr="source-link"
-                            loading={isAirbyteResourceSubmitting}
-                        >
-                            Link
-                        </LemonButton>
-                    </div>
-                ) : null
-            }
+            description={selectedConnector ? selectedConnector.caption : null}
         >
             {formToShow()}
         </LemonModal>

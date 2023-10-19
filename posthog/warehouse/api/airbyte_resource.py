@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import AirbyteResource
 from posthog.warehouse.airbyte.source import StripeSourcePayload, create_stripe_source
-from posthog.warehouse.airbyte.connection import create_connection, retrieve_sync
+from posthog.warehouse.airbyte.connection import create_connection
 from posthog.warehouse.airbyte.destination import create_destination
 from posthog.api.routing import StructuredViewSetMixin
 
@@ -46,26 +46,6 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
 
-    def list(self, request, *args, **kwargs):
-        # queryset = self.get_queryset()
-        # TODO: temporary as this will spam
-        # for airbyte_resource in queryset:
-        #     job = retrieve_sync(airbyte_resource.connection_id)
-        #     airbyte_resource.status = job["status"]
-        #     airbyte_resource.save()
-
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, *args, **kwargs):
-        super_cls = super()
-
-        airbyte_resource = self.get_object()
-        job = retrieve_sync(airbyte_resource.connection_id)
-        airbyte_resource.status = job["status"]
-        airbyte_resource.save()
-
-        return super_cls.retrieve(*args, **kwargs)
-
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         account_id = request.data["account_id"]
         client_secret = request.data["client_secret"]
@@ -83,6 +63,7 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             connection_id=new_connection.connection_id,
             team=self.request.user.current_team,
             status="running",
+            source_type="Stripe",
         )
 
         return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source.source_id})

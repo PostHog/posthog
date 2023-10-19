@@ -298,7 +298,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     sender.add_periodic_task(
-        crontab(minute="30", hour="*/12"),
+        crontab(minute="*/10"),
         sync_datawarehouse_sources.s(),
         name="sync datawarehouse sources that have settled in s3 bucket",
     )

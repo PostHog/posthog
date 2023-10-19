@@ -2,8 +2,10 @@ import { LemonButton, LemonMenu, LemonMenuItems, LemonTable, LemonTag } from '@p
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import SourceModal from '../external/SourceModal'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -12,6 +14,8 @@ export const scene: SceneExport = {
 
 export function DataWarehouseSettingsScene(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+    const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
+    const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
 
     return (
         <div>
@@ -22,6 +26,22 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         <LemonTag type="warning" className="uppercase">
                             Beta
                         </LemonTag>
+                    </div>
+                }
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-data-warehouse-easy-link"
+                        key={'new-data-warehouse-easy-link'}
+                        onClick={toggleSourceModal}
+                    >
+                        Link Source
+                    </LemonButton>
+                }
+                caption={
+                    <div>
+                        Linked data sources will appear here. Data sources can take a while to sync depending on the
+                        size of the source.
                     </div>
                 }
             />
@@ -65,6 +85,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     },
                 ]}
             />
+            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
         </div>
     )
 }

@@ -1,5 +1,7 @@
 from posthog.warehouse.models.airbyte_resource import AirbyteResource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.airbyte.connection import retrieve_sync
+from posthog.celery import app
 
 from django.conf import settings
 import structlog
@@ -8,9 +10,20 @@ logger = structlog.get_logger(__name__)
 
 
 def sync_resources():
-    resources = AirbyteResource.objects.filter(are_tables_created=False, status="succeeded")
+    resources = AirbyteResource.objects.filter(are_tables_created=False, status="running")
 
     for resource in resources:
+        _sync_resource.delay(resource.pk)
+
+
+@app.task(ignore_result=True)
+def _sync_resource(resource_id):
+    resource = AirbyteResource.objects.get(pk=resource_id)
+    job = retrieve_sync(resource.connection_id)
+
+    if job["status"] == "succeeded":
+
+        resource = AirbyteResource.objects.get(pk=resource_id)
         credential, _ = DataWarehouseCredential.objects.get_or_create(
             team_id=resource.team.pk,
             access_key=settings.AIRBYTE_BUCKET_KEY,
@@ -22,7 +35,7 @@ def sync_resources():
             "credential": credential,
             "name": "stripe_customers",
             "format": "Parquet",
-            "url_pattern": f"https://databeach-hackathon.s3.amazonaws.com/airbyte/13/customers/*.parquet",
+            "url_pattern": f"https://databeach-hackathon.s3.amazonaws.com/airbyte/{resource.team.pk}/customers/*.parquet",
             "team_id": resource.team.pk,
         }
 
@@ -31,9 +44,9 @@ def sync_resources():
             table.columns = table.get_columns()
         except Exception as e:
             logger.exception("Sync Resource failed with an unexpected exception.", exc_info=e)
-            continue
-        finally:
+        else:
             table.save()
 
             resource.are_tables_created = True
+            resource.status = job["status"]
             resource.save()
