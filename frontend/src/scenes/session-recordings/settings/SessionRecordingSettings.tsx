@@ -119,16 +119,20 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                                     value: '1.00',
                                 },
                                 {
-                                    label: '75%',
-                                    value: '0.75',
+                                    label: '95%',
+                                    value: '0.95',
+                                },
+                                {
+                                    label: '90%',
+                                    value: '0.90',
+                                },
+                                {
+                                    label: '80%',
+                                    value: '0.80',
                                 },
                                 {
                                     label: '50%',
                                     value: '0.50',
-                                },
-                                {
-                                    label: '25%',
-                                    value: '0.25',
                                 },
                             ]}
                             value={
