@@ -52,6 +52,12 @@ pub enum CaptureError {
     EventTooBig,
     #[error("invalid event could not be processed")]
     NonRetryableSinkError,
+
+    #[error("billing limit reached")]
+    BillingLimit,
+
+    #[error("rate limited")]
+    RateLimited,
 }
 
 impl IntoResponse for CaptureError {
@@ -64,10 +70,16 @@ impl IntoResponse for CaptureError {
             | CaptureError::MissingDistinctId
             | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError => (StatusCode::BAD_REQUEST, self.to_string()),
+
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError
             | CaptureError::TokenValidationError(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
+
             CaptureError::RetryableSinkError => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
+
+            CaptureError::BillingLimit | CaptureError::RateLimited => {
+                (StatusCode::TOO_MANY_REQUESTS, self.to_string())
+            }
         }
         .into_response()
     }

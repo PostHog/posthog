@@ -1,7 +1,9 @@
 use std::env;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-use capture::{router, sink, time};
+use capture::{billing_limits::BillingLimiter, redis::RedisClient, router, sink};
+use time::Duration;
 use tokio::signal;
 
 async fn shutdown() {
@@ -23,16 +25,35 @@ async fn shutdown() {
 async fn main() {
     let use_print_sink = env::var("PRINT_SINK").is_ok();
     let address = env::var("ADDRESS").unwrap_or(String::from("127.0.0.1:3000"));
+    let redis_addr = env::var("REDIS").expect("redis required; please set the REDIS env var");
+
+    let redis_client =
+        Arc::new(RedisClient::new(redis_addr).expect("failed to create redis client"));
+
+    let billing = BillingLimiter::new(Duration::seconds(5), redis_client.clone())
+        .expect("failed to create billing limiter");
 
     let app = if use_print_sink {
-        router::router(time::SystemTime {}, sink::PrintSink {}, true)
+        router::router(
+            capture::time::SystemTime {},
+            sink::PrintSink {},
+            redis_client,
+            billing,
+            true,
+        )
     } else {
         let brokers = env::var("KAFKA_BROKERS").expect("Expected KAFKA_BROKERS");
         let topic = env::var("KAFKA_TOPIC").expect("Expected KAFKA_TOPIC");
 
         let sink = sink::KafkaSink::new(topic, brokers).unwrap();
 
-        router::router(time::SystemTime {}, sink, true)
+        router::router(
+            capture::time::SystemTime {},
+            sink,
+            redis_client,
+            billing,
+            true,
+        )
     };
 
     // initialize tracing

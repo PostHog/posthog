@@ -5,7 +5,9 @@ use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use capture::billing_limits::BillingLimiter;
 use capture::event::ProcessedEvent;
+use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sink::EventSink;
 use capture::time::TimeSource;
@@ -15,7 +17,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use time::format_description::well_known::{Iso8601, Rfc3339};
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -93,7 +95,12 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
         let sink = MemorySink::default();
         let timesource = FixedTime { time: case.now };
-        let app = router(timesource, sink.clone(), false);
+
+        let redis = Arc::new(MockRedisClient::new());
+        let billing = BillingLimiter::new(Duration::weeks(1), redis.clone())
+            .expect("failed to create billing limiter");
+
+        let app = router(timesource, sink.clone(), redis, billing, false);
 
         let client = TestClient::new(app);
         let mut req = client.post(&format!("/i/v0{}", case.path)).body(raw_body);

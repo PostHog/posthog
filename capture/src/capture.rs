@@ -12,6 +12,7 @@ use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use time::OffsetDateTime;
 
+use crate::billing_limits::QuotaResource;
 use crate::event::ProcessingContext;
 use crate::token::validate_token;
 use crate::{
@@ -44,7 +45,7 @@ pub async fn event(
         _ => RawEvent::from_bytes(&meta, body),
     }?;
 
-    println!("Got events {:?}", &events);
+    tracing::debug!("got events {:?}", &events);
 
     if events.is_empty() {
         return Err(CaptureError::EmptyBatch);
@@ -61,6 +62,7 @@ pub async fn event(
         }
         None
     });
+
     let context = ProcessingContext {
         lib_version: meta.lib_version.clone(),
         sent_at,
@@ -69,7 +71,25 @@ pub async fn event(
         client_ip: ip.to_string(),
     };
 
-    println!("Got context {:?}", &context);
+    let limited = state
+        .billing
+        .is_limited(context.token.as_str(), QuotaResource::Events)
+        .await;
+
+    if limited {
+        // for v0 we want to just return ok 🙃
+        // this is because the clients are pretty dumb and will just retry over and over and
+        // over...
+        //
+        // for v1, we'll return a meaningful error code and error, so that the clients can do
+        // something meaningful with that error
+
+        return Ok(Json(CaptureResponse {
+            status: CaptureResponseCode::Ok,
+        }));
+    }
+
+    tracing::debug!("got context {:?}", &context);
 
     process_events(state.sink.clone(), &events, &context).await?;
 
