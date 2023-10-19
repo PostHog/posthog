@@ -16,6 +16,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
+    | AvailableFeature.SURVEYS_STYLING
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -68,6 +69,11 @@ const FEATURE_SUMMARIES: Record<
             'Tune path analysis with wildcards, path cleaning rules, or custom end points, and quickly jump from a path to its funnel.',
         umbrella: 'advanced analysis capabilities',
         docsHref: 'https://posthog.com/manual/paths',
+    },
+    [AvailableFeature.SURVEYS_STYLING]: {
+        description: 'Customize the look and feel of your surveys with custom colors and positions.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
     },
 }
 

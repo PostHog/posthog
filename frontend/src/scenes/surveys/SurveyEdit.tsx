@@ -21,9 +21,10 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     SurveyUrlMatchType,
+    AvailableFeature,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import {
     BaseAppearance,
     Customization,
@@ -45,6 +46,8 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { userLogic } from 'scenes/userLogic'
 
 function PresentationTypeCard({
     title,
@@ -99,6 +102,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedSection,
     } = useActions(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     return (
         <div className="flex flex-row gap-4">
@@ -589,6 +593,12 @@ export default function SurveyEdit(): JSX.Element {
                                                 type="secondary"
                                                 className="w-max mt-2"
                                                 icon={<IconPlus />}
+                                                sideIcon={<IconLock className="ml-1 text-base text-muted" />}
+                                                disabledReason={
+                                                    hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)
+                                                        ? null
+                                                        : 'Subscribe for multiple question surveys'
+                                                }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
                                                         ...survey.questions,
@@ -692,17 +702,19 @@ export default function SurveyEdit(): JSX.Element {
                                       key: SurveyEditSection.Customization,
                                       header: 'Customization',
                                       content: (
-                                          <Field name="appearance" label="">
-                                              {({ value, onChange }) => (
-                                                  <Customization
-                                                      appearance={value || defaultSurveyAppearance}
-                                                      surveyQuestionItem={survey.questions[0]}
-                                                      onAppearanceChange={(appearance) => {
-                                                          onChange(appearance)
-                                                      }}
-                                                  />
-                                              )}
-                                          </Field>
+                                          <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                                              <Field name="appearance" label="">
+                                                  {({ value, onChange }) => (
+                                                      <Customization
+                                                          appearance={value || defaultSurveyAppearance}
+                                                          surveyQuestionItem={survey.questions[0]}
+                                                          onAppearanceChange={(appearance) => {
+                                                              onChange(appearance)
+                                                          }}
+                                                      />
+                                                  )}
+                                              </Field>
+                                          </PayGateMini>
                                       ),
                                   },
                               ]
