@@ -97,13 +97,6 @@ export function Surveys(): JSX.Element {
                         >
                             New survey
                         </LemonButtonWithSideAction>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSettings />}
-                            onClick={() => openSurveysSettingsDialog()}
-                        >
-                            Configure
-                        </LemonButton>
                     </>
                 }
                 caption={

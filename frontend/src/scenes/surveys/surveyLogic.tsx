@@ -31,6 +31,7 @@ import {
     NewSurvey,
 } from './constants'
 import { sanitize } from 'dompurify'
+import { teamLogic } from 'scenes/teamLogic'
 
 export enum SurveyEditSection {
     Steps = 'steps',
@@ -94,6 +95,8 @@ export const surveyLogic = kea<surveyLogicType>([
         actions: [
             surveysLogic,
             ['loadSurveys'],
+            teamLogic,
+            ['updateCurrentTeam'],
             eventUsageLogic,
             [
                 'reportSurveyCreated',
@@ -105,7 +108,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags']],
+        values: [
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+            surveysLogic,
+            ['surveys'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions({
         setSurveyMissing: true,
@@ -130,6 +140,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
+        setSurveysOptIn: (optIn: boolean) => ({ optIn }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -389,11 +400,14 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
+            if (values.currentTeam?.surveys_opt_in === false) {
+                actions.setSurveysOptIn(true)
+            }
             actions.reportSurveyCreated(survey)
         },
         updateSurveySuccess: ({ survey }) => {
@@ -409,6 +423,12 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
+            if (values.currentTeam?.surveys_opt_in === true) {
+                const allActiveSurveys = values.surveys.filter((s) => s.start_date && !s.end_date)
+                if (allActiveSurveys.length === 0) {
+                    actions.setSurveysOptIn(false)
+                }
+            }
             actions.reportSurveyStopped(survey)
         },
         resumeSurveySuccess: ({ survey }) => {
@@ -429,6 +449,9 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
+        },
+        setSurveysOptIn: ({ optIn }) => {
+            actions.updateCurrentTeam({ surveys_opt_in: optIn })
         },
     })),
     reducers({
