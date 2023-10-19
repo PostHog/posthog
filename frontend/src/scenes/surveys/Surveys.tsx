@@ -60,6 +60,7 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const surveysPopupDisabled =
         currentTeam && !currentTeam?.surveys_opt_in && surveys.some((s) => s.start_date && !s.end_date)
 
@@ -301,14 +302,26 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: {
                                                                             end_date: dayjs().toISOString(),
                                                                         },
                                                                     })
-                                                                }
+                                                                    if (currentTeam && currentTeam.surveys_opt_in) {
+                                                                        const activeSurveys = surveys.filter(
+                                                                            (s) => s.start_date && !s.end_date
+                                                                        )
+                                                                        if (
+                                                                            activeSurveys.filter(
+                                                                                (s) => s.id !== survey.id
+                                                                            ).length === 0
+                                                                        ) {
+                                                                            updateCurrentTeam({ surveys_opt_in: false })
+                                                                        }
+                                                                    }
+                                                                }}
                                                             >
                                                                 Stop survey
                                                             </LemonButton>
@@ -317,12 +330,15 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
+                                                                    if (currentTeam && !currentTeam.surveys_opt_in) {
+                                                                        updateCurrentTeam({ surveys_opt_in: true })
+                                                                    }
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: { end_date: null },
                                                                     })
-                                                                }
+                                                                }}
                                                             >
                                                                 Resume survey
                                                             </LemonButton>

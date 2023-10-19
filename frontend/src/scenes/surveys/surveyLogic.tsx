@@ -405,9 +405,6 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
-            if (values.currentTeam?.surveys_opt_in === false) {
-                actions.setSurveysOptIn(true)
-            }
             actions.reportSurveyCreated(survey)
         },
         updateSurveySuccess: ({ survey }) => {
@@ -419,13 +416,16 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
             actions.loadSurveys()
+            if (!values.currentTeam?.surveys_opt_in) {
+                actions.setSurveysOptIn(true)
+            }
             actions.reportSurveyLaunched(survey)
         },
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
-            if (values.currentTeam?.surveys_opt_in === true) {
-                const hasActiveSurveys = values.surveys.some((s) => s.start_date && !s.end_date)
-                if (!hasActiveSurveys) {
+            if (values.currentTeam?.surveys_opt_in) {
+                const activeSurveys = values.surveys.filter((s) => s.start_date && !s.end_date)
+                if (activeSurveys.filter((s) => s.id !== survey.id).length === 0) {
                     actions.setSurveysOptIn(false)
                 }
             }
