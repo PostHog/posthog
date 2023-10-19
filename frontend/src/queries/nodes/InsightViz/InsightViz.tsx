@@ -6,7 +6,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { InsightVizNode, QueryContext } from '../../schema'
+import { InsightVizNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
