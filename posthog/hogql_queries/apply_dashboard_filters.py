@@ -11,7 +11,10 @@ def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
         source = apply_dashboard_filters(query["source"], filters, team)
         return {**query, "source": source}
 
-    query_runner = get_query_runner(query, team)
+    try:
+        query_runner = get_query_runner(query, team)
+    except ValueError:
+        return query
     try:
         return query_runner.apply_dashboard_filters(DashboardFilter(**filters)).dict()
     except NotImplementedError:
