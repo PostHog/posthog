@@ -248,9 +248,11 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
+        team_id = request.user.current_team.id
+
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_export(temporal, str(batch_export.pk), start_at, end_at)
+        backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
 
         return response.Response()
 
