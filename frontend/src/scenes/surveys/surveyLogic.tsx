@@ -32,6 +32,10 @@ import {
 } from './constants'
 import { sanitize } from 'dompurify'
 
+type PersonPropType =
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
+
 export enum SurveyEditSection {
     Steps = 'steps',
     Presentation = 'presentation',
@@ -78,7 +82,7 @@ export interface SurveyMultipleChoiceResults {
 
 export interface SurveyOpenTextResults {
     [key: number]: {
-        events: { properties: Record<string, any>; distinct_id: string }[]
+        events: { distinct_id: string; properties: Record<string, any>; personProperties: PersonPropType }[]
     }
 }
 
@@ -252,7 +256,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 const data = new Array(dataSize).fill(0)
                 results?.forEach(([value, count]) => {
                     total += count
-                    data[value - 1] = count
+
+                    const index = question.scale === 10 ? value : value - 1
+                    data[index] = count
                 })
 
                 return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
@@ -345,7 +351,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const data = results?.map((r) => r[0])
                 const labels = results?.map((r) => r[1])
 
-                return { ...values.surveyRatingResults, [questionIndex]: { labels, data } }
+                return { ...values.surveyMultipleChoiceResults, [questionIndex]: { labels, data } }
             },
         },
         surveyOpenTextResults: {
@@ -387,11 +393,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         const distinct_id = r[0]
                         const properties = JSON.parse(r[1])
                         const personProperties = JSON.parse(r[2])
-                        properties.email = personProperties.email
-                        return { distinct_id, properties }
+                        return { distinct_id, properties, personProperties }
                     }) || []
 
-                return { ...values.surveyRatingResults, [questionIndex]: { events } }
+                return { ...values.surveyOpenTextResults, [questionIndex]: { events } }
             },
         },
     })),
@@ -615,11 +620,6 @@ export const surveyLogic = kea<surveyLogicType>([
                                     return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${getResponseField(
                                         i
                                     )}'), ', ')) -- ${q.question}`
-                                } else if (q.type === SurveyQuestionType.Rating) {
-                                    // Decrement 1 due to 0 - 10 scale
-                                    return `coalesce(JSONExtractInt(properties, '${getResponseField(i)}') - 1) -- ${
-                                        q.question
-                                    }`
                                 }
 
                                 return `coalesce(JSONExtractString(properties, '${getResponseField(i)}')) -- ${
