@@ -20,8 +20,8 @@ export const notebookNodePersonFeedLogic = kea([
                 loadSessionsTimeline: async () => {
                     const result = await query<SessionsTimelineQuery>({
                         kind: NodeKind.SessionsTimelineQuery,
-                        before: '2021-01-01T18:00:00Z',
-                        after: '2024-01-01T06:00:00Z',
+                        after: '2021-01-01T18:00:00Z',
+                        before: '2024-01-01T06:00:00Z',
                     })
                     return result.results
                 },

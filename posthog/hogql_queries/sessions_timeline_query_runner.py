@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import timedelta
 import json
 from typing import DefaultDict, Dict, List, Optional, Any, cast
+from posthog.api.element import ElementSerializer
 
 
 from posthog.clickhouse.client.connection import Workload
@@ -11,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
+from posthog.models.element.element import chain_to_elements
 from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
 
 
@@ -45,7 +47,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         WHERE events.timestamp > toDateTime({after}) AND events.timestamp <= toDateTime({before})
                         LIMIT 100
                     ) AS relevant_session_ids
-                    SELECT uuid, $session_id, timestamp, event, properties, distinct_id
+                    SELECT uuid, $session_id, timestamp, event, properties, distinct_id, elements_chain
                     FROM events
                     WHERE
                         events.timestamp >= (
@@ -96,7 +98,15 @@ class SessionsTimelineQueryRunner(QueryRunner):
         )
         assert query_result.results is not None
         timeline_entries_map: DefaultDict[str, List[EventType]] = defaultdict(list)
-        for uuid, session_id, timestamp_parsed, event, properties_raw, distinct_id in query_result.results:
+        for (
+            uuid,
+            session_id,
+            timestamp_parsed,
+            event,
+            properties_raw,
+            distinct_id,
+            elements_chain,
+        ) in query_result.results:
             timeline_entries_map[session_id].append(
                 EventType(
                     id=str(uuid),
@@ -104,6 +114,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     event=event,
                     timestamp=timestamp_parsed.isoformat(),
                     properties=json.loads(properties_raw),
+                    elements=ElementSerializer(chain_to_elements(elements_chain), many=True).data,
                 )
             )
         for events in timeline_entries_map.values():
