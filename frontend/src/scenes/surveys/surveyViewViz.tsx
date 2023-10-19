@@ -183,7 +183,7 @@ export function RatingQuestionBarChart({
         <div className="mb-4">
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRatingResults[questionIndex].total ? (
+            ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -282,7 +282,7 @@ export function SingleChoiceQuestionPieChart({
         <div className="mb-4">
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveySingleChoiceResults[questionIndex].data.length ? (
+            ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -382,7 +382,7 @@ export function MultipleChoiceQuestionBarChart({
         <div className="mb-4">
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyMultipleChoiceResults[questionIndex].data.length ? (
+            ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -453,7 +453,7 @@ export function OpenTextViz({
         <div className="mb-4">
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyOpenTextResults[questionIndex].events.length ? (
+            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
                 <></>
             ) : (
                 <>
