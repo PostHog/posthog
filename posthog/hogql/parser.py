@@ -2,6 +2,7 @@ from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
+from django.conf import settings
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -72,8 +73,11 @@ def parse_select(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Literal["python", "cpp"] = "python",
+    backend: Optional[Literal["python", "cpp"]],
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    if not backend:
+        # TODO: Switch over to C++ in production once we are confident there are no issues
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
