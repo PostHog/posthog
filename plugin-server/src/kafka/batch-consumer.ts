@@ -1,6 +1,7 @@
 import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
+import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
@@ -173,7 +174,9 @@ export const startBatchConsumer = async ({
         try {
             while (!isShuttingDown) {
                 status.debug('🔁', 'main_loop_consuming')
-                const messages = await consumeMessages(consumer, fetchBatchSize)
+                const messages = await retryIfRetriable(async () => {
+                    return await consumeMessages(consumer, fetchBatchSize)
+                })
 
                 // It's important that we only set the `lastConsumeTime` after a successful consume
                 // call. Even if we received 0 messages, a successful call means we are actually
@@ -219,11 +222,10 @@ export const startBatchConsumer = async ({
 
             clearInterval(statusLogInterval)
 
-            // Finally disconnect from the broker. I'm not 100% on if the offset
-            // commit is allowed to complete before completing, or if in fact
-            // disconnect itself handles committing offsets thus the previous
-            // `commit()` call is redundant, but it shouldn't hurt.
-            await Promise.all([disconnectConsumer(consumer)])
+            // Finally, disconnect from the broker. If stored offsets have changed via
+            // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
+            // as this consumer is still part of the group).
+            await disconnectConsumer(consumer)
         }
     }
 
