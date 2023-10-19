@@ -123,7 +123,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     if details:
         # If we receive details from a previous run, it means we were restarted for some reason.
         # Let's not double-backfill and instead wait for any outstanding runs.
-        last_activity_details = details[0]
+        last_activity_details = HeartbeatDetails(*details[0])
 
         details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
