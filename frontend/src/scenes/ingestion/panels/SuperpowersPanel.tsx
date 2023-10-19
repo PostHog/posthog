@@ -12,7 +12,6 @@ export function SuperpowersPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const [sessionRecordingsChecked, setSessionRecordingsChecked] = useState(true)
     const [autocaptureChecked, setAutocaptureChecked] = useState(true)
-    const [surveysChecked, setSurveysChecked] = useState(true)
 
     return (
         <CardContainer
@@ -82,25 +81,6 @@ export function SuperpowersPanel(): JSX.Element {
                         Fine-tune what you capture
                     </Link>{' '}
                     directly in your code snippet.
-                </p>
-            </div>
-            <div>
-                <LemonSwitch
-                    data-attr="opt-in-surveys-switch"
-                    onChange={(checked) => {
-                        setSurveysChecked(checked)
-                    }}
-                    label="Get qualitative feedback from your users"
-                    fullWidth={true}
-                    labelClassName={'text-base font-semibold'}
-                    checked={surveysChecked}
-                />
-                <p className="prompt-text ml-0">
-                    Collect feedback from your users directly in your product.{' '}
-                    <Link to={'https://posthog.com/docs/surveys'} target="blank">
-                        Learn more
-                    </Link>{' '}
-                    about Surveys.
                 </p>
             </div>
         </CardContainer>
