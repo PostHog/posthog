@@ -4,13 +4,8 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import {
-    NodeKind,
-    QueryContext,
-    QueryContextColumnComponent,
-    QueryContextColumnTitleComponent,
-    WebStatsBreakdown,
-} from '~/queries/schema'
+import { NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { useCallback } from 'react'
 import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
