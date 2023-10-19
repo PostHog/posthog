@@ -150,12 +150,12 @@ class EventType(BaseModel):
         extra="forbid",
     )
     distinct_id: str
-    elements: List[ElementType] = Field(default_factory=list)
+    elements: List[ElementType]
     elements_chain: Optional[str] = None
     event: str
     id: str
     person: Optional[Person] = None
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: Dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
 
@@ -457,6 +457,14 @@ class TimeToSeeDataSessionsQueryResponse(BaseModel):
     results: List[Dict[str, Any]]
 
 
+class TimelineEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventType]
+    sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -731,6 +739,16 @@ class RetentionFilter(BaseModel):
     total_intervals: Optional[float] = None
 
 
+class SessionsTimelineQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class TimeToSeeDataSessionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -889,34 +907,6 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class SessionsTimelineQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
-    personId: Optional[str] = Field(default=None, description="Show sessions for a given person")
-    after: str = Field(description="Only fetch sessions that started after this timestamp")
-    before: str = Field(description="Only fetch sessions that started before this timestamp")
-
-
-class TimelineEntry(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session eevents")
-    events: List[EventType]
-
-
-class SessionsTimelineQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: List[TimelineEntry]
-    hasMore: Optional[bool] = None
-    timings: Optional[List[QueryTiming]] = None
-    hogql: Optional[str] = None
-
-
 class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1041,6 +1031,17 @@ class PropertyGroupFilterValue(BaseModel):
             ],
         ]
     ]
+
+
+class SessionsTimelineQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: str = Field(..., description="Only fetch sessions that started after this timestamp")
+    before: str = Field(..., description="Only fetch sessions that started before this timestamp")
+    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    personId: Optional[str] = Field(default=None, description="Show sessions for a given person")
+    response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
 
 
 class ActionsNode(BaseModel):
@@ -1470,6 +1471,7 @@ class Model(RootModel):
             TimeToSeeDataSessionsQuery,
             EventsQuery,
             PersonsQuery,
+            SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
             WebOverviewStatsQuery,

@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { NotebookNodeType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
+import { useEffect } from 'react'
 
 const Component = ({
     attributes,
@@ -11,7 +12,13 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
     const { personId } = attributes
     // const personId = 'abc'
-    const {} = useValues(notebookNodePersonFeedLogic({ personId }))
+    const { sessionsTimeline } = useValues(notebookNodePersonFeedLogic({ personId }))
+    const { loadSessionsTimeline } = useActions(notebookNodePersonFeedLogic({ personId }))
+
+    // useEffect(() => {
+    //     console.debug('sssssssssssss')
+    //     loadSessionsTimeline()
+    // }, [])
 
     return <pre></pre>
 }

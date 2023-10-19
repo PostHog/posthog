@@ -1,18 +1,11 @@
-import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { JSONContent, Node } from '../Notebook/utils'
-import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
-import { NotebookNodeType } from '~/types'
+import { kea, key, path, props, events } from 'kea'
+import { loaders } from 'kea-loaders'
 
-import type { notebookNodeFlagLogicType } from './NotebookNodeFlagLogicType'
-import { buildSurveyContent } from './NotebookNodeSurvey'
-
-import type { notebookNodeFlagLogicType } from './notebookNodeFlagLogicType'
+import { query } from '~/queries/query'
+import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema'
 
 export type NotebookNodePersonFeedLogicProps = {
     personId: string
-    // id: FeatureFlagLogicProps['id']
-    // insertAfter: (content: JSONContent) => void
 }
 
 export const notebookNodePersonFeedLogic = kea([
@@ -20,44 +13,27 @@ export const notebookNodePersonFeedLogic = kea([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
 
-    // connect((props: NotebookNodePersonFeedLogicProps) => ({
-    //     actions: [featureFlagLogic({ id: props.id }), ['createEarlyAccessFeatureSuccess', 'createSurveySuccess']],
-    //     values: [featureFlagLogic({ id: props.id }), ['featureFlag', 'hasEarlyAccessFeatures', 'hasSurveys']],
-    // })),
-    // listeners(({ props }) => ({
-    //     createEarlyAccessFeatureSuccess: async ({ newEarlyAccessFeature }) => {
-    //         props.insertAfter(buildEarlyAccessFeatureContent(newEarlyAccessFeature.id))
-    //     },
-    //     createSurveySuccess: async ({ newSurvey }) => {
-    //         props.insertAfter(buildSurveyContent(newSurvey.id))
-    //     },
-    // })),
-    // selectors({
-    //     shouldDisableInsertEarlyAccessFeature: [
-    //         (s) => [s.featureFlag, s.hasEarlyAccessFeatures],
-    //         (featureFlag, hasEarlyAccessFeatures) =>
-    //             (nextNode: Node | null): boolean => {
-    //                 return (
-    //                     (nextNode?.type.name === NotebookNodeType.EarlyAccessFeature &&
-    //                         hasEarlyAccessFeatures &&
-    //                         featureFlag.features &&
-    //                         nextNode?.attrs.id === featureFlag.features[0].id) ||
-    //                     false
-    //                 )
-    //             },
-    //     ],
-    //     shouldDisableInsertSurvey: [
-    //         (s) => [s.featureFlag, s.hasSurveys],
-    //         (featureFlag, hasSurveys) =>
-    //             (nextNode: Node | null): boolean => {
-    //                 return (
-    //                     (nextNode?.type.name === NotebookNodeType.Survey &&
-    //                         hasSurveys &&
-    //                         featureFlag.surveys &&
-    //                         nextNode?.attrs.id === featureFlag.surveys[0].id) ||
-    //                     false
-    //                 )
-    //             },
-    //     ],
-    // }),
+    loaders(() => ({
+        sessionsTimeline: [
+            [],
+            {
+                loadSessionsTimeline: async () => {
+                    const result = await query<SessionsTimelineQuery>({
+                        kind: NodeKind.SessionsTimelineQuery,
+                        before: '2021-01-01T18:00:00Z',
+                        after: '2024-01-01T06:00:00Z',
+                    })
+                    return result.results
+                },
+            },
+        ],
+    })),
+    events(({ actions, props }) => ({
+        afterMount: [
+            actions.loadSessionsTimeline,
+            () => {
+                // actions.loadSessionsTimeline(props.personId)
+            },
+        ],
+    })),
 ])
