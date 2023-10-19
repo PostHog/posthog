@@ -81,12 +81,6 @@ class AggregationOperations:
         )
 
     def _inner_select_query(self, cross_join_select_query: ast.SelectQuery) -> ast.SelectQuery:
-        cross_join = ast.JoinExpr(
-            alias="e",
-            table=cross_join_select_query,
-            join_type="CROSS JOIN",
-        )
-
         return parse_select(
             """
                 SELECT
@@ -107,7 +101,6 @@ class AggregationOperations:
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
-                "cross_join": cross_join,
                 "cross_join_select_query": cross_join_select_query,
             },
         )
