@@ -118,3 +118,53 @@ class TestInsightModel(BaseTest):
         filters_hash_two = generate_insight_cache_key(insight_two, None)
 
         assert filters_hash_one != filters_hash_two
+
+    def test_dashboard_with_query_insight_and_filters(self) -> None:
+
+        test_cases = [
+            (
+                # test that query filters are equal when there are no dashboard filters
+                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
+                {},
+                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}, "properties": None},
+            ),
+            (
+                # test that dashboard filters are used when there are no query filters
+                {},
+                {"date_from": "-14d", "date_to": "-7d"},
+                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}, "properties": None},
+            ),
+            (
+                # test that dashboard filters take priority
+                {"dateRange": {"date_from": "-2d", "date_to": "-1d"}},
+                {"date_from": "-4d", "date_to": "-3d"},
+                {"dateRange": {"date_from": "-4d", "date_to": "-3d"}, "properties": None},
+            ),
+            (
+                # test that dashboard filters take priority, even if only one value is set, the other is set to None
+                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
+                {"date_from": "all"},
+                {"dateRange": {"date_from": "all", "date_to": None}, "properties": None},
+            ),
+        ]
+
+        for query_filters, dashboard_filters, expected_filters in test_cases:
+            query_insight = Insight.objects.create(
+                team=self.team,
+                query={
+                    "kind": "DataTableNode",
+                    "source": {
+                        "filters": query_filters,
+                        "kind": "HogQLQuery",
+                        "modifiers": None,
+                        "query": "select * from events where {filters}",
+                        "response": None,
+                        "values": None,
+                    },
+                },
+            )
+            dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
+
+            data = query_insight.dashboard_query(dashboard)
+            actual = data["source"]["filters"]
+            assert expected_filters == actual
