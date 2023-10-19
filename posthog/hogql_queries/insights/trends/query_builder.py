@@ -113,15 +113,15 @@ class TrendsQueryBuilder:
                     {aggregation_operation} AS total,
                     dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS day_start
                 FROM events AS e
-                %s
+                SAMPLE {sample}
                 WHERE {events_filter}
                 GROUP BY day_start
-            """
-            % (self._sample_value()),
+            """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 "events_filter": self._events_filter(),
                 "aggregation_operation": self._aggregation_operation(),
+                "sample": self._sample_value(),
             },
         )
 
@@ -243,9 +243,9 @@ class TrendsQueryBuilder:
     # Using string interpolation for SAMPLE due to HogQL limitations with `UNION ALL` and `SAMPLE` AST nodes
     def _sample_value(self) -> str:
         if self.query.samplingFactor is None:
-            return ""
+            return ast.RatioExpr(left=ast.Constant(value=1))
 
-        return f"SAMPLE {self.query.samplingFactor}"
+        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
     @cached_property
     def _breakdown(self):
