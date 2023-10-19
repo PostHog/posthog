@@ -363,6 +363,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
+        if ctx.PLACEHOLDER():
+            return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+
         number_literals = ctx.numberLiteral()
 
         left = number_literals[0]
