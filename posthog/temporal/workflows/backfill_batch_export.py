@@ -34,7 +34,7 @@ class HeartbeatDetails(typing.NamedTuple):
     wait_start_at: str
 
     def make_activity_heartbeat_while_running(
-        self, function_to_run: collections.abc.Callable, heartbeat_timeout: dt.timedelta, factor: int = 2
+        self, function_to_run: collections.abc.Callable, heartbeat_every: dt.timedelta
     ) -> collections.abc.Callable[..., collections.abc.Coroutine]:
         """Return a callable that returns a coroutine that hearbeats with these HeartbeatDetails.
 
@@ -45,7 +45,7 @@ class HeartbeatDetails(typing.NamedTuple):
         async def heartbeat() -> None:
             """Heartbeat factor times every heartbeat_timeout."""
             while True:
-                await asyncio.sleep(heartbeat_timeout.total_seconds() / factor)
+                await asyncio.sleep(heartbeat_every.total_seconds())
                 temporalio.activity.heartbeat(self)
 
         async def heartbeat_while_running(*args, **kwargs):
@@ -53,7 +53,7 @@ class HeartbeatDetails(typing.NamedTuple):
             heartbeat_task = asyncio.create_task(heartbeat())
 
             try:
-                await function_to_run(*args, **kwargs)
+                return await function_to_run(*args, **kwargs)
             finally:
                 heartbeat_task.cancel()
                 await asyncio.wait([heartbeat_task])
@@ -171,7 +171,7 @@ async def wait_for_schedule_backfill_in_range_with_heartbeat(
     """Decide if heartbeating is required while waiting for a backfill in range to finish."""
     if heartbeat_timeout:
         wait_func = heartbeat_details.make_activity_heartbeat_while_running(
-            wait_for_schedule_backfill_in_range, heartbeat_timeout=heartbeat_timeout
+            wait_for_schedule_backfill_in_range, heartbeat_every=dt.timedelta(seconds=1)
         )
     else:
         wait_func = wait_for_schedule_backfill_in_range
@@ -209,11 +209,6 @@ async def wait_for_schedule_backfill_in_range(
         f'AND TemporalScheduledStartTime <= "{end_at.isoformat()}" '
         f'AND StartTime >= "{now.isoformat()}"'
     )
-
-    workflows = [workflow async for workflow in client.list_workflows(query=query)]
-
-    if workflows and check_workflow_executions_not_running(workflows) is True:
-        return
 
     done = False
     while not done:
