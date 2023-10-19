@@ -668,6 +668,43 @@ class TestSurvey(APIBaseTest):
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
         )
 
+    def test_enable_surveys_opt_in(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+            end_date=datetime.now() - timedelta(days=1),
+        )
+        assert self.team.surveys_opt_in is None
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+
+    def test_disable_surveys_opt_in(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        assert self.team.surveys_opt_in is False
+
 
 class TestSurveyQuestionValidation(APIBaseTest):
     def test_create_basic_survey_question_validation(self):
