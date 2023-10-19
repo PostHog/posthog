@@ -168,7 +168,7 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
         ],
-        showSurveyPopupWarning: [
+        showSurveysDisabledBanner: [
             (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
             (currentTeam, currentTeamLoading, surveys) => {
                 return (

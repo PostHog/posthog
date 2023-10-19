@@ -53,7 +53,7 @@ export function Surveys(): JSX.Element {
         searchTerm,
         filters,
         uniqueCreators,
-        showSurveyPopupWarning,
+        showSurveysDisabledBanner,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
@@ -126,7 +126,7 @@ export function Surveys(): JSX.Element {
             <div className="space-y-2">
                 <VersionCheckerBanner />
 
-                {showSurveyPopupWarning ? (
+                {showSurveysDisabledBanner ? (
                     <LemonBanner
                         type="warning"
                         action={{
