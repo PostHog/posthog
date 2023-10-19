@@ -1,4 +1,4 @@
-import { EventType } from '~/types'
+import { EventType, NotebookNodeType, NotebookTarget } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
@@ -10,6 +10,9 @@ import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
+import { IconNotebook } from '@posthog/icons'
+import { notebooksModel } from '~/models/notebooksModel'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 interface EventActionProps {
     event: EventType
@@ -18,6 +21,7 @@ interface EventActionProps {
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const insightUrl = insightUrlForEvent(event)
+    const { createNotebook } = useActions(notebooksModel)
 
     return (
         <More
@@ -80,6 +84,51 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {insightUrl && (
                         <LemonButton to={insightUrl} status="stealth" fullWidth data-attr="events-table-usage">
                             Try out in Insights
+                        </LemonButton>
+                    )}
+                    {event.event === '$feedback' && (
+                        <LemonButton
+                            sideIcon={<IconNotebook />}
+                            status="stealth"
+                            fullWidth
+                            data-attr="events-table-usage"
+                            onClick={() => {
+                                createNotebook(`Feedback from ${asDisplay(event.person)}`, NotebookTarget.Popover, [
+                                    {
+                                        type: 'paragraph',
+                                        content: [{ type: 'text', text: 'Reported by:' }],
+                                    },
+                                    {
+                                        type: NotebookNodeType.Person,
+                                        attrs: { id: String(event.person?.distinct_ids[0]) },
+                                    },
+                                    {
+                                        type: 'paragraph',
+                                        content: [{ type: 'text', text: 'Comment:' }],
+                                    },
+                                    {
+                                        type: 'paragraph',
+                                        content: [{ type: 'text', text: event.properties.text ?? 'No text' }],
+                                    },
+                                    {
+                                        type: 'paragraph',
+                                        content: [{ type: 'text', text: 'Session replay:' }],
+                                    },
+                                    event.properties?.$session_id
+                                        ? {
+                                              type: NotebookNodeType.Recording,
+                                              attrs: {
+                                                  id: event.properties?.$session_id,
+                                              },
+                                          }
+                                        : {
+                                              type: 'paragraph',
+                                              content: [{ type: 'text', text: 'Recording not found.' }],
+                                          },
+                                ])
+                            }}
+                        >
+                            Open in Notebook
                         </LemonButton>
                     )}
                 </>

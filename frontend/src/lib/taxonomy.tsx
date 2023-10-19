@@ -730,6 +730,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $feedback: {
+            label: 'In-App Feedback',
+            description: 'Feedback about your product submitted by users',
+        },
     },
     element: {
         tag_name: {

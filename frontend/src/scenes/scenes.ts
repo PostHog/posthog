@@ -315,7 +315,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Feedback]: {
         projectBased: true,
-        name: 'Feedback',
+        name: 'In-App Feedback',
     },
     [Scene.Notebook]: {
         projectBased: true,

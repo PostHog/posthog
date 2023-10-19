@@ -82,7 +82,6 @@ class TeamRateThrottle(SimpleRateThrottle):
             return None
 
     def allow_request(self, request, view):
-
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
@@ -188,7 +187,6 @@ class DecideRateThrottle(BaseThrottle):
             return None
 
     def allow_request(self, request, view):
-
         if not is_decide_rate_limit_enabled():
             return True
 
@@ -259,3 +257,10 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
     rate = "40/day"
+
+
+class UploadedMediaRateThrottle(TeamRateThrottle):
+    # Throttle class that's very aggressive on a publicly accessible endpoint from the clients
+    # Intended to block sustained bursts of requests, per team
+    scope = ""
+    rate = "6/hour"

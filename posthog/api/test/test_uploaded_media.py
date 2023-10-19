@@ -9,7 +9,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework import status
 
-from posthog.models import UploadedMedia
+from posthog.models import UploadedMedia, Attachment
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -80,6 +80,12 @@ class TestMediaAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
             assert UploadedMedia.objects.count() == 0
+
+    def test_can_upload_and_retrieve_an_attachment(self) -> None:
+        response = self.client.post(f"/api/attachments", {"image": ""}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        assert Attachment.objects.count() == 0
 
     def test_made_up_id_is_404(self) -> None:
         response = self.client.get(f"/uploaded_media/{UUIDT()}")

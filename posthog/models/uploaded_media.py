@@ -23,6 +23,8 @@ class UploadedMedia(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    is_attachment: models.BooleanField = models.BooleanField(default=False)
+    metadata: models.JSONField = models.JSONField(null=True, blank=True)
 
     # path in object storage or some other location identifier for the asset
     # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
@@ -35,11 +37,23 @@ class UploadedMedia(UUIDModel):
 
     @classmethod
     def save_content(
-        cls, team: Team, created_by: User, file_name: str, content_type: str, content: bytes
+        cls,
+        team: Team,
+        created_by: User,
+        file_name: str,
+        is_attachment: bool,
+        content_type: str,
+        content: bytes,
+        metadata: dict,
     ) -> Optional["UploadedMedia"]:
         try:
             media = UploadedMedia.objects.create(
-                team=team, created_by=created_by, file_name=file_name, content_type=content_type
+                team=team,
+                created_by=created_by,
+                file_name=file_name,
+                is_attachment=is_attachment,
+                content_type=content_type,
+                metadata=metadata,
             )
             if settings.OBJECT_STORAGE_ENABLED:
                 save_content_to_object_storage(media, content)

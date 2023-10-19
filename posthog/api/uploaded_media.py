@@ -11,13 +11,20 @@ from rest_framework.exceptions import APIException, UnsupportedMediaType, Valida
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
+from rest_framework.parsers import FileUploadParser
+from rest_framework.decorators import action
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.utils import get_token
 from posthog.models import UploadedMedia
+from posthog.models.team.team import Team
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.storage import object_storage
+from posthog.rate_limit import UploadedMediaRateThrottle
+from posthog.utils_cors import cors_response
+from posthog.exceptions import generate_exception_response
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
@@ -70,6 +77,102 @@ def download(request, *args, **kwargs) -> HttpResponse:
     )
 
 
+@csrf_exempt
+def upload(request, *args, **kwargs) -> HttpResponse:
+    token = get_token(None, request)
+
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "attachments",
+                "API key not provided. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(token)
+    if team is None:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "surveys",
+                "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                type="authentication_error",
+                code="invalid_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
+
+    logger.info(args)
+
+    return Response(status=status.HTTP_200_OK)
+
+
+# instance settings
+# Check file
+#   Can we feature flag for PostHog app?
+# How do we reference an event
+# RateLimiting by team
+# New model
+# Migration
+# How to store reference to event?
+# Should we store reference to team?
+# Throttling
+# Tests
+
+
+class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+    # permission_classes = []
+    throttle_classes = [UploadedMediaRateThrottle]
+    parser_classes = (MultiPartParser, FormParser)
+    authentication_classes = []
+
+    @csrf_exempt
+    @action(methods=["POST"], detail=False)
+    def upload(self, request, *args, **kwargs) -> Response:
+        try:
+            file = request.data["file"]
+
+            if file.size > (FOUR_MEGABYTES * 20):
+                raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 80MB")
+
+            if file.content_type in ["video/", "audio/"]:
+                uploaded_media = UploadedMedia.save_content(
+                    team=self.team,
+                    file_name=file.name,
+                    is_attachment=True,
+                    content_type=file.content_type,
+                    content=file.file,
+                    metadata={"event_id": "123456"},
+                )
+                if uploaded_media is None:
+                    raise APIException("Could not save media")
+
+                headers = self.get_success_headers(uploaded_media.get_absolute_url())
+                statsd.incr("uploaded_media.uploaded", tags={"content_type": file.content_type})
+                return Response(
+                    {
+                        "id": uploaded_media.id,
+                        "media_location": uploaded_media.get_absolute_url(),
+                        "name": uploaded_media.file_name,
+                    },
+                    status=status.HTTP_201_CREATED,
+                    headers=headers,
+                )
+            else:
+                raise UnsupportedMediaType(file.content_type)
+
+        except KeyError:
+            raise ValidationError(code="no-file-provided", detail="A file must be provided")
+        except ObjectStorageUnavailable:
+            raise ValidationError(
+                code="object_storage_required", detail="Object storage must be available to allow media uploads."
+            )
+
+
 class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     queryset = UploadedMedia.objects.all()
     parser_classes = (MultiPartParser, FormParser)
@@ -96,6 +199,7 @@ class MediaViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             if file.content_type.startswith("image/"):
                 uploaded_media = UploadedMedia.save_content(
                     team=self.team,
+                    is_attachment=False,
                     created_by=request.user,
                     file_name=file.name,
                     content_type=file.content_type,

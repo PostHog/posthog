@@ -134,6 +134,7 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+    path("api/attachments/<str:event_id>", uploaded_media.upload),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     path(
         "api/reset/<str:user_uuid>/",
@@ -178,7 +179,6 @@ if settings.DEBUG:
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
-
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
