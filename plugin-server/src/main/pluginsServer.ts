@@ -151,7 +151,7 @@ export async function startPluginsServer(
         await closeHub?.()
     }
 
-    // If join resolves, then the consumer has stopped and we should shut down everything else.
+    // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
     // Ideally we would also join all the other background tasks as well to ensure we stop the
     // server if we hit any errors and don't end up with zombie instances, but I'll leave that
     // refactoring for another time. Note that we have the liveness health checks already, so in K8s
