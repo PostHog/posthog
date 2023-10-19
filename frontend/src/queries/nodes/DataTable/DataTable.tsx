@@ -7,8 +7,9 @@ import {
     HogQLQuery,
     PersonsNode,
     PersonsQuery,
-    QueryContext,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -55,6 +56,7 @@ import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -417,11 +419,19 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
-    if (showOpenEditorButton && !isReadOnly) {
+    const editorButton = (
+        <>
+            <OpenEditorButton query={query} />
+            {response?.hogql ? <EditHogQLButton hogql={response.hogql} /> : null}
+        </>
+    )
+
+    // The editor button moved under "export". Show only if there's no export button.
+    if (!showExport && showOpenEditorButton && !isReadOnly) {
         if (inlineEditorButtonOnRow === 1) {
-            firstRowRight.push(<OpenEditorButton query={query} />)
+            firstRowRight.push(editorButton)
         } else if (inlineEditorButtonOnRow === 2) {
-            secondRowRight.push(<OpenEditorButton query={query} />)
+            secondRowRight.push(editorButton)
         }
     }
 
@@ -447,9 +457,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
-                        <div className="absolute right-0 z-10 p-1">
-                            <OpenEditorButton query={query} />
-                        </div>
+                        <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
                         <LemonTable

@@ -31,9 +31,10 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
-from posthog.hogql.visitor import Visitor
+from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -53,15 +54,28 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
+def to_printed_hogql(query: ast.Expr, team_id: int) -> str:
+    """Prints the HogQL query without mutating the node"""
+    return print_ast(
+        clone_expr(query),
+        dialect="hogql",
+        context=HogQLContext(team_id=team_id, enable_select_queries=True),
+        pretty=True,
+    )
+
+
 def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
+    pretty: bool = False,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
-    return print_prepared_ast(node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings)
+    return print_prepared_ast(
+        node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty
+    )
 
 
 def prepare_ast_for_printing(
@@ -76,6 +90,9 @@ def prepare_ast_for_printing(
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    if context.modifiers.inCohortVia == "leftjoin":
+        with context.timings.measure("resolve_in_cohorts"):
+            resolve_in_cohorts(node, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
@@ -100,10 +117,13 @@ def print_prepared_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
+    pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
-        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings).visit(node)
+        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings, pretty=pretty).visit(
+            node
+        )
 
 
 @dataclass
@@ -121,15 +141,24 @@ class _Printer(Visitor):
         dialect: Literal["hogql", "clickhouse"],
         stack: Optional[List[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
+        pretty: bool = False,
     ):
         self.context = context
         self.dialect = dialect
         self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
+        self.pretty = pretty
+        self._indent = -1
+        self.tab_size = 4
+
+    def indent(self, extra: int = 0):
+        return " " * self.tab_size * (self._indent + extra)
 
     def visit(self, node: AST):
         self.stack.append(node)
+        self._indent += 1
         response = super().visit(node)
+        self._indent -= 1
         self.stack.pop()
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
@@ -142,9 +171,15 @@ class _Printer(Visitor):
         return response
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        query = " UNION ALL ".join([self.visit(expr) for expr in node.select_queries])
+        self._indent -= 1
+        queries = [self.visit(expr) for expr in node.select_queries]
+        if self.pretty:
+            query = f"\n{self.indent(1)}UNION ALL\n{self.indent(1)}".join([query.strip() for query in queries])
+        else:
+            query = " UNION ALL ".join(queries)
+        self._indent += 1
         if len(self.stack) > 1:
-            return f"({query})"
+            return f"({query.strip()})"
         return query
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -210,16 +245,19 @@ class _Printer(Visitor):
                 raise HogQLException(f"Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
+        space = f"\n{self.indent(1)}" if self.pretty else " "
+        comma = f",\n{self.indent(1)}" if self.pretty else ", "
+
         clauses = [
-            f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
-            f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
-            array_join,
-            "PREWHERE " + prewhere if prewhere else None,
-            "WHERE " + where if where else None,
-            f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
-            "HAVING " + having if having else None,
-            "WINDOW " + window if window else None,
-            f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
+            f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
+            f"FROM{space}{' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
+            array_join if array_join else None,
+            f"PREWHERE{space}" + prewhere if prewhere else None,
+            f"WHERE{space}" + where if where else None,
+            f"GROUP BY{space}{comma.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            f"HAVING{space}" + having if having else None,
+            f"WINDOW{space}" + window if window else None,
+            f"ORDER BY{space}{comma.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
         limit = node.limit
@@ -246,11 +284,17 @@ class _Printer(Visitor):
             if settings is not None:
                 clauses.append(settings)
 
-        response = " ".join([clause for clause in clauses if clause])
+        if self.pretty:
+            response = "\n".join([f"{self.indent()}{clause}" for clause in clauses if clause is not None])
+        else:
+            response = " ".join([clause for clause in clauses if clause is not None])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if not part_of_select_union and not is_top_level_query:
-            response = f"({response})"
+            if self.pretty:
+                response = f"({response.strip()})"
+            else:
+                response = f"({response})"
 
         return response
 
@@ -482,7 +526,7 @@ class _Printer(Visitor):
                 lambda left_op, right_op: left_op <= right_op if left_op is not None and right_op is not None else False
             )
         else:
-            raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
+            raise HogQLException(f"Unknown CompareOperationOp: {node.op.name}")
 
         # Try to see if we can take shortcuts
 

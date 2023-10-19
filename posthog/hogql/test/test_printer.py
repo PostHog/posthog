@@ -1,5 +1,6 @@
 from typing import Literal, Optional, Dict
 
+import pytest
 from django.test import override_settings
 
 from posthog.hogql import ast
@@ -10,7 +11,7 @@ from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
 from posthog.test.base import BaseTest
@@ -49,6 +50,20 @@ class TestPrinter(BaseTest):
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
+
+    def _pretty(self, query: str):
+        printed = print_ast(
+            parse_select(query),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "hogql",
+            pretty=True,
+        )
+        return printed
+
+    def test_to_printed_hogql(self):
+        expr = parse_select("select 1 + 2, 3 from events")
+        repsponse = to_printed_hogql(expr, self.team.pk)
+        self.assertEqual(repsponse, "SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT 10000")
 
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
@@ -911,3 +926,91 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1",
         )
+
+    def test_pretty_print(self):
+        printed = self._pretty("SELECT 1, event FROM events")
+        self.assertEqual(
+            printed,
+            f"SELECT\n    1,\n    event\nFROM\n    events\nLIMIT 10000",
+        )
+
+    def test_pretty_print_subquery(self):
+        printed = self._pretty("SELECT 1, event FROM (select 1, event from events)")
+        self.assertEqual(
+            printed,
+            f"""SELECT\n    1,\n    event\nFROM\n    (SELECT\n        1,\n        event\n    FROM\n        events)\nLIMIT 10000""",
+        )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_large_pretty_print(self):
+        printed = self._pretty(
+            """
+            SELECT
+                groupArray(start_of_period) AS date,
+                groupArray(counts) AS total,
+                status
+            FROM
+                (SELECT
+                    if(equals(status, 'dormant'), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
+                    start_of_period,
+                    status
+                FROM
+                    (SELECT
+                        periods.start_of_period AS start_of_period,
+                        0 AS counts,
+                        status
+                    FROM
+                        (SELECT
+                            minus(dateTrunc('day', assumeNotNull(toDateTime('2023-10-19 23:59:59'))), toIntervalDay(number)) AS start_of_period
+                        FROM
+                            numbers(dateDiff('day', dateTrunc('day', assumeNotNull(toDateTime('2023-09-19 00:00:00'))), dateTrunc('day', plus(assumeNotNull(toDateTime('2023-10-19 23:59:59')), toIntervalDay(1))))) AS numbers) AS periods CROSS JOIN (SELECT
+                            status
+                        FROM
+                            (SELECT
+                                1)
+                        ARRAY JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
+                    ORDER BY
+                        status ASC,
+                        start_of_period ASC
+                    UNION ALL
+                    SELECT
+                        start_of_period,
+                        count(DISTINCT person_id) AS counts,
+                        status
+                    FROM
+                        (SELECT
+                            events.person.id AS person_id,
+                            min(events.person.created_at) AS created_at,
+                            arraySort(groupUniqArray(dateTrunc('day', events.timestamp))) AS all_activity,
+                            arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', created_at))) AS previous_activity,
+                            arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01 00:00:00')))) AS following_activity,
+                            arrayMap((previous, current, index) -> if(equals(previous, current), 'new', if(and(equals(minus(current, toIntervalDay(1)), previous), notEquals(index, 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
+                            arrayMap((current, next) -> if(equals(plus(current, toIntervalDay(1)), next), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                            arrayMap(x -> plus(x, toIntervalDay(1)), arrayFilter((current, is_dormant) -> equals(is_dormant, 'dormant'), all_activity, dormant_status)) AS dormant_periods,
+                            arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
+                            arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
+                            arrayJoin(temp_concat) AS period_status_pairs,
+                            period_status_pairs.1 AS start_of_period,
+                            period_status_pairs.2 AS status
+                        FROM
+                            events
+                        WHERE
+                            and(greaterOrEquals(timestamp, minus(dateTrunc('day', assumeNotNull(toDateTime('2023-09-19 00:00:00'))), toIntervalDay(1))), less(timestamp, plus(dateTrunc('day', assumeNotNull(toDateTime('2023-10-19 23:59:59'))), toIntervalDay(1))), equals(event, '$pageview'))
+                        GROUP BY
+                            person_id)
+                    GROUP BY
+                        start_of_period,
+                        status)
+                WHERE
+                    and(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(toDateTime('2023-10-19 23:59:59')))), greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(toDateTime('2023-09-19 00:00:00')))))
+                GROUP BY
+                    start_of_period,
+                    status
+                ORDER BY
+                    start_of_period ASC)
+            GROUP BY
+                status
+            LIMIT 10000
+        """
+        )
+        assert printed == self.snapshot

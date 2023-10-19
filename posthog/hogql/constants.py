@@ -20,7 +20,8 @@ RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 10000
+MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+
 
 # Settings applied at the SELECT level
 class HogQLQuerySettings(BaseModel):

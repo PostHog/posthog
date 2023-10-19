@@ -12,7 +12,6 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import { SurveyAppearance } from './SurveyAppearance'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -25,18 +24,27 @@ import {
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { defaultSurveyAppearance, SURVEY_EVENT_NAME } from './constants'
+import { SURVEY_EVENT_NAME } from './constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Summary, RatingQuestionBarChart, SingleChoiceQuestionPieChart } from './surveyViewViz'
+import {
+    Summary,
+    RatingQuestionBarChart,
+    SingleChoiceQuestionPieChart,
+    MultipleChoiceQuestionBarChart,
+    OpenTextViz,
+} from './surveyViewViz'
+import './SurveyView.scss'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
+    const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
+
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -214,19 +222,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             )}
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
-                                                    <SurveyAppearance
-                                                        type={survey.questions[0].type}
-                                                        surveyQuestionItem={survey.questions[0]}
-                                                        appearance={survey.appearance || defaultSurveyAppearance}
-                                                        question={survey.questions[0].question}
-                                                        description={survey.questions[0].description}
-                                                        link={
-                                                            survey.questions[0].type === SurveyQuestionType.Link
-                                                                ? survey.questions[0].link
-                                                                : undefined
-                                                        }
-                                                        readOnly={true}
-                                                        onAppearanceChange={() => {}}
+                                                    <SurveyFormAppearance
+                                                        activePreview={selectedQuestion || 0}
+                                                        survey={survey}
+                                                        setActivePreview={(preview) => setSelectedQuestion(preview)}
                                                     />
                                                 </div>
                                             ) : (
@@ -263,6 +262,10 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyRatingResultsReady,
         surveySingleChoiceResults,
         surveySingleChoiceResultsReady,
+        surveyMultipleChoiceResults,
+        surveyMultipleChoiceResultsReady,
+        surveyOpenTextResults,
+        surveyOpenTextResultsReady,
     } = useValues(surveyLogic)
     const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -288,6 +291,24 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     key={`survey-q-${i}`}
                                     surveySingleChoiceResults={surveySingleChoiceResults}
                                     surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                            return (
+                                <MultipleChoiceQuestionBarChart
+                                    key={`survey-q-${i}`}
+                                    surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                                    surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                    questionIndex={i}
+                                />
+                            )
+                        } else if (question.type === SurveyQuestionType.Open) {
+                            return (
+                                <OpenTextViz
+                                    key={`survey-q-${i}`}
+                                    surveyOpenTextResults={surveyOpenTextResults}
+                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
                                     questionIndex={i}
                                 />
                             )
@@ -337,11 +358,12 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     </div>
                 )}
             {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
-                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) && (
-                <div className="mb-4">
-                    <Query query={surveyMultipleChoiceQuery} />
-                </div>
-            )}
+                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) &&
+                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                    <div className="mb-4">
+                        <Query query={surveyMultipleChoiceQuery} />
+                    </div>
+                )}
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
         </>
     )

@@ -45,7 +45,9 @@ import {
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { InsightQueryNode, QueryContext } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { InsightMeta } from './InsightMeta'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'

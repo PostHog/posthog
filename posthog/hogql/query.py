@@ -27,8 +27,9 @@ def execute_hogql_query(
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    default_limit: Optional[int] = None,
+    in_export_context: Optional[bool] = False,
     timings: Optional[HogQLTimings] = None,
+    explain: Optional[bool] = False,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
@@ -60,15 +61,17 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 
         select_queries = (
             select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
         )
         for one_query in select_queries:
             if one_query.limit is None:
-                # One more "max" of MAX_SELECT_RETURNED_ROWS (100k) in applied in the query printer.
-                one_query.limit = ast.Constant(value=default_limit or DEFAULT_RETURNED_ROWS)
+                # One more "max" of MAX_SELECT_RETURNED_ROWS (10k) in applied in the query printer.
+                one_query.limit = ast.Constant(
+                    value=MAX_SELECT_RETURNED_ROWS if in_export_context else DEFAULT_RETURNED_ROWS
+                )
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
@@ -136,6 +139,20 @@ def execute_hogql_query(
             readonly=True,
         )
 
+    if explain:
+        with timings.measure("explain"):
+            explain_results = sync_execute(
+                f"EXPLAIN {clickhouse_sql}",
+                clickhouse_context.values,
+                with_column_types=True,
+                workload=workload,
+                team_id=team.pk,
+                readonly=True,
+            )
+            explain_output = [str(r[0]) for r in explain_results[0]]
+    else:
+        explain_output = None
+
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,
@@ -145,4 +162,5 @@ def execute_hogql_query(
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
+        explain=explain_output,
     )

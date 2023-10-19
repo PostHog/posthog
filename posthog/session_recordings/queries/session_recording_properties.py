@@ -72,7 +72,6 @@ class SessionRecordingProperties(EventQuery):
         return where_conditions, {"session_ids": self._session_ids}
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         base_params = {"team_id": self._team_id}
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         session_ids_clause, session_ids_params = self.format_session_recording_id_filters()

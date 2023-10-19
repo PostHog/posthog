@@ -130,11 +130,17 @@ def property_to_expr(
 
         chain = ["person", "properties"] if property.type == "person" and scope != "person" else ["properties"]
         field = ast.Field(chain=chain + [property.key])
+        properties_field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:
             return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.is_not_set:
-            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None)),
+                    ast.Not(expr=ast.Call(name="JSONHas", args=[properties_field, ast.Constant(value=property.key)])),
+                ]
+            )
         elif operator == PropertyOperator.icontains:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.ILike,

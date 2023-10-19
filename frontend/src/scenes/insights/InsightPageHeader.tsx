@@ -42,7 +42,7 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -67,7 +67,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
     const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -137,10 +137,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {hasDashboardItemId && (
-                            <>
-                                <More
-                                    overlay={
+                        <More
+                            overlay={
+                                <>
+                                    {hasDashboardItemId && (
                                         <>
                                             <LemonButton
                                                 status="stealth"
@@ -181,55 +181,78 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 Share or embed
                                             </LemonButton>
-                                            {insight.short_id && (
-                                                <>
-                                                    <SubscribeButton insightShortId={insight.short_id} />
-                                                    {exporterResourceParams ? (
-                                                        <ExportButton
-                                                            fullWidth
-                                                            items={[
-                                                                {
-                                                                    export_format: ExporterFormat.PNG,
-                                                                    insight: insight.id,
-                                                                },
-                                                                {
-                                                                    export_format: ExporterFormat.CSV,
-                                                                    export_context: exporterResourceParams,
-                                                                },
-                                                            ]}
-                                                        />
-                                                    ) : null}
-                                                    {isInsightVizNode(query) ? (
-                                                        <LemonButton
-                                                            data-attr={`${
-                                                                showQueryEditor ? 'hide' : 'show'
-                                                            }-insight-source`}
-                                                            status="stealth"
-                                                            onClick={() => {
-                                                                // for an existing insight in view mode
-                                                                if (
-                                                                    hasDashboardItemId &&
-                                                                    insightMode !== ItemMode.Edit
-                                                                ) {
-                                                                    // enter edit mode
-                                                                    setInsightMode(ItemMode.Edit, null)
+                                        </>
+                                    )}
+                                    {insight.short_id && (
+                                        <>
+                                            <SubscribeButton insightShortId={insight.short_id} />
+                                            {exporterResourceParams ? (
+                                                <ExportButton
+                                                    fullWidth
+                                                    items={[
+                                                        {
+                                                            export_format: ExporterFormat.PNG,
+                                                            insight: insight.id,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.CSV,
+                                                            export_context: exporterResourceParams,
+                                                        },
+                                                    ]}
+                                                />
+                                            ) : null}
+                                        </>
+                                    )}
+                                    {isInsightVizNode(query) ? (
+                                        <LemonButton
+                                            data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                            status="stealth"
+                                            onClick={() => {
+                                                // for an existing insight in view mode
+                                                if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                    // enter edit mode
+                                                    setInsightMode(ItemMode.Edit, null)
 
-                                                                    // exit early if query editor doesn't need to be toggled
-                                                                    if (showQueryEditor !== false) {
-                                                                        return
-                                                                    }
-                                                                }
-                                                                toggleQueryEditorPanel()
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            {showQueryEditor ? 'Hide source' : 'View source'}
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    <LemonDivider />
-                                                </>
-                                            )}
-
+                                                    // exit early if query editor doesn't need to be toggled
+                                                    if (showQueryEditor !== false) {
+                                                        return
+                                                    }
+                                                }
+                                                toggleQueryEditorPanel()
+                                            }}
+                                            fullWidth
+                                        >
+                                            {showQueryEditor ? 'Hide source' : 'View source'}
+                                        </LemonButton>
+                                    ) : null}
+                                    {hogQL && (
+                                        <LemonButton
+                                            data-attr={`edit-insight-sql`}
+                                            status="stealth"
+                                            onClick={() => {
+                                                router.actions.push(
+                                                    urls.insightNew(
+                                                        undefined,
+                                                        undefined,
+                                                        JSON.stringify({
+                                                            kind: NodeKind.DataTableNode,
+                                                            source: {
+                                                                kind: NodeKind.HogQLQuery,
+                                                                query: hogQL,
+                                                            },
+                                                            full: true,
+                                                        } as DataTableNode)
+                                                    )
+                                                )
+                                            }}
+                                            fullWidth
+                                        >
+                                            Edit SQL directly
+                                        </LemonButton>
+                                    )}
+                                    {hasDashboardItemId && (
+                                        <>
+                                            <LemonDivider />
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
@@ -247,11 +270,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Delete insight
                                             </LemonButton>
                                         </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
-                        )}
+                                    )}
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
 
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>

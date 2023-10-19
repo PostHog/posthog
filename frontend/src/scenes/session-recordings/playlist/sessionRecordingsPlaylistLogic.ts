@@ -255,7 +255,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         params['date_from'] = values.sessionRecordings[0]?.start_time
                     }
 
-                    await breakpoint(100) // Debounce for lots of quick filter changes
+                    await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
                     const response = await api.recordings.list(params)

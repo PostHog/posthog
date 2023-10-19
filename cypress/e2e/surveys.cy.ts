@@ -15,6 +15,7 @@ describe('Surveys', () => {
 
         // go to create a new survey
         cy.get('[data-attr="create-survey"]').click()
+        cy.get('[data-attr="new-blank-survey"]').click()
 
         cy.get('[data-attr="survey-name"]').type(name)
 
@@ -41,7 +42,7 @@ describe('Surveys', () => {
     it('shows survey disabled banner when surveys disabled', () => {
         cy.get('div.LemonBanner.LemonBanner--warning.mb-2').should(
             'contain',
-            'Survey popups are currently disabled for this project'
+            'Survey popovers are currently disabled for this project'
         )
         cy.get('div.LemonBanner.LemonBanner--warning.mb-2').contains('Configure').click()
 
@@ -65,7 +66,7 @@ describe('Surveys', () => {
         // now lemon banner should be back
         cy.get('div.LemonBanner.LemonBanner--warning.mb-2').should(
             'contain',
-            'Survey popups are currently disabled for this project'
+            'Survey popovers are currently disabled for this project'
         )
     })
 
@@ -76,6 +77,7 @@ describe('Surveys', () => {
 
         // click via top right button
         cy.get('[data-attr="new-survey"]').click()
+        cy.get('[data-attr="new-blank-survey"]').click()
 
         // select "add filter" and "property"
         cy.get('[data-attr="survey-name"]').type(name)
@@ -90,7 +92,7 @@ describe('Surveys', () => {
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.scale"]')
             .invoke('html')
-            .should('include', '1 - 10')
+            .should('include', '0 - 10')
 
         cy.get('[id="scenes.surveys.surveyLogic.new.survey.questions.0.upperBoundLabel"]').should(
             'have.value',
@@ -114,6 +116,9 @@ describe('Surveys', () => {
         cy.get('[data-attr="survey-preview"]').find('form').find('.ratings-number').should('have.length', 5)
 
         // add targeting filters
+        cy.get('.LemonCollapsePanel').contains('Targeting').click()
+        cy.contains('All users').click()
+        cy.get('.Popover__content').contains('Users who match').click()
         cy.contains('Add user targeting').click()
 
         // select the first property
@@ -156,6 +161,7 @@ describe('Surveys', () => {
         cy.get('.Popover__content').contains('Edit').click()
 
         // remove user targeting properties
+        cy.get('.LemonCollapsePanel').contains('Targeting').click()
         cy.contains('Remove all user properties').click()
 
         // save
@@ -176,6 +182,7 @@ describe('Surveys', () => {
     it('Delete survey', () => {
         cy.get('h1').should('contain', 'Surveys')
         cy.get('[data-attr=new-survey]').click()
+        cy.get('[data-attr=new-blank-survey]').click()
         cy.get('[data-attr=survey-name]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=save-survey]').first().click()
 

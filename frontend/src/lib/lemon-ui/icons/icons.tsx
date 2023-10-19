@@ -1933,7 +1933,7 @@ export function IconBold(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 fill="currentColor"
-                d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"
+                d="M6.8 19V5H12.325C13.4083 5 14.4083 5.33333 15.325 6C16.2417 6.66667 16.7 7.59167 16.7 8.775C16.7 9.625 16.5083 10.2792 16.125 10.7375C15.7417 11.1958 15.3833 11.525 15.05 11.725C15.4667 11.9083 15.9292 12.25 16.4375 12.75C16.9458 13.25 17.2 14 17.2 15C17.2 16.4833 16.6583 17.5208 15.575 18.1125C14.4917 18.7042 13.475 19 12.525 19H6.8ZM9.825 16.2H12.425C13.225 16.2 13.7125 15.9958 13.8875 15.5875C14.0625 15.1792 14.15 14.8833 14.15 14.7C14.15 14.5167 14.0625 14.2208 13.8875 13.8125C13.7125 13.4042 13.2 13.2 12.35 13.2H9.825V16.2ZM9.825 10.5H12.15C12.7 10.5 13.1 10.3583 13.35 10.075C13.6 9.79167 13.725 9.475 13.725 9.125C13.725 8.725 13.5833 8.4 13.3 8.15C13.0167 7.9 12.65 7.775 12.2 7.775H9.825V10.5Z"
             />
         </LemonIconBase>
     )
@@ -1943,7 +1943,7 @@ export function IconBold(props: LemonIconProps): JSX.Element {
 export function IconItalic(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path fill="currentColor" d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4h-8z" />
+            <path fill="currentColor" d="M5 19V16.5H9L12 7.5H8V5H18V7.5H14.5L11.5 16.5H15V19H5Z" />
         </LemonIconBase>
     )
 }
@@ -2466,11 +2466,8 @@ export function IconNotebook(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
-                d="M8.75 3.25H5.25C4.69772 3.25 4.25 3.69772 4.25 4.25V19.75C4.25 20.3023 4.69772 20.75 5.25 20.75H8.75M8.75 3.25H18.75C19.3023 3.25 19.75 3.69772 19.75 4.25V19.75C19.75 20.3023 19.3023 20.75 18.75 20.75H8.75M8.75 3.25V20.75M12.75 7.75H15.75M12.75 11.75H15.75"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9 4h2v5l-1-.75L9 9V4zm9 16H6V4h1v9l3-2.25L13 13V4h5v16z"
+                fill="currentColor"
             />
         </LemonIconBase>
     )

@@ -31,6 +31,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -811,6 +815,10 @@
           {
               "key": "created_at",
               "type": "datetime"
+          },
+          {
+              "key": "$session_id",
+              "type": "string"
           },
           {
               "key": "pdi",

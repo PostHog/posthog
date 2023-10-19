@@ -17,6 +17,9 @@ def create_default_modifiers_for_team(
         modifiers.personsOnEventsMode = team.person_on_events_mode or PersonOnEventsMode.DISABLED
 
     if modifiers.personsArgMaxVersion is None:
-        modifiers.personsArgMaxVersion = "v1"
+        modifiers.personsArgMaxVersion = "auto"
+
+    if modifiers.inCohortVia is None:
+        modifiers.inCohortVia = "subquery"
 
     return modifiers

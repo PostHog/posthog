@@ -20,13 +20,11 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
-from posthog.hogql import ast
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
@@ -35,7 +33,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import HogQLQuery, HogQLMetadata
+from posthog.schema import HogQLMetadata
 from posthog.utils import refresh_requested_by_client
 
 QUERY_WITH_RUNNER = [
@@ -45,10 +43,12 @@ QUERY_WITH_RUNNER = [
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
+    "WebStatsTableQuery",
 ]
 QUERY_WITH_RUNNER_NO_CACHE = [
     "EventsQuery",
     "PersonsQuery",
+    "HogQLQuery",
 ]
 
 
@@ -65,7 +65,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.model_validate(data)
+            schema.QuerySchema.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -211,7 +211,7 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team, query_json: Dict, in_export_context: Optional[bool] = False, request: Optional[Request] = None
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
@@ -220,28 +220,11 @@ def process_query(
 
     if query_kind in QUERY_WITH_RUNNER:
         refresh_requested = refresh_requested_by_client(request) if request else False
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
     elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
-        query_runner = get_query_runner(query_json, team)
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
         return _unwrap_pydantic_dict(query_runner.calculate())
-    elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.model_validate(query_json)
-        values = (
-            {key: ast.Constant(value=value) for key, value in hogql_query.values.items()}
-            if hogql_query.values
-            else None
-        )
-        hogql_response = execute_hogql_query(
-            query_type="HogQLQuery",
-            query=hogql_query.query,
-            team=team,
-            filters=hogql_query.filters,
-            modifiers=hogql_query.modifiers,
-            placeholders=values,
-            default_limit=default_limit,
-        )
-        return _unwrap_pydantic_dict(hogql_response)
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.model_validate(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)

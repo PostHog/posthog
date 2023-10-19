@@ -10,17 +10,16 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     EventPropertyFilter,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
     WebOverviewStatsQuery,
+    WebStatsTableQuery,
+    HogQLPropertyFilter,
 )
 
 WebQueryNode = Union[
     WebOverviewStatsQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
+    WebStatsTableQuery,
 ]
 
 
@@ -40,10 +39,13 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def pathname_property_filter(self) -> Optional[EventPropertyFilter]:
-        return next((p for p in self.query.properties if p.key == "$pathname"), None)
+        for p in self.query.properties:
+            if isinstance(p, EventPropertyFilter) and p.key == "$pathname":
+                return p
+        return None
 
     @cached_property
-    def property_filters_without_pathname(self) -> List[EventPropertyFilter]:
+    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, HogQLPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self):

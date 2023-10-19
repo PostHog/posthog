@@ -164,8 +164,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-
-        return Response(list_recordings(filter, request, context=self.get_serializer_context()))
+        recordings = list_recordings(filter, request, context=self.get_serializer_context())
+        return Response(recordings)
 
     @extend_schema(
         description="""

@@ -8,6 +8,7 @@ import {
     LemonTag,
     LemonTagType,
     Spinner,
+    LemonButtonWithSideAction,
 } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -50,7 +51,6 @@ export function Surveys(): JSX.Element {
         surveysLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
-        usingSurveysSiteApp,
         searchTerm,
         filters,
         uniqueCreators,
@@ -78,9 +78,25 @@ export function Surveys(): JSX.Element {
                 }
                 buttons={
                     <>
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
+                        <LemonButtonWithSideAction
+                            to={urls.surveyTemplates()}
+                            type="primary"
+                            data-attr="new-survey"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-start',
+                                    actionable: true,
+                                    overlay: (
+                                        <LemonButton size="small" to={urls.survey('new')}>
+                                            Create blank survey
+                                        </LemonButton>
+                                    ),
+                                },
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                        >
                             New survey
-                        </LemonButton>
+                        </LemonButtonWithSideAction>
                         <LemonButton
                             type="secondary"
                             icon={<IconSettings />}
@@ -130,9 +146,7 @@ export function Surveys(): JSX.Element {
                         }}
                         className="mb-2"
                     >
-                        {usingSurveysSiteApp
-                            ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
-                            : 'Survey popups are currently disabled for this project.'}
+                        Survey popovers are currently disabled for this project.
                     </LemonBanner>
                 ) : null}
             </div>
@@ -145,7 +159,7 @@ export function Surveys(): JSX.Element {
                         description={
                             'Use surveys to gather qualitative feedback from your users on new or existing features.'
                         }
-                        action={() => router.actions.push(urls.survey('new'))}
+                        action={() => router.actions.push(urls.surveyTemplates())}
                         isEmpty={surveys.length === 0}
                         productKey={ProductKey.SURVEYS}
                     />

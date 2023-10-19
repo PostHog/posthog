@@ -18,7 +18,9 @@ from temporalio import activity, workflow
 
 from posthog.batch_exports.service import (
     BatchExportsInputsProtocol,
+    create_batch_export_backfill,
     create_batch_export_run,
+    update_batch_export_backfill_status,
     update_batch_export_run_status,
 )
 from posthog.kafka_client.client import KafkaProducer
@@ -631,3 +633,52 @@ class UpdateBatchExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
     await sync_to_async(update_batch_export_run_status)(run_id=uuid.UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore
+
+
+@dataclasses.dataclass
+class CreateBatchExportBackfillInputs:
+    team_id: int
+    batch_export_id: str
+    start_at: str
+    end_at: str
+    status: str
+
+
+@activity.defn
+async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillInputs) -> str:
+    """Activity that creates an BatchExportBackfill.
+
+    Intended to be used in all export workflows, usually at the start, to create a model
+    instance to represent them in our database.
+    """
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(f"Creating BatchExportBackfill model instance in team {inputs.team_id}.")
+
+    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
+    # But one of our dependencies is pinned to asgiref==3.3.2.
+    # Remove these comments once we upgrade.
+    run = await sync_to_async(create_batch_export_backfill)(  # type: ignore
+        batch_export_id=uuid.UUID(inputs.batch_export_id),
+        start_at=inputs.start_at,
+        end_at=inputs.end_at,
+        status=inputs.status,
+        team_id=inputs.team_id,
+    )
+
+    logger.info(f"Created BatchExportBackfill {run.id} in team {inputs.team_id}.")
+
+    return str(run.id)
+
+
+@dataclasses.dataclass
+class UpdateBatchExportBackfillStatusInputs:
+    """Inputs to the update_batch_export_backfill_status activity."""
+
+    id: str
+    status: str
+
+
+@activity.defn
+async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
+    """Activity that updates the status of an BatchExportRun."""
+    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore

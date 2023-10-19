@@ -3,6 +3,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
 
+from sentry_sdk import capture_exception
+
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity, Team
@@ -48,13 +50,12 @@ def _get_filter_by_log_text_session_ids_clause(
     if not recording_filters.console_search_query:
         return "", {}
 
-    log_query = LogQuery(team=team, filter=recording_filters).get_query()
-    matching_session_ids = sync_execute(log_query[0], log_query[1])
+    log_query, log_params = LogQuery(team=team, filter=recording_filters).get_query()
 
     # we return this _even_ if there are no matching ids since if there are no matching ids
     # then no sessions can match...
     # sorted so that snapshots are consistent
-    return f'AND "{column_name}" in %(session_ids)s', {"session_ids": sorted([x[0] for x in matching_session_ids])}
+    return f'AND "{column_name}" in ({log_query}) as log_text_matching', log_params
 
 
 def _get_filter_by_provided_session_ids_clause(
@@ -121,7 +122,7 @@ class LogQuery:
             else ("", {})
         )
 
-    def get_query(self):
+    def get_query(self) -> Tuple[str, Dict]:
         if not self._filter.console_search_query:
             return "", {}
 
@@ -563,11 +564,16 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def run(self) -> SessionRecordingQueryResult:
-        self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
-        query, query_params = self.get_query()
-        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
-        session_recordings = self._data_to_return(query_results)
-        return self._paginate_results(session_recordings)
+        try:
+            self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+            query, query_params = self.get_query()
+            query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+            session_recordings = self._data_to_return(query_results)
+            return self._paginate_results(session_recordings)
+        except Exception as ex:
+            # error here weren't making it to sentry, let's be explicit
+            capture_exception(ex, tags={"team_id": self._team.pk})
+            raise ex
 
     @property
     def limit(self):
@@ -588,9 +594,10 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             recording_filters=self._filter
         )
 
-        log_matching_session_ids_clause, log_matching_session_ids_params = _get_filter_by_log_text_session_ids_clause(
-            team=self._team, recording_filters=self._filter
-        )
+        (
+            log_matching_session_ids_clause,
+            log_matching_session_ids_params,
+        ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
 
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)

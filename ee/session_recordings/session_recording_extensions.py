@@ -25,6 +25,7 @@ SNAPSHOT_PERSIST_TIME_HISTOGRAM = Histogram(
 
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
+
 # TODO rename this...
 def save_recording_with_new_content(recording: SessionRecording, content: str) -> str:
     if not settings.OBJECT_STORAGE_ENABLED:
