@@ -220,11 +220,15 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
+                sample_rate = team.session_recording_sample_rate or None
+                if sample_rate == "1.00":
+                    sample_rate = None
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
-                    "sampleRate": team.session_recording_sample_rate or None,
+                    "sampleRate": sample_rate,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False

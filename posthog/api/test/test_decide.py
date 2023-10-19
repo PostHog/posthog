@@ -183,6 +183,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["sampleRate"], "0.80")
 
+    def test_session_recording_sample_rate_of_1_is_treated_as_no_sampling(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["sampleRate"] is None
+
+        self._update_team({"session_recording_sample_rate": 1.0})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["sampleRate"], None)
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
