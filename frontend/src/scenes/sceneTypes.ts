@@ -82,6 +82,7 @@ export enum Scene {
     Feedback = 'Feedback',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',
+    Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
 }

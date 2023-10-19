@@ -10,7 +10,7 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -31,6 +31,8 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
         expanded?: boolean
         showSettings?: boolean
     }
+    // TODO: Type this more specifically to be our supported nodes only
+    children?: NotebookNodeResource[]
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead

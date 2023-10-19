@@ -19,18 +19,16 @@ import {
     CustomNotebookNodeAttributes,
     JSONContent,
     Node,
-    NotebookNode,
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
     NotebookNodeSettings,
 } from '../Notebook/utils'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 
 export type NotebookNodeLogicProps = {
-    node: NotebookNode
     nodeId: string
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
@@ -132,6 +130,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.titlePlaceholder, s.nodeAttributes],
             (titlePlaceholder, nodeAttributes) => nodeAttributes.title || titlePlaceholder,
         ],
+        // TODO: Fix the typing of nodeAttributes
+        children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -169,7 +169,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
         deleteNode: () => {
             const logic = values.notebookLogic
-            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + props.node.nodeSize }).run()
+            logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
             if (values.notebookLogic.values.editingNodeId === props.nodeId) {
                 values.notebookLogic.actions.setEditingNodeId(null)
             }
