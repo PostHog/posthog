@@ -7,7 +7,7 @@ import { App } from 'scenes/App'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { useActions } from 'kea'
 import { themeLogic } from './themeLogic'
-import { with3000 } from 'storybook/decorators/with3000'
+import { withTheme } from 'storybook/decorators/withTheme'
 
 const meta: Meta = {
     title: 'PostHog 3000/Navigation',
@@ -21,7 +21,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
-        with3000,
+        withTheme,
     ],
     parameters: {
         layout: 'fullscreen',

@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 /** Global story decorator that is used by the theming control to
  * switch between themes.
  */
-export const with3000: Decorator = (Story, context) => {
+export const withTheme: Decorator = (Story, context) => {
     const theme = context.globals.theme
 
     // set the body class
