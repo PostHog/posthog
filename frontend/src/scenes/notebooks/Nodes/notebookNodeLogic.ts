@@ -32,7 +32,7 @@ export type NotebookNodeLogicProps = {
     nodeId: string
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
-    getPos: () => number
+    getPos?: () => number
     resizeable: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     settings: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
@@ -153,21 +153,31 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     listeners(({ actions, values, props }) => ({
         onUpdateEditor: async () => {
+            if (!props.getPos) {
+                return
+            }
             const editor = values.notebookLogic.values.editor
             if (editor) {
-                const pos = props.getPos()
-                const { previous, next } = editor.getAdjacentNodes(pos)
+                const { previous, next } = editor.getAdjacentNodes(props.getPos())
                 actions.setPreviousNode(previous)
                 actions.setNextNode(next)
             }
         },
 
         insertAfter: ({ content }) => {
+            if (!props.getPos) {
+                return
+            }
             const logic = values.notebookLogic
             logic.values.editor?.insertContentAfterNode(props.getPos(), content)
         },
 
         deleteNode: () => {
+            if (!props.getPos) {
+                // TODO: somehow make this delete from the parent
+                return
+            }
+
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: props.getPos(), to: props.getPos() + 1 }).run()
             if (values.notebookLogic.values.editingNodeId === props.nodeId) {
@@ -176,6 +186,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
 
         selectNode: () => {
+            if (!props.getPos) {
+                return
+            }
             const editor = values.notebookLogic.values.editor
 
             if (editor) {
@@ -185,15 +198,24 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
 
         scrollIntoView: () => {
+            if (!props.getPos) {
+                return
+            }
             values.editor?.scrollToPosition(props.getPos())
         },
 
         insertAfterLastNodeOfType: ({ nodeType, content }) => {
+            if (!props.getPos) {
+                return
+            }
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
         },
 
         insertReplayCommentByTimestamp: ({ timestamp, sessionRecordingId }) => {
+            if (!props.getPos) {
+                return
+            }
             const insertionPosition = props.getPos()
             values.notebookLogic.actions.insertReplayCommentByTimestamp({
                 timestamp,

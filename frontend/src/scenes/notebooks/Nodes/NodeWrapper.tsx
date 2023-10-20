@@ -61,10 +61,13 @@ export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
     /** Expand the node if the component is clicked */
     expandOnClick?: boolean
     settings?: NotebookNodeSettings
+
+    /** get the position in the notebook. If not set, we assume this is a side widget. TODO - make this more explicit */
+    getPos?: () => number
 }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(
-    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Pick<NodeViewProps, 'selected' | 'getPos'>
+    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Pick<NodeViewProps, 'selected'>
 ): JSX.Element {
     const {
         titlePlaceholder,
@@ -231,7 +234,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                 )}
                             </ErrorBoundary>
                         </div>
-                        {isEditable && actions.length ? (
+                        {getPos && isEditable && actions.length ? (
                             <div
                                 className="NotebookNode__actions"
                                 // UX improvement so that the actions don't get in the way of the cursor
@@ -386,7 +389,6 @@ export const NotebookNodeChildRenderer = ({
                 console.log('updated called (TODO)', newAttrs)
             }}
             selected={false}
-            getPos={() => 1} // TODO
         />
     )
     // return
