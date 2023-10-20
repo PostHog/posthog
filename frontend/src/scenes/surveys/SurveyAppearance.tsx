@@ -138,9 +138,11 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
 
     return (
         <div className="flex flex-col">
-            <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
-                <></>
-            </PayGateMini>
+            {!surveysStylingAvailable && (
+                <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                    <></>
+                </PayGateMini>
+            )}
             <div className="mt-2">Button text</div>
             <LemonInput
                 value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}

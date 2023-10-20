@@ -965,7 +965,7 @@ export function HTMLEditor({
                         ),
                         content: (
                             <div>
-                                <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                {surveysHTMLAvailable ? (
                                     <CodeEditor
                                         className="border"
                                         language="html"
@@ -988,7 +988,32 @@ export function HTMLEditor({
                                             folding: false,
                                         }}
                                     />
-                                </PayGateMini>
+                                ) : (
+                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                        <CodeEditor
+                                            className="border"
+                                            language="html"
+                                            value={value}
+                                            onChange={(v) => onChange(v ?? '')}
+                                            height={150}
+                                            options={{
+                                                minimap: {
+                                                    enabled: false,
+                                                },
+                                                scrollbar: {
+                                                    alwaysConsumeMouseWheel: false,
+                                                },
+                                                wordWrap: 'on',
+                                                scrollBeyondLastLine: false,
+                                                automaticLayout: true,
+                                                fixedOverflowWidgets: true,
+                                                lineNumbers: 'off',
+                                                glyphMargin: false,
+                                                folding: false,
+                                            }}
+                                        />
+                                    </PayGateMini>
+                                )}
                             </div>
                         ),
                     },

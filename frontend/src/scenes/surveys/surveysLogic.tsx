@@ -10,6 +10,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -33,7 +35,7 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature']],
+        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -158,21 +160,25 @@ export const surveysLogic = kea<surveysLogicType>([
                 return response
             },
         ],
+        payGateFlagOn: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SURVEYS_PAYGATES]],
         whitelabelAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
         surveysStylingAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_STYLING)),
         ],
         surveysHTMLAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML)),
         ],
         surveysMultipleQuestionsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)),
         ],
     }),
     afterMount(({ actions }) => {
