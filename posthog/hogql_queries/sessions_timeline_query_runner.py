@@ -95,7 +95,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                                 AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
                             )
                         )
-                    ORDER BY timestamp ASC""",
+                    ORDER BY timestamp DESC""",
                     placeholders={
                         "before": ast.Constant(value=self.query.before),
                         "after": ast.Constant(value=self.query.after),
@@ -139,7 +139,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             recording_duration_s,
         ) in query_result.results:
             entry_id = str(formal_session_id or informal_session_id)
-            if entry_id not in timeline_entries_map:
+            if entry_id not in reversed(timeline_entries_map):
                 timeline_entries_map[entry_id] = TimelineEntry(
                     sessionId=formal_session_id, events=[], recording_duration_s=recording_duration_s or None
                 )
