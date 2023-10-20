@@ -167,27 +167,6 @@ export default function SurveyEdit(): JSX.Element {
                                                     content: (
                                                         <Group name={`questions.${index}`} key={index}>
                                                             <div className="flex flex-col gap-2">
-                                                                <Field name="question" label="Label">
-                                                                    <LemonInput value={question.question} />
-                                                                </Field>
-
-                                                                <Field
-                                                                    name="description"
-                                                                    label="Description (optional)"
-                                                                >
-                                                                    {({ value, onChange }) => (
-                                                                        <HTMLEditor
-                                                                            value={value}
-                                                                            onChange={onChange}
-                                                                            writingHTMLDescription={
-                                                                                writingHTMLDescription
-                                                                            }
-                                                                            setWritingHTMLDescription={
-                                                                                setWritingHTMLDescription
-                                                                            }
-                                                                        />
-                                                                    )}
-                                                                </Field>
                                                                 <Field
                                                                     name="type"
                                                                     label="Question type"
@@ -334,6 +313,27 @@ export default function SurveyEdit(): JSX.Element {
                                                                             ],
                                                                         ]}
                                                                     />
+                                                                </Field>
+                                                                <Field name="question" label="Label">
+                                                                    <LemonInput value={question.question} />
+                                                                </Field>
+
+                                                                <Field
+                                                                    name="description"
+                                                                    label="Description (optional)"
+                                                                >
+                                                                    {({ value, onChange }) => (
+                                                                        <HTMLEditor
+                                                                            value={value}
+                                                                            onChange={onChange}
+                                                                            writingHTMLDescription={
+                                                                                writingHTMLDescription
+                                                                            }
+                                                                            setWritingHTMLDescription={
+                                                                                setWritingHTMLDescription
+                                                                            }
+                                                                        />
+                                                                    )}
                                                                 </Field>
                                                                 {survey.questions.length > 1 && (
                                                                     <Field name="optional" className="my-2">
