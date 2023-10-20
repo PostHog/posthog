@@ -948,6 +948,9 @@ class AnyResponseType(RootModel):
 
 
 class DashboardFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     date_from: Optional[str] = None
     date_to: Optional[str] = None
     properties: Optional[

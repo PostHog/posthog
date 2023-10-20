@@ -704,5 +704,4 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
-    [s: string]: any
 }

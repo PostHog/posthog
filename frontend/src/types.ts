@@ -1360,7 +1360,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]

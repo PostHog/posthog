@@ -324,6 +324,7 @@
             "type": "string"
         },
         "DashboardFilter": {
+            "additionalProperties": false,
             "properties": {
                 "date_from": {
                     "type": ["string", "null"]
