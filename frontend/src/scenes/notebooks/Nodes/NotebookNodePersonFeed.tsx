@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { EventType, NotebookNodeType } from '~/types'
+import { EventType, NotebookNodeType, PersonType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 import { TimelineEntry } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import {
     IconExclamation,
     IconEyeHidden,
@@ -19,6 +19,7 @@ import {
 } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, eventToDescription } from 'lib/utils'
 import { KEY_MAPPING } from 'lib/taxonomy'
+import { personLogic } from 'scenes/persons/personLogic'
 import { NotFound } from 'lib/components/NotFound'
 
 function EventIcon({ event }: { event: EventType }): JSX.Element {
@@ -98,14 +99,12 @@ const Session = ({ session }: SessionProps): JSX.Element => {
     )
 }
 
-const Component = ({
-    attributes,
-    updateAttributes,
-}: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
-    const { personId } = attributes
+type FeedProps = {
+    person: PersonType
+}
 
-    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId }))
-    const { loadSessionsTimeline } = useActions(notebookNodePersonFeedLogic({ personId }))
+const Feed = ({ person }: FeedProps): JSX.Element => {
+    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
 
     if (!sessions && sessionsLoading) {
         return <Spinner />
@@ -124,8 +123,23 @@ const Component = ({
     )
 }
 
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
+    const { id } = attributes
+
+    const logic = personLogic({ id })
+    const { person, personLoading } = useValues(logic)
+
+    if (personLoading) {
+        return <LemonSkeleton className="h-6" />
+    } else if (!person) {
+        return <NotFound object="person" />
+    }
+
+    return <Feed person={person} />
+}
+
 type NotebookNodePersonFeedAttributes = {
-    personId: string
+    id: string
 }
 
 export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePersonFeedAttributes>({
@@ -135,6 +149,6 @@ export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePerson
     resizeable: false,
     expandable: false,
     attributes: {
-        personId: {},
+        id: {},
     },
 })

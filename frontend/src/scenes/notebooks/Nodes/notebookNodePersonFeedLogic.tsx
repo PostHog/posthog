@@ -15,7 +15,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
 
-    loaders(() => ({
+    loaders(({ props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -24,6 +24,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                         kind: NodeKind.SessionsTimelineQuery,
                         after: '2021-01-01T18:00:00Z',
                         before: '2024-01-01T06:00:00Z',
+                        personId: props.personId,
                     })
                     return result.results
                 },

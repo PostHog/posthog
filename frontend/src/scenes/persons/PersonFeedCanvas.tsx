@@ -10,7 +10,7 @@ type PersonFeedCanvasProps = {
 }
 
 const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
-    const id = '12312'
+    const id = person.id
 
     const logicProps: NotebookLogicProps = {
         shortId: `canvas-${id}`,
@@ -35,7 +35,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                         height: null,
                         title: null,
                         nodeId: '6d485066-ec99-483d-8b98-4d8a2dc9cc4b',
-                        personId: personId,
+                        id: personId,
                         __init: null,
                         children: [
                             {
@@ -59,12 +59,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
         setLocalContent(canvas)
     }, [person])
 
-    return (
-        <>
-            <pre>{JSON.stringify(person, null, 2)}</pre>
-            <Notebook {...logicProps} />
-        </>
-    )
+    return <Notebook {...logicProps} />
 }
 
 export default PersonFeedCanvas
