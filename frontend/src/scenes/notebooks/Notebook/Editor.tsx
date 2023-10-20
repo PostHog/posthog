@@ -49,7 +49,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -65,7 +65,7 @@ export function Editor(): JSX.Element {
 
     const _editor = useEditor({
         extensions: [
-            CustomDocument,
+            mode === 'notebook' ? CustomDocument : ExtensionDocument,
             StarterKit.configure({
                 document: false,
                 gapcursor: false,
