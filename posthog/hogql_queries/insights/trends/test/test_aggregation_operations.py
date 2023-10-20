@@ -9,7 +9,7 @@ class TestQueryAlternator:
         query = parse_select("SELECT event from events")
 
         query_modifier = QueryAlternator(query)
-        query_modifier.appendSelect(ast.Field(chain=["test"]))
+        query_modifier.append_select(ast.Field(chain=["test"]))
         query_modifier.build()
 
         assert len(query.select) == 2
@@ -19,7 +19,7 @@ class TestQueryAlternator:
         query = parse_select("SELECT event from events")
 
         query_modifier = QueryAlternator(query)
-        query_modifier.appendGroupBy(ast.Field(chain=["event"]))
+        query_modifier.append_group_by(ast.Field(chain=["event"]))
         query_modifier.build()
 
         assert len(query.group_by) == 1
@@ -29,7 +29,7 @@ class TestQueryAlternator:
         query = parse_select("SELECT event from events GROUP BY uuid")
 
         query_modifier = QueryAlternator(query)
-        query_modifier.appendGroupBy(ast.Field(chain=["event"]))
+        query_modifier.append_group_by(ast.Field(chain=["event"]))
         query_modifier.build()
 
         assert len(query.group_by) == 2
@@ -40,7 +40,7 @@ class TestQueryAlternator:
         query = parse_select("SELECT event from events")
 
         query_modifier = QueryAlternator(query)
-        query_modifier.replaceSelectFrom(ast.JoinExpr(table=ast.Field(chain=["groups"])))
+        query_modifier.replace_select_from(ast.JoinExpr(table=ast.Field(chain=["groups"])))
         query_modifier.build()
 
         assert query.select_from.table.chain == ["groups"]

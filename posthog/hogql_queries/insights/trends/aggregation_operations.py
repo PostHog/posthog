@@ -6,6 +6,8 @@ from posthog.schema import ActionsNode, EventsNode
 
 
 class QueryAlternator:
+    """Allows query_builder to modify the query without having to expost the whole AST interface"""
+
     _query: ast.SelectQuery
     _selects: List[ast.Expr]
     _group_bys: List[ast.Expr]
@@ -32,13 +34,13 @@ class QueryAlternator:
 
         return self._query
 
-    def appendSelect(self, expr: ast.Expr) -> None:
+    def append_select(self, expr: ast.Expr) -> None:
         self._selects.append(expr)
 
-    def appendGroupBy(self, expr: ast.Expr) -> None:
+    def append_group_by(self, expr: ast.Expr) -> None:
         self._group_bys.append(expr)
 
-    def replaceSelectFrom(self, join_expr: ast.JoinExpr) -> None:
+    def replace_select_from(self, join_expr: ast.JoinExpr) -> None:
         self._select_from = join_expr
 
 

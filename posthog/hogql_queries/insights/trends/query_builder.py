@@ -136,15 +136,15 @@ class TrendsQueryBuilder:
                 sample_value=self._sample_value(),
             )
 
-            orchestrator.events_query_builder.appendSelect(self._breakdown.column_expr())
-            orchestrator.events_query_builder.appendGroupBy(ast.Field(chain=["breakdown_value"]))
+            orchestrator.events_query_builder.append_select(self._breakdown.column_expr())
+            orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
             if self._breakdown.is_session_type:
-                orchestrator.events_query_builder.replaceSelectFrom(self._breakdown_session.session_inner_join())
+                orchestrator.events_query_builder.replace_select_from(self._breakdown_session.session_inner_join())
 
-            orchestrator.inner_select_query_builder.appendSelect(ast.Field(chain=["breakdown_value"]))
-            orchestrator.inner_select_query_builder.appendGroupBy(ast.Field(chain=["breakdown_value"]))
+            orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+            orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
 
-            orchestrator.parent_select_query_builder.appendSelect(ast.Field(chain=["breakdown_value"]))
+            orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
 
             return orchestrator.build()
         # Just breakdowns
