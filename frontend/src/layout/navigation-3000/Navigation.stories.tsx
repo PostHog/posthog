@@ -5,9 +5,6 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
-import { useActions } from 'kea'
-import { themeLogic } from './themeLogic'
-import { withTheme } from 'storybook/decorators/withTheme'
 
 const meta: Meta = {
     title: 'PostHog 3000/Navigation',
@@ -21,7 +18,6 @@ const meta: Meta = {
                 '/api/projects/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
             },
         }),
-        withTheme,
     ],
     parameters: {
         layout: 'fullscreen',
@@ -30,21 +26,9 @@ const meta: Meta = {
     },
 }
 export default meta
-export function LightMode(): JSX.Element {
-    const { overrideTheme } = useActions(themeLogic)
+export function Navigation(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        overrideTheme(false)
-    }, [])
-
-    return <App />
-}
-
-export function DarkMode(): JSX.Element {
-    const { overrideTheme } = useActions(themeLogic)
-    useEffect(() => {
-        router.actions.push(urls.projectHomepage())
-        overrideTheme(true)
     }, [])
 
     return <App />

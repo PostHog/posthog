@@ -7,7 +7,6 @@ import { navigation3000Logic } from '../navigationLogic'
 import { Sidebar } from './Sidebar'
 import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
-import { withTheme } from 'storybook/decorators/withTheme'
 import { SidebarNavbarItem } from '../types'
 
 const meta: Meta = {
@@ -17,7 +16,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    decorators: [withTheme],
 }
 export default meta
 /** featureFlagsJson * 6 to fill the sidebar up more. */
