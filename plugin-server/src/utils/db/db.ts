@@ -965,36 +965,40 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    // Feature Flag Hash Key overrides
-    public async addFeatureFlagHashKeysForMergedPerson(
+    public async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: Person['id'],
         targetPersonID: Person['id'],
         tx?: TransactionClient
     ): Promise<void> {
-        // Delete and insert in a single query to ensure
-        // this function is safe wherever it is run.
-        // The CTE helps make this happen.
-        //
-        // Every override is unique for a team-personID-featureFlag combo.
-        // In case we run into a conflict we would ideally use the override from most recent
-        // personId used, so the user experience is consistent, however that's tricky to figure out
-        // this also happens rarely, so we're just going to do the performance optimal thing
-        // i.e. do nothing on conflicts, so we keep using the value that the person merged into had
+        // When personIDs change, update places depending on a person_id foreign key
+
         await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
-            `
+            // Run two queries in a single round-trip to the DB.
+            //
+            // 1. Update cohorts.
+            // 2. Update feature flags.
+            //
+            // NOTE: Every override is unique for a team-personID-featureFlag combo. In case we run
+            // into a conflict we would ideally use the override from most recent personId used, so
+            // the user experience is consistent, however that's tricky to figure out this also
+            // happens rarely, so we're just going to do the performance optimal thing i.e. do
+            // nothing on conflicts, so we keep using the value that the person merged into had
+            `BEGIN;
+            UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2;
+
             WITH deletions AS (
-                DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2
+                DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $3 AND person_id = $2
                 RETURNING team_id, person_id, feature_flag_key, hash_key
             )
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, $3, feature_flag_key, hash_key
+                SELECT team_id, $1, feature_flag_key, hash_key
                 FROM deletions
-                ON CONFLICT DO NOTHING
-            `,
-            [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson'
+                ON CONFLICT DO NOTHING;
+            COMMIT;`,
+            [targetPersonID, sourcePersonID, teamID],
+            'updateCohortAndFeatureFlagsPeople'
         )
     }
 

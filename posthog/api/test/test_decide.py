@@ -836,7 +836,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         new_person_id = person.id
         old_person_id = person2.id
         # this happens in the plugin server
-        # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+        # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
         # at which point we run the query
         query = f"""
             WITH deletions AS (
