@@ -138,7 +138,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.Model.model_validate(query)
+                schema.QuerySchema.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:
@@ -489,6 +489,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        representation["query"] = instance.dashboard_query(dashboard=dashboard)
 
         if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"

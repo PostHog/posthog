@@ -72,7 +72,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     ...DEFAULT_RECORDING_FILTERS,
-    date_from: '-21d',
+    date_from: '-30d',
 }
 
 export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {

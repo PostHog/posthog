@@ -26,7 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, HogQLQuery, InsightVizNode, Node, QueryContext } from './queries/schema'
+import type {
+    DashboardFilter,
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightVizNode,
+    Node,
+} from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -1343,7 +1351,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1352,7 +1360,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]

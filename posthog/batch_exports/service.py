@@ -8,7 +8,6 @@ from temporalio.client import (
     Client,
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleBackfill,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -21,6 +20,7 @@ from temporalio.client import (
 from posthog import settings
 from posthog.batch_exports.models import (
     BatchExport,
+    BatchExportBackfill,
     BatchExportRun,
 )
 from posthog.temporal.client import sync_connect
@@ -121,11 +121,22 @@ class BigQueryBatchExportInputs:
     include_events: list[str] | None = None
 
 
+@dataclass
+class NoOpInputs:
+    """NoOp Workflow is used for testing, it takes a single argument to echo back."""
+
+    batch_export_id: str
+    team_id: int
+    interval: str = "hour"
+    arg: str = ""
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
     "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "NoOp": ("no-op", NoOpInputs),
 }
 
 
@@ -238,38 +249,64 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
+@dataclass
+class BackfillBatchExportInputs:
+    """Inputs for the BackfillBatchExport Workflow."""
+
+    team_id: int
+    batch_export_id: str
+    start_at: str
+    end_at: str
+    buffer_limit: int = 1
+    wait_delay: float = 5.0
+
+
 def backfill_export(
     temporal: Client,
     batch_export_id: str,
+    team_id: int,
     start_at: dt.datetime,
     end_at: dt.datetime,
-    overlap: ScheduleOverlapPolicy = ScheduleOverlapPolicy.BUFFER_ALL,
-):
-    """Creates an export run for the given BatchExport, and specified time range.
+) -> None:
+    """Starts a backfill for given team and batch export covering given date range.
 
     Arguments:
+        temporal: A Temporal Client to trigger the workflow.
+        batch_export_id: The id of the BatchExport to backfill.
+        team_id: The id of the Team the BatchExport belongs to.
         start_at: From when to backfill.
         end_at: Up to when to backfill.
     """
     try:
-        BatchExport.objects.get(id=batch_export_id)
+        BatchExport.objects.get(id=batch_export_id, team_id=team_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
-    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=overlap)
-    backfill_schedule(temporal=temporal, schedule_id=batch_export_id, schedule_backfill=schedule_backfill)
+    inputs = BackfillBatchExportInputs(
+        batch_export_id=batch_export_id,
+        team_id=team_id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+    )
+    start_backfill_batch_export_workflow(temporal, inputs=inputs)
 
 
 @async_to_sync
-async def backfill_schedule(temporal: Client, schedule_id: str, schedule_backfill: ScheduleBackfill):
-    """Async call the Temporal client to execute a backfill on the given schedule."""
-    handle = temporal.get_schedule_handle(schedule_id)
+async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> None:
+    """Async call to start a BackfillBatchExportWorkflow."""
+    handle = temporal.get_schedule_handle(inputs.batch_export_id)
     description = await handle.describe()
 
     if description.schedule.spec.jitter is not None:
-        schedule_backfill.end_at += description.schedule.spec.jitter
+        # Adjust end_at to account for jitter if present.
+        inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
 
-    await handle.backfill(schedule_backfill)
+    await temporal.start_workflow(
+        "backfill-batch-export",
+        inputs,
+        id=f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}",
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+    )
 
 
 def create_batch_export_run(
@@ -284,8 +321,10 @@ def create_batch_export_run(
     as only the Workflows themselves can know when they start.
 
     Args:
-        data_interval_start:
-        data_interval_end:
+        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
+        data_interval_start: The start of the period of data exported in this BatchExportRun.
+        data_interval_end: The end of the period of data exported in this BatchExportRun.
+        status: The initial status for the created BatchExportRun.
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
@@ -372,3 +411,44 @@ async def update_schedule(temporal: Client, id: str, schedule: Schedule) -> None
     return await handle.update(
         updater=updater,
     )
+
+
+def create_batch_export_backfill(
+    batch_export_id: UUID,
+    team_id: int,
+    start_at: str,
+    end_at: str,
+    status: str = BatchExportRun.Status.RUNNING,
+):
+    """Create a BatchExportBackfill.
+
+
+    Args:
+        batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
+        team_id: The id of the Team the BatchExportBackfill to create belongs to.
+        start_at: The start of the period to backfill in this BatchExportBackfill.
+        end_at: The end of the period to backfill in this BatchExportBackfill.
+        status: The initial status for the created BatchExportBackfill.
+    """
+    backfill = BatchExportBackfill(
+        batch_export_id=batch_export_id,
+        status=status,
+        start_at=dt.datetime.fromisoformat(start_at),
+        end_at=dt.datetime.fromisoformat(end_at),
+        team_id=team_id,
+    )
+    backfill.save()
+
+    return backfill
+
+
+def update_batch_export_backfill_status(backfill_id: UUID, status: str):
+    """Update the status of an BatchExportBackfill with given id.
+
+    Arguments:
+        id: The id of the BatchExportBackfill to update.
+        status: The new status to assign to the BatchExportBackfill.
+    """
+    updated = BatchExportBackfill.objects.filter(id=backfill_id).update(status=status)
+    if not updated:
+        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
