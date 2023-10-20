@@ -668,6 +668,103 @@ class TestSurvey(APIBaseTest):
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
         )
 
+    def test_enable_surveys_opt_in(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+            end_date=datetime.now() - timedelta(days=1),
+        )
+        self.assertEqual(self.team.surveys_opt_in, None)
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+
+    def test_disable_surveys_opt_in(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
+    def test_surveys_opt_in_with_api_type_surveys(self):
+        api_survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="API survey",
+            type="api",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        self.assertEqual(self.team.surveys_opt_in, None)
+        popover_survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Popover survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is True
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{api_survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.surveys_opt_in, True)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{popover_survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
+    def test_surveys_opt_in_post_delete(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+            end_date=datetime.now() - timedelta(days=1),
+        )
+        survey_to_delete = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+        self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_to_delete.id}/",
+            format="json",
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
 
 class TestSurveyQuestionValidation(APIBaseTest):
     def test_create_basic_survey_question_validation(self):
