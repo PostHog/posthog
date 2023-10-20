@@ -11,8 +11,9 @@ from rest_framework.exceptions import APIException, UnsupportedMediaType, Valida
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
-from rest_framework.parsers import FileUploadParser
+from rest_framework.parsers import BaseParser, FileUploadParser
 from rest_framework.decorators import action
+from rest_framework import permissions
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -77,40 +78,6 @@ def download(request, *args, **kwargs) -> HttpResponse:
     )
 
 
-@csrf_exempt
-def upload(request, *args, **kwargs) -> HttpResponse:
-    token = get_token(None, request)
-
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "attachments",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    logger.info(args)
-
-    return Response(status=status.HTTP_200_OK)
-
-
 # instance settings
 # Check file
 #   Can we feature flag for PostHog app?
@@ -125,23 +92,22 @@ def upload(request, *args, **kwargs) -> HttpResponse:
 
 
 class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    # permission_classes = []
+    # authentication_classes = []
+    permission_classes = (permissions.AllowAny,)
     throttle_classes = [UploadedMediaRateThrottle]
-    parser_classes = (MultiPartParser, FormParser)
-    authentication_classes = []
+    parser_classes = [FileUploadParser]
 
-    @csrf_exempt
-    @action(methods=["POST"], detail=False)
-    def upload(self, request, *args, **kwargs) -> Response:
+    def upload(self, request, *args, **kwargs):
         try:
             file = request.data["file"]
 
             if file.size > (FOUR_MEGABYTES * 20):
                 raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 80MB")
 
-            if file.content_type in ["video/", "audio/"]:
+            if file.content_type.startswith(("video/", "audio/", "image/")):
                 uploaded_media = UploadedMedia.save_content(
                     team=self.team,
+                    created_by=None,
                     file_name=file.name,
                     is_attachment=True,
                     content_type=file.content_type,
@@ -151,7 +117,6 @@ class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 if uploaded_media is None:
                     raise APIException("Could not save media")
 
-                headers = self.get_success_headers(uploaded_media.get_absolute_url())
                 statsd.incr("uploaded_media.uploaded", tags={"content_type": file.content_type})
                 return Response(
                     {
@@ -160,7 +125,6 @@ class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         "name": uploaded_media.file_name,
                     },
                     status=status.HTTP_201_CREATED,
-                    headers=headers,
                 )
             else:
                 raise UnsupportedMediaType(file.content_type)

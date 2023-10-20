@@ -134,7 +134,11 @@ urlpatterns = [
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
-    path("api/attachments/<str:event_id>", uploaded_media.upload),
+    # path("api/attachments/<str:event_id>", uploaded_media.upload),
+    path(
+        "api/attachments/upload",
+        uploaded_media.AttachmentsViewSet.as_view({"post": "upload"}),
+    ),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
     path(
         "api/reset/<str:user_uuid>/",
