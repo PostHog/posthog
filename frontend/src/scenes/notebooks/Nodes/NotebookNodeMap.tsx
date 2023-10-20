@@ -11,6 +11,7 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 /** Latitude and longtitude in degrees (+lat is east, -lat is west, +lon is south, -lon is north). */
 export interface MapProps {
@@ -53,8 +54,9 @@ export function Map({ center, markers, style }: MapProps): JSX.Element {
     return <div ref={mapContainer} style={style} />
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element | null => {
     const { id } = attributes
+    const { expanded } = useValues(notebookNodeLogic)
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
@@ -63,6 +65,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>)
         return <LemonSkeleton className="h-6" />
     } else if (!person) {
         return <NotFound object="person" />
+    }
+
+    if (!expanded) {
+        return null
     }
 
     const longtitude = person?.properties?.['$geoip_longitude']
@@ -96,7 +102,8 @@ export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes
     titlePlaceholder: 'Map',
     Component,
     resizeable: false,
-    expandable: false,
+    expandable: true,
+    startExpanded: true,
     attributes: {
         id: {},
     },

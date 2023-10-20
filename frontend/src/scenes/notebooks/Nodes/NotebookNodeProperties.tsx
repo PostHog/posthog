@@ -1,4 +1,4 @@
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -7,9 +7,12 @@ import { useValues } from 'kea'
 import { personLogic } from 'scenes/persons/personLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { NotFound } from 'lib/components/NotFound'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttributes>): JSX.Element | null => {
     const { id } = attributes
+
+    const { expanded } = useValues(notebookNodeLogic)
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
@@ -22,6 +25,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
 
     const numProperties = Object.keys(person.properties).length
 
+    if (!expanded) {
+        return null
+    }
     return (
         <div className="py-2 px-4 text-xs">
             {Object.entries(person.properties).map(([key, value], index) => {
@@ -33,7 +39,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
                             <PropertyKeyInfo value={key} />
                         </LemonLabel>
                         <div className={`${!isLast && 'border-b border-border-light pb-1'}`}>
-                            <PropertiesTable properties={value} rootKey={key} />
+                            <PropertiesTable properties={value} rootKey={key} type={PropertyDefinitionType.Person} />
                         </div>
                     </div>
                 )
@@ -50,8 +56,9 @@ export const NotebookNodeProperties = createPostHogWidgetNode({
     nodeType: NotebookNodeType.Properties,
     titlePlaceholder: 'Properties',
     Component,
-    resizeable: true,
-    expandable: false,
+    resizeable: false,
+    expandable: true,
+    startExpanded: true,
     attributes: {
         id: {},
     },

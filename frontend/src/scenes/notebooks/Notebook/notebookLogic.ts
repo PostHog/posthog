@@ -385,7 +385,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.mode],
-            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+            (shouldBeEditable, previewContent, mode) => shouldBeEditable && !previewContent,
         ],
     }),
     sharedListeners(({ values, actions }) => ({

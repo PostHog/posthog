@@ -386,6 +386,7 @@ export const NotebookNodeChildRenderer = ({
 
     return (
         <MemoizedNodeWrapper
+            {...options}
             Component={options.Component}
             nodeType={content.type}
             titlePlaceholder={options.titlePlaceholder}
