@@ -94,13 +94,17 @@ class PropertySwapper(CloningVisitor):
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
             if isinstance(node.type.resolve_database_field(), DateTimeDatabaseField):
-                return ast.Call(
+                timezone_adjusted_node = ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],
                     type=ast.CallType(
                         name="toTimeZone", arg_types=[ast.DateTimeType()], return_type=ast.DateTimeType()
                     ),
                 )
+                if isinstance(node, ast.Field) and len(node.chain) > 0 and isinstance(node.chain[-1], str):
+                    # TODO: Test this
+                    return ast.Alias(expr=timezone_adjusted_node, alias=node.chain[-1])
+                return timezone_adjusted_node
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
