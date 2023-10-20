@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -147,18 +147,40 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         you want to reduce the amount of data you collect. 100% means all sessions will be collected.
                         50% means roughly half of sessions will be collected.
                     </p>
-                </>
-            </FlaggedFeature>
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
-                <>
                     <div className={'flex flex-row justify-between'}>
-                        <LemonLabel className="text-base">Minimum session duration</LemonLabel>
-                        <LemonInput
+                        <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
                             onChange={(v) => {
-                                updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v || null })
+                                updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
                             }}
-                            type={'number'}
-                            allowClear={true}
+                            options={[
+                                {
+                                    label: 'no minimum',
+                                    value: null,
+                                },
+                                {
+                                    label: '1',
+                                    value: 1000,
+                                },
+                                {
+                                    label: '2',
+                                    value: 2000,
+                                },
+                                {
+                                    label: '5',
+                                    value: 5000,
+                                },
+                                {
+                                    label: '10',
+                                    value: 10000,
+                                },
+                                {
+                                    label: '15',
+                                    value: 15000,
+                                },
+                            ]}
+                            value={currentTeam?.session_recording_minimum_duration_milliseconds}
                         />
                     </div>
                     <p>
