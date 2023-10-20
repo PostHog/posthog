@@ -54,7 +54,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
         setLocalContent(canvas)
     }, [person])
 
-    return <Notebook {...logicProps} />
+    return <Notebook {...logicProps} editable={false} />
 }
 
 export default PersonFeedCanvas
