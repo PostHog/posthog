@@ -84,7 +84,7 @@ describe('Storage', () => {
             storage.consume(key, 2)
             expect(storage.buckets.get(key)![0]).toEqual(8)
 
-            // Will be a no-op
+            // Will be a no-op due to a lower now value
             storage.replenish(key, now.valueOf() - 20000)
 
             expect(storage.buckets.has(key)).toEqual(true)
