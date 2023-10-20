@@ -25,11 +25,6 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
             type: 'doc',
             content: [
                 {
-                    type: 'heading',
-                    attrs: { level: 1 },
-                    content: [{ type: 'text', text: person.distinct_ids[0] }],
-                },
-                {
                     type: 'ph-person-feed',
                     attrs: {
                         height: null,
