@@ -87,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {

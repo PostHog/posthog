@@ -10,6 +10,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
@@ -34,7 +36,14 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [
+            userLogic,
+            ['hasAvailableFeature'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
@@ -164,9 +173,25 @@ export const surveysLogic = kea<surveysLogicType>([
                 return response
             },
         ],
+        payGateFlagOn: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SURVEYS_PAYGATES]],
         whitelabelAvailable: [
-            (s) => [s.user],
-            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
+        ],
+        surveysStylingAvailable: [
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_STYLING)),
+        ],
+        surveysHTMLAvailable: [
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML)),
+        ],
+        surveysMultipleQuestionsAvailable: [
+            (s) => [s.hasAvailableFeature, s.payGateFlagOn],
+            (hasAvailableFeature, payGateFlagOn) =>
+                !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)),
         ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
