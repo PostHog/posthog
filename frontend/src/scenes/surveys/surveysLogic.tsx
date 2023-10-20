@@ -38,7 +38,7 @@ export const surveysLogic = kea<surveysLogicType>([
     connect(() => ({
         values: [
             userLogic,
-            ['user'],
+            ['hasAvailableFeature'],
             teamLogic,
             ['currentTeam', 'currentTeamLoading'],
             featureFlagLogic,
