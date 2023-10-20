@@ -17,7 +17,7 @@
          AND "posthog_survey"."end_date" IS NULL
          AND "posthog_survey"."start_date" IS NOT NULL
          AND "posthog_survey"."team_id" = 2
-         AND "posthog_survey"."type" = 'popover')
+         AND NOT ("posthog_survey"."type" = 'api'))
   '
 ---
 # name: TestSurveysAPIList.test_list_surveys.1
@@ -74,7 +74,7 @@
          AND "posthog_survey"."end_date" IS NULL
          AND "posthog_survey"."start_date" IS NOT NULL
          AND "posthog_survey"."team_id" = 2
-         AND "posthog_survey"."type" = 'popover')
+         AND NOT ("posthog_survey"."type" = 'api'))
   '
 ---
 # name: TestSurveysAPIList.test_list_surveys.4

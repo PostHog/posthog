@@ -56,9 +56,11 @@ class Survey(UUIDModel):
 
 @mutable_receiver([post_save, post_delete], sender=Survey)
 def update_surveys_opt_in(sender, instance, **kwargs):
-    active_surveys_count = Survey.objects.filter(
-        team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False, type="popover"
-    ).count()
+    active_surveys_count = (
+        Survey.objects.filter(team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False)
+        .exclude(type="api")
+        .count()
+    )
 
     if active_surveys_count > 0 and not instance.team.surveys_opt_in:
         instance.team.surveys_opt_in = True
