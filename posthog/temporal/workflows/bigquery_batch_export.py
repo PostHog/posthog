@@ -261,8 +261,12 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     maximum_interval=dt.timedelta(seconds=120),
                     maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Raised on missing permissions
+                        # Raised on missing permissions.
                         "Forbidden",
+                        # Invalid token.
+                        "RefreshError",
+                        # Usually means the dataset or project doesn't exist.
+                        "NotFound",
                     ],
                 ),
             )
