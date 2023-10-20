@@ -7,7 +7,7 @@ import { NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 import { TimelineEntry } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import {
     IconExclamation,
     IconEyeHidden,
@@ -19,6 +19,7 @@ import {
 } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, humanFriendlyDuration, eventToDescription } from 'lib/utils'
 import { KEY_MAPPING } from 'lib/taxonomy'
+import { NotFound } from 'lib/components/NotFound'
 
 function EventIcon({ event }: { event: EventType }): JSX.Element {
     let Component: React.ComponentType<{ className: string }>
@@ -103,11 +104,15 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
     const { personId } = attributes
 
-    const { sessions } = useValues(notebookNodePersonFeedLogic({ personId }))
+    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId }))
     const { loadSessionsTimeline } = useActions(notebookNodePersonFeedLogic({ personId }))
 
+    if (!sessions && sessionsLoading) {
+        return <Spinner />
+    }
+
     if (sessions === null) {
-        return <div>loading</div>
+        return <NotFound object="person" />
     }
 
     return (
