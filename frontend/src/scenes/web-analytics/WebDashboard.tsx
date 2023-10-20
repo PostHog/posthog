@@ -12,11 +12,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
-        return (
-            <div className="w-full text-right">
-                <span className="flex-1 text-right">{`${(value * 100).toFixed(1)}%`}</span>
-            </div>
-        )
+        return <span>{`${(value * 100).toFixed(1)}%`}</span>
     } else {
         return null
     }
@@ -26,17 +22,7 @@ const PercentageCell: QueryContextColumnComponent = ({ value }) => {
 const numberFormatter = new Intl.NumberFormat()
 
 const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return (
-        <div className="w-full text-right">
-            <span className="flex-1 text-right">
-                {typeof value === 'number' ? numberFormatter.format(value) : String(value)}
-            </span>
-        </div>
-    )
-}
-
-const RightAlignedTitle: QueryContextColumnTitleComponent = (props) => {
-    return <span className="flex-1 text-right">{props.columnName}</span>
+    return <span>{typeof value === 'number' ? numberFormatter.format(value * 1000) : String(value)}</span>
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
@@ -123,18 +109,18 @@ const queryContext: QueryContext = {
         },
         bounce_rate: {
             title: 'Bounce Rate',
-            renderTitle: RightAlignedTitle,
             render: PercentageCell,
+            align: 'right',
         },
         views: {
             title: 'Views',
-            renderTitle: RightAlignedTitle,
             render: NumericCell,
+            align: 'right',
         },
         visitors: {
             title: 'Visitors',
-            renderTitle: RightAlignedTitle,
             render: NumericCell,
+            align: 'right',
         },
     },
 }
