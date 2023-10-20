@@ -11,7 +11,7 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { EditorFocusPosition } from './utils'
+import { EditorFocusPosition, JSONContent } from './utils'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
@@ -20,16 +20,29 @@ import { NotebookColumnRight } from './NotebookColumnRight'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
+    initialContent?: JSONContent
     editable?: boolean
 }
 
-export function Notebook({ shortId, mode, editable = true, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
+export function Notebook({
+    shortId,
+    mode,
+    editable = true,
+    initialAutofocus = 'start',
+    initialContent,
+}: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = { shortId, mode }
     const logic = notebookLogic(logicProps)
     const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
         useValues(logic)
-    const { duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
+    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
+
+    useEffect(() => {
+        if (initialContent && mode === 'canvas') {
+            setLocalContent(initialContent)
+        }
+    }, [notebook])
 
     useWhyDidIRender('Notebook', {
         notebook,

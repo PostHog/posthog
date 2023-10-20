@@ -165,6 +165,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_NEW_CREATION_FLOW: 'surveys-new-creation-flow', // owner: @liyiy
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
