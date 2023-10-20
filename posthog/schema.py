@@ -905,6 +905,7 @@ class TimelineEntry(BaseModel):
     )
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session eevents")
     events: List[EventType]
+    recording_duration_s: float
 
 
 class SessionsTimelineQueryResponse(BaseModel):

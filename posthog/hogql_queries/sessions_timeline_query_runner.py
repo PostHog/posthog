@@ -56,38 +56,43 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     """
                     WITH (
                         SELECT DISTINCT $session_id
-                        FROM events
-                        WHERE events.timestamp > toDateTime({after}) AND events.timestamp <= toDateTime({before})
+                        FROM events AS e
+                        WHERE e.timestamp > toDateTime({after}) AND e.timestamp <= toDateTime({before})
                         LIMIT 100
                     ) AS relevant_session_ids
                     SELECT
-                        uuid,
-                        timestamp,
-                        event,
-                        properties,
-                        distinct_id,
-                        elements_chain,
-                        $session_id AS formal_session_id,
-                        first_value(uuid) OVER (
-                            PARTITION BY $session_id ORDER BY __toInt64(timestamp) / 1000000 /* µs to s */
+                        e.uuid,
+                        e.timestamp,
+                        e.event,
+                        e.properties,
+                        e.distinct_id,
+                        e.elements_chain,
+                        e.$session_id AS formal_session_id,
+                        first_value(e.uuid) OVER (
+                            PARTITION BY $session_id ORDER BY __toInt64(timestamp) / 60e6 /* µs converted to min */
                             RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW
-                        ) AS informal_session_uuid
-                    FROM events
+                        ) AS informal_session_uuid,
+                        dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+                    FROM events AS e
+                    LEFT JOIN (
+                        SELECT start_time, end_time, session_id FROM session_replay_events
+                    ) AS sre
+                    ON e.$session_id = sre.session_id
                     WHERE
-                        events.timestamp >= (
+                        e.timestamp >= (
                             SELECT min(timestamp)
-                            FROM events
-                            WHERE events.$session_id IN relevant_session_ids OR (
+                            FROM events AS e
+                            WHERE e.$session_id IN relevant_session_ids OR (
                                 $session_id IS NULL
-                                AND events.timestamp > toDateTime({after}) AND events.timestamp < toDateTime({before})
+                                AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
                             )
                         )
-                        AND events.timestamp <= (
+                        AND e.timestamp <= (
                             SELECT max(timestamp)
-                            FROM events
-                            WHERE events.$session_id IN relevant_session_ids OR (
+                            FROM events AS e
+                            WHERE e.$session_id IN relevant_session_ids OR (
                                 $session_id IS NULL
-                                AND events.timestamp > toDateTime({after}) AND events.timestamp < toDateTime({before})
+                                AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
                             )
                         )
                     ORDER BY timestamp ASC""",
@@ -101,12 +106,12 @@ class SessionsTimelineQueryRunner(QueryRunner):
             assert isinstance(select_query.ctes["relevant_session_ids"].expr, ast.SelectQuery)
             if self.query.personId:
                 select_query.ctes["relevant_session_ids"].expr.where = ast.CompareOperation(
-                    left=ast.Field(chain=["person_id"]),
+                    left=ast.Field(chain=["e", "person_id"]),
                     right=ast.Constant(value=self.query.personId),
                     op=ast.CompareOperationOp.Eq,
                 )
                 select_query.where = ast.CompareOperation(
-                    left=ast.Field(chain=["person_id"]),
+                    left=ast.Field(chain=["e", "person_id"]),
                     right=ast.Constant(value=self.query.personId),
                     op=ast.CompareOperationOp.Eq,
                 )
@@ -131,10 +136,13 @@ class SessionsTimelineQueryRunner(QueryRunner):
             elements_chain,
             formal_session_id,
             informal_session_id,
+            recording_duration_s,
         ) in query_result.results:
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
-                timeline_entries_map[entry_id] = TimelineEntry(sessionId=formal_session_id, events=[])
+                timeline_entries_map[entry_id] = TimelineEntry(
+                    sessionId=formal_session_id, events=[], recording_duration_s=recording_duration_s
+                )
             timeline_entries_map[entry_id].events.append(
                 EventType(
                     id=str(uuid),

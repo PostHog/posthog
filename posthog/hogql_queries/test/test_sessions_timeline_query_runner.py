@@ -1,6 +1,7 @@
 from uuid import UUID
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
@@ -75,6 +76,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     )
                 ],
+                recording_duration_s=0.0,
             ),
             TimelineEntry(
                 sessionId="s3",
@@ -96,6 +98,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
+                recording_duration_s=0.0,
             ),
             TimelineEntry(
                 sessionId="s1",
@@ -125,6 +128,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
+                recording_duration_s=0.0,
             ),
         ]
 
@@ -197,6 +201,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     )
                 ],
+                recording_duration_s=0.0,
             ),
             TimelineEntry(
                 sessionId="s1",
@@ -226,6 +231,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
+                recording_duration_s=0.0,
             ),
         ]
 
@@ -288,6 +294,83 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    @snapshot_clickhouse_queries
+    def test_formal_session_with_recording(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                (UUID("018b4ca4-45af-0000-0cf4-4504ae523461"), "person1"): [
+                    {
+                        "event_uuid": "6e6e645b-2936-4613-b409-b33f4d9a0f18",
+                        "event": "$pageview",
+                        "timestamp": "2021-01-01 12:00:00",
+                        "properties": {"$session_id": "s1"},
+                    },
+                    {
+                        "event_uuid": "c15119f2-b243-4547-ab46-1b29a0435948",
+                        "event": "user signed up",
+                        "timestamp": "2021-01-01 13:00:00",
+                        "properties": {"$session_id": "s1"},
+                    },
+                    {
+                        "event_uuid": "e1208e6b-8101-4dde-ba21-c47781bb5bad",
+                        "event": "$pageview",
+                        "timestamp": "2021-01-01 17:00:00",
+                        "properties": {"$session_id": "s2"},
+                    },
+                ],
+            },
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="person1",
+            first_timestamp="2021-01-01 12:30:00",
+            last_timestamp="2021-01-01 12:39:00",
+        )
+
+        runner = self._create_runner(SessionsTimelineQuery(before="2021-01-01T18:00:00Z", after="2021-01-01T06:00:00Z"))
+        response = runner.calculate()
+
+        assert response.results == [
+            TimelineEntry(
+                sessionId="s2",
+                events=[
+                    EventType(
+                        id="e1208e6b-8101-4dde-ba21-c47781bb5bad",
+                        distinct_id="person1",
+                        event="$pageview",
+                        timestamp="2021-01-01T17:00:00+00:00",
+                        properties={"$session_id": "s2"},
+                        elements=[],
+                    )
+                ],
+                recording_duration_s=0.0,  # No recording
+            ),
+            TimelineEntry(
+                sessionId="s1",
+                events=[
+                    EventType(
+                        id="c15119f2-b243-4547-ab46-1b29a0435948",
+                        distinct_id="person1",
+                        event="user signed up",
+                        timestamp="2021-01-01T13:00:00+00:00",
+                        properties={"$session_id": "s1"},
+                        elements=[],
+                    ),
+                    EventType(
+                        id="6e6e645b-2936-4613-b409-b33f4d9a0f18",
+                        distinct_id="person1",
+                        event="$pageview",
+                        timestamp="2021-01-01T12:00:00+00:00",
+                        properties={"$session_id": "s1"},
+                        elements=[],
+                    ),
+                ],
+                recording_duration_s=540,
+            ),
+        ]
 
         # TODO
         # runner = self._create_runner(SessionsTimelineQuery(before="2021-01-01T18:00:00Z", after="2021-01-01T06:00:00Z"))
