@@ -10,6 +10,7 @@ import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
 import { withSnapshotsDisabled } from './decorators/withSnapshotsDisabled'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
+import { with3000 } from './decorators/with3000'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -86,6 +87,8 @@ export const decorators: Meta['decorators'] = [
     withMockDate,
     // Allow us to easily set feature flags in stories.
     withFeatureFlags,
+    // Set theme from global context
+    with3000,
 ]
 
 const preview: Preview = {
