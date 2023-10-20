@@ -9,7 +9,13 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import LazyJoin
+from posthog.hogql.database.models import (
+    LazyJoin,
+    FieldTraverser,
+    StringJSONDatabaseField,
+    StringDatabaseField,
+    DateTimeDatabaseField,
+)
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -1000,3 +1006,29 @@ class TestResolver(BaseTest):
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
         self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+
+    def test_field_traverser_double_dot(self):
+        # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
+        self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
+        self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
+            chain=["..", "pdi", "person", "created_at"]
+        )
+        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
+
+        node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+
+        # all columns resolve to a type in the end
+        assert cast(ast.FieldType, node.select[0].type).resolve_database_field() == StringDatabaseField(
+            name="event", array=None, nullable=None
+        )
+        assert cast(ast.FieldType, node.select[1].type).resolve_database_field() == StringDatabaseField(
+            name="person_id", array=None, nullable=None
+        )
+        assert cast(ast.FieldType, node.select[2].type).resolve_database_field() == StringJSONDatabaseField(
+            name="person_properties"
+        )
+        assert cast(ast.FieldType, node.select[3].type).resolve_database_field() == DateTimeDatabaseField(
+            name="created_at", array=None, nullable=None
+        )

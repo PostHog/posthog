@@ -1,6 +1,7 @@
 import { GlobalConfig, KafkaConsumer, Message } from 'node-rdkafka'
 import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
+import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { createAdminClient, ensureTopicExists } from './admin'
 import {
@@ -18,6 +19,9 @@ export interface BatchConsumer {
     stop: () => Promise<void>
     isHealthy: () => boolean
 }
+
+const STATUS_LOG_INTERVAL_MS = 10000
+const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 
 export const startBatchConsumer = async ({
     connectionConfig,
@@ -145,35 +149,38 @@ export const startBatchConsumer = async ({
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
-        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize`
-        // messages then processing these with eachMessage, and finally calling
-        // consumer.offsetsStore. This will not actually commit offsets on the
-        // brokers, but rather just store the offsets locally such that when commit
-        // is called, either manually or via auto-commit, these are the values that
-        // will be used.
+        // Start consuming in a loop, fetching a batch of a max of `fetchBatchSize` messages then
+        // processing these with eachMessage, and finally calling consumer.offsetsStore. This will
+        // not actually commit offsets on the brokers, but rather just store the offsets locally
+        // such that when commit is called, either manually or via auto-commit, these are the values
+        // that will be used.
         //
-        // Note that we rely on librdkafka handling retries for any Kafka
-        // related operations, e.g. it will handle in the background rebalances,
-        // during which time consumeMessages will simply return an empty array.
-        // We also log the number of messages we have processed every 10
-        // seconds, which should give some feedback to the user that things are
-        // functioning as expected. You can increase the log level to debug to
-        // see each loop.
+        // Note that we rely on librdkafka handling retries for any Kafka related operations, e.g.
+        // it will handle in the background rebalances, during which time consumeMessages will
+        // simply return an empty array.
+        //
+        // We log the number of messages that have been processed every 10 seconds, which should
+        // give some feedback to the user that things are functioning as expected. If a single batch
+        // takes more than SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS we log it individually.
         let messagesProcessed = 0
-        const statusLogMilliseconds = 10000
+        let batchesProcessed = 0
         const statusLogInterval = setInterval(() => {
             status.info('🔁', 'main_loop', {
-                messagesPerSecond: messagesProcessed / (statusLogMilliseconds / 1000),
+                messagesPerSecond: messagesProcessed / (STATUS_LOG_INTERVAL_MS / 1000),
+                batchesProcessed: batchesProcessed,
                 lastConsumeTime: new Date(lastConsumeTime).toISOString(),
             })
 
             messagesProcessed = 0
-        }, statusLogMilliseconds)
+            batchesProcessed = 0
+        }, STATUS_LOG_INTERVAL_MS)
 
         try {
             while (!isShuttingDown) {
                 status.debug('🔁', 'main_loop_consuming')
-                const messages = await consumeMessages(consumer, fetchBatchSize)
+                const messages = await retryIfRetriable(async () => {
+                    return await consumeMessages(consumer, fetchBatchSize)
+                })
 
                 // It's important that we only set the `lastConsumeTime` after a successful consume
                 // call. Even if we received 0 messages, a successful call means we are actually
@@ -196,6 +203,8 @@ export const startBatchConsumer = async ({
                     continue
                 }
 
+                const startProcessingTimeMs = new Date().valueOf()
+
                 consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                 for (const message of messages) {
                     consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
@@ -206,6 +215,15 @@ export const startBatchConsumer = async ({
                 await eachBatch(messages)
 
                 messagesProcessed += messages.length
+                batchesProcessed += 1
+
+                const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
+                if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
+                    status.warn(
+                        '🕒',
+                        `Slow batch: ${messages.length} events in ${Math.round(processingTimeMs / 10) / 100}s`
+                    )
+                }
 
                 if (autoCommit) {
                     storeOffsetsForMessages(messages, consumer)
@@ -216,14 +234,12 @@ export const startBatchConsumer = async ({
             throw error
         } finally {
             status.info('🔁', 'main_loop_stopping')
-
             clearInterval(statusLogInterval)
 
-            // Finally disconnect from the broker. I'm not 100% on if the offset
-            // commit is allowed to complete before completing, or if in fact
-            // disconnect itself handles committing offsets thus the previous
-            // `commit()` call is redundant, but it shouldn't hurt.
-            await Promise.all([disconnectConsumer(consumer)])
+            // Finally, disconnect from the broker. If stored offsets have changed via
+            // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
+            // as this consumer is still part of the group).
+            await disconnectConsumer(consumer)
         }
     }
 

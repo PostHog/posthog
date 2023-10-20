@@ -309,7 +309,8 @@ async def test_get_rows_count_can_include_events(client):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_results_iterator(client):
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator(client, include_person_properties):
     """Test the rows returned by get_results_iterator."""
     team_id = randint(1, 1000000)
 
@@ -345,7 +346,13 @@ async def test_get_results_iterator(client):
         events=events,
     )
 
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    iter_ = get_results_iterator(
+        client,
+        team_id,
+        "2023-04-20 14:30:00",
+        "2023-04-20 14:31:00",
+        include_person_properties=include_person_properties,
+    )
     rows = [row for row in iter_]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
@@ -355,6 +362,9 @@ async def test_get_results_iterator(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
             if key in ("timestamp", "inserted_at", "created_at"):
                 expected_value = to_isoformat(expected[key])
             else:
@@ -366,7 +376,8 @@ async def test_get_results_iterator(client):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_results_iterator_handles_duplicates(client):
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator_handles_duplicates(client, include_person_properties):
     """Test the rows returned by get_results_iterator are de-duplicated."""
     team_id = randint(1, 1000000)
 
@@ -404,7 +415,13 @@ async def test_get_results_iterator_handles_duplicates(client):
         events=duplicate_events,
     )
 
-    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    iter_ = get_results_iterator(
+        client,
+        team_id,
+        "2023-04-20 14:30:00",
+        "2023-04-20 14:31:00",
+        include_person_properties=include_person_properties,
+    )
     rows = [row for row in iter_]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
@@ -415,6 +432,9 @@ async def test_get_results_iterator_handles_duplicates(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
             if key in ("timestamp", "inserted_at", "created_at"):
                 expected_value = to_isoformat(expected[key])
             else:
@@ -426,7 +446,8 @@ async def test_get_results_iterator_handles_duplicates(client):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_results_iterator_can_exclude_events(client):
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator_can_exclude_events(client, include_person_properties):
     """Test the rows returned by get_results_iterator can exclude events."""
     team_id = randint(1, 1000000)
 
@@ -467,7 +488,12 @@ async def test_get_results_iterator_can_exclude_events(client):
     # Exclude the latter half of events.
     exclude_events = (f"test-{i}" for i in range(5000, 10000))
     iter_ = get_results_iterator(
-        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", exclude_events=exclude_events
+        client,
+        team_id,
+        "2023-04-20 14:30:00",
+        "2023-04-20 14:31:00",
+        exclude_events=exclude_events,
+        include_person_properties=include_person_properties,
     )
     rows = [row for row in iter_]
 
@@ -479,6 +505,9 @@ async def test_get_results_iterator_can_exclude_events(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
             if key in ("timestamp", "inserted_at", "created_at"):
                 expected_value = to_isoformat(expected[key])
             else:
@@ -490,7 +519,8 @@ async def test_get_results_iterator_can_exclude_events(client):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_results_iterator_can_include_events(client):
+@pytest.mark.parametrize("include_person_properties", (False, True))
+async def test_get_results_iterator_can_include_events(client, include_person_properties):
     """Test the rows returned by get_results_iterator can include events."""
     team_id = randint(1, 1000000)
 
@@ -531,7 +561,12 @@ async def test_get_results_iterator_can_include_events(client):
     # Include the latter half of events.
     include_events = (f"test-{i}" for i in range(5000, 10000))
     iter_ = get_results_iterator(
-        client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00", include_events=include_events
+        client,
+        team_id,
+        "2023-04-20 14:30:00",
+        "2023-04-20 14:31:00",
+        include_events=include_events,
+        include_person_properties=include_person_properties,
     )
     rows = [row for row in iter_]
 
@@ -543,6 +578,9 @@ async def test_get_results_iterator_can_include_events(client):
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
+            if key == "person_properties" and not include_person_properties:
+                continue
+
             if key in ("timestamp", "inserted_at", "created_at"):
                 expected_value = to_isoformat(expected[key])
             else:

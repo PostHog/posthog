@@ -412,14 +412,22 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         loop_type = type
         chain_to_parse = node.chain[1:]
+        previous_types = []
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
                 loop_type = loop_type.table_type
                 continue
+            previous_types.append(loop_type)
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if next_chain == "..":  # only support one level of ".."
+                previous_types.pop()
+                previous_types.pop()
+                loop_type = previous_types[-1]
+                next_chain = chain_to_parse.pop(0)
+
             loop_type = loop_type.get_child(next_chain)
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")

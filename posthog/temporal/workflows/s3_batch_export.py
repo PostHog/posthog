@@ -379,6 +379,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            include_person_properties=True,
         )
 
         result = None

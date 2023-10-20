@@ -2,7 +2,7 @@ import { afterMount, connect, kea, listeners, path, selectors, actions, reducers
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import Fuse from 'fuse.js'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
@@ -12,6 +12,7 @@ import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -35,7 +36,15 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -89,10 +98,14 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
+            actions.loadCurrentTeam()
         },
         setSurveysFilters: () => {
             actions.loadSurveys()
             actions.loadResponsesCount()
+        },
+        loadSurveysSuccess: () => {
+            actions.loadCurrentTeam()
         },
     })),
     selectors({
@@ -179,6 +192,17 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.hasAvailableFeature, s.payGateFlagOn],
             (hasAvailableFeature, payGateFlagOn) =>
                 !payGateFlagOn || (payGateFlagOn && hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)),
+        ],
+        showSurveysDisabledBanner: [
+            (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
+            (currentTeam, currentTeamLoading, surveys) => {
+                return (
+                    !currentTeamLoading &&
+                    currentTeam &&
+                    !currentTeam.surveys_opt_in &&
+                    surveys.some((s) => s.start_date && !s.end_date && s.type !== SurveyType.API)
+                )
+            },
         ],
     }),
     afterMount(({ actions }) => {
