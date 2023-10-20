@@ -6,7 +6,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import {
     isEventsQuery,
     isHogQLQuery,

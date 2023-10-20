@@ -27,12 +27,14 @@ class BatchExportDestination(UUIDModel):
         SNOWFLAKE = "Snowflake"
         POSTGRES = "Postgres"
         BIGQUERY = "BigQuery"
+        NOOP = "NoOp"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
         "Postgres": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "NoOp": set(),
     }
 
     type: models.CharField = models.CharField(
@@ -225,3 +227,36 @@ def fetch_batch_export_log_entries(
     return [
         BatchExportLogEntry(*result) for result in typing.cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
     ]
+
+
+class BatchExportBackfill(UUIDModel):
+    class Status(models.TextChoices):
+        """Possible states of the BatchExportRun."""
+
+        CANCELLED = "Cancelled"
+        COMPLETED = "Completed"
+        CONTINUEDASNEW = "ContinuedAsNew"
+        FAILED = "Failed"
+        TERMINATED = "Terminated"
+        TIMEDOUT = "TimedOut"
+        RUNNING = "Running"
+        STARTING = "Starting"
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export = models.ForeignKey(
+        "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this backfill belongs to."
+    )
+    start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    status: models.CharField = models.CharField(
+        choices=Status.choices, max_length=64, help_text="The status of this backfill."
+    )
+    created_at: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, help_text="The timestamp at which this BatchExportBackfill was created."
+    )
+    finished_at: models.DateTimeField = models.DateTimeField(
+        null=True, help_text="The timestamp at which this BatchExportBackfill finished, successfully or not."
+    )
+    last_updated_at: models.DateTimeField = models.DateTimeField(
+        auto_now=True, help_text="The timestamp at which this BatchExportBackfill was last updated."
+    )

@@ -321,7 +321,7 @@ async def list_workflows(temporal, schedule_id: str):
     return workflows
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
     "interval,plugin_config",
     [

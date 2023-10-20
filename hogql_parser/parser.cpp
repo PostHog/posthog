@@ -570,6 +570,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(RatioExpr) {
+    auto placeholder_ctx = ctx->PLACEHOLDER();
+    if (placeholder_ctx) {
+      string placeholder = unquote_string_terminal(placeholder_ctx);
+      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+    }
+    
     auto number_literal_ctxs = ctx->numberLiteral();
 
     if (number_literal_ctxs.size() > 2) {

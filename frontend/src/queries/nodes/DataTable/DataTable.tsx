@@ -7,8 +7,9 @@ import {
     HogQLQuery,
     PersonsNode,
     PersonsQuery,
-    QueryContext,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'

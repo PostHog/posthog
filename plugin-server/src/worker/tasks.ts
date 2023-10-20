@@ -1,6 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
 import { EnqueuedPluginJob, Hub, PluginTaskType } from '../types'
+import { retryIfRetriable } from '../utils/retries'
+import { status } from '../utils/status'
+import { sleep } from '../utils/utils'
 import { loadSchedule } from './plugins/loadSchedule'
 import { runPluginTask, runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
@@ -28,7 +31,11 @@ export const workerTasks: Record<string, TaskRunner> = {
         return hub.pluginSchedule !== null
     },
     reloadPlugins: async (hub) => {
-        await setupPlugins(hub)
+        // Jitter the reload time to avoid all workers reloading at the same time.
+        const jitterMs = Math.random() * hub.RELOAD_PLUGIN_JITTER_MAX_MS
+        status.info('💤', `Sleeping for ${jitterMs}ms to jitter reloadPlugins`)
+        await sleep(jitterMs)
+        await retryIfRetriable(async () => await setupPlugins(hub))
     },
     reloadSchedule: async (hub) => {
         await loadSchedule(hub)
