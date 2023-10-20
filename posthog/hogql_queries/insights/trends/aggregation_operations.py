@@ -5,7 +5,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import ActionsNode, EventsNode
 
 
-class QueryModifier:
+class QueryAlternator:
     _query: ast.SelectQuery
     _selects: List[ast.Expr]
     _group_bys: List[ast.Expr]
@@ -128,14 +128,14 @@ class AggregationOperations:
         parent_select = self._parent_select_query(inner_select)
 
         class QueryOrchestrator:
-            events_query_builder: QueryModifier
-            inner_select_query_builder: QueryModifier
-            parent_select_query_builder: QueryModifier
+            events_query_builder: QueryAlternator
+            inner_select_query_builder: QueryAlternator
+            parent_select_query_builder: QueryAlternator
 
             def __init__(self):
-                self.events_query_builder = QueryModifier(events_query)
-                self.inner_select_query_builder = QueryModifier(inner_select)
-                self.parent_select_query_builder = QueryModifier(parent_select)
+                self.events_query_builder = QueryAlternator(events_query)
+                self.inner_select_query_builder = QueryAlternator(inner_select)
+                self.parent_select_query_builder = QueryAlternator(parent_select)
 
             def build(self):
                 self.events_query_builder.build()
