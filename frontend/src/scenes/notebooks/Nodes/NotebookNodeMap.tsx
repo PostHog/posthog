@@ -7,6 +7,10 @@ import { NotebookNodeType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { NotebookNodeProps } from '../Notebook/utils'
+import { personLogic } from 'scenes/persons/personLogic'
+import { useValues } from 'kea'
+import { LemonSkeleton } from '@posthog/lemon-ui'
+import { NotFound } from 'lib/components/NotFound'
 
 /** Latitude and longtitude in degrees (+lat is east, -lat is west, +lon is south, -lon is north). */
 export interface MapProps {
@@ -49,25 +53,16 @@ export function Map({ center, markers, style }: MapProps): JSX.Element {
     return <div ref={mapContainer} style={style} />
 }
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element => {
-    const { nodeId } = attributes
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>): JSX.Element => {
+    const { id } = attributes
 
-    const person = {
-        properties: {
-            $geoip_city_name: 'Modena',
-            $geoip_continent_code: 'EU',
-            $geoip_continent_name: 'Europe',
-            $geoip_country_code: 'IT',
-            $geoip_country_name: 'Italy',
-            $geoip_latitude: 44.6511,
-            $geoip_longitude: 10.9211,
-            $geoip_postal_code: '41124',
-            $geoip_subdivision_1_code: '45',
-            $geoip_subdivision_1_name: 'Emilia-Romagna',
-            $geoip_subdivision_2_code: 'MO',
-            $geoip_subdivision_2_name: 'Province of Modena',
-            $geoip_time_zone: 'Europe/Rome',
-        },
+    const logic = personLogic({ id })
+    const { person, personLoading } = useValues(logic)
+
+    if (personLoading) {
+        return <LemonSkeleton className="h-6" />
+    } else if (!person) {
+        return <NotFound object="person" />
     }
 
     const longtitude = person?.properties?.['$geoip_longitude']
@@ -92,7 +87,9 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     )
 }
 
-type NotebookNodeMapAttributes = {}
+type NotebookNodeMapAttributes = {
+    id: string
+}
 
 export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes>({
     nodeType: NotebookNodeType.Map,
@@ -100,5 +97,7 @@ export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes
     Component,
     resizeable: false,
     expandable: false,
-    attributes: {},
+    attributes: {
+        id: {},
+    },
 })
