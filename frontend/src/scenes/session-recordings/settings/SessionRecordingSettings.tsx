@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -146,6 +146,24 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         Use this setting to restrict the percentage of sessions that will be recorded. This is useful if
                         you want to reduce the amount of data you collect. 100% means all sessions will be collected.
                         50% means roughly half of sessions will be collected.
+                    </p>
+                </>
+            </FlaggedFeature>
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
+                <>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonLabel className="text-base">Minimum session duration</LemonLabel>
+                        <LemonInput
+                            onChange={(v) => {
+                                updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v || null })
+                            }}
+                            type={'number'}
+                            allowClear={true}
+                        />
+                    </div>
+                    <p>
+                        Setting a minimum session duration will ensure that only sessions that last longer than that
+                        value are collected. This helps you avoid collecting sessions that are too short to be useful.
                     </p>
                 </>
             </FlaggedFeature>

@@ -184,7 +184,9 @@ class TeamAdmin(admin.ModelAdmin):
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
                     "session_recording_sample_rate",
-                    "updateCurrentTeam({ capture_console_log_opt_in: checked })" "data_attributes",
+                    "session_recording_minimum_duration_milliseconds"
+                    "updateCurrentTeam({ capture_console_log_opt_in: checked })"
+                    "data_attributes",
                     "session_recording_version",
                     "access_control",
                     "inject_web_apps",

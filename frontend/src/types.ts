@@ -340,6 +340,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     session_recording_sample_rate: SampleRate
+    session_recording_minimum_duration_milliseconds: number | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]

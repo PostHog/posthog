@@ -223,11 +223,14 @@ def get_decide(request: HttpRequest):
                 if sample_rate == "1.00":
                     sample_rate = None
 
+                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
                     "sampleRate": sample_rate,
+                    "minimumDurationMilliseconds": minimum_duration,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False

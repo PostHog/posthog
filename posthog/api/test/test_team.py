@@ -506,6 +506,26 @@ class TestTeamAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    @parameterized.expand(
+        [
+            ["non numeric string", "Trentham monkey forest", "invalid_input", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than 15000", "15001", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.5", "max_decimal_places", "Ensure that there are no decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_minimum_duration(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_sample_rate": provided_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_sample_rate",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """
