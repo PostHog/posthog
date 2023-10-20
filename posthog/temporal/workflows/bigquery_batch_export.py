@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from temporalio import activity, exceptions, workflow
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
@@ -16,11 +16,11 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    execute_batch_export_insert_activity,
     get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 

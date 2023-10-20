@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import aioboto3
 from django.conf import settings
-from temporalio import activity, exceptions, workflow
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import S3BatchExportInputs
@@ -19,11 +19,11 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    execute_batch_export_insert_activity,
     get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -504,24 +504,6 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             encryption=inputs.encryption,
             kms_key_id=inputs.kms_key_id,
         )
-        try:
-            await workflow.execute_activity(
-                insert_into_s3_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[
-                        # S3 parameter validation failed.
-                        "ParamValidationError",
-                        # This error usually indicates credentials are incorrect or permissions are missing.
-                        "ClientError",
-                    ],
-                ),
-            )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.CancelledError):
