@@ -121,7 +121,7 @@ class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 return Response(
                     {
                         "id": uploaded_media.id,
-                        "media_location": uploaded_media.get_absolute_url(),
+                        "attachment_location": uploaded_media.get_absolute_url(),
                         "name": uploaded_media.file_name,
                     },
                     status=status.HTTP_201_CREATED,
