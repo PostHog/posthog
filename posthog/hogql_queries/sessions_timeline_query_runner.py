@@ -1,7 +1,6 @@
-from collections import defaultdict
 from datetime import timedelta
 import json
-from typing import DefaultDict, Dict, List, Optional, Any, cast
+from typing import Dict, Optional, Any, cast
 
 
 from posthog.clickhouse.client.connection import Workload
@@ -15,6 +14,20 @@ from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQue
 
 
 class SessionsTimelineQueryRunner(QueryRunner):
+    """
+    # How does the sessions timeline work?
+
+    A formal session on the timeline is defined by finding the first and last event with a given session ID, and
+    collecting these events and all in between.
+    An informal session is defined by collecting all events between formal sessions, where a new informal session is
+    formed when the time between two events exceeds 30 minutes. These sessions only contain events without a session ID.
+
+    > This is not the same as the Trends session duration logic, where events without a session ID are ignored.
+
+    The sessions timeline is a sequence of sessions (both formal and informal), starting with ones that started most
+    recently. Events within a session are also ordered by timestamp descending.
+    """
+
     query: SessionsTimelineQuery
     query_type = SessionsTimelineQuery
 
@@ -45,7 +58,16 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         WHERE events.timestamp > toDateTime({after}) AND events.timestamp <= toDateTime({before})
                         LIMIT 100
                     ) AS relevant_session_ids
-                    SELECT uuid, $session_id, timestamp, event, properties, distinct_id
+                    SELECT
+                        uuid,
+                        timestamp,
+                        event, properties,
+                        distinct_id,
+                        $session_id AS formal_session_id,
+                        first_value(uuid) OVER (
+                            PARTITION BY $session_id ORDER BY __toInt64(timestamp) / 1000000 /* µs to s */
+                            RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW
+                        ) AS informal_session_uuid
                     FROM events
                     WHERE
                         events.timestamp >= (
@@ -95,9 +117,20 @@ class SessionsTimelineQueryRunner(QueryRunner):
             timings=self.timings,
         )
         assert query_result.results is not None
-        timeline_entries_map: DefaultDict[str, List[EventType]] = defaultdict(list)
-        for uuid, session_id, timestamp_parsed, event, properties_raw, distinct_id in query_result.results:
-            timeline_entries_map[session_id].append(
+        timeline_entries_map: Dict[str, TimelineEntry] = {}
+        for (
+            uuid,
+            timestamp_parsed,
+            event,
+            properties_raw,
+            distinct_id,
+            formal_session_id,
+            informal_session_id,
+        ) in query_result.results:
+            entry_id = str(formal_session_id or informal_session_id)
+            if entry_id not in timeline_entries_map:
+                timeline_entries_map[entry_id] = TimelineEntry(sessionId=formal_session_id, events=[])
+            timeline_entries_map[entry_id].events.append(
                 EventType(
                     id=str(uuid),
                     distinct_id=distinct_id,
@@ -106,12 +139,9 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     properties=json.loads(properties_raw),
                 )
             )
-        for events in timeline_entries_map.values():
-            events.reverse()
-        timeline_entries = [
-            TimelineEntry(sessionId=session_id, events=events)
-            for session_id, events in reversed(timeline_entries_map.items())
-        ]
+        timeline_entries = list(reversed(timeline_entries_map.values()))
+        for entry in timeline_entries:
+            entry.events.reverse()
 
         return SessionsTimelineQueryResponse(
             results=timeline_entries,
