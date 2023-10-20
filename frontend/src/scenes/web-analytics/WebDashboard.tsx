@@ -18,11 +18,8 @@ const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     }
 }
 
-// format numbers according to the user's locale
-const numberFormatter = new Intl.NumberFormat()
-
 const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return <span>{typeof value === 'number' ? numberFormatter.format(value * 1000) : String(value)}</span>
+    return <span>{typeof value === 'number' ? value.toLocaleString() : String(value)}</span>
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
