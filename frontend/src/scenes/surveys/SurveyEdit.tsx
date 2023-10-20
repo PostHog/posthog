@@ -965,7 +965,7 @@ export function HTMLEditor({
                         ),
                         content: (
                             <div>
-                                {surveysHTMLAvailable ? (
+                                <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
                                     <CodeEditor
                                         className="border"
                                         language="html"
@@ -988,11 +988,7 @@ export function HTMLEditor({
                                             folding: false,
                                         }}
                                     />
-                                ) : (
-                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
-                                        <></>
-                                    </PayGateMini>
-                                )}
+                                </PayGateMini>
                             </div>
                         ),
                     },

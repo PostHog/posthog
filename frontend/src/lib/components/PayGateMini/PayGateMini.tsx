@@ -6,7 +6,6 @@ import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
-import { capitalizeFirstLetter } from 'lib/utils'
 import clsx from 'clsx'
 
 type PayGateSupportedFeatures =
@@ -99,7 +98,7 @@ export function PayGateMini({
 
     const featureSummary = FEATURE_SUMMARIES[feature]
     const planRequired = FEATURE_MINIMUM_PLAN[feature]
-    let gateVariant: 'add-card' | 'contact-sales' | 'check-licensing' | null = null
+    let gateVariant: 'add-card' | 'contact-sales' | 'subscribe' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature)) {
         if (preflight?.cloud) {
             if (planRequired === POSTHOG_CLOUD_STANDARD_PLAN) {
@@ -108,7 +107,7 @@ export function PayGateMini({
                 gateVariant = 'contact-sales'
             }
         } else {
-            gateVariant = 'check-licensing'
+            gateVariant = 'subscribe'
         }
     }
 
@@ -121,8 +120,7 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Upgrade to {gateVariant === 'add-card' ? 'a premium' : `the ${capitalizeFirstLetter(planRequired)}`}{' '}
-                plan to gain {featureSummary.umbrella}.
+                Subscribe to gain {featureSummary.umbrella}.
                 {featureSummary.docsHref && (
                     <>
                         {' '}
@@ -138,8 +136,8 @@ export function PayGateMini({
                         ? '/organization/billing'
                         : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
-                        : gateVariant === 'check-licensing'
-                        ? 'https://posthog.com/pricing'
+                        : gateVariant === 'subscribe'
+                        ? '/organization/billing'
                         : undefined
                 }
                 type="secondary"
@@ -150,7 +148,7 @@ export function PayGateMini({
                     ? 'Upgrade now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
-                    : 'Explore license options'}
+                    : 'Subscribe'}
             </LemonButton>
         </div>
     ) : (

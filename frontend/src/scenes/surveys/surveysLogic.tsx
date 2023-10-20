@@ -33,7 +33,7 @@ interface SurveysCreators {
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['hasAvailableFeature']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -159,21 +159,20 @@ export const surveysLogic = kea<surveysLogicType>([
             },
         ],
         whitelabelAvailable: [
-            (s) => [s.user],
-            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
         surveysStylingAvailable: [
-            (s) => [s.user],
-            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_STYLING),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
         ],
         surveysHTMLAvailable: [
-            (s) => [s.user],
-            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_TEXT_HTML),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),
         ],
         surveysMultipleQuestionsAvailable: [
-            (s) => [s.user],
-            (user) =>
-                (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
         ],
     }),
     afterMount(({ actions }) => {
