@@ -87,7 +87,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         <Map
             center={personCoordinates}
             markers={[new Marker({ color: 'var(--primary)' }).setLngLat(personCoordinates)]}
-            style={{ height: '14rem', borderBottomWidth: 1 }}
+            style={{ height: '14rem' }}
         />
     )
 }
