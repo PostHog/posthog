@@ -3,6 +3,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import series_event_name
@@ -107,11 +108,11 @@ class TrendsQueryBuilder:
         ]
 
     def _get_events_subquery(self) -> ast.SelectQuery:
-        query = parse_select(
+        default_query = parse_select(
             """
                 SELECT
                     {aggregation_operation} AS total,
-                    dateTrunc({interval}, toTimeZone(toDateTime(timestamp), 'UTC')) AS day_start
+                    dateTrunc({interval}, timestamp) AS day_start
                 FROM events AS e
                 SAMPLE {sample}
                 WHERE {events_filter}
@@ -120,19 +121,46 @@ class TrendsQueryBuilder:
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 "events_filter": self._events_filter(),
-                "aggregation_operation": self._aggregation_operation(),
+                "aggregation_operation": self._aggregation_operation.select_aggregation(),
                 "sample": self._sample_value(),
             },
         )
 
-        if self._breakdown.enabled:
-            query.select.append(self._breakdown.column_expr())
-            query.group_by.append(ast.Field(chain=["breakdown_value"]))
+        # No breakdowns and no complex series aggregation
+        if not self._breakdown.enabled and not self._aggregation_operation.requires_query_orchestration():
+            return default_query
+        # Both breakdowns and complex series aggregation
+        elif self._breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+            orchestrator = self._aggregation_operation.get_query_orchestrator(
+                events_where_clause=self._events_filter(),
+                sample_value=self._sample_value(),
+            )
+
+            orchestrator.events_query_builder.append_select(self._breakdown.column_expr())
+            orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+            if self._breakdown.is_session_type:
+                orchestrator.events_query_builder.replace_select_from(self._breakdown_session.session_inner_join())
+
+            orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+            orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
+
+            orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
+
+            return orchestrator.build()
+        # Just breakdowns
+        elif self._breakdown.enabled:
+            default_query.select.append(self._breakdown.column_expr())
+            default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
             if self._breakdown.is_session_type:
-                query.select_from = self._breakdown_session.session_inner_join()
+                default_query.select_from = self._breakdown_session.session_inner_join()
+        # Just complex series aggregation
+        elif self._aggregation_operation.requires_query_orchestration():
+            return self._aggregation_operation.get_query_orchestrator(
+                events_where_clause=self._events_filter(), sample_value=self._sample_value()
+            ).build()
 
-        return query
+        return default_query
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
         query = parse_select(
@@ -234,14 +262,7 @@ class TrendsQueryBuilder:
         else:
             return ast.And(exprs=filters)
 
-    def _aggregation_operation(self) -> ast.Expr:
-        if self.series.math == "hogql":
-            return parse_expr(self.series.math_hogql)
-
-        return parse_expr("count(e.uuid)")
-
-    # Using string interpolation for SAMPLE due to HogQL limitations with `UNION ALL` and `SAMPLE` AST nodes
-    def _sample_value(self) -> str:
+    def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:
             return ast.RatioExpr(left=ast.Constant(value=1))
 
@@ -260,3 +281,7 @@ class TrendsQueryBuilder:
     @cached_property
     def _breakdown_session(self):
         return BreakdownSession(self.query_date_range)
+
+    @cached_property
+    def _aggregation_operation(self):
+        return AggregationOperations(self.series, self.query_date_range)
