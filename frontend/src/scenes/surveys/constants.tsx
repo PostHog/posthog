@@ -253,6 +253,6 @@ export const defaultSurveyTemplates = [
                 question: 'What can we do to improve our product?',
             },
         ],
-        description: 'The classic.',
+        description: "Let your users share what's on their mind.",
     },
 ]
