@@ -1,6 +1,7 @@
 from datetime import timedelta
 import json
 from typing import Dict, Optional, Any, cast
+from posthog.api.element import ElementSerializer
 
 
 from posthog.clickhouse.client.connection import Workload
@@ -10,6 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
+from posthog.models.element.element import chain_to_elements
 from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
 
 
@@ -61,8 +63,10 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     SELECT
                         uuid,
                         timestamp,
-                        event, properties,
+                        event,
+                        properties,
                         distinct_id,
+                        elements_chain,
                         $session_id AS formal_session_id,
                         first_value(uuid) OVER (
                             PARTITION BY $session_id ORDER BY __toInt64(timestamp) / 1000000 /* µs to s */
@@ -124,6 +128,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             event,
             properties_raw,
             distinct_id,
+            elements_chain,
             formal_session_id,
             informal_session_id,
         ) in query_result.results:
@@ -137,6 +142,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
                     event=event,
                     timestamp=timestamp_parsed.isoformat(),
                     properties=json.loads(properties_raw),
+                    elements_chain=elements_chain or None,
+                    elements=ElementSerializer(chain_to_elements(elements_chain), many=True).data,
                 )
             )
         timeline_entries = list(reversed(timeline_entries_map.values()))

@@ -1,3 +1,4 @@
+from uuid import UUID
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -13,7 +14,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             team=self.team,
             events_by_person={
-                "person1": [
+                (UUID("018b4ca4-45af-0000-0cf4-4504ae523461"), "person1"): [
                     # The sessions are sorted most recently started to least,
                     # while events within most recent to least recent
                     {
@@ -41,7 +42,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "properties": {"$session_id": "s2"},
                     },
                 ],
-                "person2": [  # Partly overlapping with person1
+                (UUID("018b4c9f-50c1-0000-d15c-073bd4789c0e"), "person2"): [  # Partly overlapping with person1
                     {
                         "event_uuid": "605f6843-bf83-4d7b-b9a0-4d6f7f57415f",
                         "event": "$pageview",
@@ -71,6 +72,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T17:00:00+00:00",
                         properties={"$session_id": "s2"},
+                        elements=[],
                     )
                 ],
             ),
@@ -83,6 +85,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="did important thing",
                         timestamp="2021-01-02T02:00:00+00:00",
                         properties={"$session_id": "s3"},
+                        elements=[],
                     ),
                     EventType(
                         id="605f6843-bf83-4d7b-b9a0-4d6f7f57415f",
@@ -90,6 +93,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T13:30:00+00:00",
                         properties={"$session_id": "s3"},
+                        elements=[],
                     ),
                 ],
             ),
@@ -102,6 +106,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T14:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",
@@ -109,6 +114,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="user signed up",
                         timestamp="2021-01-01T13:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                     EventType(
                         id="6e6e645b-2936-4613-b409-b33f4d9a0f18",
@@ -116,6 +122,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T12:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                 ],
             ),
@@ -126,7 +133,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         persons = journeys_for(
             team=self.team,
             events_by_person={
-                "person1": [
+                (UUID("018b4ca4-45af-0000-0cf4-4504ae523461"), "person1"): [
                     # The sessions are sorted most recently started to least,
                     # while events within most recent to least recent
                     {
@@ -154,7 +161,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "properties": {"$session_id": "s2"},
                     },
                 ],
-                "person2": [  # Partly overlapping with person1
+                (UUID("018b4c9f-50c1-0000-d15c-073bd4789c0e"), "person2"): [  # Partly overlapping with person1
                     {
                         "event_uuid": "605f6843-bf83-4d7b-b9a0-4d6f7f57415f",
                         "event": "$pageview",
@@ -187,6 +194,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T17:00:00+00:00",
                         properties={"$session_id": "s2"},
+                        elements=[],
                     )
                 ],
             ),
@@ -199,6 +207,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T14:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                     EventType(
                         id="c15119f2-b243-4547-ab46-1b29a0435948",
@@ -206,6 +215,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="user signed up",
                         timestamp="2021-01-01T13:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                     EventType(
                         id="6e6e645b-2936-4613-b409-b33f4d9a0f18",
@@ -213,6 +223,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         event="$pageview",
                         timestamp="2021-01-01T12:00:00+00:00",
                         properties={"$session_id": "s1"},
+                        elements=[],
                     ),
                 ],
             ),
@@ -223,7 +234,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             team=self.team,
             events_by_person={
-                "person1": [
+                (UUID("018b4ca4-45af-0000-0cf4-4504ae523461"), "person1"): [
                     {
                         "event_uuid": "6e6e645b-2936-4613-b409-b33f4d9a0f18",
                         "event": "$pageview",
@@ -261,7 +272,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "properties": {},  # No session ID - this should be in a single-event entry
                     },
                 ],
-                "person2": [
+                (UUID("018b4c9f-50c1-0000-d15c-073bd4789c0e"), "person2"): [
                     {
                         "event_uuid": "605f6843-bf83-4d7b-b9a0-4d6f7f57415f",
                         "event": "$pageview",

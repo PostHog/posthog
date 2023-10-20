@@ -1,19 +1,20 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List
-from uuid import uuid4
+from typing import Any, Dict, List, Tuple
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
 from posthog.client import sync_execute
 from posthog.models import Group, Person, PersonDistinctId, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.utils import UUIDT
 from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
-    events_by_person: Dict[str, List[Dict[str, Any]]], team: Team, create_people: bool = True
+    events_by_person: Dict[Tuple[UUID, str] | str, List[Dict[str, Any]]], team: Team, create_people: bool = True
 ) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
@@ -40,9 +41,13 @@ def journeys_for(
     flush_persons_and_events()
     people = {}
     events_to_create = []
-    for distinct_id, events in events_by_person.items():
+    for ids, events in events_by_person.items():
+        if isinstance(ids, str):
+            uuid, distinct_id = UUIDT(), ids
+        else:
+            uuid, distinct_id = ids
         if create_people:
-            people[distinct_id] = update_or_create_person(distinct_ids=[distinct_id], team_id=team.pk)
+            people[distinct_id] = update_or_create_person(uuid=uuid, distinct_ids=[distinct_id], team_id=team.pk)
         else:
             people[distinct_id] = Person.objects.get(
                 persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=team.pk

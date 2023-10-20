@@ -5,6 +5,7 @@
          events.event,
          events.properties,
          events.distinct_id,
+         events.elements_chain,
          events.`$session_id` AS formal_session_id,
          first_value(events.uuid) OVER (PARTITION BY events.`$session_id`
                                         ORDER BY divide(toInt64(toTimeZone(events.timestamp, 'UTC')), 1000000) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid
@@ -16,7 +17,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-  WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi.person_id, '018b4c9f-50c1-0000-d15c-073bd4789c0e'), 0))
+  WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi.person_id, '018b4ca4-45af-0000-0cf4-4504ae523461'), 0))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -30,6 +31,7 @@
          events.event,
          events.properties,
          events.distinct_id,
+         events.elements_chain,
          events.`$session_id` AS formal_session_id,
          first_value(events.uuid) OVER (PARTITION BY events.`$session_id`
                                         ORDER BY divide(toInt64(toTimeZone(events.timestamp, 'UTC')), 1000000) ASC RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW) AS informal_session_uuid
