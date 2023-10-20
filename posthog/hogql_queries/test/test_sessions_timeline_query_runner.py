@@ -76,7 +76,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     )
                 ],
-                recording_duration_s=0.0,
+                recording_duration_s=None,
             ),
             TimelineEntry(
                 sessionId="s3",
@@ -98,7 +98,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
-                recording_duration_s=0.0,
+                recording_duration_s=None,
             ),
             TimelineEntry(
                 sessionId="s1",
@@ -128,7 +128,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
-                recording_duration_s=0.0,
+                recording_duration_s=None,
             ),
         ]
 
@@ -201,7 +201,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     )
                 ],
-                recording_duration_s=0.0,
+                recording_duration_s=None,
             ),
             TimelineEntry(
                 sessionId="s1",
@@ -231,7 +231,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     ),
                 ],
-                recording_duration_s=0.0,
+                recording_duration_s=None,
             ),
         ]
 
@@ -346,7 +346,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         elements=[],
                     )
                 ],
-                recording_duration_s=0.0,  # No recording
+                recording_duration_s=None,  # No recording
             ),
             TimelineEntry(
                 sessionId="s1",

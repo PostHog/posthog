@@ -141,7 +141,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
                 timeline_entries_map[entry_id] = TimelineEntry(
-                    sessionId=formal_session_id, events=[], recording_duration_s=recording_duration_s
+                    sessionId=formal_session_id, events=[], recording_duration_s=recording_duration_s or None
                 )
             timeline_entries_map[entry_id].events.append(
                 EventType(
