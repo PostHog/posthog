@@ -20,16 +20,24 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
         return <NotFound object="person" />
     }
 
+    const numProperties = Object.keys(person.properties).length
+
     return (
-        <div className="p-4">
-            {Object.entries(person.properties).map(([key, value]) => (
-                <div key={key}>
-                    <LemonLabel>
-                        <PropertyKeyInfo value={key} />
-                    </LemonLabel>
-                    <PropertiesTable properties={value} rootKey={key} />
-                </div>
-            ))}
+        <div className="py-2 px-4 text-xs">
+            {Object.entries(person.properties).map(([key, value], index) => {
+                const isLast = index === numProperties - 1
+
+                return (
+                    <div key={key} className="mb-1">
+                        <LemonLabel className="leading-4">
+                            <PropertyKeyInfo value={key} />
+                        </LemonLabel>
+                        <div className={`${!isLast && 'border-b border-border-light pb-1'}`}>
+                            <PropertiesTable properties={value} rootKey={key} />
+                        </div>
+                    </div>
+                )
+            })}
         </div>
     )
 }

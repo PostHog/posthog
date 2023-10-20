@@ -139,7 +139,7 @@ export const personsLogic = kea<personsLogicType>({
         currentTab: [
             (s) => [s.activeTab],
             (activeTab) => {
-                return activeTab || PersonsTabType.PROPERTIES
+                return activeTab || PersonsTabType.FEED
             },
         ],
         breadcrumbs: [
