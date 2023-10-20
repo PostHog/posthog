@@ -64,8 +64,9 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypes],
             (groupTypes) =>
                 (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false): Noun => {
-                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
-                        const groupType = groupTypes[groupTypeIndex]
+                    const groupType = groupTypes.find((groupType) => groupType.group_type_index === groupTypeIndex)
+
+                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupType) {
                         return {
                             singular: groupType.name_plural || groupType.group_type,
                             plural: groupType.name_plural || `${groupType.group_type}(s)`,
