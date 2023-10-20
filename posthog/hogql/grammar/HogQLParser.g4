@@ -70,7 +70,7 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
-ratioExpr: numberLiteral (SLASH numberLiteral)?;
+ratioExpr: PLACEHOLDER | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
 

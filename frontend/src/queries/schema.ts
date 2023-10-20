@@ -12,7 +12,6 @@ import {
     GroupMathType,
     HogQLMathType,
     HogQLPropertyFilter,
-    InsightLogicProps,
     InsightShortId,
     IntervalType,
     LifecycleFilterType,
@@ -24,7 +23,6 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
-import { ComponentType } from 'react'
 
 /**
  * PostHog Query Schema definition.
@@ -131,7 +129,7 @@ export interface DataNode extends Node {
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v2_enabled'
+    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'leftjoin' | 'subquery'
 }
@@ -700,36 +698,4 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
-}
-
-/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
-export interface QueryContext {
-    /** Column templates for the DataTable */
-    columns?: Record<string, QueryContextColumn>
-    /** used to override the value in the query */
-    showOpenEditorButton?: boolean
-    showQueryEditor?: boolean
-    /* Adds help and examples to the query editor component */
-    showQueryHelp?: boolean
-    insightProps?: InsightLogicProps
-    emptyStateHeading?: string
-    emptyStateDetail?: string
-}
-
-export type QueryContextColumnTitleComponent = ComponentType<{
-    columnName: string
-    query: DataTableNode
-}>
-
-export type QueryContextColumnComponent = ComponentType<{
-    columnName: string
-    query: DataTableNode
-    record: unknown
-    value: unknown
-}>
-
-interface QueryContextColumn {
-    title?: string
-    renderTitle?: QueryContextColumnTitleComponent
-    render?: QueryContextColumnComponent
 }

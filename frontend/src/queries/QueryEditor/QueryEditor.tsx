@@ -6,8 +6,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import clsx from 'clsx'
-import { QueryContext } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import { CodeEditor } from 'lib/components/CodeEditors'
+
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
