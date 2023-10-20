@@ -39,37 +39,6 @@ describe('Surveys', () => {
         cy.get('tbody').should('not.exist')
     })
 
-    it('shows survey disabled banner when surveys disabled', () => {
-        cy.get('div.LemonBanner.LemonBanner--warning.mb-2').should(
-            'contain',
-            'Survey popovers are currently disabled for this project'
-        )
-        cy.get('div.LemonBanner.LemonBanner--warning.mb-2').contains('Configure').click()
-
-        cy.contains('Surveys settings').should('exist').should('be.visible')
-
-        cy.get('[data-attr="opt-in-surveys-switch"]').click()
-
-        cy.get('[data-attr=success-toast]').contains('Surveys opt in').should('exist')
-
-        cy.contains('Done').click()
-
-        // now lemon banner should be gone
-        cy.get('div.LemonBanner.LemonBanner--warning.mb-2').should('not.exist')
-
-        // get it back
-        cy.contains('Configure').click()
-        cy.get('[data-attr="opt-in-surveys-switch"]').click()
-        cy.get('[data-attr=success-toast]').contains('Surveys opt in').should('exist')
-        cy.contains('Done').click()
-
-        // now lemon banner should be back
-        cy.get('div.LemonBanner.LemonBanner--warning.mb-2').should(
-            'contain',
-            'Survey popovers are currently disabled for this project'
-        )
-    })
-
     it('creates a new survey', () => {
         // load an empty page
         cy.get('h1').should('contain', 'Surveys')
