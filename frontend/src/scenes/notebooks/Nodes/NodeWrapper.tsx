@@ -152,6 +152,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
+    const isDraggable = !!(isEditable && getPos)
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -178,7 +179,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
                                             <div className="flex items-center flex-1 overflow-hidden">
-                                                {isEditable && (
+                                                {isDraggable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
                                                 )}
                                                 <NotebookNodeTitle />
