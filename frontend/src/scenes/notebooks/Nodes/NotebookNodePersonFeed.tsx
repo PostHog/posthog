@@ -22,6 +22,14 @@ import { KEY_MAPPING } from 'lib/taxonomy'
 import { personLogic } from 'scenes/persons/personLogic'
 import { NotFound } from 'lib/components/NotFound'
 
+function FeedSkeleton(): JSX.Element {
+    return (
+        <div className="space-y-4 p-4">
+            <LemonSkeleton className="h-8" repeat={10} />
+        </div>
+    )
+}
+
 function EventIcon({ event }: { event: EventType }): JSX.Element {
     let Component: React.ComponentType<{ className: string }>
     switch (event.event) {
@@ -107,7 +115,7 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
 
     if (!sessions && sessionsLoading) {
-        return <Spinner />
+        return <FeedSkeleton />
     }
 
     if (sessions === null) {
@@ -130,7 +138,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
     const { person, personLoading } = useValues(logic)
 
     if (personLoading) {
-        return <LemonSkeleton className="h-6" />
+        return <FeedSkeleton />
     } else if (!person) {
         return <NotFound object="person" />
     }
