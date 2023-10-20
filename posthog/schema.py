@@ -462,6 +462,7 @@ class TimelineEntry(BaseModel):
         extra="forbid",
     )
     events: List[EventType]
+    recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 

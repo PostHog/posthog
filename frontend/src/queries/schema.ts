@@ -552,6 +552,8 @@ export interface TimelineEntry {
     /** Session ID. None means out-of-session events */
     sessionId?: string
     events: EventType[]
+    /** Duration of the recording in seconds. */
+    recording_duration_s?: number
 }
 
 export interface SessionsTimelineQueryResponse {

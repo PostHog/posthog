@@ -139,6 +139,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "not": HogQLFunctionMeta("not", 1, 1),
     # type conversions
     "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
+    "__toInt64": HogQLFunctionMeta("toInt64", 1, 1),  # TODO: `__` is supposed to mean this is raw, do we want to this?
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
     "toDate": HogQLFunctionMeta(
