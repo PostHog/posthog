@@ -208,26 +208,26 @@ class TestInsightModel(BaseTest):
             dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
 
             data = query_insight.dashboard_query(dashboard)
+            assert data
             actual = data["source"]["filters"]
             assert expected_filters == actual
 
     def test_query_hash_varies_with_dashboard_filters(self) -> None:
-        query_insight = Insight.objects.create(
-            team=self.team,
-            query={
-                "kind": "DataTableNode",
-                "source": {
-                    "filters": {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
-                    "kind": "HogQLQuery",
-                    "modifiers": None,
-                    "query": "select * from events where {filters}",
-                    "response": None,
-                    "values": None,
-                },
+        query = {
+            "kind": "DataTableNode",
+            "source": {
+                "filters": {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
+                "kind": "HogQLQuery",
+                "modifiers": None,
+                "query": "select * from events where {filters}",
+                "response": None,
+                "values": None,
             },
-        )
+        }
+        dashboard_filters = {"date_from": "-4d", "date_to": "-3d"}
 
-        dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-4d", "date_to": "-3d"})
+        query_insight = Insight.objects.create(team=self.team, query=query)
+        dashboard = Dashboard.objects.create(team=self.team, filters=dashboard_filters)
 
         hash_sans_dashboard = generate_insight_cache_key(query_insight, None)
         hash_with_dashboard = generate_insight_cache_key(query_insight, dashboard)
