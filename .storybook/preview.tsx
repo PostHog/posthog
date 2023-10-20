@@ -110,6 +110,22 @@ const preview: Preview = {
             ),
         },
     },
+    globalTypes: {
+        theme: {
+            description: '',
+            defaultValue: 'legacy',
+            toolbar: {
+                title: 'Theme',
+                items: [
+                    { value: 'legacy', icon: 'faceneutral', title: 'Legacy' },
+                    { value: 'light', icon: 'sun', title: 'Light' },
+                    { value: 'dark', icon: 'moon', title: 'Dark' },
+                ],
+                // change the title based on the selected value
+                dynamicTitle: true,
+            },
+        },
+    },
 }
 
 export default preview
