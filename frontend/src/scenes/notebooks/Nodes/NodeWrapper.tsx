@@ -381,9 +381,6 @@ export const NotebookNodeChildRenderer = ({
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
-    const nodeId = useMemo(() => uuid(), [])
-    content.attrs.nodeId = nodeId
-
     return (
         <MemoizedNodeWrapper
             {...options}

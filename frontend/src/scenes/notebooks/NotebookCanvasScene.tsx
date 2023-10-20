@@ -5,16 +5,8 @@ import './NotebookScene.scss'
 import { useMemo } from 'react'
 import { uuid } from 'lib/utils'
 
-// interface NotebookCanvasProps {
-//     initialState?: string | JSONContent
-//     syncWithUrl?: boolean
-// }
-
 export const scene: SceneExport = {
     component: NotebookCanvas,
-    // paramsToProps: ({ params: { state } }: { params: NotebookCanvasSceneProps }): NotebookCanvasSceneLogicProps => ({
-    //     state: state,
-    // }),
 }
 
 export function NotebookCanvas(): JSX.Element {

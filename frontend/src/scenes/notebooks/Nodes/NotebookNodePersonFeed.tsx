@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { EventType, NotebookNodeType, PersonType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -7,7 +7,7 @@ import { NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 import { TimelineEntry } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     IconExclamation,
     IconEyeHidden,
@@ -21,6 +21,8 @@ import { humanFriendlyDetailedTime, humanFriendlyDuration, eventToDescription } 
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { personLogic } from 'scenes/persons/personLogic'
 import { NotFound } from 'lib/components/NotFound'
+import { IconRewindPlay } from '@posthog/icons'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 function FeedSkeleton(): JSX.Element {
     return (
@@ -74,14 +76,42 @@ type SessionProps = {
 }
 
 const Session = ({ session }: SessionProps): JSX.Element => {
+    const { children, nodeId } = useValues(notebookNodeLogic)
+    const { updateAttributes } = useActions(notebookNodeLogic)
     const startTime = dayjs(session.events[session.events.length - 1].timestamp)
     const endTime = dayjs(session.events[0].timestamp)
     const durationSeconds = endTime.diff(startTime, 'second')
 
     const [isFolded, setIsFolded] = useState(false)
 
+    const onOpenReplay = (): void => {
+        const newChildren = [...children] || []
+
+        const existingChild = newChildren.find((child) => child.attrs?.nodeId === `${nodeId}-active-replay`)
+
+        if (existingChild) {
+            existingChild.attrs.id = session.sessionId
+        } else {
+            newChildren.splice(0, 0, {
+                type: NotebookNodeType.Recording,
+                attrs: {
+                    id: session.sessionId,
+                    nodeId: `${nodeId}-active-replay`,
+                    height: '5rem',
+                    __init: {
+                        expanded: true,
+                    },
+                },
+            })
+        }
+
+        updateAttributes({
+            children: newChildren,
+        })
+    }
+
     return (
-        <div className="flex flex-col rounded bg-side border overflow-hidden mb-3">
+        <div className="flex flex-col rounded bg-side border overflow-hidden mb-3" title={session.sessionId}>
             <div className="flex items-center justify-between pl-2 pr-4 py-2 gap-2 bg-bg-light">
                 <div className="flex items-center">
                     <LemonButton
@@ -92,9 +122,12 @@ const Session = ({ session }: SessionProps): JSX.Element => {
                     <b className="ml-2">{humanFriendlyDetailedTime(startTime)}</b>
                     <span className="text-muted-3000 font-bold ml-1">({session.events.length} events)</span>
                 </div>
-                <div className="flex items-center">
+                <div className="flex items-center flex-1">
                     <span>{humanFriendlyDuration(durationSeconds)}</span>
                 </div>
+                {session.recording_duration_s ? (
+                    <LemonButton icon={<IconRewindPlay />} onClick={() => onOpenReplay()} />
+                ) : null}
             </div>
             {!isFolded && (
                 <div className="p-2 border-t space-y-2">

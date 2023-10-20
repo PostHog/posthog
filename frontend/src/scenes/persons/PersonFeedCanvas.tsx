@@ -1,5 +1,6 @@
 import { PersonType } from '~/types'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { uuid } from 'lib/utils'
 
 type PersonFeedCanvasProps = {
     person: PersonType
@@ -29,15 +30,15 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                             children: [
                                 {
                                     type: 'ph-person',
-                                    attrs: { id: personId },
+                                    attrs: { id: personId, nodeId: uuid() },
                                 },
                                 {
                                     type: 'ph-map',
-                                    attrs: { id: personId },
+                                    attrs: { id: personId, nodeId: uuid() },
                                 },
                                 {
                                     type: 'ph-properties',
-                                    attrs: { id: personId },
+                                    attrs: { id: personId, nodeId: uuid() },
                                 },
                             ],
                         },
