@@ -309,7 +309,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    <div className="flex items-center">
+                                                    <div className="w-full flex items-center">
                                                         {column.tooltip ? (
                                                             <Tooltip title={column.tooltip}>
                                                                 <div className="flex items-center">

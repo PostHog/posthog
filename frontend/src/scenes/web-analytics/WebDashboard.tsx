@@ -22,12 +22,21 @@ const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     }
 }
 
+// format numbers according to the user's locale
+const numberFormatter = new Intl.NumberFormat()
+
 const NumericCell: QueryContextColumnComponent = ({ value }) => {
     return (
         <div className="w-full text-right">
-            <span className="flex-1 text-right">{String(value)}</span>
+            <span className="flex-1 text-right">
+                {typeof value === 'number' ? numberFormatter.format(value) : String(value)}
+            </span>
         </div>
     )
+}
+
+const RightAlignedTitle: QueryContextColumnTitleComponent = (props) => {
+    return <span className="flex-1 text-right">{props.columnName}</span>
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
@@ -114,14 +123,17 @@ const queryContext: QueryContext = {
         },
         bounce_rate: {
             title: 'Bounce Rate',
+            renderTitle: RightAlignedTitle,
             render: PercentageCell,
         },
         views: {
             title: 'Views',
+            renderTitle: RightAlignedTitle,
             render: NumericCell,
         },
         visitors: {
             title: 'Visitors',
+            renderTitle: RightAlignedTitle,
             render: NumericCell,
         },
     },
