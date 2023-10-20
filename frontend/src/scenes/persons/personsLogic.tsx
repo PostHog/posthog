@@ -57,7 +57,6 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
-        setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
@@ -97,7 +96,6 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
-                setActiveTab: (_, { tab }) => tab,
             },
         ],
         splitMergeModalShown: [
@@ -374,10 +372,6 @@ export const personsLogic = kea<personsLogicType>({
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
-                }
-
                 if (rawPersonDistinctId) {
                     // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
                     const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
@@ -394,10 +388,6 @@ export const personsLogic = kea<personsLogicType>({
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
-                }
-
-                if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
                 }
 
                 if (rawPersonUUID) {
