@@ -162,6 +162,10 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
         ],
+        surveysStylingAvailable: [
+            (s) => [s.user],
+            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_STYLING),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadSurveys()

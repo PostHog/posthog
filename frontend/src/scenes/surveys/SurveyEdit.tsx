@@ -46,7 +46,6 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { userLogic } from 'scenes/userLogic'
 
 function PresentationTypeCard({
@@ -588,7 +587,6 @@ export default function SurveyEdit(): JSX.Element {
                                     />
                                     <div className="flex gap-2">
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
-                                            // TODO: Add pay gate mini here once billing is resolved for it
                                             <LemonButton
                                                 type="secondary"
                                                 className="w-max mt-2"
@@ -702,19 +700,17 @@ export default function SurveyEdit(): JSX.Element {
                                       key: SurveyEditSection.Customization,
                                       header: 'Customization',
                                       content: (
-                                          <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
-                                              <Field name="appearance" label="">
-                                                  {({ value, onChange }) => (
-                                                      <Customization
-                                                          appearance={value || defaultSurveyAppearance}
-                                                          surveyQuestionItem={survey.questions[0]}
-                                                          onAppearanceChange={(appearance) => {
-                                                              onChange(appearance)
-                                                          }}
-                                                      />
-                                                  )}
-                                              </Field>
-                                          </PayGateMini>
+                                          <Field name="appearance" label="">
+                                              {({ value, onChange }) => (
+                                                  <Customization
+                                                      appearance={value || defaultSurveyAppearance}
+                                                      surveyQuestionItem={survey.questions[0]}
+                                                      onAppearanceChange={(appearance) => {
+                                                          onChange(appearance)
+                                                      }}
+                                                  />
+                                              )}
+                                          </Field>
                                       ),
                                   },
                               ]
