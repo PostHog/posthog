@@ -678,7 +678,7 @@ class TestSurvey(APIBaseTest):
             start_date=datetime.now() - timedelta(days=2),
             end_date=datetime.now() - timedelta(days=1),
         )
-        assert self.team.surveys_opt_in is None
+        self.assertEqual(self.team.surveys_opt_in, None)
         Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -715,7 +715,7 @@ class TestSurvey(APIBaseTest):
             questions=[{"type": "open", "question": "What's a survey?"}],
             start_date=datetime.now() - timedelta(days=2),
         )
-        assert self.team.surveys_opt_in is None
+        self.assertEqual(self.team.surveys_opt_in, None)
         popover_survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -731,7 +731,7 @@ class TestSurvey(APIBaseTest):
             data={"end_date": datetime.now() - timedelta(days=1)},
         )
         self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is True
+        self.assertEqual(self.team.surveys_opt_in, True)
         self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{popover_survey.id}/",
             data={"end_date": datetime.now() - timedelta(days=1)},
