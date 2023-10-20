@@ -46,7 +46,8 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { userLogic } from 'scenes/userLogic'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { surveysLogic } from './surveysLogic'
 
 function PresentationTypeCard({
     title,
@@ -100,8 +101,8 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion,
         setSelectedSection,
     } = useActions(surveyLogic)
+    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
 
     return (
         <div className="flex flex-row gap-4">
@@ -557,7 +558,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                           placeholder="ex: Thank you for your feedback!"
                                                                       />
                                                                   </PureField>
-                                                                  <PureField label="Thank you description">
+                                                                  <PureField
+                                                                      label="Thank you description"
+                                                                      className="mt-1"
+                                                                  >
                                                                       <HTMLEditor
                                                                           value={
                                                                               survey.appearance
@@ -593,7 +597,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={<IconLock className="ml-1 text-base text-muted" />}
                                                 disabledReason={
-                                                    hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS)
+                                                    surveysMultipleQuestionsAvailable
                                                         ? null
                                                         : 'Subscribe for multiple question surveys'
                                                 }
@@ -932,6 +936,7 @@ export function HTMLEditor({
     setWritingHTMLDescription: (writingHTML: boolean) => void
     textPlaceholder?: string
 }): JSX.Element {
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
     return (
         <>
             <LemonTabs
@@ -952,31 +957,42 @@ export function HTMLEditor({
                     },
                     {
                         key: 'html',
-                        label: <span className="text-sm">HTML</span>,
+                        label: (
+                            <div>
+                                <span className="text-sm">HTML</span>
+                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
+                            </div>
+                        ),
                         content: (
                             <div>
-                                <CodeEditor
-                                    className="border"
-                                    language="html"
-                                    value={value}
-                                    onChange={(v) => onChange(v ?? '')}
-                                    height={150}
-                                    options={{
-                                        minimap: {
-                                            enabled: false,
-                                        },
-                                        scrollbar: {
-                                            alwaysConsumeMouseWheel: false,
-                                        },
-                                        wordWrap: 'on',
-                                        scrollBeyondLastLine: false,
-                                        automaticLayout: true,
-                                        fixedOverflowWidgets: true,
-                                        lineNumbers: 'off',
-                                        glyphMargin: false,
-                                        folding: false,
-                                    }}
-                                />
+                                {surveysHTMLAvailable ? (
+                                    <CodeEditor
+                                        className="border"
+                                        language="html"
+                                        value={value}
+                                        onChange={(v) => onChange(v ?? '')}
+                                        height={150}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            scrollbar: {
+                                                alwaysConsumeMouseWheel: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: false,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            lineNumbers: 'off',
+                                            glyphMargin: false,
+                                            folding: false,
+                                        }}
+                                    />
+                                ) : (
+                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                        <></>
+                                    </PayGateMini>
+                                )}
                             </div>
                         ),
                     },

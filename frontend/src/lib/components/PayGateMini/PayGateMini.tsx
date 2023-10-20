@@ -17,6 +17,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
     | AvailableFeature.SURVEYS_STYLING
+    | AvailableFeature.SURVEYS_TEXT_HTML
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -72,6 +73,11 @@ const FEATURE_SUMMARIES: Record<
     },
     [AvailableFeature.SURVEYS_STYLING]: {
         description: 'Customize the look and feel of your surveys with custom colors and positions.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
+    },
+    [AvailableFeature.SURVEYS_TEXT_HTML]: {
+        description: 'Use HTML to customize the content of your surveys.',
         umbrella: 'surveys customization',
         docsHref: 'https://posthog.com/docs/surveys',
     },

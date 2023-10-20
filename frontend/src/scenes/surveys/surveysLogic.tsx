@@ -166,6 +166,15 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_STYLING),
         ],
+        surveysHTMLAvailable: [
+            (s) => [s.user],
+            (user) => (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_TEXT_HTML),
+        ],
+        surveysMultipleQuestionsAvailable: [
+            (s) => [s.user],
+            (user) =>
+                (user?.organization?.available_features || []).includes(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadSurveys()
