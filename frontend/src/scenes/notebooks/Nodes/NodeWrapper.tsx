@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import {
     IconClose,
@@ -38,6 +38,7 @@ import {
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { uuid } from 'lib/utils'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -378,6 +379,9 @@ export const NotebookNodeChildRenderer = ({
     content: NotebookNodeResource
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
+
+    const nodeId = useMemo(() => uuid(), [])
+    content.attrs.nodeId = nodeId
 
     return (
         <MemoizedNodeWrapper

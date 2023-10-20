@@ -26,7 +26,7 @@ export function NotebookCanvas(): JSX.Element {
     }
 
     return (
-        <div className="NotebookScene">
+        <div className="absolute inset-0 p-2">
             <Notebook {...logicProps} />
         </div>
     )
