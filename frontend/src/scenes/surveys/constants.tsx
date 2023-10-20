@@ -148,6 +148,7 @@ export const NEW_SURVEY: NewSurvey = {
 }
 
 export enum SurveyTemplateType {
+    OpenFeedback = 'Open feedback',
     Interview = 'User interview',
     NPS = 'Net promoter score (NPS)',
     CSAT = 'Customer satisfaction score (CSAT)',
@@ -243,5 +244,15 @@ export const defaultSurveyTemplates = [
             },
         ],
         description: 'Find out if it was something you said.',
+    },
+    {
+        type: SurveyTemplateType.OpenFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What can we do to improve our product?',
+            },
+        ],
+        description: "Let your users share what's on their mind.",
     },
 ]
