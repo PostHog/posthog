@@ -103,7 +103,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between min-h-20', !expanded && 'cursor-pointer')}>
+            <div
+                className={clsx(
+                    'p-4 flex-0 flex gap-2 justify-between min-h-20 items-center',
+                    !expanded && 'cursor-pointer'
+                )}
+            >
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (

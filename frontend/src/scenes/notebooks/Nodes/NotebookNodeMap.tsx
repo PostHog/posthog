@@ -31,12 +31,12 @@ export function Map({ center, markers, style }: MapProps): JSX.Element {
             container: mapContainer.current as HTMLElement,
             style: `https://api.maptiler.com/maps/streets-v2/style.json?key=zir7QMNVAfEFm1rVDNV2`,
             center,
-            zoom: 9,
-            maxZoom: 15,
+            zoom: 4,
+            maxZoom: 10,
         })
         if (markers) {
             for (const marker of markers) {
-                marker.addTo(map.current)
+                marker.addTo(map.current) // TODO: Show markers below city labels
             }
         }
     }, [])
@@ -99,7 +99,7 @@ type NotebookNodeMapAttributes = {
 
 export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes>({
     nodeType: NotebookNodeType.Map,
-    titlePlaceholder: 'Map',
+    titlePlaceholder: 'Location',
     Component,
     resizeable: false,
     expandable: true,
