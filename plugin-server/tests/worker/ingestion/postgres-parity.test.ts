@@ -119,7 +119,7 @@ describe('postgres parity', () => {
             },
         ])
         const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
-        expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
+        expect(postgresDistinctIds.sort()).toEqual(['distinct1', 'distinct2'])
 
         const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(person, Database.ClickHouse)
         expect(newClickHouseDistinctIdValues).toEqual(

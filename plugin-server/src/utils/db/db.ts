@@ -652,43 +652,83 @@ export class DB {
         uuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
+        if (distinctIds === undefined) {
+            distinctIds = []
+        }
+
+        if (distinctIds.length > 2) {
+            // This can be extended as necessary, but have no use for more than 2 right now, and so
+            // there's no need to overcomplicate the code.
+            throw new Error('createPerson only supports up to 2 distinctIds')
+        }
+
+        const version = 0 // We're creating the person now!
+
+        const insertResult = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `WITH inserted_person AS (
+                    INSERT INTO posthog_person (
+                        created_at, properties, properties_last_updated_at,
+                        properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    RETURNING *
+                )` +
+                (distinctIds.length > 0
+                    ? `, first_distinct_id AS (
+                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                    VALUES ($10, (SELECT id FROM inserted_person), $5, $9)
+                )`
+                    : '') +
+                (distinctIds.length > 1
+                    ? `, second_distinct_id AS (
+                    INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                    VALUES ($11, (SELECT id FROM inserted_person), $5, $9)
+                )`
+                    : '') +
+                `SELECT * FROM inserted_person;`,
+            [
+                createdAt.toISO(),
+                JSON.stringify(properties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                version,
+                // Add distinctIds parameters only if they are needed.
+                ...(distinctIds.length > 0 ? [distinctIds[0]] : []),
+                ...(distinctIds.length > 1 ? [distinctIds[1]] : []),
+            ],
+            'insertPerson'
+        )
+        const personCreated = insertResult.rows[0] as RawPerson
+        const person = {
+            ...personCreated,
+            created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
+            version,
+        } as Person
+
         const kafkaMessages: ProducerRecord[] = []
+        kafkaMessages.push(generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, version))
 
-        const person = await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'createPerson', async (tx) => {
-            const insertResult = await this.postgres.query(
-                tx,
-                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
-                [
-                    createdAt.toISO(),
-                    JSON.stringify(properties),
-                    JSON.stringify(propertiesLastUpdatedAt),
-                    JSON.stringify(propertiesLastOperation),
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    uuid,
-                    0,
+        for (const distinctId of distinctIds || []) {
+            kafkaMessages.push({
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            person_id: person.uuid,
+                            team_id: teamId,
+                            distinct_id: distinctId,
+                            version,
+                            is_deleted: 0,
+                        }),
+                    },
                 ],
-                'insertPerson'
-            )
-            const personCreated = insertResult.rows[0] as RawPerson
-            const person = {
-                ...personCreated,
-                created_at: DateTime.fromISO(personCreated.created_at).toUTC(),
-                version: Number(personCreated.version || 0),
-            } as Person
-
-            kafkaMessages.push(
-                generateKafkaPersonUpdateMessage(createdAt, properties, teamId, isIdentified, uuid, person.version)
-            )
-
-            for (const distinctId of distinctIds || []) {
-                const messages = await this.addDistinctIdPooled(person, distinctId, tx)
-                kafkaMessages.push(...messages)
-            }
-
-            return person
-        })
+            })
+        }
 
         await this.kafkaProducer.queueMessages(kafkaMessages)
         return person
