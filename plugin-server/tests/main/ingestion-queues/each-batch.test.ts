@@ -426,13 +426,11 @@ describe('eachBatchX', () => {
             )
         })
 
-        it('fails the batch if runEventPipeline rejects', async () => {
+        it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
             const batch = createBatch(captureEndpointEvent)
             runEventPipelineSpy.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
-            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
-                'runEventPipeline nopes out'
-            )
-            expect(runEventPipeline).toHaveBeenCalledTimes(1)
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            expect(runEventPipeline).toHaveBeenCalledTimes(2)
         })
 
         it('fails the batch if one deferred promise rejects', async () => {
@@ -530,6 +528,19 @@ describe('eachBatchX', () => {
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
                 key: 'ingestion',
             })
+        })
+
+        it('fails the batch if runEventPipeline rejects repeatedly', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            runEventPipelineSpy
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'runEventPipeline nopes out'
+            )
+            expect(runEventPipeline).toHaveBeenCalledTimes(3)
+            runEventPipelineSpy.mockRestore()
         })
     })
 })

@@ -2090,7 +2090,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_only_fires_with_non_survey_targeting_flags(self, *args):
+    def test_decide_analytics_fires_with_survey_linked_and_targeting_flags(self, *args):
         ff = FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
         )
@@ -2135,7 +2135,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
-    def test_decide_analytics_does_not_fire_for_survey_targeting_flags(self, *args):
+    def test_decide_analytics_fire_for_survey_targeting_flags(self, *args):
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -2180,7 +2180,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             client = redis.get_client()
             # check that single increment made it to redis
-            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+            self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {b"165192618": b"1"})
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
