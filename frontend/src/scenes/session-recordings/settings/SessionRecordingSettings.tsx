@@ -8,7 +8,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SampleRate } from '~/types'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { FlagSelector } from 'lib/components/FlagSelector'
 
@@ -113,7 +112,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         <LemonLabel className="text-base">Sampling</LemonLabel>
                         <LemonSelect
                             onChange={(v) => {
-                                updateCurrentTeam({ session_recording_sample_rate: v as SampleRate })
+                                updateCurrentTeam({ session_recording_sample_rate: v })
                             }}
                             options={[
                                 {
@@ -138,9 +137,9 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                                 },
                             ]}
                             value={
-                                (typeof currentTeam?.session_recording_sample_rate === 'string'
+                                typeof currentTeam?.session_recording_sample_rate === 'string'
                                     ? currentTeam?.session_recording_sample_rate
-                                    : '1.00') as SampleRate
+                                    : '1.00'
                             }
                         />
                     </div>

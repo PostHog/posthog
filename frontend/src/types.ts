@@ -335,8 +335,6 @@ export interface CorrelationConfigType {
     excluded_event_names?: string[]
 }
 
-export type SampleRate = '0.25' | '0.5' | '0.75' | '1.0' | undefined
-
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -348,7 +346,8 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
-    session_recording_sample_rate: SampleRate
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
