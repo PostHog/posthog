@@ -90,6 +90,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
+            "session_recording_linked_flag",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -132,6 +133,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
+            "session_recording_linked_flag",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -168,6 +170,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
+
+    def validate_session_recording_linked_flag(self, value):
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary.")
+        if value.keys() != {"id", "key"}:
+            raise exceptions.ValidationError("Must provide a dictionary with a only: id and key.")
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:

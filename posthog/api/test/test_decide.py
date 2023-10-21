@@ -234,6 +234,40 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["minimumDurationMilliseconds"], None)
 
+    def test_session_recording_linked_flag(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["linkedFlag"] is None
+
+        self._update_team({"session_recording_linked_flag": {"id": 12, "key": "my-flag"}})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["linkedFlag"], {"id": 12, "key": "my-flag"})
+
+    def test_session_recording_empty_linked_flag(self, *args):
+        # :TRICKY: Test for regression around caching
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["linkedFlag"] is None
+
+        self._update_team({"session_recording_linked_flag": {}})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"]["linkedFlag"], None)
+
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()

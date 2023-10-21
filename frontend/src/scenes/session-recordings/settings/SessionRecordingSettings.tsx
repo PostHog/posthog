@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -9,6 +9,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SampleRate } from '~/types'
+import { IconCancel } from 'lib/lemon-ui/icons'
+import { FlagSelector } from 'lib/components/FlagSelector'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean
@@ -187,6 +189,25 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         Setting a minimum session duration will ensure that only sessions that last longer than that
                         value are collected. This helps you avoid collecting sessions that are too short to be useful.
                     </p>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
+                        <FlagSelector
+                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                            onChange={(id, key) => {
+                                updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                            }}
+                        />
+                        {currentTeam?.session_recording_linked_flag && (
+                            <LemonButton
+                                className="ml-2"
+                                icon={<IconCancel />}
+                                size="small"
+                                status="stealth"
+                                onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                                aria-label="close"
+                            />
+                        )}
+                    </div>
                 </>
             </FlaggedFeature>
         </div>
