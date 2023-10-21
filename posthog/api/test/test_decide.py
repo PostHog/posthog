@@ -138,6 +138,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": False,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -154,6 +156,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": True,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
 
     def test_user_performance_opt_in(self, *args):
@@ -307,6 +311,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": False,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
@@ -326,6 +332,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": False,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
 
     def test_user_autocapture_opt_out(self, *args):
@@ -347,6 +355,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": False,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
 
     def test_user_session_recording_allowed_when_permitted_domains_are_not_http_based(self, *args):
@@ -358,6 +368,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             "recorderVersion": "v2",
             "consoleLogRecordingEnabled": False,
             "sampleRate": None,
+            "linkedFlag": None,
+            "minimumDurationMilliseconds": None,
         }
 
     @snapshot_postgres_queries
