@@ -536,19 +536,19 @@ class TestTeamAPI(APIBaseTest):
                 "unexpected json - no id",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with a only: id and key.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
             [
                 "unexpected json - no key",
                 {"id": 1},
                 "invalid_input",
-                "Must provide a dictionary with a only: id and key.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
             [
                 "unexpected json - neither",
                 {"wat": "wat"},
                 "invalid_input",
-                "Must provide a dictionary with a only: id and key.",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
             ],
         ]
     )
