@@ -225,13 +225,17 @@ def get_decide(request: HttpRequest):
 
                 minimum_duration = team.session_recording_minimum_duration_milliseconds or None
 
+                linked_flag = team.session_recording_linked_flag or None
+                if isinstance(linked_flag, Dict):
+                    linked_flag = linked_flag.get("key")
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
                     "sampleRate": sample_rate,
                     "minimumDurationMilliseconds": minimum_duration,
-                    "linkedFlag": team.session_recording_linked_flag or None,
+                    "linkedFlag": linked_flag,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False
