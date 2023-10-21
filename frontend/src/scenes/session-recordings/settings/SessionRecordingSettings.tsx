@@ -191,12 +191,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     </p>
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                        <FlagSelector
-                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                            onChange={(id, key) => {
-                                updateCurrentTeam({ session_recording_linked_flag: { id, key } })
-                            }}
-                        />
                         {currentTeam?.session_recording_linked_flag && (
                             <LemonButton
                                 className="ml-2"
@@ -207,7 +201,17 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                                 aria-label="close"
                             />
                         )}
+                        <FlagSelector
+                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                            onChange={(id, key) => {
+                                updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                            }}
+                        />
                     </div>
+                    <p>
+                        Linking a flag means that recordings will only be collected for users who have the flag enabled.
+                        Only supports release toggles (boolean flags).
+                    </p>
                 </>
             </FlaggedFeature>
         </div>

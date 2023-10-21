@@ -36,7 +36,7 @@ export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): 
             overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
             visible={visible}
             placement="right-start"
-            fallbackPlacements={['bottom']}
+            fallbackPlacements={['left-end', 'bottom']}
             onClickOutside={() => setVisible(false)}
         >
             {readOnly ? (
