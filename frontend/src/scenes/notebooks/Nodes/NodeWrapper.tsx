@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useRef } from 'react'
 import clsx from 'clsx'
 import {
     IconClose,
@@ -38,7 +38,6 @@ import {
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { uuid } from 'lib/utils'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -93,7 +92,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
-    const { setTextSelection } = useActions(notebookLogic)
 
     // nodeId can start null, but should then immediately be generated
     const nodeId = attributes.nodeId
@@ -111,7 +109,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing } = useActions(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,
@@ -148,6 +146,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
+    const onActionsAreaClick = (): void => {
+        // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
+        // add new content below. If we are in editing mode, we should select the next line if there is one, otherwise
+        insertOrSelectNextLine()
+        // setTextSelection(getPos() + 1)
+    }
+
     const parsedHref = typeof href === 'function' ? href(attributes) : href
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
@@ -163,6 +168,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
+                            'NotebookNode--has-actions': getPos && isEditable && actions.length,
                         })}
                     >
                         <div className="NotebookNode__box">
@@ -236,29 +242,31 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                 )}
                             </ErrorBoundary>
                         </div>
-                        {getPos && isEditable && actions.length ? (
-                            <div
-                                className="NotebookNode__actions"
-                                // UX improvement so that the actions don't get in the way of the cursor
-                                onClick={() => setTextSelection(getPos() + 1)}
-                            >
-                                {actions.map((x, i) => (
-                                    <LemonButton
-                                        key={i}
-                                        type="secondary"
-                                        status="primary"
-                                        size="small"
-                                        icon={x.icon ?? <IconPlusMini />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            x.onClick()
-                                        }}
-                                    >
-                                        {x.text}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        ) : null}
+                        <div
+                            className="NotebookNode__gap"
+                            // UX improvement so that the actions don't get in the way of the cursor
+                            onClick={() => onActionsAreaClick()}
+                        >
+                            {getPos && isEditable && actions.length ? (
+                                <>
+                                    {actions.map((x, i) => (
+                                        <LemonButton
+                                            key={i}
+                                            type="secondary"
+                                            status="primary"
+                                            size="small"
+                                            icon={x.icon ?? <IconPlusMini />}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                x.onClick()
+                                            }}
+                                        >
+                                            {x.text}
+                                        </LemonButton>
+                                    ))}
+                                </>
+                            ) : null}
+                        </div>
                     </div>
                 </NodeViewWrapper>
             </BindLogic>

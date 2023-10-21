@@ -60,6 +60,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             timestamp,
             sessionRecordingId,
         }),
+        insertOrSelectNextLine: true,
         setPreviousNode: (node: Node | null) => ({ node }),
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
@@ -72,8 +73,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
-        actions: [props.notebookLogic, ['onUpdateEditor']],
-        values: [props.notebookLogic, ['editor']],
+        actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
+        values: [props.notebookLogic, ['editor', 'isEditable']],
     })),
 
     reducers(({ props }) => ({
@@ -224,6 +225,19 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 knownStartingPosition: insertionPosition,
                 nodeId: props.nodeId,
             })
+        },
+        insertOrSelectNextLine: (_, breakpoint) => {
+            if (!props.getPos || !values.isEditable) {
+                return
+            }
+
+            if (!values.nextNode || values.nextNode.type.name !== 'paragraph') {
+                actions.insertAfter({
+                    type: 'paragraph',
+                })
+            } else {
+                actions.setTextSelection(props.getPos() + 1)
+            }
         },
 
         setExpanded: ({ expanded }) => {

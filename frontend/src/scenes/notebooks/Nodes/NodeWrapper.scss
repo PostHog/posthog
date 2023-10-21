@@ -4,7 +4,7 @@
     --border-color: var(--border);
 
     transform: translate3d(0, 0, 0);
-    margin: 0px 0px 1rem 0px;
+    margin: 0px;
 
     .NotebookNode__box {
         transform: translate3d(0, 0, 0);
@@ -34,24 +34,24 @@
         }
     }
 
-    .NotebookNode__actions {
+    .NotebookNode__gap {
         display: flex;
         gap: 0.25rem;
         overflow: hidden;
-
         transition: all 150ms linear 1000ms;
         opacity: 0;
-        height: 0;
-        margin-top: 0;
+        height: 1rem;
+        align-items: center;
     }
 
-    &:hover,
-    &--selected {
-        .NotebookNode__actions {
-            opacity: 1;
-            height: 2rem;
-            margin-top: 0.5rem;
-            transition: all 150ms linear;
+    &--has-actions {
+        &:hover,
+        &--selected {
+            .NotebookNode__gap {
+                opacity: 1;
+                height: 2.5rem;
+                transition: all 150ms linear;
+            }
         }
     }
 

@@ -298,25 +298,6 @@ order by count() desc
             return chain
         },
     },
-    {
-        title: 'Map',
-        search: 'map',
-        icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.Map, attrs: {} }),
-    },
-    {
-        title: 'Properties',
-        search: 'properties',
-        icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.Properties, attrs: {} }),
-    },
-    {
-        title: 'PersonFeed',
-        search: 'person feed',
-        icon: <IconRecording />,
-        command: (chain) =>
-            chain.insertContent({ type: NotebookNodeType.PersonFeed, attrs: { personId: 'test@posthog.com' } }),
-    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
