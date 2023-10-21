@@ -231,6 +231,7 @@ def get_decide(request: HttpRequest):
                     "recorderVersion": "v2",
                     "sampleRate": sample_rate,
                     "minimumDurationMilliseconds": minimum_duration,
+                    "linkedFlag": team.session_recording_linked_flag or None,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False
