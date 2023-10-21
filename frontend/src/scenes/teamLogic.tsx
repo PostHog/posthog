@@ -74,8 +74,6 @@ export const teamLogic = kea<teamLogicType>([
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
 
-                    await breakpoint(50)
-
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
                     breakpoint()
 
