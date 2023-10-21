@@ -25,6 +25,7 @@ from posthog.schema import (
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
+    DashboardFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -239,4 +240,7 @@ class QueryRunner(ABC):
 
     @abstractmethod
     def _refresh_frequency(self):
+        raise NotImplementedError()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
         raise NotImplementedError()

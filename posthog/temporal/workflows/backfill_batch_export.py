@@ -139,11 +139,17 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
     handle = client.get_schedule_handle(inputs.schedule_id)
 
+    description = await handle.describe()
+    jitter = description.schedule.spec.jitter
+
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
         utcnow = dt.datetime.utcnow()
+
+        if jitter is not None:
+            backfill_end_at = backfill_end_at + jitter
 
         backfill = temporalio.client.ScheduleBackfill(
             start_at=backfill_start_at,

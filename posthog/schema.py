@@ -264,6 +264,7 @@ class PersonsArgMaxVersion(str, Enum):
 class PersonsOnEventsMode(str, Enum):
     disabled = "disabled"
     v1_enabled = "v1_enabled"
+    v1_mixed = "v1_mixed"
     v2_enabled = "v2_enabled"
 
 
@@ -944,6 +945,30 @@ class AnyResponseType(RootModel):
     root: Union[
         Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseTypeItem, Any], EventsQueryResponse
     ]
+
+
+class DashboardFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
