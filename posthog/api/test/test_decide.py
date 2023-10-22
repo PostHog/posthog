@@ -86,13 +86,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
-    def _update_team(self, data):
+    def _update_team(self, data, expected_status_code: int = status.HTTP_200_OK):
         # use a non-csrf client to make requests
         client = Client()
         client.force_login(self.user)
 
         response = client.patch("/api/projects/@current/", data, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status_code)
 
         client.logout()
 
@@ -219,7 +219,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_minimum_duration_milliseconds": 800})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["minimumDurationMilliseconds"], "800")
+        self.assertEqual(response["sessionRecording"]["minimumDurationMilliseconds"], 800)
 
     def test_session_recording_sample_rate_of_0_is_treated_as_no_sampling(self, *args):
         # :TRICKY: Test for regression around caching
@@ -253,7 +253,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"session_recording_linked_flag": {"id": 12, "key": "my-flag"}})
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["linkedFlag"], {"id": 12, "key": "my-flag"})
+        self.assertEqual(response["sessionRecording"]["linkedFlag"], "my-flag")
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
@@ -267,10 +267,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         assert response["sessionRecording"]["linkedFlag"] is None
 
-        self._update_team({"session_recording_linked_flag": {}})
-
-        response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"]["linkedFlag"], None)
+        self._update_team({"session_recording_linked_flag": {}}, expected_status_code=status.HTTP_400_BAD_REQUEST)
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
@@ -1898,7 +1895,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": "0.20"},
+            {
+                "endpoint": "/s/",
+                "recorderVersion": "v2",
+                "consoleLogRecordingEnabled": True,
+                "sampleRate": "0.20",
+                "linkedFlag": None,
+                "minimumDurationMilliseconds": None,
+            },
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
         self.assertEqual(response["siteApps"], [])
@@ -1912,7 +1916,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": "0.20"},
+                {
+                    "endpoint": "/s/",
+                    "recorderVersion": "v2",
+                    "consoleLogRecordingEnabled": True,
+                    "sampleRate": "0.20",
+                    "linkedFlag": None,
+                    "minimumDurationMilliseconds": None,
+                },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
@@ -2454,7 +2465,14 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
             self.assertEqual(
                 response["sessionRecording"],
-                {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": True, "sampleRate": "0.40"},
+                {
+                    "endpoint": "/s/",
+                    "recorderVersion": "v2",
+                    "consoleLogRecordingEnabled": True,
+                    "sampleRate": "0.40",
+                    "linkedFlag": None,
+                    "minimumDurationMilliseconds": None,
+                },
             )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
