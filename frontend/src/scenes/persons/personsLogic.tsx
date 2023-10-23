@@ -363,38 +363,34 @@ export const personsLogic = kea<personsLogicType>({
             }
         },
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
-            if (props.syncWithUrl) {
-                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (activeTab && values.activeTab !== activeTab) {
-                    actions.navigateToTab(activeTab as PersonsTabType)
-                }
+            if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
+                actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+            } else if (activeTab && values.activeTab !== activeTab) {
+                actions.navigateToTab(activeTab as PersonsTabType)
+            }
 
-                if (rawPersonDistinctId) {
-                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
-                    const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
+            if (rawPersonDistinctId) {
+                // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
+                const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
 
-                    if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
-                        actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
-                    }
+                if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
+                    actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
                 }
             }
         },
         '/persons/*': ({ _: rawPersonUUID }, { sessionRecordingId }, { activeTab }) => {
-            if (props.syncWithUrl) {
-                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (activeTab && values.activeTab !== activeTab) {
-                    actions.navigateToTab(activeTab as PersonsTabType)
-                }
+            if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
+                actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+            } else if (activeTab && values.activeTab !== activeTab) {
+                actions.navigateToTab(activeTab as PersonsTabType)
+            }
 
-                if (rawPersonUUID) {
-                    const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
-                    if (!values.person || values.person.id != decodedPersonUUID) {
-                        actions.loadPersonUUID(decodedPersonUUID)
-                    }
+            if (rawPersonUUID) {
+                const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
+                if (!values.person || values.person.id != decodedPersonUUID) {
+                    actions.loadPersonUUID(decodedPersonUUID)
                 }
             }
         },
