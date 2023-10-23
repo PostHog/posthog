@@ -3078,6 +3078,7 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    PersonFeed = 'ph-person-feed',
 }
 
 export type NotebookNodeResource = {
