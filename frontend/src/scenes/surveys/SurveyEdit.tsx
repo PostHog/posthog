@@ -595,7 +595,11 @@ export default function SurveyEdit(): JSX.Element {
                                                 type="secondary"
                                                 className="w-max mt-2"
                                                 icon={<IconPlus />}
-                                                sideIcon={<IconLock className="ml-1 text-base text-muted" />}
+                                                sideIcon={
+                                                    surveysMultipleQuestionsAvailable ? null : (
+                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                    )
+                                                }
                                                 disabledReason={
                                                     surveysMultipleQuestionsAvailable
                                                         ? null
