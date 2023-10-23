@@ -144,6 +144,11 @@ class EventsTable(Table):
         "group_3": LazyJoin(from_field="$group_3", join_table=GroupsTable(), join_function=join_with_group_n_table(3)),
         "$group_4": StringDatabaseField(name="$group_4"),
         "group_4": LazyJoin(from_field="$group_4", join_table=GroupsTable(), join_function=join_with_group_n_table(4)),
+        "session": LazyJoin(
+            from_field="$session_id",
+            join_table=EventsSessionSubTable(),
+            join_function=join_with_events_table_session_duration,
+        ),
     }
 
     def to_printed_clickhouse(self, context):

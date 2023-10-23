@@ -24,11 +24,7 @@ from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
 )
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.events import (
-    EventsSessionSubTable,
-    EventsTable,
-    join_with_events_table_session_duration,
-)
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
@@ -129,12 +125,6 @@ def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers]
     for mapping in GroupTypeMapping.objects.filter(team=team):
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
-
-    database.events.fields["session"] = LazyJoin(
-        from_field="$session_id",
-        join_table=EventsSessionSubTable(),
-        join_function=join_with_events_table_session_duration,
-    )
 
     for view in DataWarehouseViewLink.objects.filter(team_id=team.pk).exclude(deleted=True):
         table = database.get_table(view.table)
