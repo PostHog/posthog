@@ -23,11 +23,12 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { IconRewindPlay } from '@posthog/icons'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import clsx from 'clsx'
 
 function FeedSkeleton(): JSX.Element {
     return (
-        <div className="space-y-4 p-4">
-            <LemonSkeleton className="h-8" repeat={10} />
+        <div className="space-y-2 p-2">
+            <LemonSkeleton className="h-10" repeat={10} />
         </div>
     )
 }
@@ -52,7 +53,7 @@ function EventIcon({ event }: { event: EventType }): JSX.Element {
     }
     return (
         <Tooltip title={`${KEY_MAPPING.event[event.event]?.label || 'Custom'} event`}>
-            <Component className="text-2xl text-muted" />
+            <Component className="text-xl text-muted" />
         </Tooltip>
     )
 }
@@ -62,7 +63,7 @@ function EventBrief({ event }: { event: EventType }): JSX.Element {
         <div className="EventBrief relative flex items-center justify-between border rounded pl-3 pr-4 py-2 gap-4 bg-bg-light">
             <div className="flex items-center">
                 <EventIcon event={event} />
-                <b className="ml-3">{eventToDescription(event)}</b>
+                <span className="ml-3 font-medium">{eventToDescription(event)}</span>
             </div>
             <div className="flex items-center">
                 <span>{dayjs(event.timestamp).format('h:mm:ss A')}</span>
@@ -98,6 +99,7 @@ const Session = ({ session }: SessionProps): JSX.Element => {
                     id: session.sessionId,
                     nodeId: `${nodeId}-active-replay`,
                     height: '5rem',
+                    autoPlay: true,
                     __init: {
                         expanded: true,
                     },
@@ -111,22 +113,33 @@ const Session = ({ session }: SessionProps): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col rounded bg-side border overflow-hidden mb-3" title={session.sessionId}>
-            <div className="flex items-center justify-between pl-2 pr-4 py-2 gap-2 bg-bg-light">
+        <div
+            className={clsx(
+                'Session relative flex flex-col rounded bg-side border',
+                !session.sessionId && 'border-dashed'
+            )}
+        >
+            <div className="flex items-center justify-between px-2 h-10 gap-2 bg-bg-light rounded-t">
                 <div className="flex items-center">
                     <LemonButton
                         icon={isFolded ? <IconUnfoldMore /> : <IconUnfoldLess />}
                         status="stealth"
                         onClick={() => setIsFolded((state) => !state)}
+                        size="small"
+                        tooltip={session.sessionId ? `Session ID ${session.sessionId}` : 'Session without ID'}
                     />
-                    <b className="ml-2">{humanFriendlyDetailedTime(startTime)}</b>
-                    <span className="text-muted-3000 font-bold ml-1">({session.events.length} events)</span>
-                </div>
-                <div className="flex items-center flex-1">
-                    <span>{humanFriendlyDuration(durationSeconds)}</span>
+                    <span className="font-medium ml-2">{humanFriendlyDetailedTime(startTime)}</span>
+                    <span className="text-muted font-medium ml-1">
+                        ({session.events.length} events over {humanFriendlyDuration(durationSeconds)})
+                    </span>
                 </div>
                 {session.recording_duration_s ? (
-                    <LemonButton icon={<IconRewindPlay />} onClick={() => onOpenReplay()} />
+                    <LemonButton
+                        icon={<IconRewindPlay />}
+                        onClick={() => onOpenReplay()}
+                        size="small"
+                        tooltip={`Play recording (${humanFriendlyDuration(session.recording_duration_s)})`}
+                    />
                 ) : null}
             </div>
             {!isFolded && (
@@ -156,9 +169,9 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     }
 
     return (
-        <div className="p-2">
-            {sessions.map((session: TimelineEntry) => (
-                <Session key={session.sessionId} session={session} />
+        <div className="flex flex-col gap-2 p-2">
+            {sessions.map((session, i) => (
+                <Session key={i} session={session} />
             ))}
         </div>
     )
@@ -185,7 +198,7 @@ type NotebookNodePersonFeedAttributes = {
 
 export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePersonFeedAttributes>({
     nodeType: NotebookNodeType.PersonFeed,
-    titlePlaceholder: 'Feed',
+    titlePlaceholder: 'Sessions',
     Component,
     resizeable: false,
     expandable: false,
