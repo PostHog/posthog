@@ -1,7 +1,9 @@
 import dataclasses
+from hashlib import md5
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+import os
+from typing import Any, Dict, List
 from uuid import UUID, uuid4
 
 from django.utils import timezone
@@ -9,12 +11,11 @@ from django.utils import timezone
 from posthog.client import sync_execute
 from posthog.models import Group, Person, PersonDistinctId, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.models.utils import UUIDT
 from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
-    events_by_person: Dict[Tuple[UUID, str] | str, List[Dict[str, Any]]], team: Team, create_people: bool = True
+    events_by_person: Dict[str, List[Dict[str, Any]]], team: Team, create_people: bool = True
 ) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
@@ -37,17 +38,19 @@ def journeys_for(
     Writing tests in this way reduces duplication in test setup
     And clarifies the preconditions of the test
     """
-
     flush_persons_and_events()
     people = {}
     events_to_create = []
-    for ids, events in events_by_person.items():
-        if isinstance(ids, str):
-            uuid, distinct_id = UUIDT(), ids
-        else:
-            uuid, distinct_id = ids
+    for distinct_id, events in events_by_person.items():
         if create_people:
-            people[distinct_id] = update_or_create_person(uuid=uuid, distinct_ids=[distinct_id], team_id=team.pk)
+            # Create the person UUID from the distinct ID and test path, so that SQL snapshots are deterministic
+            derived_uuid_value = int.from_bytes(
+                md5((os.environ["PYTEST_CURRENT_TEST"] + distinct_id).encode("utf-8")).digest(),
+                "big",
+            )
+            people[distinct_id] = update_or_create_person(
+                distinct_ids=[distinct_id], team_id=team.pk, uuid=UUID(int=derived_uuid_value)
+            )
         else:
             people[distinct_id] = Person.objects.get(
                 persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=team.pk
@@ -72,7 +75,7 @@ def journeys_for(
 
             events_to_create.append(
                 dict(
-                    event_uuid=event.get("event_uuid"),
+                    event_uuid=UUID(event.get("event_uuid")),
                     team=team,
                     distinct_id=distinct_id,
                     event=event["event"],
@@ -145,7 +148,7 @@ def _create_all_events_raw(all_events: List[Dict]):
                 data[key] = timestamp
         in_memory_event = InMemoryEvent(**data)
         parsed += f"""
-        ('{in_memory_event.event_uuid or uuid4()}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
+        ('{in_memory_event.event_uuid}', '{in_memory_event.event}', '{json.dumps(in_memory_event.properties)}', '{in_memory_event.timestamp}', {in_memory_event.team.pk}, '{in_memory_event.distinct_id}', '', '{in_memory_event.person_id}', '{json.dumps(in_memory_event.person_properties)}', '{in_memory_event.person_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{json.dumps(in_memory_event.group0_properties)}', '{json.dumps(in_memory_event.group1_properties)}', '{json.dumps(in_memory_event.group2_properties)}', '{json.dumps(in_memory_event.group3_properties)}', '{json.dumps(in_memory_event.group4_properties)}', '{in_memory_event.group0_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group1_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group2_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group3_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{in_memory_event.group4_created_at.strftime("%Y-%m-%d %H:%M:%S.%f")}', '{timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f")}', now(), 0)
         """
 
     sync_execute(
@@ -162,9 +165,9 @@ def create_all_events(all_events: List[dict]):
 
 
 # We collect all events per test into an array and batch create the events to reduce creation time
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class InMemoryEvent:
-    event_uuid: str
+    event_uuid: UUID = dataclasses.field(default_factory=uuid4)
     event: str
     distinct_id: str
     team: Team
