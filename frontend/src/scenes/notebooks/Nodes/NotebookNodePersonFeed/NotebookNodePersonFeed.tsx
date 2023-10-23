@@ -18,7 +18,13 @@ type FeedProps = {
 }
 
 const Feed = ({ person }: FeedProps): JSX.Element => {
-    return <div>Feed for {person.id}.</div>
+    return (
+        <div className="p-2">
+            {sessions.map((session: TimelineEntry) => (
+                <Session key={session.sessionId} session={session} />
+            ))}
+        </div>
+    )
 }
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
@@ -26,10 +32,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
+    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
 
-    if (personLoading) {
+    if (personLoading || (!sessions && sessionsLoading)) {
         return <FeedSkeleton />
-    } else if (!person) {
+    } else if (!person || sessions === null) {
         return <NotFound object="person" />
     }
 
