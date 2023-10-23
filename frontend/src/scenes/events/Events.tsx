@@ -12,34 +12,6 @@ export const scene: SceneExport = {
 }
 
 export function Events(): JSX.Element {
-    // const canvasMode = useFeatureFlag('NOTEBOOK_CANVASES')
-
-    // if (canvasMode) {
-    //     return (
-    //         <Notebook
-    //             editable={true}
-    //             shortId={`canvas-events`}
-    //             mode="canvas"
-    //             initialContent={{
-    //                 type: 'doc',
-    //                 content: [
-    //                     {
-    //                         type: 'ph-query',
-    //                         attrs: {
-    //                             height: null,
-    //                             title: null,
-    //                             __init: {
-    //                                 expanded: true,
-    //                                 showSettings: true,
-    //                             },
-    //                         },
-    //                     },
-    //                 ],
-    //             }}
-    //         />
-    //     )
-    // }
-
     return (
         <>
             <PageHeader title={'Event Explorer'} />
