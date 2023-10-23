@@ -6,6 +6,7 @@ import {
     RatingSurveyQuestion,
     SurveyQuestionType,
     MultipleSurveyQuestion,
+    AvailableFeature,
 } from '~/types'
 import { defaultSurveyAppearance } from './constants'
 import {
@@ -22,9 +23,8 @@ import {
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sanitize } from 'dompurify'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
@@ -134,45 +134,61 @@ export function SurveyAppearance({
 }
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
-    const { whitelabelAvailable } = useValues(surveysLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { whitelabelAvailable, surveysStylingAvailable } = useValues(surveysLogic)
+
     return (
         <div className="flex flex-col">
+            {!surveysStylingAvailable && (
+                <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                    <></>
+                </PayGateMini>
+            )}
+            <div className="mt-2">Button text</div>
+            <LemonInput
+                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+            />
             <div className="mt-2">Background color</div>
             <LemonInput
                 value={appearance?.backgroundColor}
                 onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                disabled={!surveysStylingAvailable}
             />
             <div className="mt-2">Border color</div>
             <LemonInput
                 value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
                 onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+                disabled={!surveysStylingAvailable}
             />
-            {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
-                <>
-                    <div className="mt-2">Position</div>
-                    <div className="flex gap-1">
-                        {['left', 'center', 'right'].map((position) => {
-                            return (
-                                <LemonButton
-                                    key={position}
-                                    type="tertiary"
-                                    onClick={() => onAppearanceChange({ ...appearance, position })}
-                                    active={appearance.position === position}
-                                >
-                                    {position}
-                                </LemonButton>
-                            )
-                        })}
-                    </div>
-                </>
-            )}
+            <>
+                <div className="mt-2">Position</div>
+                <div className="flex gap-1">
+                    {['left', 'center', 'right'].map((position) => {
+                        return (
+                            <LemonButton
+                                key={position}
+                                type="tertiary"
+                                onClick={() => onAppearanceChange({ ...appearance, position })}
+                                active={appearance.position === position}
+                                disabledReason={
+                                    surveysStylingAvailable
+                                        ? null
+                                        : 'Subscribe to surveys to customize survey position.'
+                                }
+                            >
+                                {position}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+            </>
             {surveyQuestionItem.type === SurveyQuestionType.Rating && (
                 <>
                     <div className="mt-2">Rating button color</div>
                     <LemonInput
                         value={appearance?.ratingButtonColor}
                         onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
+                        disabled={!surveysStylingAvailable}
                     />
                     <div className="mt-2">Rating button active color</div>
                     <LemonInput
@@ -180,6 +196,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         onChange={(ratingButtonActiveColor) =>
                             onAppearanceChange({ ...appearance, ratingButtonActiveColor })
                         }
+                        disabled={!surveysStylingAvailable}
                     />
                 </>
             )}
@@ -187,11 +204,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
             <LemonInput
                 value={appearance?.submitButtonColor}
                 onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-            />
-            <div className="mt-2">Button text</div>
-            <LemonInput
-                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+                disabled={!surveysStylingAvailable}
             />
             {surveyQuestionItem.type === SurveyQuestionType.Open && (
                 <>
@@ -199,6 +212,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     <LemonInput
                         value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
                         onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                        disabled={!surveysStylingAvailable}
                     />
                 </>
             )}

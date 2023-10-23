@@ -21,9 +21,10 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     SurveyUrlMatchType,
+    AvailableFeature,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import {
     BaseAppearance,
     Customization,
@@ -45,6 +46,8 @@ import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { surveysLogic } from './surveysLogic'
 
 function PresentationTypeCard({
     title,
@@ -98,6 +101,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion,
         setSelectedSection,
     } = useActions(surveyLogic)
+    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
@@ -163,27 +167,6 @@ export default function SurveyEdit(): JSX.Element {
                                                     content: (
                                                         <Group name={`questions.${index}`} key={index}>
                                                             <div className="flex flex-col gap-2">
-                                                                <Field name="question" label="Label">
-                                                                    <LemonInput value={question.question} />
-                                                                </Field>
-
-                                                                <Field
-                                                                    name="description"
-                                                                    label="Description (optional)"
-                                                                >
-                                                                    {({ value, onChange }) => (
-                                                                        <HTMLEditor
-                                                                            value={value}
-                                                                            onChange={onChange}
-                                                                            writingHTMLDescription={
-                                                                                writingHTMLDescription
-                                                                            }
-                                                                            setWritingHTMLDescription={
-                                                                                setWritingHTMLDescription
-                                                                            }
-                                                                        />
-                                                                    )}
-                                                                </Field>
                                                                 <Field
                                                                     name="type"
                                                                     label="Question type"
@@ -330,6 +313,27 @@ export default function SurveyEdit(): JSX.Element {
                                                                             ],
                                                                         ]}
                                                                     />
+                                                                </Field>
+                                                                <Field name="question" label="Label">
+                                                                    <LemonInput value={question.question} />
+                                                                </Field>
+
+                                                                <Field
+                                                                    name="description"
+                                                                    label="Description (optional)"
+                                                                >
+                                                                    {({ value, onChange }) => (
+                                                                        <HTMLEditor
+                                                                            value={value}
+                                                                            onChange={onChange}
+                                                                            writingHTMLDescription={
+                                                                                writingHTMLDescription
+                                                                            }
+                                                                            setWritingHTMLDescription={
+                                                                                setWritingHTMLDescription
+                                                                            }
+                                                                        />
+                                                                    )}
                                                                 </Field>
                                                                 {survey.questions.length > 1 && (
                                                                     <Field name="optional" className="my-2">
@@ -554,7 +558,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                           placeholder="ex: Thank you for your feedback!"
                                                                       />
                                                                   </PureField>
-                                                                  <PureField label="Thank you description">
+                                                                  <PureField
+                                                                      label="Thank you description"
+                                                                      className="mt-1"
+                                                                  >
                                                                       <HTMLEditor
                                                                           value={
                                                                               survey.appearance
@@ -584,11 +591,16 @@ export default function SurveyEdit(): JSX.Element {
                                     />
                                     <div className="flex gap-2">
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
-                                            // TODO: Add pay gate mini here once billing is resolved for it
                                             <LemonButton
                                                 type="secondary"
                                                 className="w-max mt-2"
                                                 icon={<IconPlus />}
+                                                sideIcon={<IconLock className="ml-1 text-base text-muted" />}
+                                                disabledReason={
+                                                    surveysMultipleQuestionsAvailable
+                                                        ? null
+                                                        : 'Subscribe for multiple question surveys'
+                                                }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
                                                         ...survey.questions,
@@ -924,6 +936,7 @@ export function HTMLEditor({
     setWritingHTMLDescription: (writingHTML: boolean) => void
     textPlaceholder?: string
 }): JSX.Element {
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
     return (
         <>
             <LemonTabs
@@ -944,31 +957,63 @@ export function HTMLEditor({
                     },
                     {
                         key: 'html',
-                        label: <span className="text-sm">HTML</span>,
+                        label: (
+                            <div>
+                                <span className="text-sm">HTML</span>
+                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
+                            </div>
+                        ),
                         content: (
                             <div>
-                                <CodeEditor
-                                    className="border"
-                                    language="html"
-                                    value={value}
-                                    onChange={(v) => onChange(v ?? '')}
-                                    height={150}
-                                    options={{
-                                        minimap: {
-                                            enabled: false,
-                                        },
-                                        scrollbar: {
-                                            alwaysConsumeMouseWheel: false,
-                                        },
-                                        wordWrap: 'on',
-                                        scrollBeyondLastLine: false,
-                                        automaticLayout: true,
-                                        fixedOverflowWidgets: true,
-                                        lineNumbers: 'off',
-                                        glyphMargin: false,
-                                        folding: false,
-                                    }}
-                                />
+                                {surveysHTMLAvailable ? (
+                                    <CodeEditor
+                                        className="border"
+                                        language="html"
+                                        value={value}
+                                        onChange={(v) => onChange(v ?? '')}
+                                        height={150}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            scrollbar: {
+                                                alwaysConsumeMouseWheel: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: false,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            lineNumbers: 'off',
+                                            glyphMargin: false,
+                                            folding: false,
+                                        }}
+                                    />
+                                ) : (
+                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                        <CodeEditor
+                                            className="border"
+                                            language="html"
+                                            value={value}
+                                            onChange={(v) => onChange(v ?? '')}
+                                            height={150}
+                                            options={{
+                                                minimap: {
+                                                    enabled: false,
+                                                },
+                                                scrollbar: {
+                                                    alwaysConsumeMouseWheel: false,
+                                                },
+                                                wordWrap: 'on',
+                                                scrollBeyondLastLine: false,
+                                                automaticLayout: true,
+                                                fixedOverflowWidgets: true,
+                                                lineNumbers: 'off',
+                                                glyphMargin: false,
+                                                folding: false,
+                                            }}
+                                        />
+                                    </PayGateMini>
+                                )}
                             </div>
                         ),
                     },

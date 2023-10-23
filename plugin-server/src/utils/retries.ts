@@ -158,13 +158,13 @@ export async function runRetriableFunction(retriableFunctionPayload: RetriableFu
 /**
  * Retry a function, respecting `error.isRetriable`.
  */
-export async function retryIfRetriable<T>(fn: () => Promise<T>, retries = 3, sleepMs = 500): Promise<T> {
-    for (let i = 0; i < retries; i++) {
+export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 500): Promise<T> {
+    for (let i = 0; i < tries; i++) {
         try {
             return await fn()
         } catch (error) {
-            if (error?.isRetriable === false || i === retries - 1) {
-                // Throw if the error is not retryable or if we're out of retries.
+            if (error?.isRetriable === false || i === tries - 1) {
+                // Throw if the error is not retryable or if we're out of tries.
                 throw error
             }
 

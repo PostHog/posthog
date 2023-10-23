@@ -32,4 +32,5 @@ interface QueryContextColumn {
     title?: string
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
+    align?: 'left' | 'right' | 'center' // default is left
 }
