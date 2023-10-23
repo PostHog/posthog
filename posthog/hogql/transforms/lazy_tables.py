@@ -4,7 +4,6 @@ from typing import Dict, List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyTable
-from posthog.hogql.database.schema.events import EventsSessionSubTable
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
@@ -208,20 +207,9 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
-                join_scope.from_table, join_scope.to_table, join_scope.fields_accessed, self.context.modifiers
+                join_scope.from_table, join_scope.to_table, join_scope.fields_accessed, self.context.modifiers, node
             )
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
-
-            # Hack to copy the events where conditions onto the session duration join
-            if isinstance(join_scope.lazy_join.join_table, EventsSessionSubTable):
-                if join_to_add.table.where is not None:
-                    self.compare_operators = []
-                    if node.where is not None:
-                        super().visit(node.where)
-                    super().visit(join_to_add.table.where)
-                    join_to_add.table.where = ast.And(exprs=self.compare_operators)
-                else:
-                    join_to_add.table.where = node.where
 
             select_type.tables[to_table] = join_to_add.type
 

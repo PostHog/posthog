@@ -101,7 +101,8 @@ class Table(FieldOrTable):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any], HogQLQueryModifiers], Any]
+    # Using `Any` for the query node due to circular dependencies
+    join_function: Callable[[str, str, Dict[str, Any], HogQLQueryModifiers, Any], Any]
     join_table: Table
     from_field: str
 
