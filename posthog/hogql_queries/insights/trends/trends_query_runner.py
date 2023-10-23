@@ -102,7 +102,11 @@ class TrendsQueryRunner(QueryRunner):
 
             res.extend(self.build_series_response(response, series_with_extra))
 
-        if self.query.trendsFilter is not None and self.query.trendsFilter.formula is not None:
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.formula is not None
+            and self.query.trendsFilter.formula != ""
+        ):
             res = self.apply_formula(self.query.trendsFilter.formula, res)
 
         return TrendsQueryResponse(results=res, timings=timings)
