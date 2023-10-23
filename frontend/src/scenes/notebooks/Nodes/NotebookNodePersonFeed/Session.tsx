@@ -19,8 +19,8 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     const { children, nodeId } = useValues(notebookNodeLogic)
     const { updateAttributes } = useActions(notebookNodeLogic)
 
-    const startTime = dayjs(session.events[session.events.length - 1].timestamp)
-    const endTime = dayjs(session.events[0].timestamp)
+    const startTime = dayjs(session.events[0].timestamp)
+    const endTime = dayjs(session.events[session.events.length - 1].timestamp)
     const durationSeconds = endTime.diff(startTime, 'second')
 
     const [isFolded, setIsFolded] = useState(false)
@@ -53,7 +53,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
 
     return (
         <div className="flex flex-col rounded bg-side border overflow-hidden mb-3" title={session.sessionId}>
-            <div className="flex items-center justify-between pl-2 pr-4 py-2 gap-2 bg-bg-light">
+            <div className="flex items-center justify-between bg-bg-light p-0.5 pr-2 text-xs">
                 <div className="flex items-center">
                     <LemonButton
                         size="small"
@@ -61,18 +61,24 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                         status="stealth"
                         onClick={() => setIsFolded((state) => !state)}
                     />
-                    <b className="ml-2">{humanFriendlyDetailedTime(startTime)}</b>
-                    <span className="text-muted-3000 font-bold ml-1">({session.events.length} events)</span>
+                    <span className="font-bold ml-2">{humanFriendlyDetailedTime(startTime)}</span>
                 </div>
-                <div className="flex items-center flex-1">
-                    <span>{humanFriendlyDuration(durationSeconds)}</span>
+                <div className="flex items-center text-muted">
+                    <span>
+                        <b>{session.events.length} events</b> in <b>{humanFriendlyDuration(durationSeconds)}</b>
+                    </span>
+                    {session.recording_duration_s ? (
+                        <LemonButton
+                            className="ml-1"
+                            size="small"
+                            icon={<IconRewindPlay />}
+                            onClick={() => onOpenReplay()}
+                        />
+                    ) : null}
                 </div>
-                {session.recording_duration_s ? (
-                    <LemonButton size="small" icon={<IconRewindPlay />} onClick={() => onOpenReplay()} />
-                ) : null}
             </div>
             {!isFolded && (
-                <div className="p-2 border-t space-y-2">
+                <div className="p-1 border-t space-y-1">
                     {session.events.map((event) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}
