@@ -11,7 +11,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { useCallback, useState } from 'react'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -52,11 +52,13 @@ import {
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { EventType } from '~/types'
+import { EventType, NotebookNodeType, NotebookTarget } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
+import { IconNotebook } from '@posthog/icons'
+import { notebooksModel } from '~/models/notebooksModel'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -83,6 +85,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const uniqueNodeKey = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
+    const { createNotebook } = useActions(notebooksModel)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
@@ -365,6 +368,64 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                   },
               ]
             : []),
+        {
+            dataIndex: 'open_in_notebook',
+            title: '',
+            render: function OpenInNotebook(_: any, { result }: DataTableRow) {
+                return (
+                    <LemonButton
+                        type="secondary"
+                        status="primary"
+                        icon={<IconNotebook />}
+                        onClick={() => {
+                            if (result && columnsInResponse?.includes('*')) {
+                                const event = result[columnsInResponse.indexOf('*')]
+
+                                const content = []
+
+                                const personId = event.distinct_id ?? event.person?.distinct_ids[0]
+                                if (personId) {
+                                    content.push(
+                                        {
+                                            type: 'paragraph',
+                                            content: [
+                                                { type: 'text', marks: [{ type: 'bold' }], text: 'Reported by:' },
+                                            ],
+                                        },
+                                        { type: NotebookNodeType.Person, attrs: { id: personId } }
+                                    )
+                                }
+
+                                if (event.properties?.$session_id) {
+                                    content.push(
+                                        { type: 'paragraph', content: [] },
+                                        { type: 'text', marks: [{ type: 'bold' }], text: 'Session replay:' },
+                                        {
+                                            type: NotebookNodeType.Recording,
+                                            attrs: { id: event.properties?.$session_id },
+                                        }
+                                    )
+                                }
+
+                                if (event.properties.$attachments && event.properties.$attachments.length > 0) {
+                                    content.push({ type: 'paragraph', content: [] })
+                                    event.properties.$attachments.forEach((mediaLocation: string) => {
+                                        content.push({
+                                            type: NotebookNodeType.Attachment,
+                                            attrs: { mediaLocation: mediaLocation },
+                                        })
+                                    })
+                                }
+                                createNotebook(`Feedback: ${event.properties.$title}`, NotebookTarget.Popover, content)
+                            }
+                        }}
+                    >
+                        Open in Notebook
+                    </LemonButton>
+                )
+            },
+            width: 200,
+        },
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(

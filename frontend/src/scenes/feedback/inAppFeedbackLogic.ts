@@ -14,23 +14,15 @@ const DEFAULT_DATATABLE_QUERY: DataTableNode = {
         kind: NodeKind.EventsQuery,
         select: ['*', 'properties.$title', 'person', 'timestamp'],
         orderBy: ['timestamp DESC'],
-        after: '-30d',
+        after: '-2d',
         limit: 100,
         event: EVENT_NAME,
-        // kind: NodeKind.HogQLQuery,
-        // query: hogql`
-        //     SELECT *, properties.text as "Description", timestamp
-        //     FROM events
-        //     WHERE event = '$feedback'
-        //     order by timestamp desc
-        //     limit 100
-        // `,
     },
     full: false,
     showOpenEditorButton: false,
     showTimings: false,
     expandable: false,
-    showActions: true,
+    showActions: false,
 }
 
 export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([

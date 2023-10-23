@@ -1,4 +1,4 @@
-import { EventType, NotebookNodeType, NotebookTarget } from '~/types'
+import { EventType } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
@@ -10,8 +10,6 @@ import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
-import { IconNotebook } from '@posthog/icons'
-import { notebooksModel } from '~/models/notebooksModel'
 
 interface EventActionProps {
     event: EventType
@@ -20,7 +18,6 @@ interface EventActionProps {
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const insightUrl = insightUrlForEvent(event)
-    const { createNotebook } = useActions(notebooksModel)
 
     return (
         <More
@@ -83,54 +80,6 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                     {insightUrl && (
                         <LemonButton to={insightUrl} status="stealth" fullWidth data-attr="events-table-usage">
                             Try out in Insights
-                        </LemonButton>
-                    )}
-                    {event.event === '$feedback' && (
-                        <LemonButton
-                            sideIcon={<IconNotebook />}
-                            status="stealth"
-                            fullWidth
-                            data-attr="events-table-usage"
-                            onClick={() => {
-                                const content = []
-
-                                const personId = event.distinct_id ?? event.person?.distinct_ids[0]
-                                if (personId) {
-                                    content.push(
-                                        {
-                                            type: 'paragraph',
-                                            content: [
-                                                { type: 'text', marks: [{ type: 'bold' }], text: 'Reported by:' },
-                                            ],
-                                        },
-                                        { type: NotebookNodeType.Person, attrs: { id: personId } }
-                                    )
-                                }
-
-                                if (event.properties?.$session_id) {
-                                    content.push(
-                                        { type: 'paragraph', content: [] },
-                                        { type: 'text', marks: [{ type: 'bold' }], text: 'Session replay:' },
-                                        {
-                                            type: NotebookNodeType.Recording,
-                                            attrs: { id: event.properties?.$session_id },
-                                        }
-                                    )
-                                }
-
-                                if (event.properties.$attachments && event.properties.$attachments.length > 0) {
-                                    content.push({ type: 'paragraph', content: [] })
-                                    event.properties.$attachments.forEach((mediaLocation: string) => {
-                                        content.push({
-                                            type: NotebookNodeType.Attachment,
-                                            attrs: { mediaLocation: mediaLocation },
-                                        })
-                                    })
-                                }
-                                createNotebook(`Feedback: ${event.properties.$title}`, NotebookTarget.Popover, content)
-                            }}
-                        >
-                            Open in Notebook
                         </LemonButton>
                     )}
                 </>
