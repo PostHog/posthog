@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -108,12 +108,25 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
             </div>
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
                 <>
+                    <h2>Replay ingestion controls</h2>
+                    <p>
+                        PostHog offers several tools to let you control the number of recordings you collect and which
+                        users you collect recordings for.{' '}
+                        <Link
+                            to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
+                            target={'blank'}
+                        >
+                            Learn more in our docs
+                        </Link>
+                    </p>
+                    <LemonBanner type={'info'}>Requires posthog-js version 1.85.0 or greater</LemonBanner>
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Sampling</LemonLabel>
                         <LemonSelect
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_sample_rate: v })
                             }}
+                            dropdownMatchSelectWidth={false}
                             options={[
                                 {
                                     label: '100% (no sampling)',
@@ -252,24 +265,26 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         Setting a minimum session duration will ensure that only sessions that last longer than that
                         value are collected. This helps you avoid collecting sessions that are too short to be useful.
                     </p>
-                    <div className={'flex flex-row justify-between'}>
+                    <div className={'flex flex-col space-y-2'}>
                         <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                        {currentTeam?.session_recording_linked_flag && (
-                            <LemonButton
-                                className="ml-2"
-                                icon={<IconCancel />}
-                                size="small"
-                                status="stealth"
-                                onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
-                                aria-label="close"
+                        <div className={'flex flex-row justify-start space-x-2'}>
+                            <FlagSelector
+                                value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                                onChange={(id, key) => {
+                                    updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                                }}
                             />
-                        )}
-                        <FlagSelector
-                            value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                            onChange={(id, key) => {
-                                updateCurrentTeam({ session_recording_linked_flag: { id, key } })
-                            }}
-                        />
+                            {currentTeam?.session_recording_linked_flag && (
+                                <LemonButton
+                                    className="ml-2"
+                                    icon={<IconCancel />}
+                                    size="small"
+                                    status="stealth"
+                                    onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                                    title="Clear selected flag"
+                                />
+                            )}
+                        </div>
                     </div>
                     <p>
                         Linking a flag means that recordings will only be collected for users who have the flag enabled.
