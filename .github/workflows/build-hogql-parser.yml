@@ -19,6 +19,7 @@ concurrency:
 jobs:
     check-version:
         name: Check version legitimacy
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-22.04
         outputs:
             parser_any_changed: ${{ steps.changed-files-yaml.outputs.parser_any_changed }}
