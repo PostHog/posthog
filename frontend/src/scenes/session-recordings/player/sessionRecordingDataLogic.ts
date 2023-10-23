@@ -28,7 +28,7 @@ import posthog from 'posthog-js'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] =>
+const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], sessionId: string): RecordingSnapshot[] =>
     items.flatMap((l) => {
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
@@ -39,6 +39,10 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): Re
                 ...d,
             }))
         } catch (e) {
+            posthog.capture('session recording had unparseable line', {
+                sessionId,
+                line: l,
+            })
             captureException(e)
             return []
         }
@@ -307,7 +311,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             source.blob_key
                         )
                         data.snapshots = prepareRecordingSnapshots(
-                            parseEncodedSnapshots(encodedResponse),
+                            parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
                             values.sessionPlayerSnapshotData?.snapshots ?? []
                         )
                     } else {
@@ -319,7 +323,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
                             data.snapshots = prepareRecordingSnapshots(
-                                parseEncodedSnapshots(response.snapshots),
+                                parseEncodedSnapshots(response.snapshots, props.sessionRecordingId),
                                 values.sessionPlayerSnapshotData?.snapshots ?? []
                             )
                         }
