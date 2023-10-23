@@ -258,25 +258,30 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 duplicateNotebook: async () => {
-                    if (!values.notebook) {
+                    if (!values.content) {
                         return null
                     }
 
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
-                        content: values.content || values.notebook.content,
+                        content: values.content,
                         text_content: values.editor?.getText() || '',
-                        title: values.title || values.notebook.title,
+                        title: values.title,
                     })
 
                     posthog.capture(`notebook duplicated`, {
                         short_id: response.short_id,
                     })
 
-                    const source = values.notebook.short_id === 'scratchpad' ? 'Scratchpad' : 'Template'
+                    const source =
+                        values.mode === 'canvas'
+                            ? 'Canvas'
+                            : values.notebook?.short_id === 'scratchpad'
+                            ? 'Scratchpad'
+                            : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
-                    if (values.notebook.short_id === 'scratchpad') {
+                    if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
                         actions.clearLocalContent()
                     }

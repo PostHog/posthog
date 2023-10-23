@@ -226,7 +226,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 nodeId: props.nodeId,
             })
         },
-        insertOrSelectNextLine: (_, breakpoint) => {
+        insertOrSelectNextLine: () => {
             if (!props.getPos || !values.isEditable) {
                 return
             }
