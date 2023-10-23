@@ -195,18 +195,17 @@ function Pages(): JSX.Element {
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
                     <PageButton
-                        icon={<IconRocketLaunch />}
-                        identifier={Scene.EarlyAccessFeatures}
-                        title={'Early Access Management'}
-                        to={urls.earlyAccessFeatures()}
-                    />
-
-                    <PageButton
                         icon={<IconSurveys />}
                         identifier={Scene.Surveys}
                         title={'Surveys'}
                         to={urls.surveys()}
-                        highlight="beta"
+                        highlight="new"
+                    />
+                    <PageButton
+                        icon={<IconRocketLaunch />}
+                        identifier={Scene.EarlyAccessFeatures}
+                        title={'Early Access Management'}
+                        to={urls.earlyAccessFeatures()}
                     />
                     <div className="SideBar__heading">Data</div>
 

@@ -12,22 +12,14 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
-        return (
-            <div className="w-full text-right">
-                <span className="flex-1 text-right">{`${(value * 100).toFixed(1)}%`}</span>
-            </div>
-        )
+        return <span>{`${(value * 100).toFixed(1)}%`}</span>
     } else {
         return null
     }
 }
 
 const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return (
-        <div className="w-full text-right">
-            <span className="flex-1 text-right">{String(value)}</span>
-        </div>
-    )
+    return <span>{typeof value === 'number' ? value.toLocaleString() : String(value)}</span>
 }
 
 const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
@@ -115,14 +107,17 @@ const queryContext: QueryContext = {
         bounce_rate: {
             title: 'Bounce Rate',
             render: PercentageCell,
+            align: 'right',
         },
         views: {
             title: 'Views',
             render: NumericCell,
+            align: 'right',
         },
         visitors: {
             title: 'Visitors',
             render: NumericCell,
+            align: 'right',
         },
     },
 }

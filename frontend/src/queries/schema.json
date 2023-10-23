@@ -326,6 +326,31 @@
             ],
             "type": "string"
         },
+        "DashboardFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
         "DataNode": {
             "additionalProperties": false,
             "properties": {
