@@ -252,6 +252,18 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
+@async_to_sync
+async def cancel_running_batch_export_backfill(temporal: Client, workflow_id: str) -> None:
+    """Delete a running BatchExportBackfill.
+
+    A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
+    Schedule that we are backfilling, we should also clean-up any Workflows that are
+    still running.
+    """
+    handle = temporal.get_workflow_handle(workflow_id)
+    await handle.cancel()
+
+
 @dataclass
 class BackfillBatchExportInputs:
     """Inputs for the BackfillBatchExport Workflow."""
