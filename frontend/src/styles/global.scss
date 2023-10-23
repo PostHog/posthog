@@ -61,7 +61,7 @@ ul {
     }
 
     .posthog-3000 & {
-        margin-top: 1rem;
+        margin-top: 0.5rem;
     }
 }
 
@@ -786,4 +786,9 @@ body {
         background: var(--secondary-3000);
         border-color: transparent;
     }
+}
+
+.maplibregl-map {
+    font: 0.625rem/20px var(--font-sans) !important;
+    letter-spacing: 0.01em;
 }
