@@ -25,7 +25,8 @@ async fn shutdown() {
 async fn main() {
     let use_print_sink = env::var("PRINT_SINK").is_ok();
     let address = env::var("ADDRESS").unwrap_or(String::from("127.0.0.1:3000"));
-    let redis_addr = env::var("REDIS").expect("redis required; please set the REDIS env var");
+    let redis_addr =
+        env::var("REDIS_URL").expect("redis required; please set the REDIS_URL env var");
 
     let redis_client =
         Arc::new(RedisClient::new(redis_addr).expect("failed to create redis client"));
@@ -42,7 +43,7 @@ async fn main() {
             true,
         )
     } else {
-        let brokers = env::var("KAFKA_BROKERS").expect("Expected KAFKA_BROKERS");
+        let brokers = env::var("KAFKA_HOSTS").expect("Expected KAFKA_HOSTS");
         let topic = env::var("KAFKA_TOPIC").expect("Expected KAFKA_TOPIC");
 
         let sink = sink::KafkaSink::new(topic, brokers).unwrap();
