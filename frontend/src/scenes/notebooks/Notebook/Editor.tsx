@@ -24,9 +24,6 @@ import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { lemonToast } from '@posthog/lemon-ui'
 import { NotebookNodeType } from '~/types'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
-import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
-import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
-import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed'
 
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 import { SlashCommandsExtension } from './SlashCommands'
@@ -112,9 +109,6 @@ export function Editor(): JSX.Element {
             NotebookNodeEarlyAccessFeature,
             NotebookNodeSurvey,
             NotebookNodeImage,
-            NotebookNodeMap,
-            NotebookNodePersonFeed,
-            NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
