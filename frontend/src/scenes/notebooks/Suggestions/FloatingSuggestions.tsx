@@ -1,81 +1,66 @@
 import './FloatingSuggestions.scss'
 import { Editor as TTEditor } from '@tiptap/core'
-import { FloatingMenu } from '@tiptap/react'
 import { useActions, useValues } from 'kea'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 import { isCurrentNodeEmpty } from '../Notebook/utils'
 import { useEffect, useState } from 'react'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Element | null {
     const logic = insertionSuggestionsLogic()
     const { activeSuggestion, previousNode } = useValues(logic)
     const { setEditor } = useActions(logic)
     const { editor: notebookEditor } = useValues(notebookLogic)
+    const { ref: setRef, height } = useResizeObserver()
+    const [shouldShow, setShouldShow] = useState<boolean>(false)
 
-    const [shouldShow, setShouldShow] = useState(false)
+    const [position, setPosition] = useState<{ top: number }>({ top: 0 })
 
     const { Component } = activeSuggestion
+
+    const handleUpdate = (): void => {
+        const selection = window.getSelection()
+
+        if (selection && selection.anchorNode && selection.anchorNode.parentElement) {
+            if (selection.anchorNode.nodeType === Node.ELEMENT_NODE) {
+                const editorPos = editor.view.dom.getBoundingClientRect()
+                const selectionPos = (selection.anchorNode as HTMLElement).getBoundingClientRect()
+
+                setPosition({ top: selectionPos.top - editorPos.top })
+            }
+        }
+
+        setShouldShow(
+            editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)
+        )
+    }
 
     useEffect(() => {
         setEditor(notebookEditor)
     }, [notebookEditor])
 
-    const focusHandler = (): void => {
-        console.log('got here')
-
-        const currentNode = editor.state.doc.nodeAt(editor.state.selection.$head.pos)
-        setShouldShow(!currentNode)
-    }
+    useEffect(() => {
+        handleUpdate()
+    }, [height])
 
     useEffect(() => {
-        editor.on('selectionUpdate', focusHandler)
-        return () => editor.off('selectionUpdate', focusHandler)
+        editor.on('update', handleUpdate)
+        editor.on('selectionUpdate', handleUpdate)
+        setRef(editor.view.dom)
+        return () => {
+            editor.off('update', handleUpdate)
+            editor.off('selectionUpdate', handleUpdate)
+        }
     }, [])
 
     return (
-        <div className="FloatingSuggestion flex items-center justify-content">
-            {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
+        <div className="NotebookFloatingButton absolute" style={{ zIndex: 9999, top: position.top, left: 0 }}>
+            {shouldShow && (
+                <div className="FloatingSuggestion flex items-center justify-content">
+                    {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
+                </div>
+            )}
         </div>
     )
-
-    // return (
-    //     <FloatingMenu
-    //         editor={editor}
-    //         tippyOptions={{
-    //             duration: [100, 0],
-    //             placement: 'right',
-    //             offset: [0, 0],
-    //             // triggerTarget
-    //             // getReferenceClientRect: () => ({
-    //             //     width: 100,
-    //             //     height: 100,
-    //             //     left: 100,
-    //             //     right: 200,
-    //             //     top: 100,
-    //             //     bottom: 200,
-    //             // }),
-    //         }}
-    //         className="NotebookFloatingButton"
-    //         shouldShow={({ editor }: { editor: TTEditor }) => {
-    //             if (!editor) {
-    //                 return false
-    //             }
-    //             if (
-    //                 editor.view.hasFocus() &&
-    //                 editor.isEditable &&
-    //                 editor.isActive('paragraph') &&
-    //                 isCurrentNodeEmpty(editor)
-    //             ) {
-    //                 return true
-    //             }
-
-    //             return false
-    //         }}
-    //     >
-    //         <div className="FloatingSuggestion flex items-center justify-content">
-    //             {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
-    //         </div>
-    //     </FloatingMenu>
-    // )
 }
