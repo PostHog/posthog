@@ -177,11 +177,17 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     )
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttributes>): JSX.Element | null => {
     const { id } = attributes
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
+
+    const { expanded } = useValues(notebookNodeLogic)
+
+    if (!expanded) {
+        return null
+    }
 
     if (personLoading) {
         return <FeedSkeleton />
@@ -201,7 +207,8 @@ export const NotebookNodePersonFeed = createPostHogWidgetNode<NotebookNodePerson
     titlePlaceholder: 'Sessions',
     Component,
     resizeable: false,
-    expandable: false,
+    expandable: true,
+    startExpanded: true,
     attributes: {
         id: {},
     },
