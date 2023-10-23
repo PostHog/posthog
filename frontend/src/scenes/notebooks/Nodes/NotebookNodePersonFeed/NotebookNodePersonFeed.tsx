@@ -3,10 +3,12 @@ import { useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { NotebookNodeType, PersonType } from '~/types'
+import { TimelineEntry } from '~/queries/schema'
 import { NotebookNodeProps } from 'scenes/notebooks/Notebook/utils'
 import { personLogic } from 'scenes/persons/personLogic'
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
+import { Session } from './Session'
 
 const FeedSkeleton = (): JSX.Element => (
     <div className="space-y-4 p-4">
@@ -30,8 +32,7 @@ const Feed = ({ person }: FeedProps): JSX.Element => {
     return (
         <div className="p-2">
             {sessions.map((session: TimelineEntry) => (
-                // <Session key={session.sessionId} session={session} />
-                <div>asd</div>
+                <Session key={session.sessionId} session={session} />
             ))}
         </div>
     )
