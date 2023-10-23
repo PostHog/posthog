@@ -17,7 +17,7 @@ import {
     IconAdsClick,
     IconCode,
 } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime, humanFriendlyDuration, eventToDescription } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDuration, eventToDescription, pluralize } from 'lib/utils'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { personLogic } from 'scenes/persons/personLogic'
 import { NotFound } from 'lib/components/NotFound'
@@ -126,11 +126,20 @@ const Session = ({ session }: SessionProps): JSX.Element => {
                         status="stealth"
                         onClick={() => setIsFolded((state) => !state)}
                         size="small"
-                        tooltip={session.sessionId ? `Session ID ${session.sessionId}` : 'Session without ID'}
+                        tooltip={
+                            session.sessionId ? (
+                                <>
+                                    Session ID <span className="whitespace-nowrap">{session.sessionId}</span>
+                                </>
+                            ) : (
+                                'Session without ID'
+                            )
+                        }
+                        tooltipPlacement="right"
                     />
                     <span className="font-medium ml-2">{humanFriendlyDetailedTime(startTime)}</span>
                     <span className="text-muted font-medium ml-1">
-                        ({session.events.length} events over {humanFriendlyDuration(durationSeconds)})
+                        ({pluralize(session.events.length, 'event')} over {humanFriendlyDuration(durationSeconds)})
                     </span>
                 </div>
                 {session.recording_duration_s ? (
