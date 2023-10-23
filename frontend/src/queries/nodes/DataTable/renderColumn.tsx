@@ -218,8 +218,8 @@ export function renderColumn(
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }
 
-        if (isPersonsNode(query.source)) {
-            displayProps.href = urls.personByDistinctId(value.distinct_ids[0])
+        if (isPersonsNode(query.source) && personRecord.distinct_ids) {
+            displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
         }
 
         if (isPersonsQuery(query.source)) {
