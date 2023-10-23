@@ -63,7 +63,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                     />
                     <span className="font-bold ml-2">{humanFriendlyDetailedTime(startTime)}</span>
                 </div>
-                <div className="flex items-center text-muted">
+                <div className="flex items-center">
                     <span>
                         <b>{session.events.length} events</b> in <b>{humanFriendlyDuration(durationSeconds)}</b>
                     </span>
