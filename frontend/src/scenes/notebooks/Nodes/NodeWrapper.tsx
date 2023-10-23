@@ -158,6 +158,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
+    const isWidget = !getPos
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -204,7 +205,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                                     />
                                                 )}
 
-                                                {isEditable ? (
+                                                {!isWidget && isEditable ? (
                                                     <>
                                                         {settings ? (
                                                             <LemonButton
@@ -247,7 +248,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                             // UX improvement so that the actions don't get in the way of the cursor
                             onClick={() => onActionsAreaClick()}
                         >
-                            {getPos && isEditable && actions.length ? (
+                            {!isWidget && isEditable && actions.length ? (
                                 <>
                                     {actions.map((x, i) => (
                                         <LemonButton
@@ -388,6 +389,10 @@ export const NotebookNodeChildRenderer = ({
     content: NotebookNodeResource
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
+
+    // TODO: Save updated attributes to parent node
+    // TODO: Support deletion of nodes
+    // TODO: Check that node logics are unmounted when removed (from the list of logics)
 
     return (
         <MemoizedNodeWrapper
