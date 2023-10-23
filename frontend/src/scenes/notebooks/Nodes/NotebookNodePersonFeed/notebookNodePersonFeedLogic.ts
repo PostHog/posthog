@@ -10,11 +10,13 @@ import {
 
 import { default as mockSessionsTimelineQueryResponse } from './mockSessionsTimelineQueryResponse.json'
 
+import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
+
 export type NotebookNodePersonFeedLogicProps = {
     personId: string
 }
 
-export const notebookNodePersonFeedLogic = kea([
+export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>([
     props({} as NotebookNodePersonFeedLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
