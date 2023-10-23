@@ -601,18 +601,26 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class Result(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    value: float
+
+
 class WebOverviewStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: Optional[List] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List
+    results: List[Result]
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
 
 
 class WebStatsBreakdown(str, Enum):

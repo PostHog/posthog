@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
@@ -26,11 +28,11 @@ SELECT
     uniq(if(timestamp >= {mid} AND timestamp < {end}, events.person_id, NULL)) AS unique_users,
     uniq(if(timestamp >= {start} AND timestamp < {mid}, events.person_id, NULL)) AS previous_unique_users,
 
-    uniq(if(timestamp >= {mid} AND timestamp < {end}, events.properties.$session_id, NULL)) AS unique_sessions,
-    uniq(if(timestamp >= {start} AND timestamp < {mid}, events.properties.$session_id, NULL)) AS previous_unique_sessions,
-
     countIf(timestamp >= {mid} AND timestamp < {end}) AS current_pageviews,
-    countIf(timestamp >= {start} AND timestamp < {mid}) AS previous_pageviews
+    countIf(timestamp >= {start} AND timestamp < {mid}) AS previous_pageviews,
+
+    uniq(if(timestamp >= {mid} AND timestamp < {end}, events.properties.$session_id, NULL)) AS unique_sessions,
+    uniq(if(timestamp >= {start} AND timestamp < {mid}, events.properties.$session_id, NULL)) AS previous_unique_sessions
 FROM
     events
 WHERE
@@ -53,8 +55,15 @@ WHERE
             timings=self.timings,
         )
 
+        row = response.results[0]
+
         return WebOverviewStatsQueryResponse(
-            columns=response.columns, results=response.results, timings=response.timings, types=response.types
+            timings=response.timings,
+            results=[
+                to_data("visitors", row[0], row[1]),
+                to_data("pageviews", row[2], row[3]),
+                to_data("sessions", row[4], row[5]),
+            ],
         )
 
     @cached_property
@@ -63,3 +72,12 @@ WHERE
 
     def event_properties(self) -> ast.Expr:
         return property_to_expr(self.query.properties, team=self.team)
+
+
+def to_data(key: str, value: float, previous: float, is_increase_bad: Optional[bool] = None) -> dict:
+    return {
+        "key": key,
+        "isIncreaseBad": is_increase_bad,
+        "value": value,
+        "changeFromPreviousPct": round(100 * (value - previous) / previous),
+    }

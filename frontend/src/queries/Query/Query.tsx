@@ -4,6 +4,7 @@ import {
     isInsightVizNode,
     isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
+    isWebOverviewStatsQuery,
 } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -17,6 +18,7 @@ import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { WebOverviewStatsTable } from '~/queries/nodes/WebOverviewStatsTable/WebOverviewStatsTable'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** An optional key to identify the query */
@@ -89,6 +91,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
+    } else if (isWebOverviewStatsQuery(query)) {
+        component = <WebOverviewStatsTable query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {

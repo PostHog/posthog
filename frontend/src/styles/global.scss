@@ -552,6 +552,11 @@ input::-ms-clear {
     &.main-app-content--plain {
         padding: 0;
     }
+
+    &.main-app-content--container {
+        max-width: 72rem;
+        align-self: center;
+    }
 }
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)

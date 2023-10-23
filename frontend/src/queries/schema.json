@@ -3009,10 +3009,6 @@
         "WebOverviewStatsQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -3026,17 +3022,31 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "changeFromPreviousPct": {
+                                "type": "number"
+                            },
+                            "isIncreaseBad": {
+                                "type": "boolean"
+                            },
+                            "key": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["key", "value"],
+                        "type": "object"
+                    },
                     "type": "array"
                 },
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
                     "type": "array"
                 }
             },

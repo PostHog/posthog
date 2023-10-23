@@ -557,9 +557,12 @@ export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
 }
 
 export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
+    results: {
+        key: string
+        value: number
+        changeFromPreviousPct?: number
+        isIncreaseBad?: boolean
+    }[]
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
