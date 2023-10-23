@@ -271,6 +271,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *ctx) override {
     return visitChildren(ctx);
   }

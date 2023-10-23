@@ -56,8 +56,8 @@ public:
     NOT_REGEX = 225, NULLISH = 226, PERCENT = 227, PLUS = 228, QUERY = 229, 
     QUOTE_DOUBLE = 230, QUOTE_SINGLE = 231, REGEX_SINGLE = 232, REGEX_DOUBLE = 233, 
     RBRACE = 234, RBRACKET = 235, RPAREN = 236, SEMICOLON = 237, SLASH = 238, 
-    UNDERSCORE = 239, MULTI_LINE_COMMENT = 240, SINGLE_LINE_COMMENT = 241, 
-    WHITESPACE = 242
+    UNDERSCORE = 239, EQ_LBRACE = 240, MULTI_LINE_COMMENT = 241, SINGLE_LINE_COMMENT = 242, 
+    WHITESPACE = 243
   };
 
   enum {
@@ -1197,6 +1197,15 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprTagElementContext : public ColumnExprContext {
+  public:
+    ColumnExprTagElementContext(ColumnExprContext *ctx);
+
+    TagElementContext *tagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprTupleContext : public ColumnExprContext {
   public:
     ColumnExprTupleContext(ColumnExprContext *ctx);
@@ -1468,10 +1477,9 @@ public:
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     antlr4::tree::TerminalNode *STRING_LITERAL();
-    antlr4::tree::TerminalNode *LBRACE();
+    antlr4::tree::TerminalNode *EQ_LBRACE();
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *RBRACE();
-    TagElementContext *tagElement();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

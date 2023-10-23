@@ -110,6 +110,7 @@ columnExpr
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
+    | tagElement                                                                          # ColumnExprTagElement
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -172,8 +173,7 @@ columnLambdaExpr:
 tagElement     :   LT identifier tagAttribute* SLASH GT;
 
 tagAttribute   :   identifier '=' STRING_LITERAL
-               |   identifier '=' LBRACE columnExpr RBRACE
-               |   identifier '=' LBRACE tagElement RBRACE
+               |   identifier EQ_LBRACE columnExpr RBRACE
                |   identifier
                ;
 

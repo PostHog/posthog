@@ -147,6 +147,8 @@ public:
 
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
+    virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
+
     virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *context) = 0;
 
     virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *context) = 0;

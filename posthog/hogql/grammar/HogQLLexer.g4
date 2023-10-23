@@ -306,6 +306,7 @@ RPAREN: ')';
 SEMICOLON: ';';
 SLASH: '/';
 UNDERSCORE: '_';
+EQ_LBRACE: '={';
 
 // Comments and whitespace
 

@@ -3,6 +3,7 @@ from typing import Dict, List, Literal, Optional, cast
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
 
+from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.base import AST, QueryTag
 from posthog.hogql.constants import RESERVED_KEYWORDS
@@ -114,6 +115,26 @@ class HogQLErrorListener(ErrorListener):
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         start = max(self.get_position(line, column), 0)
         raise SyntaxException(msg, start=start, end=len(self.query))
+
+
+def ast_to_node(expr: ast.Expr):
+    if isinstance(expr, ast.Constant):
+        return expr.value
+    elif isinstance(expr, ast.Array):
+        return [ast_to_node(e) for e in expr.exprs]
+    elif isinstance(expr, QueryTag):
+        kind = expr.kind
+        attributes = expr.attributes
+        # if there is a class derived from BaseModel in schema.py that has the same name as "kind", use that
+
+        # find all classes in schema that derive from BaseModel and have the same name as "kind"
+        for klass in schema.__dict__.values():
+            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == kind:
+                return klass(**attributes)
+
+        raise SyntaxException(f'Unknown element of kind "{kind}" not found in schema.')
+    else:
+        raise SyntaxException(f'Unknown element of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
@@ -716,6 +737,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
+    def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
+        return self.visit(ctx.tagElement())
+
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
         return [self.visit(arg) for arg in ctx.columnArgExpr()]
 
@@ -870,12 +894,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
             expr = self.visit(ctx.columnExpr())
-            if isinstance(expr, ast.Constant):
-                value = expr.value
-            else:
-                raise SyntaxException(f"Tag attribute value must be a constant", start=ctx.start, end=ctx.stop)
-        elif ctx.tagElement():
-            value = self.visit(ctx.tagElement())
+            value = ast_to_node(expr)
+            # if isinstance(expr, ast.Constant):
+            #     value = expr.value
+            # elif isinstance(expr, ast.Array):
+            #     value = expr.exprs
+            # else:
+            #     raise SyntaxException(f"Tag attribute value must be a constant", start=ctx.start, end=ctx.stop)
         elif ctx.STRING_LITERAL():
             value = parse_string_literal(ctx.STRING_LITERAL())
         else:
