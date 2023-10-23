@@ -19,7 +19,7 @@ export const groupsModel = kea<groupsModelType>([
         values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
     }),
     loaders(({ values }) => ({
-        groupTypes: [
+        groupTypesRaw: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
@@ -38,6 +38,20 @@ export const groupsModel = kea<groupsModelType>([
         ],
     })),
     selectors({
+        groupTypes: [
+            (s) => [s.groupTypesRaw],
+            (groupTypesRaw) => {
+                const groupTypes: GroupType[] = new Array(groupTypesRaw.length)
+
+                for (const groupType of groupTypesRaw) {
+                    groupTypes[groupType.group_type_index] = groupType
+                }
+
+                return groupTypes
+            },
+        ],
+        groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],
+
         showGroupsOptions: [
             (s) => [s.groupsAccessStatus, s.groupsEnabled, s.groupTypes],
             (status, enabled, groupTypes) => status !== GroupsAccessStatus.Hidden || (enabled && groupTypes.length > 0),
@@ -64,9 +78,9 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypes],
             (groupTypes) =>
                 (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false): Noun => {
-                    const groupType = groupTypes.find((groupType) => groupType.group_type_index === groupTypeIndex)
+                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
+                        const groupType = groupTypes[groupTypeIndex]
 
-                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupType) {
                         return {
                             singular: groupType.name_plural || groupType.group_type,
                             plural: groupType.name_plural || `${groupType.group_type}(s)`,
