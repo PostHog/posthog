@@ -133,6 +133,8 @@
 
         .NotebookScene & {
             --notebook-sidebar-height: calc(100vh - 11rem);
+            // Account for fixed title
+            padding-top: 4rem;
         }
 
         .NotebookColumn__content {
@@ -144,8 +146,9 @@
             transition: transform var(--notebook-popover-transition-properties);
 
             .NotebookScene & {
-                // Account for sticky header
-                top: 4rem;
+                // NOTE: This is a hack to account for sticky header
+                // We should do this better
+                top: calc(4rem);
             }
         }
 
