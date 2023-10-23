@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyTable
+from posthog.hogql.database.schema.events import EventsSessionSubTable
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
@@ -32,6 +33,7 @@ class LazyTableResolver(TraversingVisitor):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
+        self.compare_operators: List[ast.CompareOperation] = []
 
     def _get_long_table_name(self, select: ast.SelectQueryType, type: ast.BaseTableType) -> str:
         if isinstance(type, ast.TableType):
@@ -71,6 +73,9 @@ class LazyTableResolver(TraversingVisitor):
             if len(self.stack_of_fields) == 0:
                 raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
             self.stack_of_fields[-1].append(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        self.compare_operators.append(node)
 
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type
@@ -206,6 +211,18 @@ class LazyTableResolver(TraversingVisitor):
                 join_scope.from_table, join_scope.to_table, join_scope.fields_accessed, self.context.modifiers
             )
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
+
+            # Hack to copy the events where conditions onto the session duration join
+            if isinstance(join_scope.lazy_join.join_table, EventsSessionSubTable):
+                if join_to_add.table.where is not None:
+                    self.compare_operators = []
+                    if node.where is not None:
+                        super().visit(node.where)
+                    super().visit(join_to_add.table.where)
+                    join_to_add.table.where = ast.And(exprs=self.compare_operators)
+                else:
+                    join_to_add.table.where = node.where
+
             select_type.tables[to_table] = join_to_add.type
 
             join_ptr = node.select_from

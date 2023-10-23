@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Any, Dict
 
 from posthog.hogql.database.models import (
     VirtualTable,
@@ -17,6 +17,9 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table
+from posthog.hogql.errors import HogQLException
+from posthog.hogql.parser import parse_select
+from posthog.schema import HogQLQueryModifiers
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -51,6 +54,50 @@ class EventsGroupSubTable(VirtualTable):
 
     def to_printed_hogql(self):
         return "events"
+
+
+class EventsSessionSubTable(VirtualTable):
+    fields: Dict[str, FieldOrTable] = {
+        "$session_id": StringDatabaseField(name="$session_id"),
+        "session_duration": IntegerDatabaseField(name="session_duration"),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "events"
+
+    def to_printed_hogql(self):
+        return "events"
+
+
+def join_with_events_table_session_duration(
+    from_table: str, to_table: str, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers
+):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise HogQLException("No fields requested from person_distinct_ids")
+
+    select_query = parse_select(
+        """
+            select "$session_id", dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+            from events
+            where "$session_id" != ''
+            group by "$session_id"
+        """
+    )
+
+    join_expr = ast.JoinExpr(table=select_query)
+    join_expr.join_type = "INNER JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "$session_id"]),
+            right=ast.Field(chain=[to_table, "$session_id"]),
+        )
+    )
+
+    return join_expr
 
 
 class EventsTable(Table):
