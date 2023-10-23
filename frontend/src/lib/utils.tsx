@@ -538,28 +538,27 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
-export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
-    // Convert `d` (seconds) to a human-readable duration string.
-    // Example: `1d 10hrs 9mins 8s`
-    if (d === '' || d === null || d === undefined) {
+/** Convert a duration in seconds to a human-readable string. Example: `1 d 10 h 9 min 8 s` */
+export function humanFriendlyDuration(duration: string | number | null | undefined, maxUnits?: number): string {
+    if (duration === '' || duration === null || duration === undefined) {
         return ''
     }
-    d = Number(d)
-    const days = Math.floor(d / 86400)
-    const h = Math.floor((d % 86400) / 3600)
-    const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    duration = Number(duration)
+    const days = Math.floor(duration / 86400)
+    const h = Math.floor((duration % 86400) / 3600)
+    const m = Math.floor((duration % 3600) / 60)
+    const s = Math.round((duration % 3600) % 60)
 
-    const dayDisplay = days > 0 ? days + 'd' : ''
-    const hDisplay = h > 0 ? h + 'h' : ''
-    const mDisplay = m > 0 ? m + 'm' : ''
-    const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
+    const dayDisplay = days > 0 ? days + ' d' : ''
+    const hDisplay = h > 0 ? h + ' h' : ''
+    const minDisplay = m > 0 ? m + ' min' : ''
+    const sDisplay = s > 0 ? s + ' s' : hDisplay || minDisplay ? '' : '0 s'
 
     let units: string[] = []
     if (days > 0) {
         units = [dayDisplay, hDisplay].filter(Boolean)
     } else {
-        units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
+        units = [hDisplay, minDisplay, sDisplay].filter(Boolean)
     }
     return units.slice(0, maxUnits).join(' ')
 }
