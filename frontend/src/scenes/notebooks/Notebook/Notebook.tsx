@@ -1,9 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
-import { sampleOne } from 'lib/utils'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -15,6 +14,8 @@ import { Editor } from './Editor'
 import { EditorFocusPosition } from './utils'
 import { NotebookSidebar } from './NotebookSidebar'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookHistoryWarning } from './NotebookHistory'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 
 export type NotebookProps = {
     shortId: string
@@ -22,16 +23,22 @@ export type NotebookProps = {
     initialAutofocus?: EditorFocusPosition
 }
 
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
-
-export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
-        useActions(logic)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
+    const { duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
+    useWhyDidIRender('Notebook', {
+        notebook,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        shortId,
+        editable,
+        initialAutofocus,
+    })
 
     useEffect(() => {
         if (!notebook && !notebookLoading) {
@@ -42,6 +49,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     useEffect(() => {
         setEditable(editable)
     }, [editable])
+
+    useEffect(() => {
+        editor?.setEditable(isEditable)
+    }, [isEditable, editor])
 
     useEffect(() => {
         if (editor) {
@@ -68,16 +79,18 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                         className="my-4"
                         action={{
                             onClick: duplicateNotebook,
-                            children: 'Create notebook',
+                            children: 'Create copy',
                         }}
                     >
                         <b>This is a template.</b> You can create a copy of it to edit and use as your own.
                     </LemonBanner>
                 )}
 
-                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                <NotebookHistoryWarning />
+                {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
+                        className="my-4"
                         action={{
                             children: 'Convert to Notebook',
                             onClick: duplicateNotebook,
@@ -88,26 +101,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center space-x-2">
+                <div className="flex flex-1 justify-center">
                     <NotebookSidebar />
                     <ErrorBoundary>
-                        <Editor
-                            initialContent={content}
-                            onCreate={setEditor}
-                            onUpdate={onEditorUpdate}
-                            onSelectionUpdate={onEditorSelectionUpdate}
-                            placeholder={({ node }: { node: any }) => {
-                                if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                    return `Untitled - maybe.. "${headingPlaceholder}"`
-                                }
-
-                                if (node.type.name === 'heading') {
-                                    return `Heading ${node.attrs.level}`
-                                }
-
-                                return ''
-                            }}
-                        />
+                        <Editor />
                     </ErrorBoundary>
                 </div>
             </div>

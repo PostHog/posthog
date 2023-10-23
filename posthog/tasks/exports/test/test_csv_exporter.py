@@ -242,8 +242,7 @@ class TestCSVExporter(APIBaseTest):
         )
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
-    @patch("posthog.tasks.exports.csv_exporter.statsd")
-    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+    def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()
@@ -281,8 +280,9 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_csv(self._create_asset())
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10) -> None:
         random_uuid = str(UUIDT())
         for i in range(15):
             _create_event(

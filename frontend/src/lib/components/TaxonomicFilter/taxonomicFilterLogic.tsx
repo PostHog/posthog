@@ -136,6 +136,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        hogQLTable: [() => [(_, props) => props.hogQLTable], (hogQLTable) => hogQLTable ?? 'events'],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
@@ -146,6 +147,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
+                s.hogQLTable,
                 s.excludedProperties,
             ],
             (
@@ -153,9 +155,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
+                hogQLTable,
                 excludedProperties
             ): TaxonomicFilterGroup[] => {
-                const groups = [
+                const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
@@ -429,6 +432,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
+                        componentProps: { hogQLTable },
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

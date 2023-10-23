@@ -1,4 +1,5 @@
 // Helpers for Kea issue with double importing
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
@@ -9,7 +10,6 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NodeViewProps } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 
 export interface Node extends PMNode {}
@@ -26,7 +26,11 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
-    title: string
+    title?: string
+    __init?: {
+        expanded?: boolean
+        showSettings?: boolean
+    }
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -37,19 +41,15 @@ export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttribut
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
 }
 
-export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<
-    NodeViewProps,
-    'node' | 'updateAttributes'
-> &
-    NotebookNodeAttributeProperties<T> & {
-        node: NotebookNode
-    }
+export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
 
-export type NotebookNodeWidget = {
-    key: string
-    label?: string
+export type NotebookNodeSettings =
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
-    Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
+    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
+
+export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
+    text: string
+    onClick: () => void
 }
 
 export interface NotebookEditor {
@@ -61,6 +61,7 @@ export interface NotebookEditor {
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void
+    setTextSelection: (position: number | EditorRange) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     deleteRange: (range: EditorRange) => EditorCommands
@@ -72,6 +73,7 @@ export interface NotebookEditor {
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
     scrollToSelection: () => void
+    scrollToPosition: (position: number) => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
@@ -97,7 +99,7 @@ export const textContent = (node: any): string => {
     const customOrTitleSerializer: TextSerializer = (props): string => {
         // TipTap chooses whether to add a separator based on a couple of factors
         // but, we always want a separator since this text is for search purposes
-        const serializedText = props.node.type.spec.serializedText(props.node.attrs) || props.node.attrs?.title || ''
+        const serializedText = props.node.type.spec.serializedText?.(props.node.attrs) || props.node.attrs?.title || ''
         if (serializedText.length > 0 && serializedText[serializedText.length - 1] !== '\n') {
             return serializedText + '\n'
         }
@@ -119,6 +121,8 @@ export const textContent = (node: any): string => {
         'ph-recording-playlist': customOrTitleSerializer,
         'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
+        'ph-group': customOrTitleSerializer,
+        'ph-cohort': customOrTitleSerializer,
     }
 
     return getText(node, {

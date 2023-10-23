@@ -127,7 +127,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
         filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-        filters.shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

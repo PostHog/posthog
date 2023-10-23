@@ -1,6 +1,7 @@
 import datetime as dt
 import inspect
 import re
+import resource
 import threading
 import uuid
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ import freezegun
 import pytest
 import sqlparse
 from django.apps import apps
+from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -193,6 +195,41 @@ class TestMixin:
             self.assertIn(preheader, html_message)  # type: ignore
 
 
+class MemoryLeakTestMixin:
+    MEMORY_INCREASE_PER_PARSE_LIMIT_B: int
+    """Parsing more than once can never increase memory by this much (on average)"""
+    MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT: float
+    """Parsing cannot increase memory by more than this factor * priming's increase (on average)"""
+    MEMORY_PRIMING_RUNS_N: int
+    """How many times to run every test method to prime the heap"""
+    MEMORY_LEAK_CHECK_RUNS_N: int
+    """How many times to run every test method to check for memory leaks"""
+
+    def _callTestMethod(self, method):
+        mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
+            method()
+        mem_primed_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        for _ in range(self.MEMORY_LEAK_CHECK_RUNS_N):  # Memory leak check runs
+            method()
+        mem_tested_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        avg_memory_priming_increase_b = (mem_primed_b - mem_original_b) / self.MEMORY_PRIMING_RUNS_N
+        avg_memory_test_increase_b = (mem_tested_b - mem_primed_b) / self.MEMORY_LEAK_CHECK_RUNS_N
+        avg_memory_increase_factor = (
+            avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
+        )
+        self.assertLessEqual(  # type: ignore
+            avg_memory_test_increase_b,
+            self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
+        )
+        self.assertLessEqual(  # type: ignore
+            avg_memory_increase_factor,
+            self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+        )
+
+
 class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """
     Base class for performing Postgres-based backend unit tests on.
@@ -232,6 +269,7 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     def setUp(self):
         super().setUp()
 
+        cache.clear()
         TEST_clear_cloud_cache(self.initial_cloud_mode)
         TEST_clear_instance_license_cache()
 

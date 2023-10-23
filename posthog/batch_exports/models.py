@@ -1,13 +1,17 @@
+import dataclasses
+import datetime as dt
+import enum
+import typing
 from datetime import timedelta
 
 from django.db import models
 
+from posthog.client import sync_execute
 from posthog.models.utils import UUIDModel
 
 
 class BatchExportDestination(UUIDModel):
-    """
-    A model for the destination that a PostHog BatchExport will target.
+    """A model for the destination that a PostHog BatchExport will target.
 
     This model answers the question: where are we exporting data? It contains
     all the necessary information to interact with a specific destination. As we
@@ -23,12 +27,14 @@ class BatchExportDestination(UUIDModel):
         SNOWFLAKE = "Snowflake"
         POSTGRES = "Postgres"
         BIGQUERY = "BigQuery"
+        NOOP = "NoOp"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
         "Postgres": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "NoOp": set(),
     }
 
     type: models.CharField = models.CharField(
@@ -48,9 +54,9 @@ class BatchExportDestination(UUIDModel):
 
 
 class BatchExportRun(UUIDModel):
-    """
-    A model representing a single run of a PostHog BatchExport given a time
-    interval. It is used to keep track of the status and progress of the export
+    """A model of a single run of a PostHog BatchExport given a time interval.
+
+    It is used to keep track of the status and progress of the export
     between the specified time interval, as well as communicating any errors
     that may have occurred during the process.
     """
@@ -93,7 +99,7 @@ class BatchExportRun(UUIDModel):
     )
 
 
-BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week")]
+BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week"), ("every 5 minutes", "every 5 minutes")]
 
 
 class BatchExport(UUIDModel):
@@ -136,14 +142,121 @@ class BatchExport(UUIDModel):
 
     @property
     def latest_runs(self):
+        """Return the latest 10 runs for this batch export."""
         return self.batchexportrun_set.all().order_by("-created_at")[:10]
 
     @property
     def interval_time_delta(self) -> timedelta:
+        """Return a datetime.timedelta that corresponds to this BatchExport's interval."""
         if self.interval == "hour":
             return timedelta(hours=1)
         elif self.interval == "day":
             return timedelta(days=1)
         elif self.interval == "week":
             return timedelta(weeks=1)
-        raise ValueError("Invalid interval")
+        elif self.interval.startswith("every"):
+            _, value, unit = self.interval.split(" ")
+            kwargs = {unit: int(value)}
+            return timedelta(**kwargs)
+        raise ValueError(f"Invalid interval: '{self.interval}'")
+
+
+class BatchExportLogEntryLevel(str, enum.Enum):
+    """Enumeration of batch export log levels."""
+
+    DEBUG = "DEBUG"
+    LOG = "LOG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchExportLogEntry:
+    """Represents a single batch export log entry."""
+
+    team_id: int
+    batch_export_id: str
+    run_id: str
+    timestamp: dt.datetime
+    level: BatchExportLogEntryLevel
+    message: str
+
+
+def fetch_batch_export_log_entries(
+    *,
+    batch_export_id: str,
+    team_id: int,
+    run_id: str | None = None,
+    after: dt.datetime | None = None,
+    before: dt.datetime | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+    level_filter: list[BatchExportLogEntryLevel] = [],
+) -> list[BatchExportLogEntry]:
+    """Fetch a list of batch export log entries from ClickHouse."""
+    clickhouse_where_parts: list[str] = []
+    clickhouse_kwargs: dict[str, typing.Any] = {}
+
+    clickhouse_where_parts.append("log_source_id = %(log_source_id)s")
+    clickhouse_kwargs["log_source_id"] = batch_export_id
+    clickhouse_where_parts.append("team_id = %(team_id)s")
+    clickhouse_kwargs["team_id"] = team_id
+
+    if run_id is not None:
+        clickhouse_where_parts.append("instance_id = %(instance_id)s")
+        clickhouse_kwargs["instance_id"] = run_id
+    if after is not None:
+        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+    if before is not None:
+        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+    if search:
+        clickhouse_where_parts.append("message ILIKE %(search)s")
+        clickhouse_kwargs["search"] = f"%{search}%"
+    if len(level_filter) > 0:
+        clickhouse_where_parts.append("level in %(levels)s")
+        clickhouse_kwargs["levels"] = level_filter
+
+    clickhouse_query = f"""
+        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, level, message FROM log_entries
+        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+    """
+
+    return [
+        BatchExportLogEntry(*result) for result in typing.cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
+    ]
+
+
+class BatchExportBackfill(UUIDModel):
+    class Status(models.TextChoices):
+        """Possible states of the BatchExportRun."""
+
+        CANCELLED = "Cancelled"
+        COMPLETED = "Completed"
+        CONTINUEDASNEW = "ContinuedAsNew"
+        FAILED = "Failed"
+        TERMINATED = "Terminated"
+        TIMEDOUT = "TimedOut"
+        RUNNING = "Running"
+        STARTING = "Starting"
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export = models.ForeignKey(
+        "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this backfill belongs to."
+    )
+    start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    status: models.CharField = models.CharField(
+        choices=Status.choices, max_length=64, help_text="The status of this backfill."
+    )
+    created_at: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, help_text="The timestamp at which this BatchExportBackfill was created."
+    )
+    finished_at: models.DateTimeField = models.DateTimeField(
+        null=True, help_text="The timestamp at which this BatchExportBackfill finished, successfully or not."
+    )
+    last_updated_at: models.DateTimeField = models.DateTimeField(
+        auto_now=True, help_text="The timestamp at which this BatchExportBackfill was last updated."
+    )

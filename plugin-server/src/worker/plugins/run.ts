@@ -13,9 +13,7 @@ async function runSingleTeamPluginOnEvent(
     onEvent: any
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        console.log(
-            `⌛⌛⌛ Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`
-        )
+        status.warn('⌛', `Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
     try {
         // Runs onEvent for a single plugin without any retries

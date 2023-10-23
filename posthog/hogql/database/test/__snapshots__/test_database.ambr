@@ -31,6 +31,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -137,6 +141,91 @@
                   "pdi",
                   "person_id"
               ]
+          },
+          {
+              "key": "$group_0",
+              "type": "string"
+          },
+          {
+              "key": "group_0",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_1",
+              "type": "string"
+          },
+          {
+              "key": "group_1",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_2",
+              "type": "string"
+          },
+          {
+              "key": "group_2",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_3",
+              "type": "string"
+          },
+          {
+              "key": "group_3",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_4",
+              "type": "string"
+          },
+          {
+              "key": "group_4",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
           }
       ],
       "groups": [
@@ -177,6 +266,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           }
       ],
       "person_distinct_ids": [
@@ -197,7 +296,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -338,7 +438,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -360,8 +461,87 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
+          }
+      ],
+      "log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "console_logs_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "batch_export_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [
@@ -467,7 +647,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -495,6 +676,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           },
           {
               "key": "is_deleted",
@@ -545,7 +736,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -623,6 +815,10 @@
           {
               "key": "created_at",
               "type": "datetime"
+          },
+          {
+              "key": "$session_id",
+              "type": "string"
           },
           {
               "key": "pdi",
@@ -726,6 +922,91 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "$group_0",
+              "type": "string"
+          },
+          {
+              "key": "group_0",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_1",
+              "type": "string"
+          },
+          {
+              "key": "group_1",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_2",
+              "type": "string"
+          },
+          {
+              "key": "group_2",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_3",
+              "type": "string"
+          },
+          {
+              "key": "group_3",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_4",
+              "type": "string"
+          },
+          {
+              "key": "group_4",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
           }
       ],
       "groups": [
@@ -766,6 +1047,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           }
       ],
       "person_distinct_ids": [
@@ -786,7 +1077,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -927,7 +1219,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           }
       ],
@@ -949,8 +1242,87 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
+          }
+      ],
+      "log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "console_logs_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
+          }
+      ],
+      "batch_export_log_entries": [
+          {
+              "key": "log_source",
+              "type": "string"
+          },
+          {
+              "key": "log_source_id",
+              "type": "string"
+          },
+          {
+              "key": "instance_id",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "message",
+              "type": "string"
+          },
+          {
+              "key": "level",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [
@@ -1056,7 +1428,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {
@@ -1084,6 +1457,16 @@
           {
               "key": "is_identified",
               "type": "boolean"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids",
+              "fields": [
+                  "team_id",
+                  "distinct_id",
+                  "person_id"
+              ]
           },
           {
               "key": "is_deleted",
@@ -1134,7 +1517,8 @@
                   "created_at",
                   "team_id",
                   "properties",
-                  "is_identified"
+                  "is_identified",
+                  "pdi"
               ]
           },
           {

@@ -1,14 +1,16 @@
 import {
     isDataNode,
     isDataTableNode,
-    isSavedInsightNode,
     isInsightVizNode,
+    isSavedInsightNode,
     isTimeToSeeDataSessionsNode,
 } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
+import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'

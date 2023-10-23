@@ -43,6 +43,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Insights',
     },
+    [Scene.WebAnalytics]: {
+        projectBased: true,
+        name: 'Web Analytics',
+    },
     [Scene.Cohorts]: {
         projectBased: true,
         name: 'Cohorts',
@@ -158,6 +162,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Survey',
     },
+    [Scene.SurveyTemplates]: {
+        projectBased: true,
+        name: 'New survey',
+    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data Warehouse',
@@ -188,7 +196,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Annotations',
     },
-    [Scene.Plugins]: {
+    [Scene.Apps]: {
         projectBased: true,
         name: 'Apps',
     },
@@ -314,6 +322,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Notebook',
         layout: 'app-raw',
     },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -390,6 +402,7 @@ export const routes: Record<string, Scene> = {
     [urls.insightSubcription(':shortId' as InsightShortId, ':subscriptionId')]: Scene.Insight,
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
+    [urls.webAnalytics()]: Scene.WebAnalytics,
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
@@ -410,7 +423,8 @@ export const routes: Record<string, Scene> = {
     }, {} as Record<string, Scene>),
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
-    [urls.person('*', false)]: Scene.Person,
+    [urls.personByDistinctId('*', false)]: Scene.Person,
+    [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
@@ -423,6 +437,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
@@ -434,10 +449,10 @@ export const routes: Record<string, Scene> = {
     [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
-    [urls.projectApps()]: Scene.Plugins,
-    [urls.projectApp(':id')]: Scene.Plugins,
-    [urls.projectAppLogs(':id')]: Scene.Plugins,
-    [urls.projectAppSource(':id')]: Scene.Plugins,
+    [urls.projectApps()]: Scene.Apps,
+    [urls.projectApp(':id')]: Scene.Apps,
+    [urls.projectAppLogs(':id')]: Scene.Apps,
+    [urls.projectAppSource(':id')]: Scene.Apps,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
     [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
@@ -481,4 +496,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
+    [urls.notebooks()]: Scene.Notebooks,
 }

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime as dt
 import functools
 import gzip
@@ -9,7 +10,7 @@ from random import randint
 from unittest import mock
 from uuid import uuid4
 
-import boto3
+import aioboto3
 import botocore.exceptions
 import brotli
 import pytest
@@ -38,9 +39,13 @@ from posthog.temporal.tests.batch_exports.fixtures import (
     adelete_batch_export,
     afetch_batch_export_runs,
 )
-from posthog.temporal.workflows.base import create_export_run, update_export_run_status
+from posthog.temporal.workflows.batch_exports import (
+    create_export_run,
+    update_export_run_status,
+)
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.s3_batch_export import (
+    HeartbeatDetails,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
@@ -51,18 +56,20 @@ from posthog.temporal.workflows.s3_batch_export import (
 TEST_ROOT_BUCKET = "test-batch-exports"
 
 
-def check_valid_credentials() -> bool:
+async def check_valid_credentials() -> bool:
     """Check if there are valid AWS credentials in the environment."""
-    sts = boto3.client("sts")
+    session = aioboto3.Session()
+    sts = await session.client("sts")
     try:
-        sts.get_caller_identity()
+        await sts.get_caller_identity()
     except botocore.exceptions.ClientError:
         return False
     else:
         return True
 
 
-create_test_client = functools.partial(boto3.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
 @pytest.fixture
@@ -71,39 +78,38 @@ def bucket_name() -> str:
     return f"{TEST_ROOT_BUCKET}-{str(uuid4())}"
 
 
-@pytest.fixture
-def s3_client(bucket_name):
+@pytest_asyncio.fixture
+async def s3_client(bucket_name):
     """Manage a testing S3 client to interact with a testing S3 bucket.
 
     Yields the test S3 client after creating a testing S3 bucket. Upon resuming, we delete
     the contents and the bucket itself.
     """
-    s3_client = create_test_client(
+    async with create_test_client(
         "s3",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
-    )
+    ) as s3_client:
+        await s3_client.create_bucket(Bucket=bucket_name)
 
-    s3_client.create_bucket(Bucket=bucket_name)
+        yield s3_client
 
-    yield s3_client
+        response = await s3_client.list_objects_v2(Bucket=bucket_name)
 
-    response = s3_client.list_objects_v2(Bucket=bucket_name)
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                if "Key" in obj:
+                    await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
-
-    s3_client.delete_bucket(Bucket=bucket_name)
+        await s3_client.delete_bucket(Bucket=bucket_name)
 
 
-def assert_events_in_s3(
+async def assert_events_in_s3(
     s3_client, bucket_name, key_prefix, events, compression: str | None = None, exclude_events: list[str] | None = None
 ):
     """Assert provided events written to JSON in key_prefix in S3 bucket_name."""
     # List the objects in the bucket with the prefix.
-    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+    objects = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
     # Check that there is only one object.
     assert len(objects.get("Contents", [])) == 1
@@ -111,8 +117,8 @@ def assert_events_in_s3(
     # Get the object.
     key = objects["Contents"][0].get("Key")
     assert key
-    object = s3_client.get_object(Bucket=bucket_name, Key=key)
-    data = object["Body"].read()
+    s3_object = await s3_client.get_object(Bucket=bucket_name, Key=key)
+    data = await s3_object["Body"].read()
 
     # Check that the data is correct.
     match compression:
@@ -302,17 +308,19 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):  # 5MB, the minimum for Multipart uploads
-        with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+        with mock.patch(
+            "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+        ):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+    await assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "interval,compression,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
+    itertools.product(["hour", "day", "every 5 minutes"], [None, "gzip", "brotli"], [None, ["test-exclude"]]),
 )
 async def test_s3_export_workflow_with_minio_bucket(
     client: HttpClient, s3_client, bucket_name, interval, compression, exclude_events
@@ -351,35 +359,26 @@ async def test_s3_export_workflow_with_minio_bucket(
         interval=batch_export_data["interval"],
     )
 
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
+
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
+            "timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "created_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "inserted_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            ),
+            "_timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S"),
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
             "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
+        }
+        for i in range(1, 3)
     ]
 
     if interval == "day":
@@ -419,7 +418,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     inputs = S3BatchExportInputs(
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **batch_export.destination.config,
     )
@@ -432,14 +431,16 @@ async def test_s3_export_workflow_with_minio_bucket(
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            with mock.patch(
+                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+            ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(minutes=10),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -448,7 +449,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+    await assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
 
 
 @pytest.mark.skipif(
@@ -459,7 +460,12 @@ async def test_s3_export_workflow_with_minio_bucket(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "interval,compression,encryption,exclude_events",
-    itertools.product(["hour", "day"], [None, "gzip", "brotli"], [None, "AES256", "aws:kms"], [None, ["test-exclude"]]),
+    itertools.product(
+        ["hour", "day", "every 5 minutes"],
+        [None, "gzip", "brotli"],
+        [None, "AES256", "aws:kms"],
+        [None, ["test-exclude"]],
+    ),
 )
 async def test_s3_export_workflow_with_s3_bucket(interval, compression, encryption, exclude_events):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
@@ -504,35 +510,26 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
         interval=batch_export_data["interval"],
     )
 
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000")
+
     events: list[EventValues] = [
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
+            "timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "created_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "inserted_at": (data_interval_end - (batch_export.interval_time_delta / i)).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            ),
+            "_timestamp": (data_interval_end - (batch_export.interval_time_delta / i)).strftime("%Y-%m-%d %H:%M:%S"),
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
             "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test-exclude",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
-        },
+        }
+        for i in range(1, 3)
     ]
 
     if interval == "day":
@@ -572,50 +569,51 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
     inputs = S3BatchExportInputs(
         team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **batch_export.destination.config,
     )
 
-    s3_client = boto3.client("s3")
+    async with aioboto3.Session().client("s3") as s3_client:
 
-    def create_s3_client(*args, **kwargs):
-        """Mock function to return an already initialized S3 client."""
-        return s3_client
+        @contextlib.asynccontextmanager
+        async def create_s3_client(*args, **kwargs):
+            """Mock function to return an already initialized S3 client."""
+            yield s3_client
 
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[S3BatchExportWorkflow],
-            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_s3_client):
-                await activity_environment.client.execute_workflow(
-                    S3BatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
-                )
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                workflows=[S3BatchExportWorkflow],
+                activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                with mock.patch(
+                    "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_s3_client
+                ):
+                    await activity_environment.client.execute_workflow(
+                        S3BatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=10),
+                    )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-    assert len(runs) == 1
+        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        assert len(runs) == 1
 
-    run = runs[0]
-    assert run.status == "Completed"
+        run = runs[0]
+        assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
+        await assert_events_in_s3(s3_client, bucket_name, prefix, events, compression, exclude_events)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.parametrize("compression", [None, "gzip"])
-async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(s3_client, bucket_name, compression):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     The workflow should update the batch export run status to completed and produce the expected
@@ -696,7 +694,9 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            with mock.patch(
+                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+            ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
@@ -712,15 +712,15 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events, compression)
+    await assert_events_in_s3(
+        s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events, compression
+    )
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(s3_client, bucket_name, compression):
     """Test the full S3 workflow targetting a MinIO bucket.
 
     In this scenario we assert that when inserted_at is NULL, we default to _timestamp.
@@ -814,7 +814,9 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            with mock.patch(
+                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+            ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
@@ -830,15 +832,13 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
+    await assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(s3_client, bucket_name, compression):
     """Test the S3BatchExport Workflow utilizing a custom key prefix.
 
     We will be asserting that exported events land in the appropiate S3 key according to the prefix.
@@ -917,7 +917,9 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            with mock.patch(
+                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+            ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
@@ -936,20 +938,18 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     expected_key_prefix = prefix.format(
         table="events", year="2023", month="04", day="25", hour="14", minute="30", second="00"
     )
-    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+    objects = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
     key = objects["Contents"][0].get("Key")
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
 
-    assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events, compression)
+    await assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events, compression)
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
-    client: HttpClient, s3_client, bucket_name, compression
-):
+async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(s3_client, bucket_name, compression):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     In this particular instance of the test, we assert no duplicates are exported to S3.
@@ -1061,7 +1061,9 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
             activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+            with mock.patch(
+                "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+            ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
                     inputs,
@@ -1076,7 +1078,7 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(
         run = runs[0]
         assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
+    await assert_events_in_s3(s3_client, bucket_name, prefix, events, compression)
 
 
 @pytest_asyncio.fixture
@@ -1371,3 +1373,173 @@ def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
     result = get_s3_key(inputs)
     assert result == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_insert_into_s3_activity_heartbeats(bucket_name, s3_client, activity_environment):
+    """Test that the insert_into_s3_activity sends heartbeats."""
+
+    data_interval_start = "2023-04-20 14:00:00"
+    data_interval_end = "2023-04-25 15:00:00"
+
+    # Generate a random team id integer. There's still a chance of a collision,
+    # but it's very small.
+    team_id = randint(1, 1000000)
+
+    client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    # Add a materialized column such that we can verify that it is NOT included
+    # in the export.
+    await amaterialize("events", "$browser")
+
+    # Create enough events to ensure we span more than 5MB, the smallest
+    # multipart chunk size for multipart uploads to S3.
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "elements_chain": "this that and the other",
+        }
+        # NOTE: we have to do a lot here, otherwise we do not trigger a
+        # multipart upload, and the minimum part chunk size is 5MB.
+        for i in range(50000)
+    ]
+
+    events += [
+        # Insert an events with an empty string in `properties` and
+        # `person_properties` to ensure that we handle empty strings correctly.
+        EventValues(
+            {
+                "uuid": str(uuid4()),
+                "event": "test-exclude",
+                "_timestamp": "2023-04-20 14:29:00",
+                "timestamp": "2023-04-20 14:29:00.000000",
+                "inserted_at": "2023-04-20 14:30:00.000000",
+                "created_at": "2023-04-20 14:29:00.000000",
+                "distinct_id": str(uuid4()),
+                "person_id": str(uuid4()),
+                "person_properties": None,
+                "team_id": team_id,
+                "properties": None,
+                "elements_chain": "",
+            }
+        )
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=client,
+        events=events,
+    )
+
+    # Insert some events before the hour and after the hour, as well as some
+    # events from another team to ensure that we only export the events from
+    # the team that the batch export is for.
+    other_team_id = team_id + 1
+    await insert_events(
+        client=client,
+        events=[
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 13:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 15:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 14:30:00",
+                "_timestamp": "2023-04-20 14:30:00",
+                "inserted_at": "2023-04-20 14:30:00.000000",
+                "created_at": "2023-04-20 14:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": other_team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+        ],
+    )
+
+    # Make a random string to prefix the S3 keys with. This allows us to ensure
+    # isolation of the test, and also to check that the data is being written.
+    prefix = str(uuid4())
+
+    current_part_number = 1
+
+    def assert_heartbeat_details(*details):
+        nonlocal current_part_number
+
+        details = HeartbeatDetails.from_activity_details(details)
+
+        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
+        assert last_uploaded_part_dt.year == 2023
+        assert last_uploaded_part_dt.month == 4
+        assert last_uploaded_part_dt.day == 20
+        assert last_uploaded_part_dt.hour == 14
+        assert last_uploaded_part_dt.minute == 30
+        assert last_uploaded_part_dt.second == 0
+
+        assert len(details.upload_state.parts) == current_part_number
+        current_part_number = len(details.upload_state.parts) + 1
+
+    activity_environment.on_heartbeat = assert_heartbeat_details
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+    )
+
+    with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+        with mock.patch(
+            "posthog.temporal.workflows.s3_batch_export.aioboto3.Session.client", side_effect=create_test_client
+        ):
+            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+    # This checks that the assert_heartbeat_details function was actually called
+    assert current_part_number > 1
+    await assert_events_in_s3(s3_client, bucket_name, prefix, events, None, None)

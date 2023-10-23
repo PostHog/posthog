@@ -1,13 +1,23 @@
+from datetime import datetime, timedelta
+
 from unittest.mock import ANY
 
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feedback.survey import Survey
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_clickhouse_queries,
+    _create_event,
+)
 
-from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.models import FeatureFlag
 
 
 class TestSurvey(APIBaseTest):
@@ -19,6 +29,7 @@ class TestSurvey(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "What do you think of the new notebooks feature?"}],
+                "targeting_flag_filters": None,
             },
             format="json",
         )
@@ -78,7 +89,6 @@ class TestSurvey(APIBaseTest):
         ]
 
     def test_can_create_survey_with_targeting_with_remove_parameter(self):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -496,6 +506,36 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
 
+    def test_updating_survey_to_send_none_linked_flag_removes_linking(self):
+        linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
+
+        survey_with_linked_flag = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "linked_flag_id": linked_flag.id,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        flagId = survey_with_linked_flag["linked_flag"]["id"]
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
+        updated_survey_removes_linked_flag = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_linked_flag['id']}/",
+            data={
+                "linked_flag_id": None,
+            },
+        )
+
+        assert updated_survey_removes_linked_flag.status_code == status.HTTP_200_OK
+        assert updated_survey_removes_linked_flag.json()["name"] == "survey with targeting"
+        assert updated_survey_removes_linked_flag.json()["linked_flag"] is None
+
+        assert FeatureFlag.objects.filter(id=flagId).exists()
+
     def test_deleting_survey_does_not_delete_linked_flag(self):
         linked_flag = FeatureFlag.objects.create(team=self.team, key="early-access", created_by=self.user)
 
@@ -628,6 +668,296 @@ class TestSurvey(APIBaseTest):
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
         )
 
+    def test_enable_surveys_opt_in(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+            end_date=datetime.now() - timedelta(days=1),
+        )
+        self.assertEqual(self.team.surveys_opt_in, None)
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+
+    def test_disable_surveys_opt_in(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a hedgehog?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
+    def test_surveys_opt_in_with_api_type_surveys(self):
+        api_survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="API survey",
+            type="api",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        self.assertEqual(self.team.surveys_opt_in, None)
+        popover_survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Popover survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is True
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{api_survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.surveys_opt_in, True)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{popover_survey.id}/",
+            data={"end_date": datetime.now() - timedelta(days=1)},
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
+    def test_surveys_opt_in_post_delete(self):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 1",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+            end_date=datetime.now() - timedelta(days=1),
+        )
+        survey_to_delete = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey 2",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=datetime.now() - timedelta(days=2),
+        )
+        assert self.team.surveys_opt_in is True
+        self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_to_delete.id}/",
+            format="json",
+        )
+        self.team.refresh_from_db()
+        assert self.team.surveys_opt_in is False
+
+
+class TestSurveyQuestionValidation(APIBaseTest):
+    def test_create_basic_survey_question_validation(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {"type": "open", "question": "What up?", "description": "<script>alert(0)</script>check?"},
+                    {
+                        "type": "link",
+                        "link": "bazinga.com",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["description"] == "Get feedback on the new notebooks feature"
+        assert response_data["type"] == "popover"
+        assert response_data["questions"] == [
+            {"type": "open", "question": "What up?", "description": "check?"},
+            {
+                "type": "link",
+                "link": "bazinga.com",
+                "question": "<b>What</b> do you think of the new notebooks feature?",
+            },
+        ]
+        assert response_data["appearance"] == {
+            "thankYouMessageHeader": "Thanks for your feedback!",
+            "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+        }
+        assert response_data["created_by"]["id"] == self.user.id
+
+    def test_update_basic_survey_question_validation(self):
+        basic_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {"type": "open", "question": "What up?", "description": "<script>alert(0)</script>check?"},
+                    {
+                        "type": "link",
+                        "link": "bazinga.com",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+                "appearance": {
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["description"] == "Get feedback on the new notebooks feature"
+        assert response_data["type"] == "popover"
+        assert response_data["questions"] == [
+            {"type": "open", "question": "What up?", "description": "check?"},
+            {
+                "type": "link",
+                "link": "bazinga.com",
+                "question": "<b>What</b> do you think of the new notebooks feature?",
+            },
+        ]
+        assert response_data["appearance"] == {
+            "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+        }
+        assert response_data["created_by"]["id"] == self.user.id
+
+    def test_cleaning_empty_questions(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [],
+                "appearance": {
+                    "thankYouMessageHeader": " ",
+                    "thankYouMessageDescription": "",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["questions"] == []
+        assert response_data["appearance"] == {
+            "thankYouMessageHeader": " ",
+            "thankYouMessageDescription": "",
+        }
+
+    def test_validate_thank_you_with_invalid_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": "invalid",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Appearance must be an object"
+
+    def test_validate_question_with_missing_text(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [{"type": "open"}],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question text is required"
+
+    def test_validate_malformed_questions(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": "",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Questions must be a list of objects"
+
+    def test_validate_malformed_questions_as_string(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": "this is my question",
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Questions must be a list of objects"
+
+    def test_validate_malformed_questions_as_array_of_strings(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": ["this is my question"],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Questions must be a list of objects"
+
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):
@@ -707,24 +1037,35 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 ],
             )
 
-    def test_get_surveys_errors_on_invalid_token(self):
-        self.client.logout()
 
-        with self.assertNumQueries(1):
-            response = self._get_surveys(token="invalid_token")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "Project API key invalid. You can find your project API key in your PostHog project settings."
-            )
+class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    def test_responses_count(self):
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
 
-    def test_get_surveys_errors_on_empty_token(self):
-        self.client.logout()
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=count),
+                )
 
-        with self.assertNumQueries(0):
-            response = self.client.get(f"/api/surveys/")
-            assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert (
-                response.json()["detail"]
-                == "API key not provided. You can find your project API key in your PostHog project settings."
-            )
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, survey_counts)
+
+    def test_responses_count_zero_responses(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, {})

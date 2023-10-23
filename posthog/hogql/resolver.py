@@ -4,11 +4,10 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
 from posthog.hogql.errors import ResolverException
-from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -147,6 +146,7 @@ class Resolver(CloningVisitor):
         new_node.window_exprs = (
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
+        new_node.settings = node.settings.model_copy() if node.settings is not None else None
 
         self.scopes.pop()
 
@@ -412,14 +412,22 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         loop_type = type
         chain_to_parse = node.chain[1:]
+        previous_types = []
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
                 loop_type = loop_type.table_type
                 continue
+            previous_types.append(loop_type)
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if next_chain == "..":  # only support one level of ".."
+                previous_types.pop()
+                previous_types.pop()
+                loop_type = previous_types[-1]
+                next_chain = chain_to_parse.pop(0)
+
             loop_type = loop_type.get_child(next_chain)
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
@@ -507,22 +515,23 @@ class Resolver(CloningVisitor):
                 )
             )
 
-        if node.op == ast.CompareOperationOp.InCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+        if self.context.modifiers.inCohortVia != "leftjoin":
+            if node.op == ast.CompareOperationOp.InCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
                 )
-            )
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotIn,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+            elif node.op == ast.CompareOperationOp.NotInCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
                 )
-            )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
