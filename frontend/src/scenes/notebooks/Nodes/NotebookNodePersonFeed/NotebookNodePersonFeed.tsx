@@ -6,6 +6,7 @@ import { NotebookNodeType, PersonType } from '~/types'
 import { NotebookNodeProps } from 'scenes/notebooks/Notebook/utils'
 import { personLogic } from 'scenes/persons/personLogic'
 import { createPostHogWidgetNode } from '../NodeWrapper'
+import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 const FeedSkeleton = (): JSX.Element => (
     <div className="space-y-4 p-4">
@@ -18,10 +19,19 @@ type FeedProps = {
 }
 
 const Feed = ({ person }: FeedProps): JSX.Element => {
+    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
+
+    if (!sessions && sessionsLoading) {
+        return <FeedSkeleton />
+    } else if (sessions === null) {
+        return <NotFound object="person" />
+    }
+
     return (
         <div className="p-2">
             {sessions.map((session: TimelineEntry) => (
-                <Session key={session.sessionId} session={session} />
+                // <Session key={session.sessionId} session={session} />
+                <div>asd</div>
             ))}
         </div>
     )
@@ -32,11 +42,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
-    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
 
-    if (personLoading || (!sessions && sessionsLoading)) {
+    if (personLoading) {
         return <FeedSkeleton />
-    } else if (!person || sessions === null) {
+    } else if (!person) {
         return <NotFound object="person" />
     }
 
