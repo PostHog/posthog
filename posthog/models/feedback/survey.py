@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_save, post_delete
+from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 
 
@@ -35,21 +37,9 @@ class Survey(UUIDModel):
         related_query_name="survey_targeting_flag",
     )
     type: models.CharField = models.CharField(max_length=40, choices=SurveyType.choices)
-
-    # { url: 'posthog.com/feature', selector: null, triggers: [{}] #similar to cohort behavioral filters for now?}
     conditions: models.JSONField = models.JSONField(blank=True, null=True)
-
-    # class SurveyQuestionType(models.TextChoices):
-    #     OPEN = "open"
-    #     MULTIPLE_CHOICE_SINGLE = "multiple"
-    #     NPS = "nps"
-    #     RATING = "rating"
-    # [ { type: 'open', question: "leave feedback plz?"}, { type: 'rating', question: null}, { type: 'multiple_choice', question: "multiple choice question?", choices: ["choice 1", "choice 2"]} ]
     questions: models.JSONField = models.JSONField(blank=True, null=True)
-
-    # { background_color: "white", button_color: "orange", text_color: "", position, etc... }
     appearance: models.JSONField = models.JSONField(blank=True, null=True)
-
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     created_by: models.ForeignKey = models.ForeignKey(
         "posthog.User",
@@ -62,3 +52,19 @@ class Survey(UUIDModel):
     end_date: models.DateTimeField = models.DateTimeField(null=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     archived: models.BooleanField = models.BooleanField(default=False)
+
+
+@mutable_receiver([post_save, post_delete], sender=Survey)
+def update_surveys_opt_in(sender, instance, **kwargs):
+    active_surveys_count = (
+        Survey.objects.filter(team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False)
+        .exclude(type="api")
+        .count()
+    )
+
+    if active_surveys_count > 0 and not instance.team.surveys_opt_in:
+        instance.team.surveys_opt_in = True
+        instance.team.save(update_fields=["surveys_opt_in"])
+    elif active_surveys_count == 0 and instance.team.surveys_opt_in is True:
+        instance.team.surveys_opt_in = False
+        instance.team.save(update_fields=["surveys_opt_in"])

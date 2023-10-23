@@ -15,6 +15,8 @@ export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, Noteboo
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
+    [NotebookNodeType.Cohort]: 'Cohorts',
+    [NotebookNodeType.Group]: 'Groups',
 }
 
 export function ContainsTypeFilters({

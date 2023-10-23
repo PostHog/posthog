@@ -21,6 +21,23 @@ const consoleLogEventsCounter = new Counter({
     help: 'Number of console log events successfully ingested',
 })
 
+function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): ConsoleLogEntry[] {
+    // assuming that the console log entries are all for one team id (and they should be)
+    // because we only use these for search
+    // then we can deduplicate them by the message string
+
+    const seen = new Set<string>()
+    const deduped: ConsoleLogEntry[] = []
+
+    for (const cle of consoleLogEntries) {
+        if (!seen.has(cle.message)) {
+            deduped.push(cle)
+            seen.add(`${cle.log_level}-${cle.message}`)
+        }
+    }
+    return deduped
+}
+
 // TODO this is an almost exact duplicate of the replay events ingester
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
@@ -124,7 +141,9 @@ export class ConsoleLogsIngester {
         }
 
         try {
-            const consoleLogEvents = gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+            const consoleLogEvents = deduplicateConsoleLogEvents(
+                gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+            )
 
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
@@ -145,9 +164,12 @@ export class ConsoleLogsIngester {
             })
         }
     }
+
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+
         const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+
         this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }

@@ -17,7 +17,7 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactChild, useEffect } from 'react'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -50,8 +50,22 @@ function NotebooksChoiceList(props: {
             ) : (
                 props.notebooks.map((notebook, i) => {
                     return (
-                        <LemonButton key={i} fullWidth onClick={() => props.onClick(notebook.short_id)}>
-                            {notebook.title || `Untitled (${notebook.short_id})`}
+                        <LemonButton
+                            key={i}
+                            sideIcon={
+                                notebook.created_by ? (
+                                    <ProfilePicture
+                                        name={notebook.created_by?.first_name}
+                                        email={notebook.created_by?.email}
+                                        size="md"
+                                        title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
+                                    />
+                                ) : null
+                            }
+                            fullWidth
+                            onClick={() => props.onClick(notebook.short_id)}
+                        >
+                            <span className="truncate">{notebook.title || `Untitled (${notebook.short_id})`}</span>
                         </LemonButton>
                     )
                 })

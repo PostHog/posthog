@@ -421,7 +421,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    def test_full_hogql_query_limit(self, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -439,7 +440,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(response.get("results", [])), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    def test_full_events_query_limit(self, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    def test_full_hogql_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+        random_uuid = str(UUIDT())
+        with freeze_time("2020-01-10 12:00:00"):
+            for _ in range(20):
+                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id='{random_uuid}'",
+                },
+                in_export_context=True,  # This is the only difference
+            )
+            self.assertEqual(len(response.get("results", [])), 15)
+
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -453,6 +475,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(len(response.get("results", [])), 10)
+
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
+    def test_full_events_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+        random_uuid = str(UUIDT())
+        with freeze_time("2020-01-10 12:00:00"):
+            for _ in range(20):
+                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
+                in_export_context=True,
+            )
+
+        self.assertEqual(len(response.get("results", [])), 15)
 
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
@@ -474,7 +514,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
-        assert "validation errors for Model" in api_response.json()["detail"]
+        assert "validation errors for QuerySchema" in api_response.json()["detail"]
         assert "type=literal_error, input_value='Tomato Soup'" in api_response.json()["detail"]
 
     @snapshot_clickhouse_queries

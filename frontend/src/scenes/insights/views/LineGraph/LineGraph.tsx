@@ -50,6 +50,14 @@ export function ensureTooltipElement(): HTMLElement {
     return tooltipEl
 }
 
+function truncateString(str: string, num: number): string {
+    if (str.length > num) {
+        return str.slice(0, num) + ' ...'
+    } else {
+        return str
+    }
+}
+
 export function onChartClick(
     event: ChartEvent,
     chart: Chart,
@@ -207,6 +215,7 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     inCardView?: boolean
+    inSurveyView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
@@ -217,6 +226,8 @@ export interface LineGraphProps {
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
+    hideXAxis?: boolean
+    hideYAxis?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -238,6 +249,7 @@ export function LineGraph_({
     showPersonsModal = true,
     compare = false,
     inCardView,
+    inSurveyView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
@@ -248,6 +260,8 @@ export function LineGraph_({
     showPercentStackView,
     supportsPercentStackView,
     hideAnnotations,
+    hideXAxis,
+    hideYAxis,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -402,6 +416,9 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
+                        if (showValueOnSeries && inSurveyView) {
+                            return true
+                        }
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
@@ -564,20 +581,27 @@ export function LineGraph_({
         }
 
         if (type === GraphType.Bar) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
                         ...tickOptions,
                         precision,
+                        ...(inSurveyView ? { padding: 10 } : {}),
                     },
-                    grid: gridOptions,
+                    grid: inSurveyView ? { display: false } : gridOptions,
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -588,10 +612,13 @@ export function LineGraph_({
                 },
             }
         } else if (type === GraphType.Line) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: tickOptions,
                     grid: {
                         ...gridOptions,
@@ -600,10 +627,11 @@ export function LineGraph_({
                     },
                 },
                 y: {
+                    display: !hideYAxis,
                     beginAtZero: true,
-                    display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
+                        display: !hideYAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -614,11 +642,15 @@ export function LineGraph_({
                 },
             }
         } else if (isHorizontal) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
+                    display: !hideXAxis,
                     beginAtZero: true,
-                    display: true,
                     ticks: {
+                        display: !hideXAxis,
                         ...tickOptions,
                         precision,
                         callback: (value) => {
@@ -628,8 +660,22 @@ export function LineGraph_({
                     grid: gridOptions,
                 },
                 y: {
+                    display: true,
                     beforeFit: (scale) => {
-                        if (shouldAutoResize) {
+                        if (inSurveyView) {
+                            scale.ticks = scale.ticks.map((tick) => {
+                                if (typeof tick.label === 'string') {
+                                    return { ...tick, label: truncateString(tick.label, 50) }
+                                }
+                                return tick
+                            })
+
+                            const ROW_HEIGHT = 60
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = dynamicHeight
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else if (shouldAutoResize) {
                             // automatically resize the chart container to fit the number of rows
                             const MIN_HEIGHT = 575
                             const ROW_HEIGHT = 16
@@ -656,7 +702,10 @@ export function LineGraph_({
                             return labelDescriptors.join(' - ')
                         },
                     },
-                    grid: gridOptions,
+                    grid: {
+                        ...gridOptions,
+                        display: !inSurveyView,
+                    },
                 },
             }
             options.indexAxis = 'y'

@@ -1583,6 +1583,74 @@ export function isNumeric(x: any): boolean {
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
 }
 
+/**
+ * Check if the argument is nullish (null or undefined).
+ *
+ * Useful as a typeguard, e.g. when passed to Array.filter()
+ *
+ * @example
+ * const myList = [1, 2, null]; // type is (number | null)[]
+ *
+ * // using isNotNil
+ * const myFilteredList1 = myList.filter(isNotNil) // type is number[]
+ * const squaredList1 = myFilteredList1.map(x => x * x) // not a type error!
+ *
+ * // compared to:
+ * const myFilteredList2 = myList.filter(x => x != null) // type is (number | null)[]
+ * const squaredList2 = myFilteredList2.map(x => x * x) // Type Error: TS18047: x is possibly null
+ */
+export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
+    return arg !== null && arg !== undefined
+}
+
+/** An error signaling that a value of type `never` in TypeScript was used unexpectedly at runtime.
+ *
+ * Useful for type-narrowing, will give a compile-time error if the type of x is not `never`.
+ * See the example below where it catches a missing branch at compile-time.
+ *
+ * @example
+ *
+ * enum MyEnum {
+ *     a,
+ *     b,
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         // missing branch
+ *         default:
+ *             throw new UnexpectedNeverError(x) // TS2345: Argument of type MyEnum is not assignable to parameter of type never
+ *     }
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         case MyEnum.b:
+ *             return
+ *         default:
+ *             throw new UnexpectedNeverError(x) // no type error
+ *     }
+ * }
+ *
+ */
+export class UnexpectedNeverError extends Error {
+    constructor(x: never, message?: string) {
+        message = message ?? 'Unexpected never: ' + String(x)
+        super(message)
+
+        // restore prototype chain, which is broken by Error
+        // see https://stackoverflow.com/questions/41102060/typescript-extending-error-class
+        const actualProto = new.target.prototype
+        if (Object.setPrototypeOf) {
+            Object.setPrototypeOf(this, actualProto)
+        }
+    }
+}
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365

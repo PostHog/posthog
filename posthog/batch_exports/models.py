@@ -11,8 +11,7 @@ from posthog.models.utils import UUIDModel
 
 
 class BatchExportDestination(UUIDModel):
-    """
-    A model for the destination that a PostHog BatchExport will target.
+    """A model for the destination that a PostHog BatchExport will target.
 
     This model answers the question: where are we exporting data? It contains
     all the necessary information to interact with a specific destination. As we
@@ -28,12 +27,14 @@ class BatchExportDestination(UUIDModel):
         SNOWFLAKE = "Snowflake"
         POSTGRES = "Postgres"
         BIGQUERY = "BigQuery"
+        NOOP = "NoOp"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
         "Postgres": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        "NoOp": set(),
     }
 
     type: models.CharField = models.CharField(
@@ -53,9 +54,9 @@ class BatchExportDestination(UUIDModel):
 
 
 class BatchExportRun(UUIDModel):
-    """
-    A model representing a single run of a PostHog BatchExport given a time
-    interval. It is used to keep track of the status and progress of the export
+    """A model of a single run of a PostHog BatchExport given a time interval.
+
+    It is used to keep track of the status and progress of the export
     between the specified time interval, as well as communicating any errors
     that may have occurred during the process.
     """
@@ -141,6 +142,7 @@ class BatchExport(UUIDModel):
 
     @property
     def latest_runs(self):
+        """Return the latest 10 runs for this batch export."""
         return self.batchexportrun_set.all().order_by("-created_at")[:10]
 
     @property
@@ -160,6 +162,8 @@ class BatchExport(UUIDModel):
 
 
 class BatchExportLogEntryLevel(str, enum.Enum):
+    """Enumeration of batch export log levels."""
+
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"
@@ -169,6 +173,8 @@ class BatchExportLogEntryLevel(str, enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class BatchExportLogEntry:
+    """Represents a single batch export log entry."""
+
     team_id: int
     batch_export_id: str
     run_id: str
@@ -188,6 +194,7 @@ def fetch_batch_export_log_entries(
     limit: int | None = None,
     level_filter: list[BatchExportLogEntryLevel] = [],
 ) -> list[BatchExportLogEntry]:
+    """Fetch a list of batch export log entries from ClickHouse."""
     clickhouse_where_parts: list[str] = []
     clickhouse_kwargs: dict[str, typing.Any] = {}
 
@@ -220,3 +227,36 @@ def fetch_batch_export_log_entries(
     return [
         BatchExportLogEntry(*result) for result in typing.cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
     ]
+
+
+class BatchExportBackfill(UUIDModel):
+    class Status(models.TextChoices):
+        """Possible states of the BatchExportRun."""
+
+        CANCELLED = "Cancelled"
+        COMPLETED = "Completed"
+        CONTINUEDASNEW = "ContinuedAsNew"
+        FAILED = "Failed"
+        TERMINATED = "Terminated"
+        TIMEDOUT = "TimedOut"
+        RUNNING = "Running"
+        STARTING = "Starting"
+
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export = models.ForeignKey(
+        "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this backfill belongs to."
+    )
+    start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    status: models.CharField = models.CharField(
+        choices=Status.choices, max_length=64, help_text="The status of this backfill."
+    )
+    created_at: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, help_text="The timestamp at which this BatchExportBackfill was created."
+    )
+    finished_at: models.DateTimeField = models.DateTimeField(
+        null=True, help_text="The timestamp at which this BatchExportBackfill finished, successfully or not."
+    )
+    last_updated_at: models.DateTimeField = models.DateTimeField(
+        auto_now=True, help_text="The timestamp at which this BatchExportBackfill was last updated."
+    )
