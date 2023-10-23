@@ -31,7 +31,7 @@ export function Map({ center, markers, style }: MapProps): JSX.Element {
             container: mapContainer.current as HTMLElement,
             style: `https://api.maptiler.com/maps/streets-v2/style.json?key=zir7QMNVAfEFm1rVDNV2`,
             center,
-            zoom: 4,
+            zoom: 2,
             maxZoom: 10,
         })
         if (markers) {
