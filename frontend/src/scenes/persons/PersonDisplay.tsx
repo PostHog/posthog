@@ -17,6 +17,7 @@ type PersonPropType =
 export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
+    href?: string
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
@@ -47,8 +48,8 @@ export function PersonDisplay({
     noPopover,
     noLink,
     isCentered,
+    href = asLink(person),
 }: PersonDisplayProps): JSX.Element {
-    const href = asLink(person)
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
