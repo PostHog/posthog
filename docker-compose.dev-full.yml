@@ -89,6 +89,15 @@ services:
         environment:
             - DEBUG=1
 
+    capture:
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        ports:
+            - 3000:3000
+        environment:
+            - DEBUG=1
+
     plugins:
         extends:
             file: docker-compose.base.yml
