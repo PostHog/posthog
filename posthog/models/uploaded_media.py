@@ -77,7 +77,7 @@ def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes
     path_parts: List[str] = [
         settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
         f"team-{uploaded_media.team.pk}",
-        f"{'attachment' if uploaded_media.is_attachment else 'media'}-{uploaded_media.pk}",
+        f"media-{uploaded_media.pk}",
     ]
     object_path = "/".join(path_parts)
     object_storage.write(object_path, content)

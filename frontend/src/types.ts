@@ -3068,6 +3068,7 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    Attachment = 'ph-attachment',
 }
 
 export type NotebookNodeResource = {

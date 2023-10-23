@@ -286,33 +286,22 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
 def get_event(request):
     structlog.contextvars.unbind_contextvars("team_id")
 
-    print("One")
-
     # handle cors request
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
     now = timezone.now()
 
-    print("Two")
-
     data, error_response = get_data(request)
-
-    print("Three")
 
     if error_response:
         return error_response
-
-    print("Three and a half")
 
     sent_at, error_response = _get_sent_at(data, request)
 
-    print("Four")
-
     if error_response:
         return error_response
 
-    print("Five")
     with start_span(op="request.authenticate"):
         token = get_token(data, request)
 

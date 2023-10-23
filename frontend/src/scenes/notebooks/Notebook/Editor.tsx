@@ -36,6 +36,7 @@ import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeAttachment } from '../Nodes/NotebookNodeAttachment'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -109,6 +110,7 @@ export function Editor(): JSX.Element {
             NotebookNodeEarlyAccessFeature,
             NotebookNodeSurvey,
             NotebookNodeImage,
+            NotebookNodeAttachment,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,

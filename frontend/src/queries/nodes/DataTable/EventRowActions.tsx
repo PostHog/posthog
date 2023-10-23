@@ -12,7 +12,6 @@ import { copyToClipboard, insightUrlForEvent } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconNotebook } from '@posthog/icons'
 import { notebooksModel } from '~/models/notebooksModel'
-import { asDisplay } from 'scenes/persons/person-utils'
 
 interface EventActionProps {
     event: EventType
@@ -93,39 +92,42 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             data-attr="events-table-usage"
                             onClick={() => {
-                                createNotebook(`Feedback from ${asDisplay(event.person)}`, NotebookTarget.Popover, [
-                                    {
-                                        type: 'paragraph',
-                                        content: [{ type: 'text', text: 'Reported by:' }],
-                                    },
-                                    {
-                                        type: NotebookNodeType.Person,
-                                        attrs: { id: String(event.person?.distinct_ids[0]) },
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [{ type: 'text', text: 'Comment:' }],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [{ type: 'text', text: event.properties.text ?? 'No text' }],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [{ type: 'text', text: 'Session replay:' }],
-                                    },
-                                    event.properties?.$session_id
-                                        ? {
-                                              type: NotebookNodeType.Recording,
-                                              attrs: {
-                                                  id: event.properties?.$session_id,
-                                              },
-                                          }
-                                        : {
-                                              type: 'paragraph',
-                                              content: [{ type: 'text', text: 'Recording not found.' }],
-                                          },
-                                ])
+                                const content = []
+
+                                const personId = event.distinct_id ?? event.person?.distinct_ids[0]
+                                if (personId) {
+                                    content.push(
+                                        {
+                                            type: 'paragraph',
+                                            content: [
+                                                { type: 'text', marks: [{ type: 'bold' }], text: 'Reported by:' },
+                                            ],
+                                        },
+                                        { type: NotebookNodeType.Person, attrs: { id: personId } }
+                                    )
+                                }
+
+                                if (event.properties?.$session_id) {
+                                    content.push(
+                                        { type: 'paragraph', content: [] },
+                                        { type: 'text', marks: [{ type: 'bold' }], text: 'Session replay:' },
+                                        {
+                                            type: NotebookNodeType.Recording,
+                                            attrs: { id: event.properties?.$session_id },
+                                        }
+                                    )
+                                }
+
+                                if (event.properties.$attachments && event.properties.$attachments.length > 0) {
+                                    content.push({ type: 'paragraph', content: [] })
+                                    event.properties.$attachments.forEach((mediaLocation: string) => {
+                                        content.push({
+                                            type: NotebookNodeType.Attachment,
+                                            attrs: { mediaLocation: mediaLocation },
+                                        })
+                                    })
+                                }
+                                createNotebook(`Feedback: ${event.properties.$title}`, NotebookTarget.Popover, content)
                             }}
                         >
                             Open in Notebook
