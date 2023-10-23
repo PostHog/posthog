@@ -6,7 +6,6 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Form, Field } from 'kea-forms'
 import { useActions, useValues } from 'kea'
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 
 export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean }): JSX.Element {
     const { isFieldModalOpen } = useValues(viewLinkLogic)
@@ -35,10 +34,9 @@ interface ViewLinkFormProps {
 }
 
 export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Element {
-    const { viewOptions, toJoinKeyOptions, selectedView, selectedTableName, fromJoinKeyOptions } =
+    const { viewOptions, tableOptions, toJoinKeyOptions, selectedView, selectedTableName, fromJoinKeyOptions } =
         useValues(viewLinkLogic)
     const { selectView, toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
-    const { tableOptions } = useValues(databaseSceneLogic)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
