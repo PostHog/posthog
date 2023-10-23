@@ -58,7 +58,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         SELECT DISTINCT $session_id
                         FROM events AS e
                         WHERE e.timestamp > toDateTime({after}) AND e.timestamp <= toDateTime({before})
-                        LIMIT 100
+                        ORDER BY timestamp DESC
+                        LIMIT 1000
                     ) AS relevant_session_ids
                     SELECT
                         e.uuid,
@@ -95,7 +96,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
                                 AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
                             )
                         )
-                    ORDER BY timestamp DESC""",
+                    ORDER BY timestamp DESC
+                    LIMIT 1000""",
                     placeholders={
                         "before": ast.Constant(value=self.query.before),
                         "after": ast.Constant(value=self.query.after),
@@ -137,11 +139,11 @@ class SessionsTimelineQueryRunner(QueryRunner):
             formal_session_id,
             informal_session_id,
             recording_duration_s,
-        ) in query_result.results:
+        ) in reversed(query_result.results):
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in reversed(timeline_entries_map):
                 timeline_entries_map[entry_id] = TimelineEntry(
-                    sessionId=formal_session_id, events=[], recording_duration_s=recording_duration_s or None
+                    sessionId=formal_session_id or None, events=[], recording_duration_s=recording_duration_s or None
                 )
             timeline_entries_map[entry_id].events.append(
                 EventType(
