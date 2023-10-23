@@ -18,7 +18,7 @@ export function NotebookCanvas(): JSX.Element {
     }
 
     return (
-        <div className="absolute inset-0 p-3 flex flex-column">
+        <div className="absolute inset-0 p-3 flex flex-column overflow-y-auto">
             <Notebook {...logicProps} />
         </div>
     )
