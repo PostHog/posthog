@@ -29,11 +29,15 @@ import {
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { router, urlToAction } from 'kea-router'
 
 const SYNC_DELAY = 1000
 
+export type NotebookLogicMode = 'notebook' | 'canvas'
+
 export type NotebookLogicProps = {
     shortId: string
+    mode?: NotebookLogicMode
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
@@ -59,7 +63,7 @@ async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any)
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId }) => shortId),
+    key(({ shortId, mode }) => `${shortId}-${mode}`),
     connect(() => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksModel, ['receiveNotebookUpdate']],
@@ -104,10 +108,10 @@ export const notebookLogic = kea<notebookLogicType>([
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         localContent: [
             null as JSONContent | null,
-            { persist: true, prefix: NOTEBOOKS_VERSION },
+            { persist: props.mode === 'notebook', prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -179,13 +183,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
-    }),
+    })),
     loaders(({ values, props, actions }) => ({
         notebook: [
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
-                    let response: NotebookType | null
+                    let response: NotebookType | null = null
+
+                    if (values.mode !== 'notebook') {
+                        return null
+                    }
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
@@ -282,7 +290,20 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
     selectors({
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
-        isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
+        mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
+        isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
+        isLocalOnly: [
+            () => [(_, props) => props],
+            (props): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas'
+            },
+        ],
+        notebookMissing: [
+            (s) => [s.notebook, s.notebookLoading, s.mode],
+            (notebook, notebookLoading, mode): boolean => {
+                return (['notebook', 'template'].includes(mode) && !notebook && !notebookLoading) ?? false
+            },
+        ],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
             (notebook, localContent, previewContent): JSONContent => {
@@ -344,13 +365,20 @@ export const notebookLogic = kea<notebookLogicType>([
         findNodeLogicById: [
             (s) => [s.nodeLogics],
             (nodeLogics) => {
-                return (id: string): notebookNodeLogicType | null => {
+                return (id: string) => {
                     return Object.values(nodeLogics).find((nodeLogic) => nodeLogic.props.nodeId === id) ?? null
                 }
             },
         ],
 
-        isShowingSidebar: [
+        nodeLogicsWithChildren: [
+            (s) => [s.nodeLogics],
+            (nodeLogics) => {
+                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+            },
+        ],
+
+        isShowingLeftColumn: [
             (s) => [s.editingNodeId, s.showHistory],
             (editingNodeId, showHistory) => !!editingNodeId || showHistory,
         ],
@@ -368,7 +396,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
     })),
-    listeners(({ values, actions, sharedListeners }) => ({
+    listeners(({ values, actions, sharedListeners, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
                 () => !!values.editor,
@@ -449,6 +477,19 @@ export const notebookLogic = kea<notebookLogicType>([
 
             await breakpoint(SYNC_DELAY)
 
+            if (values.mode === 'canvas') {
+                // TODO: We probably want this to be configurable
+                cache.lastState = btoa(JSON.stringify(jsonContent))
+                router.actions.replace(
+                    router.values.currentLocation.pathname,
+                    router.values.currentLocation.searchParams,
+                    {
+                        ...router.values.currentLocation.hashParams,
+                        state: cache.lastState,
+                    }
+                )
+            }
+
             posthog.capture('notebook content changed', {
                 short_id: values.notebook?.short_id,
             })
@@ -474,7 +515,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         onEditorUpdate: () => {
-            if (!values.editor || !values.notebook) {
+            if (!values.editor) {
                 return
             }
             const jsonContent = values.editor.getJSON()
@@ -517,6 +558,18 @@ export const notebookLogic = kea<notebookLogicType>([
             queueMicrotask(() => {
                 values.editor?.setTextSelection(selection)
             })
+        },
+    })),
+
+    urlToAction(({ values, actions, cache }) => ({
+        '*': (_, _search, hashParams) => {
+            if (values.mode === 'canvas' && hashParams?.state) {
+                if (cache.lastState === hashParams.state) {
+                    return
+                }
+
+                actions.setLocalContent(JSON.parse(atob(hashParams.state)))
+            }
         },
     })),
 ])

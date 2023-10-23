@@ -323,5 +323,6 @@ $_lifecycle_dormant: $_danger;
 
     // Notebooks
     --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
-    --notebook-sidebar-width: 27rem;
+    --notebook-column-left-width: 27rem;
+    --notebook-column-right-width: 20rem;
 }
