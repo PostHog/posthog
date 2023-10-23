@@ -1,10 +1,11 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import NotebookIconHeading from './NotebookIconHeading'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
@@ -101,17 +102,39 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                     ) : (
                         <>
                             <LemonButton
-                                onClick={() => editor.chain().focus().toggleMark('bold').run()}
-                                active={editor.isActive('bold')}
-                                icon={<IconBold />}
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                                active={editor.isActive('heading', { level: 1 })}
+                                icon={<NotebookIconHeading level={1} />}
                                 size="small"
-                                status={editor.isActive('bold') ? 'primary' : 'stealth'}
+                                status={editor.isActive('heading', { level: 1 }) ? 'primary' : 'stealth'}
                             />
+                            <LemonButton
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                                active={editor.isActive('heading', { level: 2 })}
+                                icon={<NotebookIconHeading level={2} />}
+                                size="small"
+                                status={editor.isActive('heading', { level: 2 }) ? 'primary' : 'stealth'}
+                            />
+                            <LemonButton
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                                active={editor.isActive('heading', { level: 3 })}
+                                icon={<NotebookIconHeading level={3} />}
+                                size="small"
+                                status={editor.isActive('heading', { level: 3 }) ? 'primary' : 'stealth'}
+                            />
+                            <LemonDivider vertical />
                             <LemonButton
                                 onClick={() => editor.chain().focus().toggleMark('italic').run()}
                                 active={editor.isActive('italic')}
                                 icon={<IconItalic />}
                                 status={editor.isActive('italic') ? 'primary' : 'stealth'}
+                                size="small"
+                            />
+                            <LemonButton
+                                onClick={() => editor.chain().focus().toggleMark('bold').run()}
+                                active={editor.isActive('bold')}
+                                icon={<IconBold />}
+                                status={editor.isActive('bold') ? 'primary' : 'stealth'}
                                 size="small"
                             />
                             <LemonButton
@@ -126,24 +149,4 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
             </BubbleMenu>
         </>
     )
-}
-
-function getCaretCoordinates() {
-    let x = 0,
-        y = 0
-    const isSupported = typeof window.getSelection !== 'undefined'
-    if (isSupported) {
-        const selection = window.getSelection()
-        debugger
-        if (selection && selection.rangeCount !== 0) {
-            const range = selection.getRangeAt(0).cloneRange()
-            range.collapse(true)
-            const rect = range.getClientRects()[0]
-            if (rect) {
-                x = rect.left
-                y = rect.top
-            }
-        }
-    }
-    return { x, y }
 }

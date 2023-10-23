@@ -88,18 +88,24 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
             }
 
             const latestVersion = values.availableVersions[0].version
-            const currentVersion = values.usedVersions[0].version
 
-            if (latestVersion === currentVersion) {
+            // reverse sort, hence reversed arguments to localeCompare.
+            // We want the highest semantic version to be the latest used one, rather than
+            // the one with the latest timestamp, because secondary installations can spew old versions
+            const latestUsedVersion = [...values.usedVersions].sort((a, b) =>
+                b.version.localeCompare(a.version, undefined, { numeric: true })
+            )[0].version
+
+            if (latestVersion === latestUsedVersion) {
                 actions.setVersionWarning(null)
                 return
             }
 
-            let diff = values.availableVersions.findIndex((v) => v.version === currentVersion)
+            let diff = values.availableVersions.findIndex((v) => v.version === latestUsedVersion)
             diff = diff === -1 ? values.availableVersions.length : diff
 
             const warning: SDKVersionWarning = {
-                currentVersion,
+                currentVersion: latestUsedVersion,
                 latestVersion,
                 diff,
                 level: diff > 20 ? 'error' : diff > 10 ? 'warning' : 'info',

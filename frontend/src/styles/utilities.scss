@@ -406,6 +406,10 @@ $decorations: underline, overline, line-through, no-underline;
     }
 }
 
+.text-inherit {
+    color: inherit;
+}
+
 @each $name, $hex in $colors {
     .hover\:text-#{$name}:hover {
         color: $hex;

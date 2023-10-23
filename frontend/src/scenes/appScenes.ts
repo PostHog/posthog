@@ -39,6 +39,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
+    [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehousePosthog]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),

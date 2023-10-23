@@ -1,6 +1,8 @@
 from typing import Dict, List, Tuple
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain, series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -35,6 +37,10 @@ class Breakdown:
         return self.query.breakdown is not None and self.query.breakdown.breakdown is not None
 
     @cached_property
+    def is_session_type(self) -> bool:
+        return self.enabled and self.query.breakdown.breakdown_type == "session"
+
+    @cached_property
     def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdown.breakdown_histogram_bin_count is not None
 
@@ -46,6 +52,22 @@ class Breakdown:
     def column_expr(self) -> ast.Expr:
         if self.is_histogram_breakdown:
             return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_histogram_multi_if())
+        elif self.query.breakdown.breakdown_type == "hogql":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=parse_expr(self.query.breakdown.breakdown),
+            )
+        elif self.query.breakdown.breakdown_type == "cohort":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=ast.Constant(value=int(self.query.breakdown.breakdown)),
+            )
+
+        if self.query.breakdown.breakdown_type == "hogql":
+            return ast.Alias(
+                alias="breakdown_value",
+                expr=parse_expr(self.query.breakdown.breakdown),
+            )
 
         return ast.Alias(
             alias="breakdown_value",
@@ -53,8 +75,20 @@ class Breakdown:
         )
 
     def events_where_filter(self) -> ast.Expr:
+        if self.query.breakdown.breakdown_type == "cohort":
+            return ast.CompareOperation(
+                left=ast.Field(chain=["person_id"]),
+                op=ast.CompareOperationOp.InCohort,
+                right=ast.Constant(value=int(self.query.breakdown.breakdown)),
+            )
+
+        if self.query.breakdown.breakdown_type == "hogql":
+            left = parse_expr(self.query.breakdown.breakdown)
+        else:
+            left = ast.Field(chain=self._properties_chain)
+
         return ast.CompareOperation(
-            left=ast.Field(chain=self._properties_chain),
+            left=left,
             op=ast.CompareOperationOp.In,
             right=self._breakdown_values_ast,
         )
@@ -137,8 +171,15 @@ class Breakdown:
 
     @cached_property
     def _properties_chain(self):
+        if self.is_session_type:
+            return self._breakdown_session.session_duration_property_chain()
+
         return get_properties_chain(
             breakdown_type=self.query.breakdown.breakdown_type,
             breakdown_field=self.query.breakdown.breakdown,
             group_type_index=self.query.breakdown.breakdown_group_type_index,
         )
+
+    @cached_property
+    def _breakdown_session(self):
+        return BreakdownSession(self.query_date_range)

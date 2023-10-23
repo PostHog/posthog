@@ -62,7 +62,7 @@ class RawPersonOverridesTable(Table):
         return "person_overrides"
 
     def to_printed_hogql(self):
-        return "person_overrides"
+        return "raw_person_overrides"
 
 
 class PersonOverridesTable(Table):

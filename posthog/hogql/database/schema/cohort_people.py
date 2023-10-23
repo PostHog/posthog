@@ -51,7 +51,7 @@ class RawCohortPeople(Table):
         return "cohortpeople"
 
     def to_printed_hogql(self):
-        return "cohort_people"
+        return "raw_cohort_people"
 
 
 class CohortPeople(LazyTable):

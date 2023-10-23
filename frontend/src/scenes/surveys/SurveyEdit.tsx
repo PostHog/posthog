@@ -1,5 +1,5 @@
 import './EditSurvey.scss'
-import { surveyLogic } from './surveyLogic'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import {
@@ -21,9 +21,10 @@ import {
     LinkSurveyQuestion,
     RatingSurveyQuestion,
     SurveyUrlMatchType,
+    AvailableFeature,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { IconCancel, IconDelete, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
+import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import {
     BaseAppearance,
     Customization,
@@ -40,11 +41,13 @@ import {
     SurveyUrlMatchTypeLabels,
 } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React, { useState } from 'react'
+import React from 'react'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { surveysLogic } from './surveysLogic'
 
 function PresentationTypeCard({
     title,
@@ -80,16 +83,26 @@ function PresentationTypeCard({
     )
 }
 
-export default function EditSurveyNew(): JSX.Element {
-    const { survey, hasTargetingFlag, urlMatchTypeValidationError, writingHTMLDescription, hasTargetingSet } =
-        useValues(surveyLogic)
-    const { setSurveyValue, setDefaultForQuestionType, setWritingHTMLDescription, resetTargeting } =
-        useActions(surveyLogic)
+export default function SurveyEdit(): JSX.Element {
+    const {
+        survey,
+        hasTargetingFlag,
+        urlMatchTypeValidationError,
+        writingHTMLDescription,
+        hasTargetingSet,
+        selectedQuestion,
+        selectedSection,
+    } = useValues(surveyLogic)
+    const {
+        setSurveyValue,
+        setDefaultForQuestionType,
+        setWritingHTMLDescription,
+        resetTargeting,
+        setSelectedQuestion,
+        setSelectedSection,
+    } = useActions(surveyLogic)
+    const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-
-    const [activePreview, setActivePreview] = useState<number>(0)
-
-    const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
     return (
         <div className="flex flex-row gap-4">
@@ -101,16 +114,21 @@ export default function EditSurveyNew(): JSX.Element {
                     <LemonTextArea data-attr="survey-description" minRows={2} />
                 </Field>
                 <LemonCollapse
-                    defaultActiveKey="steps"
+                    activeKey={selectedSection || undefined}
+                    onChange={(section) => {
+                        setSelectedSection(section)
+                    }}
                     panels={[
                         {
-                            key: 'steps',
+                            key: SurveyEditSection.Steps,
                             header: 'Steps',
                             content: (
                                 <>
                                     <LemonCollapse
-                                        activeKey={activePreview}
-                                        onChange={(index) => setActivePreview(index || 0)}
+                                        activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                        onChange={(index) => {
+                                            setSelectedQuestion(index)
+                                        }}
                                         panels={[
                                             ...survey.questions.map(
                                                 (
@@ -133,7 +151,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                                     data-attr={`delete-survey-question-${index}`}
                                                                     onClick={(e) => {
                                                                         e.stopPropagation()
-                                                                        setActivePreview(index <= 0 ? 0 : index - 1)
+                                                                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
                                                                         setSurveyValue(
                                                                             'questions',
                                                                             survey.questions.filter(
@@ -149,104 +167,6 @@ export default function EditSurveyNew(): JSX.Element {
                                                     content: (
                                                         <Group name={`questions.${index}`} key={index}>
                                                             <div className="flex flex-col gap-2">
-                                                                <Field name="question" label="Label">
-                                                                    <LemonInput value={question.question} />
-                                                                </Field>
-
-                                                                <Field
-                                                                    name="description"
-                                                                    label="Description (optional)"
-                                                                >
-                                                                    {({ value, onChange }) => (
-                                                                        <>
-                                                                            <LemonTabs
-                                                                                activeKey={
-                                                                                    writingHTMLDescription
-                                                                                        ? 'html'
-                                                                                        : 'text'
-                                                                                }
-                                                                                onChange={(key) =>
-                                                                                    setWritingHTMLDescription(
-                                                                                        key === 'html'
-                                                                                    )
-                                                                                }
-                                                                                tabs={[
-                                                                                    {
-                                                                                        key: 'text',
-                                                                                        label: (
-                                                                                            <span className="text-sm">
-                                                                                                Text
-                                                                                            </span>
-                                                                                        ),
-                                                                                        content: (
-                                                                                            <LemonTextArea
-                                                                                                data-attr="survey-description"
-                                                                                                minRows={2}
-                                                                                                value={value}
-                                                                                                onChange={(v) =>
-                                                                                                    onChange(v)
-                                                                                                }
-                                                                                            />
-                                                                                        ),
-                                                                                    },
-                                                                                    {
-                                                                                        key: 'html',
-                                                                                        label: (
-                                                                                            <span className="text-sm">
-                                                                                                HTML
-                                                                                            </span>
-                                                                                        ),
-                                                                                        content: (
-                                                                                            <div>
-                                                                                                <CodeEditor
-                                                                                                    className="border"
-                                                                                                    language="html"
-                                                                                                    value={value}
-                                                                                                    onChange={(v) =>
-                                                                                                        onChange(
-                                                                                                            v ?? ''
-                                                                                                        )
-                                                                                                    }
-                                                                                                    height={150}
-                                                                                                    options={{
-                                                                                                        minimap: {
-                                                                                                            enabled:
-                                                                                                                false,
-                                                                                                        },
-                                                                                                        wordWrap: 'on',
-                                                                                                        scrollBeyondLastLine:
-                                                                                                            false,
-                                                                                                        automaticLayout:
-                                                                                                            true,
-                                                                                                        fixedOverflowWidgets:
-                                                                                                            true,
-                                                                                                        lineNumbers:
-                                                                                                            'off',
-                                                                                                        glyphMargin:
-                                                                                                            false,
-                                                                                                        folding: false,
-                                                                                                    }}
-                                                                                                />
-                                                                                            </div>
-                                                                                        ),
-                                                                                    },
-                                                                                ]}
-                                                                            />
-                                                                            {question.description &&
-                                                                                question.description
-                                                                                    ?.toLowerCase()
-                                                                                    .includes('<script') && (
-                                                                                    <LemonBanner type="warning">
-                                                                                        Scripts won't run in the survey
-                                                                                        popup and we'll remove these on
-                                                                                        save. Use the API question mode
-                                                                                        to run your own scripts in
-                                                                                        surveys.
-                                                                                    </LemonBanner>
-                                                                                )}
-                                                                        </>
-                                                                    )}
-                                                                </Field>
                                                                 <Field
                                                                     name="type"
                                                                     label="Question type"
@@ -394,6 +314,27 @@ export default function EditSurveyNew(): JSX.Element {
                                                                         ]}
                                                                     />
                                                                 </Field>
+                                                                <Field name="question" label="Label">
+                                                                    <LemonInput value={question.question} />
+                                                                </Field>
+
+                                                                <Field
+                                                                    name="description"
+                                                                    label="Description (optional)"
+                                                                >
+                                                                    {({ value, onChange }) => (
+                                                                        <HTMLEditor
+                                                                            value={value}
+                                                                            onChange={onChange}
+                                                                            writingHTMLDescription={
+                                                                                writingHTMLDescription
+                                                                            }
+                                                                            setWritingHTMLDescription={
+                                                                                setWritingHTMLDescription
+                                                                            }
+                                                                        />
+                                                                    )}
+                                                                </Field>
                                                                 {survey.questions.length > 1 && (
                                                                     <Field name="optional" className="my-2">
                                                                         <LemonCheckbox
@@ -458,7 +399,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                         'number'
                                                                                             ? [
                                                                                                   {
-                                                                                                      label: '1 - 10',
+                                                                                                      label: '0 - 10',
                                                                                                       value: 10,
                                                                                                   },
                                                                                               ]
@@ -589,7 +530,9 @@ export default function EditSurveyNew(): JSX.Element {
                                                                       data-attr={`delete-survey-confirmation`}
                                                                       onClick={(e) => {
                                                                           e.stopPropagation()
-                                                                          setActivePreview(survey.questions.length - 1)
+                                                                          setSelectedQuestion(
+                                                                              survey.questions.length - 1
+                                                                          )
                                                                           setSurveyValue('appearance', {
                                                                               ...survey.appearance,
                                                                               displayThankYouMessage: false,
@@ -615,8 +558,11 @@ export default function EditSurveyNew(): JSX.Element {
                                                                           placeholder="ex: Thank you for your feedback!"
                                                                       />
                                                                   </PureField>
-                                                                  <PureField label="Thank you description">
-                                                                      <LemonTextArea
+                                                                  <PureField
+                                                                      label="Thank you description"
+                                                                      className="mt-1"
+                                                                  >
+                                                                      <HTMLEditor
                                                                           value={
                                                                               survey.appearance
                                                                                   .thankYouMessageDescription
@@ -627,8 +573,13 @@ export default function EditSurveyNew(): JSX.Element {
                                                                                   thankYouMessageDescription: val,
                                                                               })
                                                                           }
-                                                                          minRows={2}
-                                                                          placeholder="ex: We really appreciate it."
+                                                                          writingHTMLDescription={
+                                                                              writingHTMLDescription
+                                                                          }
+                                                                          setWritingHTMLDescription={
+                                                                              setWritingHTMLDescription
+                                                                          }
+                                                                          textPlaceholder="ex: We really appreciate it."
                                                                       />
                                                                   </PureField>
                                                               </>
@@ -640,17 +591,22 @@ export default function EditSurveyNew(): JSX.Element {
                                     />
                                     <div className="flex gap-2">
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
-                                            // TODO: Add pay gate mini here once billing is resolved for it
                                             <LemonButton
                                                 type="secondary"
                                                 className="w-max mt-2"
                                                 icon={<IconPlus />}
+                                                sideIcon={<IconLock className="ml-1 text-base text-muted" />}
+                                                disabledReason={
+                                                    surveysMultipleQuestionsAvailable
+                                                        ? null
+                                                        : 'Subscribe for multiple question surveys'
+                                                }
                                                 onClick={() => {
                                                     setSurveyValue('questions', [
                                                         ...survey.questions,
                                                         { ...defaultSurveyFieldValues.open.questions[0] },
                                                     ])
-                                                    setActivePreview(survey.questions.length)
+                                                    setSelectedQuestion(survey.questions.length)
                                                 }}
                                             >
                                                 Add question
@@ -666,7 +622,7 @@ export default function EditSurveyNew(): JSX.Element {
                                                         ...survey.appearance,
                                                         displayThankYouMessage: true,
                                                     })
-                                                    setActivePreview(survey.questions.length)
+                                                    setSelectedQuestion(survey.questions.length)
                                                 }}
                                             >
                                                 Add confirmation message
@@ -677,7 +633,7 @@ export default function EditSurveyNew(): JSX.Element {
                             ),
                         },
                         {
-                            key: 'presentation',
+                            key: SurveyEditSection.Presentation,
                             header: 'Presentation',
                             content: (
                                 <Field name="type">
@@ -745,7 +701,7 @@ export default function EditSurveyNew(): JSX.Element {
                         ...(survey.type !== SurveyType.API
                             ? [
                                   {
-                                      key: 'customization',
+                                      key: SurveyEditSection.Customization,
                                       header: 'Customization',
                                       content: (
                                           <Field name="appearance" label="">
@@ -764,7 +720,7 @@ export default function EditSurveyNew(): JSX.Element {
                               ]
                             : []),
                         {
-                            key: 'targeting',
+                            key: SurveyEditSection.Targeting,
                             header: 'Targeting',
                             content: (
                                 <PureField>
@@ -958,12 +914,117 @@ export default function EditSurveyNew(): JSX.Element {
             <LemonDivider vertical />
             <div className="flex flex-col items-center h-full w-full sticky top-0 pt-8" style={{ maxWidth: 320 }}>
                 <SurveyFormAppearance
-                    activePreview={activePreview}
+                    activePreview={selectedQuestion || 0}
                     survey={survey}
-                    showThankYou={!!showThankYou}
-                    setActivePreview={(preview) => setActivePreview(preview)}
+                    setActivePreview={(preview) => setSelectedQuestion(preview)}
                 />
             </div>
         </div>
+    )
+}
+
+export function HTMLEditor({
+    value,
+    onChange,
+    writingHTMLDescription,
+    setWritingHTMLDescription,
+    textPlaceholder,
+}: {
+    value?: string
+    onChange: (value: any) => void
+    writingHTMLDescription: boolean
+    setWritingHTMLDescription: (writingHTML: boolean) => void
+    textPlaceholder?: string
+}): JSX.Element {
+    const { surveysHTMLAvailable } = useValues(surveysLogic)
+    return (
+        <>
+            <LemonTabs
+                activeKey={writingHTMLDescription ? 'html' : 'text'}
+                onChange={(key) => setWritingHTMLDescription(key === 'html')}
+                tabs={[
+                    {
+                        key: 'text',
+                        label: <span className="text-sm">Text</span>,
+                        content: (
+                            <LemonTextArea
+                                minRows={2}
+                                value={value}
+                                onChange={(v) => onChange(v)}
+                                placeholder={textPlaceholder}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'html',
+                        label: (
+                            <div>
+                                <span className="text-sm">HTML</span>
+                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
+                            </div>
+                        ),
+                        content: (
+                            <div>
+                                {surveysHTMLAvailable ? (
+                                    <CodeEditor
+                                        className="border"
+                                        language="html"
+                                        value={value}
+                                        onChange={(v) => onChange(v ?? '')}
+                                        height={150}
+                                        options={{
+                                            minimap: {
+                                                enabled: false,
+                                            },
+                                            scrollbar: {
+                                                alwaysConsumeMouseWheel: false,
+                                            },
+                                            wordWrap: 'on',
+                                            scrollBeyondLastLine: false,
+                                            automaticLayout: true,
+                                            fixedOverflowWidgets: true,
+                                            lineNumbers: 'off',
+                                            glyphMargin: false,
+                                            folding: false,
+                                        }}
+                                    />
+                                ) : (
+                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
+                                        <CodeEditor
+                                            className="border"
+                                            language="html"
+                                            value={value}
+                                            onChange={(v) => onChange(v ?? '')}
+                                            height={150}
+                                            options={{
+                                                minimap: {
+                                                    enabled: false,
+                                                },
+                                                scrollbar: {
+                                                    alwaysConsumeMouseWheel: false,
+                                                },
+                                                wordWrap: 'on',
+                                                scrollBeyondLastLine: false,
+                                                automaticLayout: true,
+                                                fixedOverflowWidgets: true,
+                                                lineNumbers: 'off',
+                                                glyphMargin: false,
+                                                folding: false,
+                                            }}
+                                        />
+                                    </PayGateMini>
+                                )}
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+            {value && value?.toLowerCase().includes('<script') && (
+                <LemonBanner type="warning">
+                    Scripts won't run in the survey popover and we'll remove these on save. Use the API question mode to
+                    run your own scripts in surveys.
+                </LemonBanner>
+            )}
+        </>
     )
 }

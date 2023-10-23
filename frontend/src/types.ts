@@ -26,7 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, HogQLQuery, InsightVizNode, Node, QueryContext } from './queries/schema'
+import type {
+    DashboardFilter,
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightVizNode,
+    Node,
+} from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -79,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {
@@ -1343,7 +1354,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1352,7 +1363,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
@@ -2911,13 +2922,11 @@ export type OnlineExportContext = {
     query?: any
     body?: any
     filename?: string
-    max_limit?: number
 }
 
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    max_limit?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext

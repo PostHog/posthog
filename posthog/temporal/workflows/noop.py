@@ -1,22 +1,24 @@
+import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from temporalio import activity, workflow
 
+from posthog.batch_exports.service import NoOpInputs
 from posthog.temporal.workflows.base import PostHogWorkflow
 
 
 @dataclass
 class NoopActivityArgs:
-    time: str
+    arg: str
 
 
 @activity.defn
-async def noop_activity(input: NoopActivityArgs) -> str:
-    activity.logger.info(f"Running activity with parameter {input.time}")
-    output = f"OK - {input.time}"
+async def noop_activity(inputs: NoopActivityArgs) -> str:
+    activity.logger.info(f"Running activity with parameter {inputs.arg}")
+    output = f"OK - {inputs.arg}"
     logging.warning(f"[Action] - Action executed on worker with output: {output}")
     return output
 
@@ -29,17 +31,15 @@ class NoOpWorkflow(PostHogWorkflow):
 
         We expect only one input, so we just return it and assume it's correct.
         """
-        if not inputs:
-            # Preserving defaults from when this was the only workflow.
-            inputs = [datetime.now().isoformat()]
-        return inputs[0]
+        loaded = json.loads(inputs[0])
+        return NoOpInputs(**loaded)
 
     @workflow.run
-    async def run(self, time: str) -> str:
-        workflow.logger.info(f"Running workflow with parameter {time}")
+    async def run(self, inputs: NoOpInputs) -> str:
+        workflow.logger.info(f"Running workflow with parameter {inputs.arg}")
         result = await workflow.execute_activity(
             noop_activity,
-            NoopActivityArgs(time),
+            NoopActivityArgs(inputs.arg),
             start_to_close_timeout=timedelta(seconds=60),
             schedule_to_close_timeout=timedelta(minutes=5),
         )

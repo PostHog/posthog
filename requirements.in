@@ -6,7 +6,7 @@
 #
 aiohttp>=3.8.4
 aioboto3==11.1
-antlr4-python3-runtime==4.13.0
+antlr4-python3-runtime==4.13.1
 amqp==5.1.1
 boto3==1.26.76
 boto3-stubs[s3]
@@ -87,4 +87,4 @@ django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==0.27.8
 nh3==0.2.14
-hogql-parser==0.1.7
+hogql-parser==0.1.9

@@ -170,7 +170,6 @@ export const personsLogic = kea<personsLogicType>({
                         path: cohort
                             ? api.cohorts.determineListUrl(cohort, listFilters)
                             : api.persons.determineListUrl(listFilters),
-                        max_limit: 10000,
                     },
                 },
             ],

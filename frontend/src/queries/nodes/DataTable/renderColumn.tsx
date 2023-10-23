@@ -6,7 +6,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import {
     isEventsQuery,
     isHogQLQuery,
@@ -229,7 +231,7 @@ export function renderColumn(
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
-        return Component ? <Component record={record} columnName={columnName} value={value} /> : ''
+        return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
     } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         return (
             <CopyToClipboardInline

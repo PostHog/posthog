@@ -261,7 +261,7 @@ class InviteSignupViewset(generics.CreateAPIView):
 
         user = request.user if request.user.is_authenticated else None
 
-        invite.validate(user=user)
+        invite.validate(user=user, invite_email=invite.target_email, request_path=f"/signup/{invite_id}")
 
         return response.Response(
             {

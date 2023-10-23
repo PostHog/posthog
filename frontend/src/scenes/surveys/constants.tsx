@@ -146,3 +146,113 @@ export const NEW_SURVEY: NewSurvey = {
     archived: false,
     appearance: defaultSurveyAppearance,
 }
+
+export enum SurveyTemplateType {
+    OpenFeedback = 'Open feedback',
+    Interview = 'User interview',
+    NPS = 'Net promoter score (NPS)',
+    CSAT = 'Customer satisfaction score (CSAT)',
+    CES = 'Customer effort score (CES)',
+    CCR = 'Customer churn rate (CCR)',
+    PMF = 'Product-market fit (PMF)',
+}
+
+export const defaultSurveyTemplates = [
+    {
+        type: SurveyTemplateType.Interview,
+        questions: [
+            {
+                type: SurveyQuestionType.Link,
+                question: 'Would you be interested in participating in a customer interview?',
+                description: 'We are looking for feedback on our product and would love to hear from you!',
+                link: 'https://calendly.com/',
+            },
+        ],
+        appearance: { submitButtonText: 'Schedule' },
+        description: <>Send users straight to your calendar.</>,
+    },
+    {
+        type: SurveyTemplateType.NPS,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us to a friend?',
+                description: '',
+                display: 'number',
+                scale: 10,
+                lowerBoundLabel: 'Unlikely',
+                upperBoundLabel: 'Very likely',
+            },
+        ],
+        description: 'Get an industry-recognized benchmark.',
+    },
+    {
+        type: SurveyTemplateType.PMF,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How would you feel if you could no longer use PostHog?',
+                choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
+            },
+        ],
+        description: "40% 'very disappointed' signals product-market fit.",
+    },
+    {
+        type: SurveyTemplateType.CSAT,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How satisfied are you with PostHog surveys?',
+                description: '',
+                display: 'emoji',
+                scale: 5,
+                lowerBoundLabel: 'Very dissatisfied',
+                upperBoundLabel: 'Very satisfied',
+            },
+        ],
+        description: 'Works best after a checkout or support flow.',
+        appearance: { ratingButtonColor: '#939393' },
+    },
+    {
+        type: SurveyTemplateType.CES,
+        questions: [
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How easy was it to use our product?',
+                description: '',
+                display: 'emoji',
+                scale: 5,
+                lowerBoundLabel: 'Very difficult',
+                upperBoundLabel: 'Very easy',
+            },
+        ],
+        description: 'Works well with churn surveys.',
+        appearance: { ratingButtonColor: '#939393' },
+    },
+    {
+        type: SurveyTemplateType.CCR,
+        questions: [
+            {
+                type: SurveyQuestionType.MultipleChoice,
+                question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                choices: [
+                    'I no longer need the product',
+                    'I found a better product',
+                    'I found the product too difficult to use',
+                    'Other',
+                ],
+            },
+        ],
+        description: 'Find out if it was something you said.',
+    },
+    {
+        type: SurveyTemplateType.OpenFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What can we do to improve our product?',
+            },
+        ],
+        description: "Let your users share what's on their mind.",
+    },
+]
