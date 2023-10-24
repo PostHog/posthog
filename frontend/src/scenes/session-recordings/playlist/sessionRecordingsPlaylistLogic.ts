@@ -348,6 +348,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         showAdvancedFilters: [
             addedAdvancedFilters(props.filters, getDefaultFilters(props.personUUID)),
             {
+                persist: true,
+            },
+            {
                 setFilters: (showingAdvancedFilters, { filters }) =>
                     addedAdvancedFilters(filters, getDefaultFilters(props.personUUID)) ? true : showingAdvancedFilters,
                 setShowAdvancedFilters: (_, { showAdvancedFilters }) => showAdvancedFilters,
