@@ -57,7 +57,9 @@ SESSION_CTE = """
         ({session_having})
     """
 
-# Note that when parsed, this will need the placeholders defined in SESSION_CTE
+# This pulls in SESSION_CTE using f-strings rather than HogQL placeholders, which is safe
+# but means that when you use parse_select on it, you'll need to make sure you include the
+# placeholders that SESSION_CTE needs.
 BOUNCE_RATE_CTE = f"""
 SELECT
     breakdown_value,
