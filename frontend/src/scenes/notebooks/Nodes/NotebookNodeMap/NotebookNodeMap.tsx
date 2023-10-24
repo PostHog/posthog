@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeMapAttributes>)
         <Map
             center={personCoordinates}
             markers={[new Marker({ color: 'var(--primary)' }).setLngLat(personCoordinates)]}
-            className="h-50"
+            className="h-full"
         />
     )
 }
@@ -54,7 +54,8 @@ export const NotebookNodeMap = createPostHogWidgetNode<NotebookNodeMapAttributes
     nodeType: NotebookNodeType.Map,
     titlePlaceholder: 'Location',
     Component,
-    resizeable: false,
+    resizeable: true,
+    heightEstimate: 150,
     expandable: true,
     startExpanded: true,
     attributes: {
