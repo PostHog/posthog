@@ -1,11 +1,11 @@
 from copy import deepcopy
 from typing import Any, Dict, List
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FieldOrTable, IntegerDatabaseField, StringDatabaseField, VirtualTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
-from posthog.schema import HogQLQueryModifiers
 
 
 class EventsSessionSubTable(VirtualTable):
@@ -22,15 +22,19 @@ class EventsSessionSubTable(VirtualTable):
 
 
 class EventsSessionWhereClauseTraverser(TraversingVisitor):
-    compare_operators: List[ast.CompareOperation] = []
-    fields: List[ast.Field] = []
+    compare_operators: List[ast.CompareOperation]
+    fields: List[ast.Field]
     query: ast.SelectQuery
+    context: HogQLContext
 
-    def __init__(self, query: ast.SelectQuery):
+    def __init__(self, query: ast.SelectQuery, context: HogQLContext):
         super().__init__()
+        self.compare_operators = []
+        self.fields = []
         self.query = query
+        self.context = context
 
-        where_with_no_types = CloningVisitor(clear_types=True, clear_locations=False).visit(query.where)
+        where_with_no_types = CloningVisitor(clear_types=True, clear_locations=True).visit(query.where)
         super().visit(where_with_no_types)
 
     def visit_field(self, node: ast.Field):
@@ -46,11 +50,20 @@ class EventsSessionWhereClauseTraverser(TraversingVisitor):
         for field in self.fields:
             type = None
 
+            if len(field.chain) == 0:
+                return
+
             # If the field contains at least two parts, the first might be a table.
             if len(field.chain) > 1:
                 type = self.query.type.tables[field.chain[0]]
-                if type is not None:
-                    field.chain.pop(0)
+                if isinstance(type, ast.TableAliasType):
+                    if type.table_type.table.to_printed_clickhouse(self.context) == "events":
+                        field.chain.pop(0)
+                    else:
+                        return
+                elif isinstance(type, ast.SelectQueryAliasType):
+                    # Ignore for now
+                    return
 
             # Field in scope
             if not type:
@@ -67,7 +80,7 @@ def join_with_events_table_session_duration(
     from_table: str,
     to_table: str,
     requested_fields: Dict[str, Any],
-    modifiers: HogQLQueryModifiers,
+    context: HogQLContext,
     node: ast.SelectQuery,
 ):
     select_query = parse_select(
@@ -78,7 +91,7 @@ def join_with_events_table_session_duration(
         """
     )
 
-    compare_operators = EventsSessionWhereClauseTraverser(node).compare_operators
+    compare_operators = EventsSessionWhereClauseTraverser(node, context).compare_operators
 
     where_clauses = ast.And(
         exprs=[
