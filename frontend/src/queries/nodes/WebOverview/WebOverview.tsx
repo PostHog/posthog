@@ -32,7 +32,7 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
     const results = (response as WebOverviewQueryResponse | undefined)?.results
 
     return (
-        <EvenlyDistributedRows className="w-full gap-2" minWidthRems={12}>
+        <EvenlyDistributedRows className="w-full gap-2" minWidthRems={8}>
             {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
         </EvenlyDistributedRows>
     )
@@ -71,7 +71,7 @@ export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <div className="min-w-40 min-h-20 flex-1 flex flex-col items-center text-center justify-between">
+            <div className="min-w-30 min-h-20 flex-1 flex flex-col items-center text-center justify-between">
                 <div className="font-bold uppercase text-xs">{label}</div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind)}</div>
