@@ -784,6 +784,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentPlayerState === SessionPlayerState.SKIP) &&
                 values.timestampChangeTracking.timestampMatchesPrevious > 10
             ) {
+                // NOTE: We should investigate if this is still happening - logging to posthog recording so we can find this in the future
+                posthog.sessionRecording?.log(
+                    'stuck session player detected - this indicates an issue with the segmenter',
+                    'warn'
+                )
                 cache.debug?.('stuck session player detected', {
                     timestampChangeTracking: values.timestampChangeTracking,
                     currentSegment: values.currentSegment,
