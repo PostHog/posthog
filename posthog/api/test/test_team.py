@@ -530,8 +530,8 @@ class TestTeamAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ["string", "Marple bridge", "invalid_input", "Must provide a dictionary."],
-            ["numeric", "-1", "invalid_input", "Must provide a dictionary."],
+            ["string", "Marple bridge", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
             [
                 "unexpected json - no id",
                 {"key": "something"},
