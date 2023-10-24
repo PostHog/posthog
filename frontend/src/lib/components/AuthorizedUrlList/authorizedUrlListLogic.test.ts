@@ -2,6 +2,7 @@ import {
     appEditorUrl,
     authorizedUrlListLogic,
     AuthorizedUrlListType,
+    filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
@@ -145,6 +146,34 @@ describe('the authorized urls list logic', () => {
                     expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
+        })
+    })
+
+    describe('filterNotAuthorizedUrls', () => {
+        it('filters urls correctly', () => {
+            const testUrls = [
+                'https://1.valid.com',
+                'https://2.valid.com',
+                'https://explicit.valid.io',
+                'https://not.valid.io',
+            ]
+
+            expect(filterNotAuthorizedUrls(testUrls, ['https://*.valid.com', 'https://explicit.valid.io'])).toEqual([
+                'https://not.valid.io',
+            ])
+
+            expect(filterNotAuthorizedUrls(testUrls, ['https://explicit.valid.io'])).toEqual([
+                'https://1.valid.com',
+                'https://2.valid.com',
+                'https://not.valid.io',
+            ])
+
+            expect(filterNotAuthorizedUrls(testUrls, [])).toEqual([
+                'https://1.valid.com',
+                'https://2.valid.com',
+                'https://explicit.valid.io',
+                'https://not.valid.io',
+            ])
         })
     })
 })
