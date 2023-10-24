@@ -1269,10 +1269,14 @@ class SessionsTimelineQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after: str = Field(..., description="Only fetch sessions that started after this timestamp")
-    before: str = Field(..., description="Only fetch sessions that started before this timestamp")
+    after: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started after this timestamp (default: '-24h')"
+    )
+    before: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
+    )
     kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
-    personId: Optional[str] = Field(default=None, description="Show sessions for a given person")
+    personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
     response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
 
 

@@ -13,6 +13,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
 from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
+from posthog.utils import relative_date_parse
 
 
 class SessionsTimelineQueryRunner(QueryRunner):
@@ -52,23 +53,20 @@ class SessionsTimelineQueryRunner(QueryRunner):
         if self.timings is None:
             self.timings = HogQLTimings()
 
+        after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
+        before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
+
         with self.timings.measure("build_ast"):
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Call(
-                        name="toDateTime",
-                        args=[ast.Constant(value=self.query.after)],
-                    ),
+                    right=ast.Constant(value=after),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Lt,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Call(
-                        name="toDateTime",
-                        args=[ast.Constant(value=self.query.before)],
-                    ),
+                    right=ast.Constant(value=before),
                 ),
             ]
             if self.query.personId:

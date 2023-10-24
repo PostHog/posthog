@@ -1,4 +1,6 @@
 from unittest.mock import patch
+
+from freezegun import freeze_time
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -488,6 +490,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert response.hasMore is False
 
+    @snapshot_clickhouse_queries
     @patch("posthog.hogql_queries.sessions_timeline_query_runner.SessionsTimelineQueryRunner.EVENT_LIMIT", 2)
     def test_event_limit_and_has_more(self):
         journeys_for(
@@ -552,6 +555,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         assert response.hasMore is True
 
+    @snapshot_clickhouse_queries
     def test_before_and_after(self):
         journeys_for(
             team=self.team,
@@ -581,6 +585,55 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = self._create_runner(SessionsTimelineQuery(before="2023-10-01T17:00:00Z", after="2023-10-01T12:00:00Z"))
         response = runner.calculate()
+
+        assert response.results == [
+            TimelineEntry(
+                sessionId="s1",
+                events=[
+                    EventType(
+                        id="c15119f2-b243-4547-ab46-1b29a0435948",
+                        distinct_id="person1",
+                        event="user signed up",
+                        timestamp="2023-10-01T13:00:00+00:00",
+                        properties={"$session_id": "s1"},
+                        elements=[],
+                    ),
+                ],
+                recording_duration_s=None,
+            ),
+        ]
+
+    @snapshot_clickhouse_queries
+    def test_before_and_after_defaults(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {
+                        "event_uuid": "6e6e645b-2936-4613-b409-b33f4d9a0f18",
+                        "event": "$pageview",
+                        "timestamp": "2023-09-29 23:00:00",
+                        "properties": {"$session_id": "s1"},
+                    },
+                    {
+                        "event_uuid": "c15119f2-b243-4547-ab46-1b29a0435948",
+                        "event": "user signed up",
+                        "timestamp": "2023-10-01 13:00:00",
+                        "properties": {"$session_id": "s1"},
+                    },
+                    {
+                        "event_uuid": "e1208e6b-8101-4dde-ba21-c47781bb5bad",
+                        "event": "$pageview",
+                        "timestamp": "2023-10-01 17:00:00",
+                        "properties": {"$session_id": "s2"},
+                    },
+                ],
+            },
+        )
+
+        with freeze_time("2023-10-01T16:00:00Z"):
+            runner = self._create_runner(SessionsTimelineQuery())
+            response = runner.calculate()
 
         assert response.results == [
             TimelineEntry(

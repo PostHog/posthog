@@ -2600,11 +2600,11 @@
             "additionalProperties": false,
             "properties": {
                 "after": {
-                    "description": "Only fetch sessions that started after this timestamp",
+                    "description": "Only fetch sessions that started after this timestamp (default: '-24h')",
                     "type": "string"
                 },
                 "before": {
-                    "description": "Only fetch sessions that started before this timestamp",
+                    "description": "Only fetch sessions that started before this timestamp (default: '+5s')",
                     "type": "string"
                 },
                 "kind": {
@@ -2612,7 +2612,7 @@
                     "type": "string"
                 },
                 "personId": {
-                    "description": "Show sessions for a given person",
+                    "description": "Fetch sessions only for a given person",
                     "type": "string"
                 },
                 "response": {
@@ -2620,7 +2620,7 @@
                     "description": "Cached query response"
                 }
             },
-            "required": ["after", "before", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "SessionsTimelineQueryResponse": {

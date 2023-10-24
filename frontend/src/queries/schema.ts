@@ -563,12 +563,12 @@ export interface SessionsTimelineQueryResponse {
 
 export interface SessionsTimelineQuery extends DataNode {
     kind: NodeKind.SessionsTimelineQuery
-    /** Show sessions for a given person */
+    /** Fetch sessions only for a given person */
     personId?: string
-    /** Only fetch sessions that started after this timestamp */
-    after: string
-    /** Only fetch sessions that started before this timestamp */
-    before: string
+    /** Only fetch sessions that started after this timestamp (default: '-24h') */
+    after?: string
+    /** Only fetch sessions that started before this timestamp (default: '+5s') */
+    before?: string
     response?: SessionsTimelineQueryResponse
 }
 
