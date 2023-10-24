@@ -236,13 +236,6 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <IPCapture />
                 <LemonDivider className="my-6" />
-                <h2 className="subtitle">PostHog Toolbar</h2>
-                <p>
-                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
-                    right there on your website!
-                </p>
-                <ToolbarSettings />
-                <LemonDivider className="my-6" />
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
