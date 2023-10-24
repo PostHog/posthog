@@ -461,9 +461,7 @@ export function OpenTextViz({
             ) : (
                 <>
                     <div className="font-semibold text-muted-alt">Open text</div>
-                    <div className="text-xl font-bold mb-4">
-                        {question.question} • <span className="">Latest responses</span>
-                    </div>
+                    <div className="text-xl font-bold mb-4">{question.question}</div>
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
                             const personProp = {

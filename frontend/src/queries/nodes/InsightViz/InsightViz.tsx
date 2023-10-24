@@ -80,7 +80,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                             <EditorFilters query={query.source} showing={showingFilters} embedded={embedded} />
                         )}
 
-                        <div className="insights-container" data-attr="insight-view">
+                        <div className="insights-container ph-no-capture" data-attr="insight-view">
                             <InsightContainer
                                 insightMode={insightMode}
                                 context={context}
