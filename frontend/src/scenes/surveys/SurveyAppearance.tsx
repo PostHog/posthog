@@ -599,7 +599,7 @@ export function SurveyMultipleChoiceAppearance({
                                 name="choice"
                                 value={choice}
                             />
-                            <label>{choice}</label>
+                            <label style={{ color: textColor }}>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}
