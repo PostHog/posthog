@@ -71,30 +71,23 @@ def get_rows_synced_by_resource_id(begin: datetime, end: datetime, resource_id, 
         "offset": offset,
         "status": "succeeded",
         "updatedAtStart": begin.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "updatedAtEnd": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
-    # TODO: this is a hack, update once airbyte date filtering is fixed. Shouldn't need to pass in end
-    return _accumulate_jobs_field(AIRBYTE_JOBS_URL + "?" + urlencode(params), "rowsSynced", end)
+    return _accumulate_jobs_field(AIRBYTE_JOBS_URL + "?" + urlencode(params), "rowsSynced")
 
 
-def _accumulate_jobs_field(url, field, end: datetime, acc=0):
+def _accumulate_jobs_field(url, field, acc=0):
     token = settings.AIRBYTE_API_KEY
 
     headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
     response = requests.get(url, headers=headers)
     response_payload = response.json()
     response_data = response_payload.get("data", [])
-
-    # timezone will be the same
-    # TODO: this is a hack, update once airbyte date filtering is fixed
-    end = end.replace(tzinfo=None)
-    response_data = [
-        job for job in response_data if datetime.strptime(job["lastUpdatedAt"], "%Y-%m-%dT%H:%M:%SZ") < end
-    ]
     response_next = response_payload.get("next", None)
     acc += sum([job[field] for job in response_data])
 
     if response_next:
-        return _accumulate_jobs_field(response_payload["next"], end, acc=acc)
+        return _accumulate_jobs_field(response_payload["next"], acc=acc)
 
     return acc
