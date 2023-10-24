@@ -36,6 +36,7 @@ import {
     createSessionReplayEvent,
     EventsProcessor,
     gatherConsoleLogEvents,
+    getTimestampsFrom,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -837,7 +838,6 @@ test('capture bad team', async () => {
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
-            '',
             {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
@@ -1408,6 +1408,31 @@ const sessionReplayEventTestCases: {
     {
         snapshotData: {
             events_summary: [
+                // a negative timestamp is ignored
+                { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: -922167545571, type: 3, data: { source: 2 }, windowId: '1' },
+            ],
+        },
+        expected: {
+            click_count: 3,
+            keypress_count: 0,
+            mouse_activity_count: 3,
+            first_url: null,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:15.000',
+            active_milliseconds: 1,
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 217,
+            event_count: 3,
+            message_count: 1,
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
                 // three windows with 1 second, 2 seconds, and 3 seconds of activity
                 // even though they overlap they should be summed separately
                 { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
@@ -1484,20 +1509,60 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
     }).toThrowError()
 })
 
-test('simple console log processing', () => {
-    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
-        {
-            timestamp: 1682449093469,
-            type: 6,
-            data: {
-                plugin: 'rrweb/console@1',
-                payload: {
-                    level: 'info',
-                    payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
-                },
+test.each([
+    { events: [], expectedTimestamps: [] },
+    { events: [{ without: 'timestamp property' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: undefined } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: null } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 'what about a string' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    // we have seen negative timestamps from clients 🙈
+    { events: [{ timestamp: -1 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 1 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.001'] },
+])('timestamps from rrweb events', ({ events, expectedTimestamps }) => {
+    expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
+})
+
+function consoleMessageFor(payload: any[]) {
+    return {
+        timestamp: 1682449093469,
+        type: 6,
+        data: {
+            plugin: 'rrweb/console@1',
+            payload: {
+                level: 'info',
+                payload: payload,
             },
         },
-        null as unknown as RRWebEvent, // see https://posthog.sentry.io/issues/4525043303
+    }
+}
+
+test.each([
+    {
+        payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
+        expectedMessage: 'the message more strings',
+    },
+    {
+        // lone surrogate pairs are replaced with the "unknown" character
+        payload: ['\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ud83c...[truncated]'],
+        expectedMessage: '\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ufffd...[truncated]',
+    },
+    {
+        // sometimes the strings are wrapped in quotes...
+        payload: ['"test"'],
+        expectedMessage: '"test"',
+    },
+    {
+        // let's not accept arbitrary length content
+        payload: [new Array(3001).join('a')],
+        expectedMessage: new Array(3000).join('a'),
+    },
+])('simple console log processing', ({ payload, expectedMessage }) => {
+    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
+        consoleMessageFor(payload),
+        // see https://posthog.sentry.io/issues/4525043303
+        // null events always ignored
+        null as unknown as RRWebEvent,
     ])
     expect(consoleLogEntries).toEqual([
         {
@@ -1507,7 +1572,7 @@ test('simple console log processing', () => {
             log_source_id: 'session_id',
             instance_id: null,
             timestamp: castTimestampToClickhouseFormat(DateTime.fromMillis(1682449093469), TimestampFormat.ClickHouse),
-            message: 'the message more strings',
+            message: expectedMessage,
         } satisfies ConsoleLogEntry,
     ])
 })
@@ -2398,7 +2463,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
@@ -2409,7 +2473,6 @@ test('throws with bad uuid', async () => {
     await expect(
         eventsProcessor.processEvent(
             'xxx',
-            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),

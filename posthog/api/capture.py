@@ -3,7 +3,6 @@ import json
 import re
 import time
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -36,7 +35,6 @@ from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
@@ -367,21 +365,10 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
-        consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
-
         try:
+            # split the replay events off as they are passed to kafka separately
             replay_events, other_events = split_replay_events(events)
-            processed_replay_events = replay_events
-
-            if len(replay_events) > 0:
-                # Legacy solution stays in place
-                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                # Mark all events so that they are only consumed by one consumer
-                for event in processed_replay_events:
-                    event["properties"]["$snapshot_consumer"] = consumer_destination
-
-            events = processed_replay_events + other_events
+            events = other_events
 
         except ValueError as e:
             return cors_response(
@@ -458,10 +445,6 @@ def get_event(request):
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
-
-            # Mark all events so that they are only consumed by one consumer
-            for event in alternative_replay_events:
-                event["properties"]["$snapshot_consumer"] = consumer_destination
 
             futures = []
 

@@ -263,7 +263,7 @@ export class HookCommander {
     fetchHostnameGuardTeams: Set<number> | null
 
     /** Hook request timeout in ms. */
-    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
+    EXTERNAL_REQUEST_TIMEOUT: number
 
     constructor(
         postgres: PostgresRouter,
@@ -271,7 +271,8 @@ export class HookCommander {
         organizationManager: OrganizationManager,
         fetchHostnameGuardTeams: Set<number> | null = new Set(),
         appMetrics: AppMetrics,
-        statsd: StatsD | undefined
+        statsd: StatsD | undefined,
+        timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
@@ -285,6 +286,7 @@ export class HookCommander {
         }
         this.statsd = statsd
         this.appMetrics = appMetrics
+        this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }
 
     public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
@@ -362,12 +364,15 @@ export class HookCommander {
         const message = this.formatMessage(webhookUrl, action, event, team)
         end()
 
+        const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
             status.warn(
                 '⌛',
-                `Posting Webhook slow. Timeout warning after 5 sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
+                `Posting Webhook slow. Timeout warning after ${
+                    slowWarningTimeout / 1000
+                } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
-        }, 5000)
+        }, slowWarningTimeout)
         const relevantFetch =
             isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(team.id))
                 ? safeTrackedFetch
@@ -382,16 +387,29 @@ export class HookCommander {
                 })
                 if (!request.ok) {
                     status.warn('⚠️', `HTTP status ${request.status} for team ${team.id}`)
+                    await this.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                            category: 'webhook',
+                            failures: 1,
+                        },
+                        {
+                            error: `Request failed with HTTP status ${request.status}`,
+                            event,
+                        }
+                    )
+                } else {
+                    await this.appMetrics.queueMetric({
+                        teamId: event.teamId,
+                        pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+                        category: 'webhook',
+                        successes: 1,
+                    })
                 }
             })
             this.statsd?.increment('webhook_firings', {
                 team_id: event.teamId.toString(),
-            })
-            await this.appMetrics.queueMetric({
-                teamId: event.teamId,
-                pluginConfigId: -2, // -2 is hardcoded to mean webhooks
-                category: 'webhook',
-                successes: 1,
             })
         } catch (error) {
             await this.appMetrics.queueError(
@@ -428,12 +446,15 @@ export class HookCommander {
             data: { ...data, person: sendablePerson },
         }
 
+        const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
             status.warn(
                 '⌛',
-                `Posting RestHook slow. Timeout warning after 5 sec! url=${hook.target} team_id=${event.teamId} event_id=${event.eventUuid}`
+                `Posting RestHook slow. Timeout warning after ${slowWarningTimeout / 1000} sec! url=${
+                    hook.target
+                } team_id=${event.teamId} event_id=${event.eventUuid}`
             )
-        }, 5000)
+        }, slowWarningTimeout)
         const relevantFetch =
             isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(hook.team_id))
                 ? safeTrackedFetch
@@ -451,14 +472,27 @@ export class HookCommander {
             }
             if (!request.ok) {
                 status.warn('⚠️', `Rest hook failed status ${request.status} for team ${event.teamId}`)
+                await this.appMetrics.queueError(
+                    {
+                        teamId: event.teamId,
+                        pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                        category: 'webhook',
+                        failures: 1,
+                    },
+                    {
+                        error: `Request failed with HTTP status ${request.status}`,
+                        event,
+                    }
+                )
+            } else {
+                await this.appMetrics.queueMetric({
+                    teamId: event.teamId,
+                    pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+                    category: 'webhook',
+                    successes: 1,
+                })
             }
             this.statsd?.increment('rest_hook_firings')
-            await this.appMetrics.queueMetric({
-                teamId: event.teamId,
-                pluginConfigId: -1, // -1 is hardcoded to mean resthooks
-                category: 'webhook',
-                successes: 1,
-            })
         } catch (error) {
             await this.appMetrics.queueError(
                 {

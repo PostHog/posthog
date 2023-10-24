@@ -1,9 +1,9 @@
 import { captureException } from '@sentry/node'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
@@ -20,6 +20,23 @@ const consoleLogEventsCounter = new Counter({
     name: 'console_log_events_ingested',
     help: 'Number of console log events successfully ingested',
 })
+
+function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): ConsoleLogEntry[] {
+    // assuming that the console log entries are all for one team id (and they should be)
+    // because we only use these for search
+    // then we can deduplicate them by the message string
+
+    const seen = new Set<string>()
+    const deduped: ConsoleLogEntry[] = []
+
+    for (const cle of consoleLogEntries) {
+        if (!seen.has(cle.message)) {
+            deduped.push(cle)
+            seen.add(`${cle.log_level}-${cle.message}`)
+        }
+    }
+    return deduped
+}
 
 // TODO this is an almost exact duplicate of the replay events ingester
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
@@ -124,7 +141,9 @@ export class ConsoleLogsIngester {
         }
 
         try {
-            const consoleLogEvents = gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+            const consoleLogEvents = deduplicateConsoleLogEvents(
+                gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+            )
 
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
@@ -145,9 +164,13 @@ export class ConsoleLogsIngester {
             })
         }
     }
+
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
+
+        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+
+        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }
 

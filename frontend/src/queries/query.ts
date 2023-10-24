@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
@@ -11,6 +11,7 @@ import {
     isHogQLQuery,
     isInsightVizNode,
     isQueryWithHogQLSupport,
+    isPersonsQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -31,8 +32,6 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const EXPORT_MAX_LIMIT = 10000
-
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
@@ -43,10 +42,9 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query)) {
+    } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
             source: query,
-            max_limit: EXPORT_MAX_LIMIT,
         }
     } else if (isHogQLQuery(query)) {
         return { source: query }
@@ -98,12 +96,12 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string
-): Promise<N['response']> {
+): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
     }
 
-    let response: N['response']
+    let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
@@ -245,4 +243,12 @@ export async function legacyInsightQuery({
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
     return [fetchResponse, apiUrl]
+}
+
+export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
+    return await query<HogQLQuery>({
+        kind: NodeKind.HogQLQuery,
+        query: queryString,
+        values,
+    })
 }

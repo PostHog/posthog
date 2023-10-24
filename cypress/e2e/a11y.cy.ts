@@ -19,7 +19,7 @@ describe('a11y', () => {
         'persons',
         'cohorts',
         'annotations',
-        'plugins',
+        'apps',
         'toolbarlaunch',
         'projectsettings',
     ]

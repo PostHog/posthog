@@ -18,12 +18,14 @@ export interface PersonDisplayProps {
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
+    isCentered?: boolean
 }
 
-export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink }: PersonDisplayProps): JSX.Element {
-    const href = asLink(person)
+export function PersonIcon({
+    person,
+    ...props
+}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'name' | 'email'>): JSX.Element {
     const display = asDisplay(person)
-    const [visible, setVisible] = useState(false)
 
     const email: string | undefined = useMemo(() => {
         // The email property could be correct but it could also be set strangely such as an array or not even a string
@@ -33,11 +35,24 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
+    return <ProfilePicture {...props} name={display} email={email} />
+}
+
+export function PersonDisplay({
+    person,
+    withIcon,
+    noEllipsis,
+    noPopover,
+    noLink,
+    isCentered,
+}: PersonDisplayProps): JSX.Element {
+    const href = asLink(person)
+    const display = asDisplay(person)
+    const [visible, setVisible] = useState(false)
+
     let content = (
-        <span className="flex items-center">
-            {withIcon && (
-                <ProfilePicture name={display} email={email} size={typeof withIcon === 'string' ? withIcon : 'md'} />
-            )}
+        <span className={clsx('flex', 'items-center', isCentered && 'justify-center')}>
+            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )

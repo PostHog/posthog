@@ -1,7 +1,8 @@
-import { GlobalConfig } from 'node-rdkafka-acosom'
+import { GlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 
 import { KafkaConfig } from '../utils/db/hub'
+import { KafkaProducerConfig } from './producer'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
     NOTHING: 0,
@@ -42,4 +43,12 @@ export const createRdConnectionConfigFromEnvVars = (kafkaConfig: KafkaConfig): G
     }
 
     return config
+}
+
+export const createRdProducerConfigFromEnvVars = (producerConfig: KafkaProducerConfig): KafkaProducerConfig => {
+    return {
+        KAFKA_PRODUCER_LINGER_MS: producerConfig.KAFKA_PRODUCER_LINGER_MS,
+        KAFKA_PRODUCER_BATCH_SIZE: producerConfig.KAFKA_PRODUCER_BATCH_SIZE,
+        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: producerConfig.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
+    }
 }
