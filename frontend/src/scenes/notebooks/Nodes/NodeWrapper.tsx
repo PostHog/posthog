@@ -42,25 +42,23 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
 
-interface NodeWrapperProps<T extends CustomNotebookNodeAttributes>
-    extends Omit<NotebookNodeLogicProps, 'notebookLogic'> {
-    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
+    NotebookNodeProps<T> & {
+        Component: (props: NotebookNodeProps<T>) => JSX.Element | null
 
-    // View only props
-    href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
-    expandable?: boolean
-    selected?: boolean
-    heightEstimate?: number | string
-    minHeight?: number | string
-    /** If true the metadata area will only show when hovered if in editing mode */
-    autoHideMetadata?: boolean
-    /** Expand the node if the component is clicked */
-    expandOnClick?: boolean
-}
+        // View only props
+        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
+        expandable?: boolean
+        selected?: boolean
+        heightEstimate?: number | string
+        minHeight?: number | string
+        /** If true the metadata area will only show when hovered if in editing mode */
+        autoHideMetadata?: boolean
+        /** Expand the node if the component is clicked */
+        expandOnClick?: boolean
+    }
 
-function NodeWrapper<T extends CustomNotebookNodeAttributes>(
-    props: NodeWrapperProps<T> & NotebookNodeProps<T>
-): JSX.Element {
+function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
         nodeType,
         Component,
@@ -377,6 +375,8 @@ export const NotebookNodeChildRenderer = ({
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
+    // eslint-disable-next-line no-console
+    console.log(nodeLogic)
     // TODO: Respect attr changes
 
     // TODO: Allow deletion
@@ -390,6 +390,7 @@ export const NotebookNodeChildRenderer = ({
             titlePlaceholder={options.titlePlaceholder}
             attributes={content.attrs}
             updateAttributes={(newAttrs) => {
+                // eslint-disable-next-line no-console
                 console.log('updated called (TODO)', newAttrs)
             }}
             selected={false}
