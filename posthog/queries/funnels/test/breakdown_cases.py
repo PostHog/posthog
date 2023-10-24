@@ -590,7 +590,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
-            journeys_for(peoples_journeys, self.team)
+            journeys_for(peoples_journeys, self.team, create_people=False)
 
             result = funnel.run()
 
@@ -931,7 +931,11 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
         def test_funnel_cohort_breakdown(self):
             # This caused some issues with SQL parsing
             _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
-            people = journeys_for({"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]}, self.team)
+            people = journeys_for(
+                {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
+                self.team,
+                create_people=False,
+            )
 
             cohort = Cohort.objects.create(
                 team=self.team,

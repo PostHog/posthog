@@ -97,6 +97,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
             self.team,
+            create_people=False,
         )
 
         return person1, person2
