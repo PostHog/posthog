@@ -9,10 +9,12 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.cache_utils import cache_for
+from posthog.email import is_email_available
 from posthog.event_usage import report_organization_action
 from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.tasks.email import send_over_quota_but_not_dropped_email_to_cs
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
     get_teams_with_billable_event_count_in_period,
@@ -81,6 +83,8 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
 
     if is_quota_limited and organization.never_drop_data:
+        if is_email_available():
+            send_over_quota_but_not_dropped_email_to_cs.delay(organization.id)
         return None
 
     if is_quota_limited and billing_period_end:

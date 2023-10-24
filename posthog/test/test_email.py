@@ -92,13 +92,13 @@ class TestEmail(BaseTest):
 
             records = (
                 MessagingRecord.objects.filter(raw_email="test0@posthog.com", campaign_key="campaign_2")
-                .order_by("-campaign_count")
+                .order_by("campaign_count")
                 .all()
             )
 
             assert len(records) == 2
-            assert records[0].campaign_count is None
-            assert records[1].campaign_count == 1
+            assert records[0].campaign_count == 1
+            assert records[1].campaign_count == 2
 
     @freeze_time("2020-09-21")
     def test_cant_send_same_campaign_twice_less_than_resend_frequency(self) -> None:

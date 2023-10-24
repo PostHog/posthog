@@ -1,4 +1,5 @@
 import time
+from unittest.mock import patch
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -184,7 +185,9 @@ class TestQuotaLimiting(BaseTest):
         self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
         assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599
 
-    def test_over_quota_but_not_dropped_org(self):
+    @patch("ee.billing.quota_limiting.is_email_available", return_value=True)
+    @patch("ee.billing.quota_limiting.send_over_quota_but_not_dropped_email_to_cs.delay")
+    def test_over_quota_but_not_dropped_org(self, mock_email, mock_is_email_available):
         self.organization.usage = None
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
 
@@ -198,7 +201,9 @@ class TestQuotaLimiting(BaseTest):
         assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
         assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
 
-        # reset for subsequent tests
+        mock_is_email_available.assert_called_once()
+        mock_email.assert_called_once_with(self.organization.id)
+
         self.organization.never_drop_data = False
 
     def test_sync_org_quota_limits(self):

@@ -1,0 +1,18 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}{% block section %}
+<p>{{organization_name}} has gone over their quota but data has not been dropped.</p>
+<p>This means that the organization was set to `never_drop_data` in the billing service. 
+    Since they are over their quota, they have either gone over their set billing limits, 
+    or there is something wrong with their account.</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri link %}">View organization details</a>
+</div>
+
+<div class="mt muted">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri link %}">{% absolute_uri link %}</a>
+    </p>
+</div>
+<p>Questions? Reach out to us in Slack!</p>
+<p>Thanks,<br />The Growth &amp; Billing team</p>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}{% block heading %}Organization over quota but data not dropped.{% endblock %}
