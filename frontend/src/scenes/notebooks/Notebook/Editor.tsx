@@ -67,7 +67,6 @@ export function Editor(): JSX.Element {
             CustomDocument,
             StarterKit.configure({
                 document: false,
-                listItem: {},
                 gapcursor: false,
             }),
             ExtensionPlaceholder.configure({
