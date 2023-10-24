@@ -33,7 +33,6 @@ class LazyTableResolver(TraversingVisitor):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
-        self.compare_operators: List[ast.CompareOperation] = []
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -57,9 +56,6 @@ class LazyTableResolver(TraversingVisitor):
             if len(self.stack_of_fields) == 0:
                 raise HogQLException("Can't access a lazy field when not in a SelectQuery context")
             self.stack_of_fields[-1].append(node)
-
-    def visit_compare_operation(self, node: ast.CompareOperation):
-        self.compare_operators.append(node)
 
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type
