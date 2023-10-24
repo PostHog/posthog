@@ -20,7 +20,7 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                 .slice(1)
                 .map((element, index) => (
                     <Fade
-                        key={`${element.tag_name}-closing-${index}`}
+                        key={`${element.tag_name}-close-tags-${index}`}
                         visible={true}
                         style={{
                             position: 'static',
