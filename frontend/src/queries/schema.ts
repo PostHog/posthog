@@ -559,7 +559,8 @@ export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
 export interface WebOverviewStatsQueryResponse extends QueryResponse {
     results: {
         key: string
-        value: number
+        value?: number
+        kind: 'count' | 'duration_s' | 'percentage'
         changeFromPreviousPct?: number
         isIncreaseBad?: boolean
     }[]

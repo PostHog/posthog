@@ -601,6 +601,12 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class Kind(str, Enum):
+    count = "count"
+    duration_s = "duration_s"
+    percentage = "percentage"
+
+
 class Result(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -608,7 +614,8 @@ class Result(BaseModel):
     changeFromPreviousPct: Optional[float] = None
     isIncreaseBad: Optional[bool] = None
     key: str
-    value: float
+    kind: Kind
+    value: Optional[float] = None
 
 
 class WebOverviewStatsQueryResponse(BaseModel):

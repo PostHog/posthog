@@ -32,11 +32,7 @@ WHERE
     GROUP BY breakdown_value
 """
 
-BOUNCE_RATE_CTE = """
-SELECT
-    breakdown_value,
-    avg(session.is_bounce) as bounce_rate
-FROM (
+SESSION_CTE = """
     SELECT
         events.properties.`$session_id` AS session_id,
         min(events.timestamp) AS min_timestamp,
@@ -44,6 +40,7 @@ FROM (
         dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
         countIf(events.event == '$pageview') AS num_pageviews,
         countIf(events.event == '$autocapture') AS num_autocaptures,
+        any(events.properties.$initial_pathname) AS session_initial_pathname, -- TODO use session initial rather than user initial
         {breakdown_by} AS breakdown_value,
 
         -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
@@ -58,6 +55,15 @@ FROM (
         events.properties.`$session_id`
     HAVING
         ({session_having})
+    """
+
+# Note that when parsed, this will need the placeholders defined in SESSION_CTE
+BOUNCE_RATE_CTE = f"""
+SELECT
+    breakdown_value,
+    avg(session.is_bounce) as bounce_rate
+FROM (
+  {SESSION_CTE}
 ) AS session
 GROUP BY
     breakdown_value

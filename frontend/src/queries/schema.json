@@ -3034,11 +3034,15 @@
                             "key": {
                                 "type": "string"
                             },
+                            "kind": {
+                                "enum": ["count", "duration_s", "percentage"],
+                                "type": "string"
+                            },
                             "value": {
                                 "type": "number"
                             }
                         },
-                        "required": ["key", "value"],
+                        "required": ["key", "kind"],
                         "type": "object"
                     },
                     "type": "array"
