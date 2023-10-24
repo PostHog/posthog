@@ -17,18 +17,21 @@ from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQue
 
 class SessionsTimelineQueryRunner(QueryRunner):
     """
-    # How does the sessions timeline work?
+    ## How does the sessions timeline work?
 
-    A formal session on the timeline is defined by finding the first and last event with a given session ID, and
-    collecting these events and all in between.
-    An informal session is defined by collecting all events between formal sessions, where a new informal session is
-    formed when the time between two events exceeds 30 minutes. These sessions only contain events without a session ID.
+    A formal session on the timeline is defined as a collection of all events with a given session ID.
+    An informal session is defined as a collection of contiguous events that don't have a session ID.
+    Additionally, a new informal session is formed when the time between two consecutive events exceeds 30 minutes
+    (which does not apply to formal sessions).
 
-    > This is not the same as the Trends session duration logic, where events without a session ID are ignored.
+    > Note that the logic above is not the same as that of Trends session duration.
+    > In Trends, only events with a session ID are considered (i.e. formal sessions).
 
-    The sessions timeline is a sequence of sessions (both formal and informal), starting with ones that started most
-    recently. Events within a session are also ordered by timestamp descending.
+    Now, the sessions timeline is a sequence of sessions (both formal and informal), starting with ones that started
+    most recently. Events within a session are also ordered with latest first.
     """
+
+    EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
     query_type = SessionsTimelineQuery
@@ -50,17 +53,36 @@ class SessionsTimelineQueryRunner(QueryRunner):
             self.timings = HogQLTimings()
 
         with self.timings.measure("build_ast"):
+            event_conditions: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.after)],
+                    ),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.before)],
+                    ),
+                ),
+            ]
+            if self.query.personId:
+                event_conditions.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["person_id"]),
+                        right=ast.Constant(value=self.query.personId),
+                        op=ast.CompareOperationOp.Eq,
+                    )
+                )
             select_query = cast(
                 ast.SelectQuery,
                 parse_select(
                     """
-                    WITH (
-                        SELECT DISTINCT $session_id
-                        FROM events AS e
-                        WHERE e.timestamp > toDateTime({after}) AND e.timestamp <= toDateTime({before})
-                        ORDER BY timestamp DESC
-                        LIMIT 1000
-                    ) AS relevant_session_ids
                     SELECT
                         e.uuid,
                         e.timestamp,
@@ -68,56 +90,41 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         e.properties,
                         e.distinct_id,
                         e.elements_chain,
-                        e.$session_id AS formal_session_id,
+                        e.session_id AS formal_session_id,
                         first_value(e.uuid) OVER (
-                            PARTITION BY $session_id ORDER BY __toInt64(timestamp) / 60e6 /* µs converted to min */
-                            RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW
+                            PARTITION BY (e.person_id, session_id_flip_index) ORDER BY __toInt64(timestamp)
+                            RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW /* split informal session after 30+ min */
                         ) AS informal_session_uuid,
                         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
-                    FROM events AS e
+                    FROM (
+                        SELECT
+                            *, sum(session_id = prev_session_id ? 0 : 1) OVER (
+                                PARTITION BY person_id ORDER BY timestamp ROWS UNBOUNDED PRECEDING
+                            ) AS session_id_flip_index
+                        FROM (
+                            SELECT
+                                uuid, person_id AS person_id, timestamp, event, properties, distinct_id, elements_chain,
+                                $session_id AS session_id, lagInFrame($session_id, 1) OVER (
+                                    PARTITION BY person_id ORDER BY timestamp
+                                ) AS prev_session_id
+                            FROM events
+                            WHERE {event_conditions}
+                            ORDER BY timestamp DESC
+                            LIMIT {event_limit_with_more}
+                        )
+                    ) e
                     LEFT JOIN (
                         SELECT start_time, end_time, session_id FROM session_replay_events
                     ) AS sre
-                    ON e.$session_id = sre.session_id
-                    WHERE
-                        e.timestamp >= (
-                            SELECT min(timestamp)
-                            FROM events AS e
-                            WHERE e.$session_id IN relevant_session_ids OR (
-                                $session_id IS NULL
-                                AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
-                            )
-                        )
-                        AND e.timestamp <= (
-                            SELECT max(timestamp)
-                            FROM events AS e
-                            WHERE e.$session_id IN relevant_session_ids OR (
-                                $session_id IS NULL
-                                AND e.timestamp > toDateTime({after}) AND e.timestamp < toDateTime({before})
-                            )
-                        )
-                    ORDER BY timestamp DESC
-                    LIMIT 1000""",
+                    ON e.session_id = sre.session_id
+                    ORDER BY timestamp DESC""",
                     placeholders={
-                        "before": ast.Constant(value=self.query.before),
-                        "after": ast.Constant(value=self.query.after),
+                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                        "event_conditions": ast.And(exprs=event_conditions),
                     },
                 ),
             )
-            assert select_query.ctes is not None
-            assert isinstance(select_query.ctes["relevant_session_ids"].expr, ast.SelectQuery)
-            if self.query.personId:
-                select_query.ctes["relevant_session_ids"].expr.where = ast.CompareOperation(
-                    left=ast.Field(chain=["e", "person_id"]),
-                    right=ast.Constant(value=self.query.personId),
-                    op=ast.CompareOperationOp.Eq,
-                )
-                select_query.where = ast.CompareOperation(
-                    left=ast.Field(chain=["e", "person_id"]),
-                    right=ast.Constant(value=self.query.personId),
-                    op=ast.CompareOperationOp.Eq,
-                )
-            return select_query
+        return select_query
 
     def calculate(self) -> SessionsTimelineQueryResponse:
         query_result = execute_hogql_query(
@@ -139,7 +146,9 @@ class SessionsTimelineQueryRunner(QueryRunner):
             formal_session_id,
             informal_session_id,
             recording_duration_s,
-        ) in reversed(query_result.results):
+        ) in reversed(
+            query_result.results[: self.EVENT_LIMIT]
+        ):  # The last result is a marker of more results
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
                 timeline_entries_map[entry_id] = TimelineEntry(
@@ -162,13 +171,13 @@ class SessionsTimelineQueryRunner(QueryRunner):
 
         return SessionsTimelineQueryResponse(
             results=timeline_entries,
-            hasMore=False,  # TODO
+            hasMore=len(query_result.results) > self.EVENT_LIMIT,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
         )
 
     def _is_stale(self, cached_result_package):
-        return True
+        return True  # TODO: Make sure this is cached
 
     def _refresh_frequency(self):
-        return timedelta(minutes=1)
+        return timedelta(minutes=1)  # TODO: Make sure this is cached
