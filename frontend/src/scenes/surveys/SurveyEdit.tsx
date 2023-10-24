@@ -23,7 +23,6 @@ import {
     SurveyUrlMatchType,
     AvailableFeature,
 } from '~/types'
-import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import {
     BaseAppearance,
@@ -48,6 +47,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { surveysLogic } from './surveysLogic'
+import { FlagSelector } from 'lib/components/FlagSelector'
 
 function PresentationTypeCard({
     title,

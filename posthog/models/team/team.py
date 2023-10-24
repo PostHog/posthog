@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
@@ -6,7 +7,7 @@ import posthoganalytics
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.validators import MinLengthValidator
+from django.core.validators import MinLengthValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from zoneinfo import ZoneInfo
@@ -148,6 +149,18 @@ class Team(UUIDClassicModel):
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
+    session_recording_sample_rate: models.DecimalField = models.DecimalField(
+        # will store a decimal between 0 and 1 allowing up to 2 decimal places
+        null=True,
+        blank=True,
+        max_digits=3,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+    session_recording_minimum_duration_milliseconds: models.IntegerField = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(15000)]
+    )
+    session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
