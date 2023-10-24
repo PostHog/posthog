@@ -114,7 +114,6 @@ export const textContent = (node: any): string => {
         'ph-feature-flag': customOrTitleSerializer,
         'ph-feature-flag-code-example': customOrTitleSerializer,
         'ph-image': customOrTitleSerializer,
-        'ph-insight': customOrTitleSerializer,
         'ph-person': customOrTitleSerializer,
         'ph-query': customOrTitleSerializer,
         'ph-recording': customOrTitleSerializer,
