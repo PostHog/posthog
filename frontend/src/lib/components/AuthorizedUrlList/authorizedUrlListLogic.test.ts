@@ -150,30 +150,33 @@ describe('the authorized urls list logic', () => {
     })
 
     describe('filterNotAuthorizedUrls', () => {
-        it('filters urls correctly', () => {
-            const testUrls = [
-                'https://1.valid.com',
-                'https://2.valid.com',
-                'https://explicit.valid.io',
-                'https://not.valid.io',
-            ]
+        const testUrls = [
+            'https://1.wildcard.com',
+            'https://2.wildcard.com',
+            'https://a.single.io',
+            'https://a.sub.b.multi-wildcard.com',
+            'https://a.not.b.multi-wildcard.com',
+            'https://not.valid.io',
+        ]
 
-            expect(filterNotAuthorizedUrls(testUrls, ['https://*.valid.com', 'https://explicit.valid.io'])).toEqual([
+        it('suggests all if empty', () => {
+            expect(filterNotAuthorizedUrls(testUrls, [])).toEqual(testUrls)
+        })
+
+        it('allows specific domains', () => {
+            expect(filterNotAuthorizedUrls(testUrls, ['https://a.single.io'])).toEqual([
+                'https://1.wildcard.com',
+                'https://2.wildcard.com',
+                'https://a.sub.b.multi-wildcard.com',
+                'https://a.not.b.multi-wildcard.com',
                 'https://not.valid.io',
             ])
+        })
 
-            expect(filterNotAuthorizedUrls(testUrls, ['https://explicit.valid.io'])).toEqual([
-                'https://1.valid.com',
-                'https://2.valid.com',
-                'https://not.valid.io',
-            ])
-
-            expect(filterNotAuthorizedUrls(testUrls, [])).toEqual([
-                'https://1.valid.com',
-                'https://2.valid.com',
-                'https://explicit.valid.io',
-                'https://not.valid.io',
-            ])
+        it('filters wildcard domains', () => {
+            expect(
+                filterNotAuthorizedUrls(testUrls, ['https://*.wildcard.com', 'https://*.sub.*.multi-wildcard.com'])
+            ).toEqual(['https://a.single.io', 'https://a.not.b.multi-wildcard.com', 'https://not.valid.io'])
         })
     })
 })

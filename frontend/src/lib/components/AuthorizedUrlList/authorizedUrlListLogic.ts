@@ -91,7 +91,7 @@ export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]
             const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
             const wildcardMatch = !!authorizedUrls.find((url) => {
                 // Matches something like `https://*.example.com` against the urlWithoutPath
-                const regex = new RegExp(url.replace('*', '.*'))
+                const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
                 return urlWithoutPath.match(regex)
             })
 
