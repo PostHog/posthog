@@ -556,14 +556,17 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase {
     response?: WebOverviewQueryResponse
 }
 
+export interface WebOverviewItem {
+    key: string
+    value?: number
+    previous?: number
+    kind: 'count' | 'duration_s' | 'percentage'
+    changeFromPreviousPct?: number
+    isIncreaseBad?: boolean
+}
+
 export interface WebOverviewQueryResponse extends QueryResponse {
-    results: {
-        key: string
-        value?: number
-        kind: 'count' | 'duration_s' | 'percentage'
-        changeFromPreviousPct?: number
-        isIncreaseBad?: boolean
-    }[]
+    results: WebOverviewItem[]
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {

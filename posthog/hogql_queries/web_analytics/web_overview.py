@@ -136,6 +136,7 @@ def to_data(
         "kind": kind,
         "isIncreaseBad": is_increase_bad,
         "value": value,
+        "previous": previous,
         "changeFromPreviousPct": round(100 * (value - previous) / previous)
         if value is not None and previous is not None
         else None,

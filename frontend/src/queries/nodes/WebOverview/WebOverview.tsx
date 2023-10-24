@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+import { useState } from 'react'
+import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -8,7 +8,8 @@ import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui
 import { getColorVar } from 'lib/colors'
 import prettyMilliseconds from 'pretty-ms'
 import millify from 'millify'
-import clsx from 'clsx'
+import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 let uniqueNode = 0
 export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
@@ -32,128 +33,114 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
 
     return (
         <EvenlyDistributedRows className="w-full gap-2" minWidthRems={12}>
-            {results?.map((item) => {
-                const trend = isNotNil(item.changeFromPreviousPct)
-                    ? item.changeFromPreviousPct === 0
-                        ? { C: IconTrendingFlat, color: getColorVar('muted') }
-                        : item.changeFromPreviousPct > 0
-                        ? {
-                              C: IconTrendingUp,
-                              color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
-                          }
-                        : {
-                              C: IconTrendingDown,
-                              color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
-                          }
-                    : undefined
-
-                let value: string
-                if (item.value == null) {
-                    value = '-'
-                } else if (item.kind === 'percentage') {
-                    value = formatPercentage(item.value)
-                } else if (item.kind === 'duration_s') {
-                    value = formatSeconds(item.value)
-                } else {
-                    value = formatCount(item.value)
-                }
-
-                return (
-                    <div
-                        key={item.key}
-                        className="min-w-40 min-h-20 flex-1 flex flex-col items-center text-center justify-between"
-                    >
-                        <div className="font-bold uppercase text-xs">{item.key}</div>
-                        <div className="w-full flex-1 flex items-center justify-center">
-                            <div className="text-2xl">{value}</div>
-                        </div>
-                        {trend && isNotNil(item.changeFromPreviousPct) ? (
-                            // eslint-disable-next-line react/forbid-dom-props
-                            <div style={{ color: trend.color }}>
-                                <trend.C color={trend.color} /> {formatPercentage(item.changeFromPreviousPct)}
-                            </div>
-                        ) : (
-                            <div />
-                        )}
-                    </div>
-                )
-            }) || []}
+            {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
         </EvenlyDistributedRows>
     )
 }
 
-export const EvenlyDistributedRows = ({
-    children,
-    minWidthRems,
-    className,
-}: {
-    children: React.ReactNode[]
-    minWidthRems: number
-    className: string
-}): JSX.Element => {
-    const [rowLayout, setRowLayout] = useState<{ itemsPerRow: number; numRows: number }>()
-    const elementRef = useRef<HTMLDivElement>(null)
+export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+    const label = labelFromKey(item.key)
+    const trend = isNotNil(item.changeFromPreviousPct)
+        ? item.changeFromPreviousPct === 0
+            ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+            : item.changeFromPreviousPct > 0
+            ? {
+                  Icon: IconTrendingUp,
+                  color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
+              }
+            : {
+                  Icon: IconTrendingDown,
+                  color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
+              }
+        : undefined
 
-    const updateSize = useCallback((): void => {
-        if (!elementRef.current) {
-            return
-        }
-        const pxPerRem = parseFloat(getComputedStyle(document.documentElement).fontSize)
-        const minWidthPx = minWidthRems * pxPerRem
-        const containerWidthPx = elementRef.current.offsetWidth
-
-        const maxItemsPerRow = Math.floor(containerWidthPx / minWidthPx)
-        // Distribute items evenly
-        // e.g. if we can have 4 elements per row and have 9 items
-        // prefer 3,3,3 to 4,4,1
-        const numRows = Math.ceil(children.length / maxItemsPerRow)
-        const itemsPerRow = Math.ceil(children.length / numRows)
-
-        setRowLayout({
-            numRows,
-            itemsPerRow,
-        })
-    }, [setRowLayout, elementRef, minWidthRems, children.length])
-
-    useEffect(() => {
-        const element = elementRef.current
-        if (!element) {
-            return
-        }
-
-        updateSize()
-
-        let resizeObserver: ResizeObserver | undefined
-        if (typeof ResizeObserver !== 'undefined') {
-            resizeObserver = new ResizeObserver(updateSize)
-        }
-        resizeObserver?.observe(element)
-
-        return () => {
-            resizeObserver?.unobserve(element)
-        }
-    }, [updateSize])
+    // If current === previous, say "increased by 0%"
+    const tooltip =
+        isNotNil(item.value) && isNotNil(item.previous) && isNotNil(item.changeFromPreviousPct)
+            ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
+                  Math.abs(item.changeFromPreviousPct),
+                  { precise: true }
+              )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
+                  item.previous,
+                  item.kind,
+                  { precise: true }
+              )}`
+            : isNotNil(item.value)
+            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+            : 'No data'
 
     return (
-        <div
-            className={clsx('grid', className)}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ gridTemplateColumns: `repeat(${rowLayout?.itemsPerRow ?? 1}, 1fr)` }}
-            ref={elementRef}
-        >
-            {rowLayout ? children : null}
-        </div>
+        <Tooltip title={tooltip}>
+            <div className="min-w-40 min-h-20 flex-1 flex flex-col items-center text-center justify-between">
+                <div className="font-bold uppercase text-xs">{label}</div>
+                <div className="w-full flex-1 flex items-center justify-center">
+                    <div className="text-2xl">{formatItem(item.value, item.kind)}</div>
+                </div>
+                {trend && isNotNil(item.changeFromPreviousPct) ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ color: trend.color }}>
+                        <trend.Icon color={trend.color} /> {formatPercentage(item.changeFromPreviousPct)}
+                    </div>
+                ) : (
+                    <div />
+                )}
+            </div>
+        </Tooltip>
     )
 }
 
-const formatPercentage = (x: number): string => {
-    if (x >= 1000) {
+const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+    if (options?.precise) {
+        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+    } else if (x >= 1000) {
         return millify(x) + '%'
     } else {
-        return Math.round(x) + '%'
+        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
     }
 }
 
 const formatSeconds = (x: number): string => prettyMilliseconds(Math.round(x) * 1000)
 
-const formatCount = (x: number): string => millify(x)
+const formatCount = (x: number, options?: { precise?: boolean }): string => {
+    if (options?.precise) {
+        return x.toLocaleString()
+    } else {
+        return millify(x)
+    }
+}
+
+const formatItem = (
+    value: number | undefined,
+    kind: WebOverviewItem['kind'],
+    options?: { precise?: boolean }
+): string => {
+    if (value == null) {
+        return '-'
+    } else if (kind === 'percentage') {
+        return formatPercentage(value, options)
+    } else if (kind === 'duration_s') {
+        return formatSeconds(value)
+    } else {
+        return formatCount(value, options)
+    }
+}
+
+const labelFromKey = (key: string): string => {
+    switch (key) {
+        case 'visitors':
+            return 'Visitors'
+        case 'views':
+            return 'Views'
+        case 'sessions':
+            return 'Sessions'
+        case 'session duration':
+            return 'Session Duration'
+        case 'bounce rate':
+            return 'Bounce Rate'
+        default:
+            return key
+                .split(' ')
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(' ')
+    }
+}

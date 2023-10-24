@@ -607,7 +607,7 @@ class Kind(str, Enum):
     percentage = "percentage"
 
 
-class Result(BaseModel):
+class WebOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -615,6 +615,7 @@ class Result(BaseModel):
     isIncreaseBad: Optional[bool] = None
     key: str
     kind: Kind
+    previous: Optional[float] = None
     value: Optional[float] = None
 
 
@@ -626,7 +627,7 @@ class WebOverviewQueryResponse(BaseModel):
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List[Result]
+    results: List[WebOverviewItem]
     timings: Optional[List[QueryTiming]] = None
 
 

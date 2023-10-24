@@ -2986,6 +2986,32 @@
             "required": ["dateRange", "properties"],
             "type": "object"
         },
+        "WebOverviewItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["count", "duration_s", "percentage"],
+                    "type": "string"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
         "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
@@ -3023,27 +3049,7 @@
                 },
                 "results": {
                     "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                            "changeFromPreviousPct": {
-                                "type": "number"
-                            },
-                            "isIncreaseBad": {
-                                "type": "boolean"
-                            },
-                            "key": {
-                                "type": "string"
-                            },
-                            "kind": {
-                                "enum": ["count", "duration_s", "percentage"],
-                                "type": "string"
-                            },
-                            "value": {
-                                "type": "number"
-                            }
-                        },
-                        "required": ["key", "kind"],
-                        "type": "object"
+                        "$ref": "#/definitions/WebOverviewItem"
                     },
                     "type": "array"
                 },
