@@ -37,7 +37,7 @@ import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
-import { NotebookNodeMap } from '../Nodes/NotebookNodeMap/NotebookNodeMap'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
