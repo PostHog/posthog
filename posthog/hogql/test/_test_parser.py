@@ -494,6 +494,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     right=ast.Constant(value=123),
                 ),
             )
+            self.assertEqual(
+                self._expr("timestamp={timestamp}", {"timestamp": ast.Constant(value=123)}),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=123),
+                ),
+            )
 
         def test_intervals(self):
             self.assertEqual(
