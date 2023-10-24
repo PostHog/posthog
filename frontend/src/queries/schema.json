@@ -2983,7 +2983,7 @@
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
-            "required": ["dateRange", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
         "WebOverviewItem": {
@@ -3029,7 +3029,7 @@
                     "$ref": "#/definitions/WebOverviewQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebOverviewQueryResponse": {
@@ -3096,7 +3096,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 }
             },
-            "required": ["breakdownBy", "dateRange", "kind", "properties"],
+            "required": ["breakdownBy", "kind", "properties"],
             "type": "object"
         },
         "WebStatsTableQueryResponse": {
@@ -3153,7 +3153,7 @@
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {

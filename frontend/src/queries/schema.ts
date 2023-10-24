@@ -547,7 +547,7 @@ export interface PersonsQuery extends DataNode {
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
-    dateRange: DateRange
+    dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
 }
 

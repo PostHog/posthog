@@ -922,7 +922,7 @@ class WebAnalyticsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
 
 
@@ -930,7 +930,7 @@ class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
@@ -941,7 +941,7 @@ class WebStatsTableQuery(BaseModel):
         extra="forbid",
     )
     breakdownBy: WebStatsBreakdown
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
@@ -951,7 +951,7 @@ class WebTopClicksQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
