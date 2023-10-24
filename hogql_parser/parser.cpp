@@ -1236,7 +1236,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TagElement) {
     string kind = visitAsString(ctx->identifier());
     PyObject* tag_element = build_ast_node(
-        "SelectQuery", "{s:s#,s:N}",
+        "HogQLXTag", "{s:s#,s:N}",
         "kind", kind.data(), kind.size(),
         "attributes", visitPyListOfObjects(ctx->tagAttribute())
     );
