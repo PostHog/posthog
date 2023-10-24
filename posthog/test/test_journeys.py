@@ -75,7 +75,7 @@ def journeys_for(
 
             events_to_create.append(
                 dict(
-                    event_uuid=UUID(event.get("event_uuid")),
+                    event_uuid=UUID(event["event_uuid"]) if "event_uuid" in event else uuid4(),
                     team=team,
                     distinct_id=distinct_id,
                     event=event["event"],
