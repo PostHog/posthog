@@ -128,8 +128,8 @@ def to_data(
     key: str, kind: str, value: Optional[float], previous: Optional[float], is_increase_bad: Optional[bool] = None
 ) -> dict:
     if kind == "percentage":
-        value = value * 100 if not None else None
-        previous = previous * 100 if not None else None
+        value = value * 100 if value is not None else None
+        previous = previous * 100 if value is not None else None
 
     return {
         "key": key,
