@@ -2,13 +2,14 @@ from datetime import date, datetime
 from typing import List, Optional, Any, cast
 from uuid import UUID
 
+from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.base import QueryTag
+from posthog.hogql.base import HogQLXTag
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
-from posthog.hogql.errors import ResolverException
+from posthog.hogql.errors import ResolverException, SyntaxException
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
@@ -190,8 +191,8 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
-        if isinstance(node.table, QueryTag):
-            node.table = self._convert_query_tag(node.table)
+        if isinstance(node.table, HogQLXTag):
+            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
@@ -295,19 +296,8 @@ class Resolver(CloningVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-    def _convert_query_tag(self, node: QueryTag):
-        from posthog.hogql_queries.query_runner import get_query_runner
-        from posthog.models import Team
-
-        try:
-            runner = get_query_runner(node.to_dict(), Team.objects.get(pk=self.context.team_id))
-            query = runner.to_query()
-            return query
-        except Exception as e:
-            raise ResolverException(f"Error parsing query tag: {e}", start=node.start, end=node.end)
-
-    def visit_query_tag(self, node: QueryTag):
-        return self.visit(self._convert_query_tag(node))
+    def visit_hogqlx_tag(self, node: HogQLXTag):
+        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -608,3 +598,35 @@ def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
     return None
+
+
+def ast_to_query_node(expr: ast.Expr | HogQLXTag):
+    if isinstance(expr, ast.Constant):
+        return expr.value
+    elif isinstance(expr, ast.Array):
+        return [ast_to_query_node(e) for e in expr.exprs]
+    elif isinstance(expr, ast.Tuple):
+        return tuple(ast_to_query_node(e) for e in expr.exprs)
+    elif isinstance(expr, HogQLXTag):
+        for klass in schema.__dict__.values():
+            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+                attributes = expr.to_dict()
+                attributes.pop("kind")
+                attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
+                return klass(**attributes)
+        raise SyntaxException(f'Tag of kind "{expr.kind}" not found in schema.')
+    else:
+        raise SyntaxException(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
+
+
+def convert_hogqlx_tag(node: HogQLXTag, team_id: int):
+    from posthog.hogql_queries.query_runner import get_query_runner
+    from posthog.models import Team
+
+    try:
+        query_node = ast_to_query_node(node)
+        runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
+        query = clone_expr(runner.to_query(), clear_locations=True)
+        return query
+    except Exception as e:
+        raise ResolverException(f"Error parsing query tag: {e}", start=node.start, end=node.end)
