@@ -171,9 +171,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
 
-    def validate_session_recording_linked_flag(self, value) -> Dict:
+    def validate_session_recording_linked_flag(self, value) -> Dict | None:
+        if value is None:
+            return None
+
         if not isinstance(value, Dict):
-            raise exceptions.ValidationError("Must provide a dictionary.")
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
         if value.keys() != {"id", "key"}:
             raise exceptions.ValidationError("Must provide a dictionary with only 'id' and 'key' keys.")
 
