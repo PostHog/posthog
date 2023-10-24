@@ -1,22 +1,26 @@
-from typing import cast
+from typing import List, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.schema.event_sessions import EventsSessionWhereClauseTraverser
+from posthog.hogql.database.schema.event_sessions import WhereClauseExtractor
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
 
 
-class TestEventsSessionWhereClauseTraverser(BaseTest):
+class TestWhereClauseExtractor(BaseTest):
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk)
 
     def _select(self, query: str) -> ast.SelectQuery:
         select_query = cast(ast.SelectQuery, clone_expr(parse_select(query), clear_locations=True))
-        return resolve_types(select_query, self.context)
+        return cast(ast.SelectQuery, resolve_types(select_query, self.context))
+
+    def _compare_operators(self, query: ast.SelectQuery, table_name: str) -> List[ast.Expr]:
+        assert query.where is not None and query.type is not None
+        return WhereClauseExtractor(query.where, table_name, query.type).compare_operators
 
     def test_with_simple_equality_clause(self):
         query = self._select(
@@ -27,7 +31,7 @@ class TestEventsSessionWhereClauseTraverser(BaseTest):
             """
         )
 
-        compare_operators = EventsSessionWhereClauseTraverser(query, self.context).compare_operators
+        compare_operators = self._compare_operators(query, "events")
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
@@ -43,7 +47,7 @@ class TestEventsSessionWhereClauseTraverser(BaseTest):
             """
         )
 
-        compare_operators = EventsSessionWhereClauseTraverser(query, self.context).compare_operators
+        compare_operators = self._compare_operators(query, "events")
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
@@ -59,7 +63,7 @@ class TestEventsSessionWhereClauseTraverser(BaseTest):
             """
         )
 
-        compare_operators = EventsSessionWhereClauseTraverser(query, self.context).compare_operators
+        compare_operators = self._compare_operators(query, "e")
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
@@ -75,7 +79,7 @@ class TestEventsSessionWhereClauseTraverser(BaseTest):
             """
         )
 
-        compare_operators = EventsSessionWhereClauseTraverser(query, self.context).compare_operators
+        compare_operators = self._compare_operators(query, "events")
 
         assert len(compare_operators) == 2
         assert compare_operators[0] == ast.CompareOperation(
@@ -96,9 +100,22 @@ class TestEventsSessionWhereClauseTraverser(BaseTest):
             """
         )
 
-        compare_operators = EventsSessionWhereClauseTraverser(query, self.context).compare_operators
+        compare_operators = self._compare_operators(query, "e")
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
             left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="$pageview")
         )
+
+    def test_with_ignoring_ors(self):
+        query = self._select(
+            """
+                SELECT event
+                FROM events
+                WHERE event = '$pageleave' OR event = '$pageview'
+            """
+        )
+
+        compare_operators = self._compare_operators(query, "events")
+
+        assert len(compare_operators) == 0

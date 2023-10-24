@@ -6,6 +6,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyTable
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.visitor import TraversingVisitor
 
 
@@ -33,22 +34,6 @@ class LazyTableResolver(TraversingVisitor):
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
         self.compare_operators: List[ast.CompareOperation] = []
-
-    def _get_long_table_name(self, select: ast.SelectQueryType, type: ast.BaseTableType) -> str:
-        if isinstance(type, ast.TableType):
-            return select.get_alias_for_table_type(type)
-        elif isinstance(type, ast.LazyTableType):
-            return type.table.to_printed_hogql()
-        elif isinstance(type, ast.TableAliasType):
-            return type.alias
-        elif isinstance(type, ast.SelectQueryAliasType):
-            return type.alias
-        elif isinstance(type, ast.LazyJoinType):
-            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
-        elif isinstance(type, ast.VirtualTableType):
-            return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
-        else:
-            raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -114,7 +99,7 @@ class LazyTableResolver(TraversingVisitor):
                         if field_or_property.field_type.table_type == join.table.type:
                             fields.append(field_or_property)
                 if len(fields) == 0:
-                    table_name = join.alias or self._get_long_table_name(select_type, join.table.type)
+                    table_name = join.alias or get_long_table_name(select_type, join.table.type)
                     tables_to_add[table_name] = TableToAdd(fields_accessed={}, lazy_table=join.table.type.table)
             join = join.next_join
 
@@ -143,8 +128,8 @@ class LazyTableResolver(TraversingVisitor):
             # Loop over the collected lazy tables in reverse order to create the joins
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = self._get_long_table_name(select_type, table_type.table_type)
-                    to_table = self._get_long_table_name(select_type, table_type)
+                    from_table = get_long_table_name(select_type, table_type.table_type)
+                    to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = JoinToAdd(
                             fields_accessed={},  # collect here all fields accessed on this table
@@ -163,7 +148,7 @@ class LazyTableResolver(TraversingVisitor):
                         else:
                             new_join.fields_accessed[field.name] = chain
                 elif isinstance(table_type, ast.LazyTableType):
-                    table_name = self._get_long_table_name(select_type, table_type)
+                    table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
                         tables_to_add[table_name] = TableToAdd(
                             fields_accessed={},  # collect here all fields accessed on this table
@@ -244,7 +229,7 @@ class LazyTableResolver(TraversingVisitor):
             else:
                 raise HogQLException("Should not be reachable")
 
-            table_name = self._get_long_table_name(select_type, table_type)
+            table_name = get_long_table_name(select_type, table_type)
             table_type = select_type.tables[table_name]
 
             if isinstance(field_or_property, ast.FieldType):

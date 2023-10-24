@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FieldOrTable, IntegerDatabaseField, StringDatabaseField, VirtualTable
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import lookup_field_by_name
+from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
@@ -21,59 +21,65 @@ class EventsSessionSubTable(VirtualTable):
         return "events"
 
 
-class EventsSessionWhereClauseTraverser(TraversingVisitor):
-    compare_operators: List[ast.CompareOperation]
+class GetFieldsTraverser(TraversingVisitor):
     fields: List[ast.Field]
-    query: ast.SelectQuery
-    context: HogQLContext
 
-    def __init__(self, query: ast.SelectQuery, context: HogQLContext):
+    def __init__(self, expr: ast.Expr):
         super().__init__()
-        self.compare_operators = []
         self.fields = []
-        self.query = query
-        self.context = context
-
-        where_with_no_types = CloningVisitor(clear_types=True, clear_locations=True).visit(query.where)
-        super().visit(where_with_no_types)
+        super().visit(expr)
 
     def visit_field(self, node: ast.Field):
         self.fields.append(node)
 
-    def visit_compare_operation(self, node: ast.CompareOperation):
-        self.fields = []
-        node_clone = deepcopy(node)
 
-        super().visit(node_clone.left)
-        super().visit(node_clone.right)
+class WhereClauseExtractor:
+    compare_operators: List[ast.Expr]
 
-        for field in self.fields:
-            type = None
+    def __init__(self, where_expression: ast.Expr, from_table_name: str, select_query_type: ast.SelectQueryType):
+        self.table_name = from_table_name
+        self.select_query_type = select_query_type
+        self.compare_operators = self.run(deepcopy(where_expression))
 
-            if len(field.chain) == 0:
-                return
+    def _is_field_on_table(self, field: ast.Field) -> bool:
+        if len(field.chain) == 0:
+            return False
 
-            # If the field contains at least two parts, the first might be a table.
-            if len(field.chain) > 1:
-                type = self.query.type.tables[field.chain[0]]
-                if isinstance(type, ast.TableAliasType):
-                    if type.table_type.table.to_printed_clickhouse(self.context) == "events":
-                        field.chain.pop(0)
-                    else:
-                        return
-                elif isinstance(type, ast.SelectQueryAliasType):
-                    # Ignore for now
-                    return
+        # If the field contains at least two parts, the first might be a table.
+        if len(field.chain) > 1:
+            type = self.select_query_type.tables[str(field.chain[0])]
 
-            # Field in scope
-            if not type:
-                type = lookup_field_by_name(self.query.type, field.chain[0])
+            name = get_long_table_name(self.select_query_type, type)
+            if name == self.table_name:
+                field.chain.pop(0)
+                return True
+            else:
+                return False
 
-            if not type:
-                return
+        # Field in scope
+        if lookup_field_by_name(self.select_query_type, str(field.chain[0])):
+            return True
 
-        # Only append if we think the underlying fields are accessible
-        self.compare_operators.append(node_clone)
+        return False
+
+    def run(self, expr: ast.Expr) -> List[ast.Expr]:
+        exprs_to_apply: List[ast.Expr] = []
+
+        if isinstance(expr, ast.And):
+            for expression in expr.exprs:
+                if not isinstance(expression, ast.CompareOperation):
+                    continue
+
+                fields = GetFieldsTraverser(expression).fields
+                res = [self._is_field_on_table(field) for field in fields]
+                if all(res):
+                    exprs_to_apply.append(expression)
+        elif isinstance(expr, ast.CompareOperation):
+            exprs_to_apply.extend(self.run(ast.And(exprs=[expr])))
+        elif isinstance(expr, ast.Or):
+            pass  # Ignore for now
+
+        return [CloningVisitor(clear_types=True, clear_locations=True).visit(e) for e in exprs_to_apply]
 
 
 def join_with_events_table_session_duration(
@@ -91,18 +97,20 @@ def join_with_events_table_session_duration(
         """
     )
 
-    compare_operators = EventsSessionWhereClauseTraverser(node, context).compare_operators
-
-    where_clauses = ast.And(
-        exprs=[
-            *compare_operators,
-            ast.CompareOperation(
-                left=ast.Field(chain=["$session_id"]), op=ast.CompareOperationOp.NotEq, right=ast.Constant(value="")
-            ),
-        ]
-    )
-
-    select_query.where = where_clauses
+    if isinstance(select_query, ast.SelectQuery):
+        compare_operators = (
+            WhereClauseExtractor(node.where, from_table, node.type).compare_operators
+            if node.where and node.type
+            else []
+        )
+        select_query.where = ast.And(
+            exprs=[
+                *compare_operators,
+                ast.CompareOperation(
+                    left=ast.Field(chain=["$session_id"]), op=ast.CompareOperationOp.NotEq, right=ast.Constant(value="")
+                ),
+            ]
+        )
 
     join_expr = ast.JoinExpr(table=select_query)
     join_expr.join_type = "INNER JOIN"

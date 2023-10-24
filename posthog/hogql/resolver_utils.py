@@ -1,6 +1,6 @@
 from typing import List, Optional
 from posthog.hogql import ast
-from posthog.hogql.errors import ResolverException
+from posthog.hogql.errors import HogQLException, ResolverException
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
@@ -28,3 +28,20 @@ def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
     return None
+
+
+def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
+    if isinstance(type, ast.TableType):
+        return select.get_alias_for_table_type(type) or ""
+    elif isinstance(type, ast.LazyTableType):
+        return type.table.to_printed_hogql()
+    elif isinstance(type, ast.TableAliasType):
+        return type.alias
+    elif isinstance(type, ast.SelectQueryAliasType):
+        return type.alias
+    elif isinstance(type, ast.LazyJoinType):
+        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
+    elif isinstance(type, ast.VirtualTableType):
+        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
+    else:
+        raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
