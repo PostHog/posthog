@@ -1,4 +1,5 @@
 import sys
+from datetime import timedelta
 from typing import Dict, List, Optional
 
 import lxml
@@ -50,6 +51,7 @@ def _send_email(
     txt_body: str = "",
     html_body: str = "",
     reply_to: Optional[str] = None,
+    resend_frequency_days: Optional[int] = None,
 ) -> None:
     """
     Sends built email message asynchronously.
@@ -59,16 +61,31 @@ def _send_email(
     records: List = []
 
     with transaction.atomic():
-
         for dest in to:
-            record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+            existing_record = (
+                MessagingRecord.objects.filter(raw_email=dest["raw_email"], campaign_key=campaign_key)
+                .order_by("-campaign_count")
+                .first()
+            )
+
+            if existing_record and not resend_frequency_days:
+                continue
+
+            if (
+                existing_record
+                and resend_frequency_days
+                and not existing_record.can_be_resent(timedelta(days=resend_frequency_days))
+            ):
+                continue
+
+            campaign_count = existing_record.next_campaign_count() if existing_record else None
+
+            record: MessagingRecord = MessagingRecord.objects.create(
+                raw_email=dest["raw_email"], campaign_key=campaign_key, campaign_count=campaign_count
+            )
 
             # Lock object (database-level) while the message is sent
             record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-            # If an email for this campaign was already sent to this user, skip recipient
-            if record.sent_at:
-                record.save()  # release DB lock
-                continue
 
             records.append(record)
             reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
@@ -100,7 +117,8 @@ def _send_email(
             connection.send_messages(messages)
 
             for record in records:
-                record.sent_at = timezone.now()
+                if not record.sent_at:
+                    record.sent_at = timezone.now()
                 record.save()
 
         except Exception as err:
@@ -140,9 +158,13 @@ class EmailMessage:
         self.headers = headers if headers else {}
         self.to: List[Dict[str, str]] = []
         self.reply_to = reply_to
+        self.resend_frequency_days: Optional[int] = None
 
     def add_recipient(self, email: str, name: Optional[str] = None) -> None:
         self.to.append({"recipient": f'"{name}" <{email}>' if name else email, "raw_email": email})
+
+    def set_resend_frequency(self, days: int) -> None:
+        self.resend_frequency_days = days
 
     def send(self, send_async: bool = True) -> None:
         if not self.to:
@@ -156,6 +178,7 @@ class EmailMessage:
             "txt_body": self.txt_body,
             "html_body": self.html_body,
             "reply_to": self.reply_to,
+            "resend_frequency_days": self.resend_frequency_days,
         }
 
         if send_async:

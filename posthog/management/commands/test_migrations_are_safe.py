@@ -64,7 +64,9 @@ def validate_migration_sql(sql) -> bool:
                 f"\n\n\033[91mFound a DROP TABLE command. This could lead to unsafe states for the app. Please avoid dropping tables.\nSource: `{operation_sql}`"
             )
             return True
-        if "CONSTRAINT" in operation_sql and (
+        # This pattern searches for the word 'CONSTRAINT' that isn't immediately preceded by 'DROP'
+        constraint_pattern = re.compile(r"(?<!DROP )CONSTRAINT")
+        if constraint_pattern.search(operation_sql) and (
             "-- existing-table-constraint-ignore" not in operation_sql
             and (
                 table_being_altered not in tables_created_so_far
