@@ -315,6 +315,56 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    def test_cohort_filters_update(self):
+        cohort = {
+            "name": "test_cohort",
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["United States"],
+                                    "negation": False,
+                                    "operator": "exact",
+                                },
+                                {
+                                    "key": "$initial_current_url",
+                                    "type": "person",
+                                    "value": "hubspotpreview",
+                                    "negation": False,
+                                    "operator": "not_icontains",
+                                },
+                                {
+                                    "key": "$geoip_city_name",
+                                    "type": "person",
+                                    "value": ["Ashburn"],
+                                    "negation": False,
+                                    "operator": "is_not",
+                                },
+                                {
+                                    "key": "$geoip_subdivision_1_name",
+                                    "type": "person",
+                                    "value": ["None"],
+                                    "negation": False,
+                                    "operator": "is_set",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/1234",
+            data=cohort,
+        )
+
     # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
     @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
     def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
