@@ -316,9 +316,10 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_cohort_filters_update(self):
-        cohort = {
-            "name": "test_cohort",
-            "filters": {
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+            filters={
                 "properties": {
                     "type": "OR",
                     "values": [
@@ -358,12 +359,8 @@ email@example.org,
                     ],
                 }
             },
-        }
-
-        self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/1234",
-            data=cohort,
         )
+        cohort.calculate_people_ch(pending_version=0)
 
     # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
     @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
