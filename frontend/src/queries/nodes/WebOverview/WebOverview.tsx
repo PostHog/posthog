@@ -3,11 +3,9 @@ import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryRes
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { isNotNil } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
 import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { getColorVar } from 'lib/colors'
-import prettyMilliseconds from 'pretty-ms'
-import millify from 'millify'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -93,19 +91,19 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
     if (options?.precise) {
         return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
     } else if (x >= 1000) {
-        return millify(x) + '%'
+        return humanFriendlyLargeNumber(x) + '%'
     } else {
         return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 0 })
     }
 }
 
-const formatSeconds = (x: number): string => prettyMilliseconds(Math.round(x) * 1000)
+const formatSeconds = (x: number): string => humanFriendlyDuration(Math.round(x))
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
     } else {
-        return millify(x)
+        return humanFriendlyLargeNumber(x)
     }
 }
 
