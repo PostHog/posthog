@@ -11,12 +11,14 @@ import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryF
 export interface ColumnMeta {
     title?: JSX.Element | string
     width?: number
+    align?: 'left' | 'right' | 'center'
 }
 
 export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
     let width: number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
+    let align: ColumnMeta['align']
 
     if (isHogQLQuery(query.source)) {
         title = key
@@ -43,6 +45,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         ) : (
             queryContextColumn?.title ?? column.replace('_', ' ')
         )
+        align = queryContextColumn?.align
     } else if (key === 'person.$delete') {
         title = ''
         width = 0
@@ -71,5 +74,6 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     return {
         title,
         ...(typeof width !== 'undefined' ? { width } : {}),
+        ...(align ? { align } : {}),
     }
 }

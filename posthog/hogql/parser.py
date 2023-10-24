@@ -2,6 +2,7 @@ from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
+from django.conf import settings
 
 from posthog import schema
 from posthog.hogql import ast
@@ -39,8 +40,11 @@ def parse_expr(
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Literal["python", "cpp"] = "python",
+    backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
+    if not backend:
+        # TODO: Switch over to C++ in production once we are confident there are no issues
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -56,8 +60,11 @@ def parse_order_expr(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Literal["python", "cpp"] = "python",
+    backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
+    if not backend:
+        # TODO: Switch over to C++ in production once we are confident there are no issues
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
@@ -73,8 +80,11 @@ def parse_select(
     placeholders: Optional[Dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
-    backend: Literal["python", "cpp"] = "python",
+    backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    if not backend:
+        # TODO: Switch over to C++ in production once we are confident there are no issues
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
@@ -384,6 +394,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
+        if ctx.PLACEHOLDER():
+            return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+
         number_literals = ctx.numberLiteral()
 
         left = number_literals[0]

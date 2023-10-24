@@ -204,6 +204,7 @@ export interface PluginsServerConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    RELOAD_PLUGIN_JITTER_MAX_MS: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number

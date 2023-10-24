@@ -123,7 +123,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     if details:
         # If we receive details from a previous run, it means we were restarted for some reason.
         # Let's not double-backfill and instead wait for any outstanding runs.
-        last_activity_details = details[0]
+        last_activity_details = HeartbeatDetails(*details[0])
 
         details = HeartbeatDetails(
             schedule_id=inputs.schedule_id,
@@ -139,11 +139,17 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
     handle = client.get_schedule_handle(inputs.schedule_id)
 
+    description = await handle.describe()
+    jitter = description.schedule.spec.jitter
+
     frequency = dt.timedelta(seconds=inputs.frequency_seconds)
     full_backfill_range = backfill_range(start_at, end_at, frequency * inputs.buffer_limit)
 
     for backfill_start_at, backfill_end_at in full_backfill_range:
         utcnow = dt.datetime.utcnow()
+
+        if jitter is not None:
+            backfill_end_at = backfill_end_at + jitter
 
         backfill = temporalio.client.ScheduleBackfill(
             start_at=backfill_start_at,
@@ -244,7 +250,9 @@ def backfill_range(
         current_end = current + step
 
         if current_end > end_at:
-            current_end = end_at
+            # Do not yield a range that is less than step.
+            # Same as built-in range.
+            break
 
         yield current, current_end
 
