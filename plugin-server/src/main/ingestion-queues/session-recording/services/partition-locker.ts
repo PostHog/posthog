@@ -1,7 +1,7 @@
 import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
-import { TopicPartition } from 'node-rdkafka-acosom'
+import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
@@ -43,10 +43,10 @@ export class PartitionLocker {
         tps.forEach((tp) => keys.add(topicPartitionKey(this.keyPrefix, tp)))
         return [...keys]
     }
-    /* 
+    /*
         Claim the lock for partitions for this consumer
         - If already locked, we extend the TTL
-        - If it is claimed, we wait and retry until it is cleared 
+        - If it is claimed, we wait and retry until it is cleared
         - If unclaimed, we claim it
     */
     public async claim(tps: TopicPartition[]) {
@@ -104,7 +104,7 @@ export class PartitionLocker {
         }
     }
 
-    /* 
+    /*
         Release a lock for a partition
         - Clear our claim if it is set to our consumer so that another can claim it
     */

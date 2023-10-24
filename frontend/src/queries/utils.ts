@@ -1,36 +1,36 @@
 import {
     ActionsNode,
+    DatabaseSchemaQuery,
     DataTableNode,
     DateRange,
     EventsNode,
     EventsQuery,
-    HogQLQuery,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
+    HogQLMetadata,
+    HogQLQuery,
     InsightFilter,
     InsightFilterProperty,
+    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleQuery,
     Node,
     NodeKind,
+    PathsQuery,
     PersonsNode,
+    PersonsQuery,
+    RetentionQuery,
+    SavedInsightNode,
+    StickinessQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
-    InsightNodeKind,
     TimeToSeeDataWaterfallNode,
-    TimeToSeeDataJSONNode,
-    DatabaseSchemaQuery,
-    SavedInsightNode,
-    WebTopSourcesQuery,
-    WebTopClicksQuery,
-    WebTopPagesQuery,
+    TrendsQuery,
     WebOverviewStatsQuery,
-    HogQLMetadata,
+    WebStatsTableQuery,
+    WebTopClicksQuery,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -43,6 +43,7 @@ export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNod
         isPersonsNode(node) ||
         isTimeToSeeDataSessionsQuery(node) ||
         isEventsQuery(node) ||
+        isPersonsQuery(node) ||
         isHogQLQuery(node) ||
         isHogQLMetadata(node)
     )
@@ -87,6 +88,10 @@ export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
 
+export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
+    return node?.kind === NodeKind.PersonsQuery
+}
+
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
@@ -111,16 +116,12 @@ export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverview
     return node?.kind === NodeKind.WebOverviewStatsQuery
 }
 
-export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {
-    return node?.kind === NodeKind.WebTopSourcesQuery
+export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+    return node?.kind === NodeKind.WebStatsTableQuery
 }
 
 export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
-}
-
-export function isWebTopPagesQuery(node?: Node | null): node is WebTopPagesQuery {
-    return node?.kind === NodeKind.WebTopPagesQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {
@@ -286,6 +287,19 @@ export function taxonomicEventFilterToHogQL(
         return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
+export function taxonomicPersonFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
         return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {

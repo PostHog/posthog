@@ -2,10 +2,10 @@ import {
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isPersonsQuery,
     isWebOverviewStatsQuery,
+    isWebStatsTableQuery,
     isWebTopClicksQuery,
-    isWebTopPagesQuery,
-    isWebTopSourcesQuery,
 } from '~/queries/utils'
 import { Node } from '~/queries/schema'
 
@@ -43,17 +43,18 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.selectAndOrderByColumns)
     }
 
-    if (isPersonsNode(query)) {
+    if (isPersonsNode(query) || isPersonsQuery(query)) {
         features.add(QueryFeature.personPropertyFilters)
         features.add(QueryFeature.personsSearch)
+
+        if (isPersonsQuery(query)) {
+            features.add(QueryFeature.selectAndOrderByColumns)
+            features.add(QueryFeature.columnsInResponse)
+            features.add(QueryFeature.resultIsArrayOfArrays)
+        }
     }
 
-    if (
-        isWebOverviewStatsQuery(query) ||
-        isWebTopSourcesQuery(query) ||
-        isWebTopPagesQuery(query) ||
-        isWebTopClicksQuery(query)
-    ) {
+    if (isWebOverviewStatsQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
     }

@@ -123,7 +123,6 @@ class FlagsMatcherCache:
 
 
 class FeatureFlagMatcher:
-
     failed_to_fetch_conditions = False
 
     def __init__(
@@ -427,9 +426,16 @@ class FeatureFlagMatcher:
                                 group_fields,
                             )
 
+                if any(feature_flag.uses_cohorts for feature_flag in self.feature_flags):
+                    all_cohorts = {
+                        cohort.pk: cohort
+                        for cohort in Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
+                            team_id=team_id, deleted=False
+                        )
+                    }
+                    self.cohorts_cache.update(all_cohorts)
                 # release conditions
                 for feature_flag in self.feature_flags:
-
                     # super release conditions
                     if feature_flag.super_conditions and len(feature_flag.super_conditions) > 0:
                         condition = feature_flag.super_conditions[0]
@@ -449,9 +455,13 @@ class FeatureFlagMatcher:
                             }
                             condition_eval(is_set_key, is_set_condition)
 
-                    for index, condition in enumerate(feature_flag.conditions):
-                        key = f"flag_{feature_flag.pk}_condition_{index}"
-                        condition_eval(key, condition)
+                    with start_span(
+                        op="parse_feature_flag_conditions",
+                        description=f"feature_flag={feature_flag.pk} key={feature_flag.key}",
+                    ):
+                        for index, condition in enumerate(feature_flag.conditions):
+                            key = f"flag_{feature_flag.pk}_condition_{index}"
+                            condition_eval(key, condition)
 
                 if len(person_fields) > 0:
                     person_query = person_query.values(*person_fields)
@@ -488,6 +498,7 @@ class FeatureFlagMatcher:
                     return self.hash_key_overrides[feature_flag.key]
             return self.distinct_id
         else:
+            # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
             group_key = self.groups.get(group_type_name)  # type: ignore
@@ -596,7 +607,6 @@ def get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
-
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     cache_hit = True
     if all_feature_flags is None:

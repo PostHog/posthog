@@ -1,15 +1,19 @@
-import { urls } from 'scenes/urls'
+import { insight, interceptInsightLoad } from '../productAnalytics'
 
 describe('Trends', () => {
     beforeEach(() => {
-        cy.visit(urls.insightNew())
+        insight.newInsight()
     })
 
     it('Can load a graph from a URL directly', () => {
+        const networkInterceptAlias = interceptInsightLoad('TRENDS')
+
         // regression test, the graph wouldn't load when going directly to a URL
         cy.visit(
             '/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B"id"%3A"%24pageview"%2C"name"%3A"%24pageview"%2C"type"%3A"events"%2C"order"%3A0%7D%5D&filter_test_accounts=false&breakdown=%24referrer&breakdown_type=event&properties=%5B%7B"key"%3A"%24current_url"%2C"value"%3A"http%3A%2F%2Fhogflix.com"%2C"operator"%3A"icontains"%2C"type"%3A"event"%7D%5D'
         )
+
+        cy.wait(`@${networkInterceptAlias}`)
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -107,7 +111,7 @@ describe('Trends', () => {
 
     it('Apply interval filter', () => {
         cy.get('[data-attr=interval-filter]').click()
-        cy.contains('Week').click()
+        cy.contains('week').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -136,7 +140,7 @@ describe('Trends', () => {
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.get('div').contains('Yesterday').should('exist').click()
-        cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
+        cy.get('.trends-insights-container .insight-empty-state').should('exist')
     })
 
     it('Apply property breakdown', () => {

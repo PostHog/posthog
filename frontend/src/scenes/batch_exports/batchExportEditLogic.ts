@@ -61,6 +61,8 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   has_self_signed_cert: false,
+                  exclude_events: '',
+                  include_events: '',
               }
             : destination === 'S3'
             ? {
@@ -73,6 +75,7 @@ const formFields = (
                   encryption: '',
                   kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
                   exclude_events: '',
+                  include_events: '',
               }
             : destination === 'BigQuery'
             ? {
@@ -90,6 +93,7 @@ const formFields = (
                   dataset_id: !config.dataset_id ? 'This field is required' : '',
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
+                  include_events: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -101,6 +105,8 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   role: '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : {}),
     }

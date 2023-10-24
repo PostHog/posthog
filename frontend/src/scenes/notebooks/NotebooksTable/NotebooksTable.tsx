@@ -91,6 +91,7 @@ export function NotebooksTable(): JSX.Element {
                     },
                     children: 'Get started',
                 }}
+                dismissKey="notebooks-preview-banner"
             >
                 <b>Welcome to the preview of Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and
                 many more PostHog prodcuts together into one place.

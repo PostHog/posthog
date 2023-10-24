@@ -49,7 +49,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
             (s) => [s.filteredTables],
             (filteredTables: DatabaseSceneRow[]) =>
                 filteredTables.map((row) => ({
-                    value: row,
+                    value: row.name,
                     label: row.name,
                 })),
         ],

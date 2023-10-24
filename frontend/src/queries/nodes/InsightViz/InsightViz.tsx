@@ -6,7 +6,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { InsightVizNode, QueryContext } from '../../schema'
+import { InsightVizNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
@@ -79,20 +80,19 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                             <EditorFilters query={query.source} showing={showingFilters} embedded={embedded} />
                         )}
 
-                        {showingResults && (
-                            <div className="insights-container" data-attr="insight-view">
-                                <InsightContainer
-                                    insightMode={insightMode}
-                                    context={context}
-                                    disableHeader={disableHeader}
-                                    disableTable={disableTable}
-                                    disableCorrelationTable={disableCorrelationTable}
-                                    disableLastComputation={disableLastComputation}
-                                    disableLastComputationRefresh={disableLastComputationRefresh}
-                                    embedded={embedded}
-                                />
-                            </div>
-                        )}
+                        <div className="insights-container ph-no-capture" data-attr="insight-view">
+                            <InsightContainer
+                                insightMode={insightMode}
+                                context={context}
+                                disableHeader={disableHeader}
+                                disableTable={disableTable}
+                                disableCorrelationTable={disableCorrelationTable}
+                                disableLastComputation={disableLastComputation}
+                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                showingResults={showingResults}
+                                embedded={embedded}
+                            />
+                        </div>
                     </div>
                 </BindLogic>
             </BindLogic>

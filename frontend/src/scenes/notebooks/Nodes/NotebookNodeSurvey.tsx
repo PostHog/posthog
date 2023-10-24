@@ -6,7 +6,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { defaultSurveyAppearance } from 'scenes/surveys/constants'
@@ -15,12 +15,13 @@ import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): JSX.Element => {
-    const { id } = props.attributes
-    const { survey, surveyLoading, hasTargetingFlag } = useValues(surveyLogic({ id }))
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { survey, surveyLoading, hasTargetingFlag, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         setActions([
@@ -38,8 +39,12 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
     }, [survey])
 
     useEffect(() => {
-        props.updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
+        setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
     }, [survey.name])
+
+    if (surveyMissing) {
+        return <NotFound object={'survey'} />
+    }
 
     return (
         <div>
@@ -83,8 +88,6 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeSurveyAttributes>): 
                                                     ? survey.questions[0].link
                                                     : undefined
                                             }
-                                            readOnly={true}
-                                            onAppearanceChange={() => {}}
                                         />
                                     </div>
                                 </div>
@@ -135,7 +138,7 @@ type NotebookNodeSurveyAttributes = {
 
 export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
     nodeType: NotebookNodeType.Survey,
-    defaultTitle: 'Survey',
+    titlePlaceholder: 'Survey',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),

@@ -162,6 +162,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Survey',
     },
+    [Scene.SurveyTemplates]: {
+        projectBased: true,
+        name: 'New survey',
+    },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data Warehouse',
@@ -318,6 +322,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Notebook',
         layout: 'app-raw',
     },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -416,6 +424,7 @@ export const routes: Record<string, Scene> = {
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.personByDistinctId('*', false)]: Scene.Person,
+    [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
@@ -428,6 +437,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
@@ -486,4 +496,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
+    [urls.notebooks()]: Scene.Notebooks,
 }
