@@ -90,7 +90,20 @@ Part = dict[str, str | int]
 
 
 class S3MultiPartUpload:
-    """An S3 multi-part upload."""
+    """An S3 multi-part upload.
+
+    The purpose of this class is to track the progress of an S3 multi-par upload
+    during a batch export activity that may span multiple attempts.
+
+    Attributes:
+        region_name: The name of the region where the bucket we are batch exporting to is located.
+        bucket_name: The name of the bucket where we are batch exporting to.
+        key: The key for the object we are batch exporting.
+        encryption: An optional encryption option, like 'aws:kms'.
+        kms_key_id: If using 'aws:kms' encryption, the KMS key ID.
+        aws_access_key_id: The AWS access key ID used to connect to the bucket.
+        aws_secret_access_key: The AWS secret access key used to connect to the bucket.
+    """
 
     def __init__(
         self,
@@ -134,6 +147,7 @@ class S3MultiPartUpload:
 
     @contextlib.asynccontextmanager
     async def s3_client(self):
+        """Asynchronously yield an S3 client."""
         async with self._session.client(
             "s3",
             region_name=self.region_name,
@@ -166,7 +180,10 @@ class S3MultiPartUpload:
         return upload_id
 
     def continue_from_state(self, state: S3MultiPartUploadState):
-        """Continue this S3MultiPartUpload from a previous state."""
+        """Continue this S3MultiPartUpload from a previous state.
+
+        This method is intended to be used with the state found in an Activity heartbeat.
+        """
         self.upload_id = state.upload_id
         self.parts = state.parts
 
@@ -190,6 +207,7 @@ class S3MultiPartUpload:
         return response["Location"]
 
     async def abort(self):
+        """Abort this S3 multi-part upload."""
         if self.is_upload_in_progress() is False:
             raise NoUploadInProgressError()
 
@@ -204,6 +222,7 @@ class S3MultiPartUpload:
         self.parts = []
 
     async def upload_part(self, body: BatchExportTemporaryFile, rewind: bool = True):
+        """Upload a part of this multi-part upload."""
         next_part_number = self.part_number + 1
 
         if rewind is True:
@@ -227,17 +246,23 @@ class S3MultiPartUpload:
         self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
 
     async def __aenter__(self):
+        """Asynchronous context manager protocol enter."""
         if not self.is_upload_in_progress():
             await self.start()
 
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> bool:
+        """Asynchronous context manager protocol exit.
+
+        We re-raise any exceptions captured.
+        """
         return False
 
 
 class HeartbeatDetails(typing.NamedTuple):
     """This tuple allows us to enforce a schema on the Heartbeat details.
+
     Attributes:
         last_uploaded_part_timestamp: The timestamp of the last part we managed to upload.
         upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
@@ -328,9 +353,9 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
 
 @activity.defn
 async def insert_into_s3_activity(inputs: S3InsertInputs):
-    """
-    Activity streams data from ClickHouse to S3. It currently only creates a
-    single file per run, and uploads as a multipart upload.
+    """Activity to batch export data from PostHog's ClickHouse to S3.
+
+    It currently only creates a single file per run, and uploads as a multipart upload.
 
     TODO: this implementation currently tries to export as one run, but it could
     be a very big date range and time consuming, better to split into multiple
