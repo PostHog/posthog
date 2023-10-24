@@ -1,8 +1,7 @@
-from copy import deepcopy
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST, Expr, QueryTag
+from posthog.hogql.base import AST, Expr, HogQLXTag, HogQLXAttribute
 from posthog.hogql.errors import HogQLException
 
 
@@ -245,8 +244,12 @@ class TraversingVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
-    def visit_query_tag(self, node: QueryTag):
-        pass
+    def visit_hogqlx_tag(self, node: HogQLXTag):
+        for attribute in node.attributes:
+            self.visit(attribute)
+
+    def visit_hogqlx_attribute(self, node: HogQLXAttribute):
+        self.visit(node.value)
 
 
 class CloningVisitor(Visitor):
@@ -513,5 +516,8 @@ class CloningVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return ast.JoinConstraint(expr=self.visit(node.expr))
 
-    def visit_query_tag(self, node: QueryTag):
-        return QueryTag(kind=node.kind, attributes=deepcopy(node.attributes))
+    def visit_hogqlx_tag(self, node: HogQLXTag):
+        return HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
+
+    def visit_hogqlx_attribute(self, node: HogQLXAttribute):
+        return HogQLXAttribute(name=node.name, value=self.visit(node.value))

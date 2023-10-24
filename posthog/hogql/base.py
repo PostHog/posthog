@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import Literal, Optional, Any, Dict
+from typing import Literal, Optional, Any, List
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedException
@@ -18,6 +18,8 @@ class AST:
 
     def accept(self, visitor):
         camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
+        if "hog_qlx" in camel_case_name:
+            camel_case_name = camel_case_name.replace("hog_qlx", "hogqlx_")
         method_name = f"visit_{camel_case_name}"
         if hasattr(visitor, method_name):
             visit = getattr(visitor, method_name)
@@ -55,14 +57,20 @@ class CTE(Expr):
 
 
 @dataclass(kw_only=True)
-class QueryTag(AST):
+class HogQLXAttribute(AST):
+    name: str
+    value: Any
+
+
+@dataclass(kw_only=True)
+class HogQLXTag(AST):
     kind: str
-    attributes: Dict[str, Any]
+    attributes: List[HogQLXAttribute]
 
     def to_dict(self):
         return {
             "kind": self.kind,
-            **self.attributes,
+            **{a.name: a.value for a in self.attributes},
         }
 
 

@@ -4,9 +4,8 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleC
 from antlr4.error.ErrorListener import ErrorListener
 from django.conf import settings
 
-from posthog import schema
 from posthog.hogql import ast
-from posthog.hogql.base import AST, QueryTag
+from posthog.hogql.base import AST, HogQLXTag, HogQLXAttribute
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
@@ -125,26 +124,6 @@ class HogQLErrorListener(ErrorListener):
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         start = max(self.get_position(line, column), 0)
         raise SyntaxException(msg, start=start, end=len(self.query))
-
-
-def ast_to_node(expr: ast.Expr):
-    if isinstance(expr, ast.Constant):
-        return expr.value
-    elif isinstance(expr, ast.Array):
-        return [ast_to_node(e) for e in expr.exprs]
-    elif isinstance(expr, QueryTag):
-        kind = expr.kind
-        attributes = expr.attributes
-        # if there is a class derived from BaseModel in schema.py that has the same name as "kind", use that
-
-        # find all classes in schema that derive from BaseModel and have the same name as "kind"
-        for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == kind:
-                return klass(**attributes)
-
-        raise SyntaxException(f'Unknown element of kind "{kind}" not found in schema.')
-    else:
-        raise SyntaxException(f'Unknown element of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
@@ -894,28 +873,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTagElement(self, ctx: HogQLParser.TagElementContext):
         kind = self.visit(ctx.identifier())
-        attributes = {}
-        for attribute in ctx.tagAttribute():
-            name, value = self.visit(attribute)
-            if isinstance(value, QueryTag):
-                attributes[name] = value.to_dict()
-            else:
-                attributes[name] = value
-        return QueryTag(kind=kind, attributes=attributes)
+        attributes = [self.visit(a) for a in ctx.tagAttribute()] if ctx.tagAttribute() else []
+        return HogQLXTag(kind=kind, attributes=attributes)
 
     def visitTagAttribute(self, ctx: HogQLParser.TagAttributeContext):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
-            expr = self.visit(ctx.columnExpr())
-            value = ast_to_node(expr)
-            # if isinstance(expr, ast.Constant):
-            #     value = expr.value
-            # elif isinstance(expr, ast.Array):
-            #     value = expr.exprs
-            # else:
-            #     raise SyntaxException(f"Tag attribute value must be a constant", start=ctx.start, end=ctx.stop)
+            return HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
         elif ctx.STRING_LITERAL():
-            value = parse_string_literal(ctx.STRING_LITERAL())
+            return HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
         else:
-            value = True
-        return (name, value)
+            return HogQLXAttribute(name=name, value=ast.Constant(value=True))
