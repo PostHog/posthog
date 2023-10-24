@@ -28,9 +28,7 @@ interface RecordingSegment {
 }
 
 const isActiveEvent = (event: RRWebEvent): boolean => {
-    return (
-        event.type === 2 || event.type === 4 || (event.type === 3 && activeSources.includes(event.data?.source || -1))
-    )
+    return event.type === 3 && activeSources.includes(event.data?.source || -1)
 }
 
 const createSegments = (snapshots: RRWebEvent[]): RecordingSegment[] => {
