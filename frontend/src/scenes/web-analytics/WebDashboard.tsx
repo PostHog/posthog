@@ -50,9 +50,9 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             throw new UnexpectedNeverError(breakdownBy)
     }
 }
+
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { source } = query
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
@@ -90,6 +90,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
+
+    return <BreakdownValueCellInner value={value} propertyName={propertyName} />
+}
+const BreakdownValueCellInner = ({ value, propertyName }: { value: string; propertyName: string }): JSX.Element => {
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const onClick = useCallback(() => {
         togglePropertyFilter(propertyName, value)
