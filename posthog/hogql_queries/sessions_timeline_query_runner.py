@@ -98,13 +98,21 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
                     FROM (
                         SELECT
-                            *, sum(session_id = prev_session_id ? 0 : 1) OVER (
+                            *,
+                            sum(session_id = prev_session_id ? 0 : 1) OVER (
                                 PARTITION BY person_id ORDER BY timestamp ROWS UNBOUNDED PRECEDING
                             ) AS session_id_flip_index
                         FROM (
                             SELECT
-                                uuid, person_id AS person_id, timestamp, event, properties, distinct_id, elements_chain,
-                                $session_id AS session_id, lagInFrame($session_id, 1) OVER (
+                                uuid,
+                                person_id AS person_id,
+                                timestamp AS timestamp,
+                                event,
+                                properties,
+                                distinct_id,
+                                elements_chain,
+                                $session_id AS session_id,
+                                lagInFrame($session_id, 1) OVER (
                                     PARTITION BY person_id ORDER BY timestamp
                                 ) AS prev_session_id
                             FROM events
@@ -114,7 +122,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         )
                     ) e
                     LEFT JOIN (
-                        SELECT start_time, end_time, session_id FROM session_replay_events
+                        SELECT start_time AS start_time, end_time AS end_time, session_id FROM session_replay_events
                     ) AS sre
                     ON e.session_id = sre.session_id
                     ORDER BY timestamp DESC""",

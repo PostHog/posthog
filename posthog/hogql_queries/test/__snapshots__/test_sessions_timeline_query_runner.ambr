@@ -31,7 +31,7 @@
                events.elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
-                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp ASC) AS prev_session_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
         FROM events
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -40,8 +40,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')))
-        ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp DESC
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), 0), ifNull(less(timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')), 0))
+        ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
@@ -93,7 +93,7 @@
                events.elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
-                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp ASC) AS prev_session_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
         FROM events
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -102,8 +102,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')))
-        ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp DESC
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), 0), ifNull(less(timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')), 0))
+        ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
@@ -155,7 +155,7 @@
                events.elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
-                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp ASC) AS prev_session_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
         FROM events
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -164,8 +164,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')), ifNull(equals(person_id, 'd63e1ecf-f92f-1e50-71f9-501e16e9aebe'), 0))
-        ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp DESC
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), 0), ifNull(less(timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')), 0), ifNull(equals(person_id, 'd63e1ecf-f92f-1e50-71f9-501e16e9aebe'), 0))
+        ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
@@ -217,7 +217,7 @@
                events.elements_chain,
                events.`$session_id` AS session_id,
                lagInFrame(events.`$session_id`, 1) OVER (PARTITION BY person_id
-                                                         ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp ASC) AS prev_session_id
+                                                         ORDER BY timestamp ASC) AS prev_session_id
         FROM events
         INNER JOIN
           (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -226,8 +226,8 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), greater(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC') AS timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')))
-        ORDER BY toTimeZone(events.timestamp, 'UTC') AS timestamp DESC
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, parseDateTime64BestEffortOrNull('2023-10-01T06:00:00Z', 6, 'UTC')), 0), ifNull(less(timestamp, parseDateTime64BestEffortOrNull('2023-10-02T06:00:00Z', 6, 'UTC')), 0))
+        ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
     (SELECT toTimeZone(session_replay_events.start_time, 'UTC') AS start_time,
