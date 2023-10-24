@@ -19,7 +19,6 @@ export function PlayerMetaLinks(): JSX.Element {
     const { setPause, deleteRecording, maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-    const { closeModal: closePersonsModal } = useActions(personsModalLogic())
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
@@ -83,7 +82,7 @@ export function PlayerMetaLinks(): JSX.Element {
                             }
 
                             closeSessionPlayer()
-                            closePersonsModal()
+                            personsModalLogic.findMounted()?.actions.closeModal()
                         }}
                     >
                         Comment
