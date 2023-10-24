@@ -1204,6 +1204,48 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return text;
   }
 
+  VISIT(TagAttribute) {
+    //    PyObject* attributes = PyDict_New();
+    //    for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
+    //      PyObject* window_expr = visitAsPyObject(window_expr_ctxs[i]);
+    //      PyDict_SetItemString(attributes, visitAsString(identifier_ctxs[i]).c_str(), window_expr);
+    //      Py_DECREF(window_expr);
+    //    }
+    //    PyObject_SetAttrString(select_query, "attributes", attributes);
+    //    Py_DECREF(attributes);
+    string name = visitAsString(ctx->identifier());
+
+    if (ctx->columnExpr()) {
+      return build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", visitAsPyObject(ctx->columnExpr())
+      );
+    } else if (ctx->STRING_LITERAL()) {
+      string text = unquote_string_terminal(ctx->STRING_LITERAL());
+      PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
+      return build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
+      );
+    } else {
+      PyObject* value = build_ast_node("Constant", "{s:O}", "value", Py_True);
+      return build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
+      );
+    }
+  }
+
+  VISIT(TagElement) {
+    //        kind = self.visit(ctx.identifier())
+    //        attributes = [self.visit(a) for a in ctx.tagAttribute()] if ctx.tagAttribute() else []
+    //        return HogQLXTag(kind=kind, attributes=attributes)
+    string kind = visitAsString(ctx->identifier());
+    PyObject* tag_element = build_ast_node(
+        "SelectQuery", "{s:s#,s:N}",
+        "kind", kind.data(), kind.size(),
+        "attributes", visitPyListOfObjects(ctx->tagAttribute())
+    );
+    return tag_element;
+  }
+
   VISIT(Placeholder) {
     string name = visitAsString(ctx->identifier());
     return build_ast_node("Placeholder", "{s:s#}", "field", name.data(), name.size());
