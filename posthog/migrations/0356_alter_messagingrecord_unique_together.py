@@ -4,6 +4,7 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
+    atomic = False  # dropping constraint can't be done atomically
     dependencies = [
         ("posthog", "0355_add_batch_export_backfill_model"),
     ]
@@ -15,5 +16,14 @@ class Migration(migrations.Migration):
                     unique_together={("email_hash", "campaign_key", "campaign_count")},
                 ),
             ],
+        ),
+        migrations.RunSQL(
+            sql="""
+            ALTER TABLE posthog_messagingrecord DROP CONSTRAINT "posthog_messagingrecord_email_hash_campaign_key_6639a13f_uniq";
+            """,
+            reverse_sql="""
+            ALTER TABLE posthog_messagingrecord ADD CONSTRAINT "posthog_messagingrecord_email_hash_campaign_key_6639a13f_uniq"
+            UNIQUE (email_hash, campaign_key, campaign_count);
+            """,
         ),
     ]
