@@ -237,6 +237,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (select_union_stmt_ctx) {
       return visit(select_union_stmt_ctx);
     }
+    auto tag_element_ctx = ctx->tagElement();
+    if (tag_element_ctx) {
+      return visit(tag_element_ctx);
+    }
     return visit(ctx->selectStmt());
   }
 
@@ -1016,6 +1020,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return build_ast_node("Field", "{s:[s]}", "chain", "*");
   }
 
+  VISIT(ColumnExprTagElement) { return visit(ctx->tagElement()); }
+
   VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
   VISIT(ColumnLambdaExpr) {
@@ -1113,6 +1119,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
 
+  VISIT(TableExprTag) { return visit(ctx->tagElement()); }
+
   VISIT(TableFunctionExpr) {
     string name = visitAsString(ctx->identifier());
     PyObject* table_args;
@@ -1205,14 +1213,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(TagAttribute) {
-    //    PyObject* attributes = PyDict_New();
-    //    for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
-    //      PyObject* window_expr = visitAsPyObject(window_expr_ctxs[i]);
-    //      PyDict_SetItemString(attributes, visitAsString(identifier_ctxs[i]).c_str(), window_expr);
-    //      Py_DECREF(window_expr);
-    //    }
-    //    PyObject_SetAttrString(select_query, "attributes", attributes);
-    //    Py_DECREF(attributes);
     string name = visitAsString(ctx->identifier());
 
     if (ctx->columnExpr()) {
@@ -1234,9 +1234,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(TagElement) {
-    //        kind = self.visit(ctx.identifier())
-    //        attributes = [self.visit(a) for a in ctx.tagAttribute()] if ctx.tagAttribute() else []
-    //        return HogQLXTag(kind=kind, attributes=attributes)
     string kind = visitAsString(ctx->identifier());
     PyObject* tag_element = build_ast_node(
         "SelectQuery", "{s:s#,s:N}",
