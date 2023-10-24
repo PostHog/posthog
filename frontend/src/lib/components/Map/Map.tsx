@@ -29,7 +29,7 @@ export function Map({ className, ...rest }: Omit<MapProps, 'mapLibreStyleUrl'>):
         )
     }
 
-    return <MapComponent mapLibreStyleUrl={window.JS_MAPLIBRE_STYLE_URL} {...rest} />
+    return <MapComponent mapLibreStyleUrl={window.JS_MAPLIBRE_STYLE_URL} className={className} {...rest} />
 }
 
 export function MapComponent({ center, markers, className, mapLibreStyleUrl }: MapProps): JSX.Element {
