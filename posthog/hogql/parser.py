@@ -43,7 +43,7 @@ def parse_expr(
 ) -> ast.Expr:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "python" if settings.DEBUG else "python"
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -63,7 +63,7 @@ def parse_order_expr(
 ) -> ast.Expr:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "python" if settings.DEBUG else "python"
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
@@ -83,7 +83,7 @@ def parse_select(
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "python" if settings.DEBUG else "python"
+        backend = "cpp" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
