@@ -3080,6 +3080,7 @@ export enum NotebookNodeType {
     Image = 'ph-image',
     PersonFeed = 'ph-person-feed',
     Map = 'ph-map',
+    Properties = 'ph-properties',
 }
 
 export type NotebookNodeResource = {
