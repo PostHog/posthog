@@ -698,7 +698,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             "p2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "notval"}}],
             "p3": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}}],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        created_people = journeys_for(events_by_person, self.team, create_people=False)
 
         # Total Volume
         with freeze_time("2012-01-15T04:01:34.000Z"):
