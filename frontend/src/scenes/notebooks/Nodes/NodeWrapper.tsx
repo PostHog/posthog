@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import {
     IconClose,
@@ -80,7 +80,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId } = useValues(notebookLogic)
+    const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -90,7 +90,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine, unmount } = useActions(nodeLogic)
+
+    useEffect(() => {
+        // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+        return () => unmount()
+    }, [])
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,

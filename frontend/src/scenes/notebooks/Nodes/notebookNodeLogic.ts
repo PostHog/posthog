@@ -37,7 +37,6 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
-    parentNodeLogic?: BuiltLogic<notebookNodeLogicType>
 } & NotebookNodeAttributeProperties<any>
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -65,10 +64,14 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        unmount: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
-        actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
+        actions: [
+            props.notebookLogic,
+            ['onUpdateEditor', 'setTextSelection', 'registerNodeLogic', 'unregisterNodeLogic'],
+        ],
         values: [props.notebookLogic, ['editor', 'isEditable']],
     })),
 
@@ -266,11 +269,14 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 props.updateAttributes({ __init: null })
             }
         },
+        unmount: () => {
+            actions.unregisterNodeLogic(values.nodeId)
+        },
     })),
 
     afterMount(async (logic) => {
         const { props, actions, values } = logic
-        props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+        actions.registerNodeLogic(values.nodeId, logic as any)
 
         const isResizeable =
             typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
@@ -279,9 +285,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         actions.initializeNode()
     }),
 
-    beforeUnmount(({ props, values }) => {
+    beforeUnmount(({ actions, values }) => {
         // Note this doesn't work as there may be other places where this is used. The NodeWrapper should be in charge of somehow unmounting this
-        props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
+        actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
 
