@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { AnyResponseType, WebOverviewStatsQuery, WebOverviewStatsQueryResponse } from '~/queries/schema'
+import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -11,11 +11,8 @@ import millify from 'millify'
 import clsx from 'clsx'
 
 let uniqueNode = 0
-export function WebOverviewStatsTable(props: {
-    query: WebOverviewStatsQuery
-    cachedResults?: AnyResponseType
-}): JSX.Element | null {
-    const [key] = useState(() => `WebOverviewStats.${uniqueNode++}`)
+export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
+    const [key] = useState(() => `WebOverview.${uniqueNode++}`)
     const logic = dataNodeLogic({ query: props.query, key, cachedResults: props.cachedResults })
     const { response, responseLoading } = useValues(logic)
 
@@ -31,7 +28,7 @@ export function WebOverviewStatsTable(props: {
         return null
     }
 
-    const results = (response as WebOverviewStatsQueryResponse | undefined)?.results
+    const results = (response as WebOverviewQueryResponse | undefined)?.results
 
     return (
         <EvenlyDistributedRows className="w-full gap-2" minWidthRems={12}>

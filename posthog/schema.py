@@ -337,7 +337,7 @@ class NodeKind(str, Enum):
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
-    WebOverviewStatsQuery = "WebOverviewStatsQuery"
+    WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
     TimeToSeeDataSessionsQuery = "TimeToSeeDataSessionsQuery"
@@ -618,7 +618,7 @@ class Result(BaseModel):
     value: Optional[float] = None
 
 
-class WebOverviewStatsQueryResponse(BaseModel):
+class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -925,14 +925,14 @@ class WebAnalyticsQueryBase(BaseModel):
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
 
 
-class WebOverviewStatsQuery(BaseModel):
+class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     dateRange: DateRange
-    kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
-    response: Optional[WebOverviewStatsQueryResponse] = None
+    response: Optional[WebOverviewQueryResponse] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -1757,7 +1757,7 @@ class DataTableNode(BaseModel):
         PersonsQuery,
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
-        WebOverviewStatsQuery,
+        WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
     ] = Field(..., description="Source of the events")
@@ -1804,7 +1804,7 @@ class QuerySchema(RootModel):
             PersonsQuery,
             HogQLQuery,
             HogQLMetadata,
-            WebOverviewStatsQuery,
+            WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
         ],

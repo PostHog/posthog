@@ -99,7 +99,7 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
-                    "$ref": "#/definitions/WebOverviewStatsQuery"
+                    "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
                     "$ref": "#/definitions/WebStatsTableQuery"
@@ -484,7 +484,7 @@
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         },
                         {
-                            "$ref": "#/definitions/WebOverviewStatsQuery"
+                            "$ref": "#/definitions/WebOverviewQuery"
                         },
                         {
                             "$ref": "#/definitions/WebStatsTableQuery"
@@ -1890,7 +1890,7 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
-                "WebOverviewStatsQuery",
+                "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
                 "TimeToSeeDataSessionsQuery",
@@ -2986,27 +2986,27 @@
             "required": ["dateRange", "properties"],
             "type": "object"
         },
-        "WebOverviewStatsQuery": {
+        "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "kind": {
-                    "const": "WebOverviewStatsQuery",
+                    "const": "WebOverviewQuery",
                     "type": "string"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
-                    "$ref": "#/definitions/WebOverviewStatsQueryResponse"
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
                 }
             },
             "required": ["dateRange", "kind", "properties"],
             "type": "object"
         },
-        "WebOverviewStatsQueryResponse": {
+        "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
                 "hogql": {

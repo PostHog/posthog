@@ -9,12 +9,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import WebOverviewStatsQueryResponse, WebOverviewStatsQuery
+from posthog.schema import WebOverviewQueryResponse, WebOverviewQuery
 
 
-class WebOverviewStatsQueryRunner(WebAnalyticsQueryRunner):
-    query: WebOverviewStatsQuery
-    query_type = WebOverviewStatsQuery
+class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
+    query: WebOverviewQuery
+    query_type = WebOverviewQuery
 
     def to_queries(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         with self.timings.measure("date_expr"):
@@ -116,7 +116,7 @@ FROM (SELECT
         pages_row = pages_response.results[0]
         sessions_row = sessions_response.results[0]
 
-        return WebOverviewStatsQueryResponse(
+        return WebOverviewQueryResponse(
             results=[
                 to_data("visitors", "count", pages_row[0], pages_row[1]),
                 to_data("views", "count", pages_row[2], pages_row[3]),

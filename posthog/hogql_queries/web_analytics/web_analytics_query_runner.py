@@ -11,13 +11,13 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     EventPropertyFilter,
     WebTopClicksQuery,
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     WebStatsTableQuery,
     HogQLPropertyFilter,
 )
 
 WebQueryNode = Union[
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
 ]

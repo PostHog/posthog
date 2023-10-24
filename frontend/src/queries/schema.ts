@@ -60,7 +60,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
 
     // Web analytics queries
-    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
@@ -83,7 +83,7 @@ export type AnyDataNode =
     | PersonsQuery
     | HogQLQuery
     | HogQLMetadata
-    | WebOverviewStatsQuery
+    | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
 
@@ -313,7 +313,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
-        | WebOverviewStatsQuery
+        | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
 
@@ -551,12 +551,12 @@ export interface WebAnalyticsQueryBase {
     properties: WebAnalyticsPropertyFilters
 }
 
-export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebOverviewStatsQuery
-    response?: WebOverviewStatsQueryResponse
+export interface WebOverviewQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewQuery
+    response?: WebOverviewQueryResponse
 }
 
-export interface WebOverviewStatsQueryResponse extends QueryResponse {
+export interface WebOverviewQueryResponse extends QueryResponse {
     results: {
         key: string
         value?: number
