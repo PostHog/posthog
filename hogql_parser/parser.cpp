@@ -570,12 +570,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(RatioExpr) {
-    auto placeholder_ctx = ctx->PLACEHOLDER();
+    auto placeholder_ctx = ctx->placeholder();
     if (placeholder_ctx) {
-      string placeholder = unquote_string_terminal(placeholder_ctx);
-      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+      return visitAsPyObject(placeholder_ctx);
     }
-    
+
     auto number_literal_ctxs = ctx->numberLiteral();
 
     if (number_literal_ctxs.size() > 2) {
@@ -1055,12 +1054,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnIdentifier) {
-    auto placeholder_ctx = ctx->PLACEHOLDER();
+    auto placeholder_ctx = ctx->placeholder();
     if (placeholder_ctx) {
-      string placeholder = unquote_string_terminal(placeholder_ctx);
-      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+      return visitAsPyObject(placeholder_ctx);
     }
-
     auto table_identifier_ctx = ctx->tableIdentifier();
     auto nested_identifier_ctx = ctx->nestedIdentifier();
     vector<string> table =
@@ -1094,8 +1091,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
   VISIT(TableExprPlaceholder) {
-    string placeholder = unquote_string_terminal(ctx->PLACEHOLDER());
-    return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+    return visitAsPyObject(ctx->placeholder());
   }
 
   VISIT(TableExprAlias) {
@@ -1206,6 +1202,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
     }
     return text;
+  }
+
+  VISIT(Placeholder) {
+    string name = visitAsString(ctx->identifier());
+    return build_ast_node("Placeholder", "{s:s#}", "field", name.data(), name.size());
   }
 
   VISIT_UNSUPPORTED(EnumValue)

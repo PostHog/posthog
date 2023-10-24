@@ -455,6 +455,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
 
 };
 

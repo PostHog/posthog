@@ -559,5 +559,10 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#placeholder.
+    def visitPlaceholder(self, ctx:HogQLParser.PlaceholderContext):
+        return self.visitChildren(ctx)
+
+
 
 del HogQLParser

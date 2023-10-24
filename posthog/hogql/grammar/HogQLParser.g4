@@ -71,7 +71,7 @@ joinConstraintClause
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
-ratioExpr: PLACEHOLDER | numberLiteral (SLASH numberLiteral)?;
+ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
 settingExprList: settingExpr (COMMA settingExpr)*;
 settingExpr: identifier EQ_SINGLE literal;
 
@@ -173,7 +173,7 @@ columnLambdaExpr:
 tagElement     :   LT identifier tagAttribute* SLASH GT;
 
 tagAttribute   :   identifier '=' STRING_LITERAL
-               |   identifier EQ_LBRACE columnExpr RBRACE
+               |   identifier '=' LBRACE columnExpr RBRACE
                |   identifier
                ;
 
@@ -189,7 +189,7 @@ withExpr
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
-columnIdentifier: PLACEHOLDER | ((tableIdentifier DOT)? nestedIdentifier);
+columnIdentifier: placeholder | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
@@ -197,7 +197,7 @@ tableExpr
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | tagElement                         # TableExprTag
-    | PLACEHOLDER                        # TableExprPlaceholder
+    | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
 tableIdentifier: (databaseIdentifier DOT)? identifier;
@@ -242,3 +242,4 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;
+placeholder: LBRACE identifier RBRACE;

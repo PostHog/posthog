@@ -239,6 +239,8 @@ public:
 
     virtual std::any visitEnumValue(HogQLParser::EnumValueContext *context) = 0;
 
+    virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *context) = 0;
+
 
 };
 
