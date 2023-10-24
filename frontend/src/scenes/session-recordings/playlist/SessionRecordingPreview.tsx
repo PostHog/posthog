@@ -9,11 +9,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { LemonButton } from '@posthog/lemon-ui'
-import { sessionPlayerModalLogic } from '../player/modal/sessionPlayerModalLogic'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -185,13 +183,8 @@ export function SessionRecordingPreview({
     pinned,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic())
 
     const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
-
-    const handleClick = (): void => {
-        openSessionPlayer(recording)
-    }
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -200,7 +193,6 @@ export function SessionRecordingPreview({
                 className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
             >
-                <LemonButton onClick={handleClick}>Hello</LemonButton>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
