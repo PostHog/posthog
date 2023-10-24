@@ -31,7 +31,7 @@ export function NotebookCanvas(): JSX.Element {
                     onClick: duplicateNotebook,
                     children: 'Save as Notebook',
                 }}
-                className="m-2"
+                className="mx-2 mt-2"
             >
                 <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for easy
                 sharing.

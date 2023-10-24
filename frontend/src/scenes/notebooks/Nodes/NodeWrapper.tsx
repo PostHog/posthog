@@ -22,10 +22,10 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
+import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
@@ -42,42 +42,31 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
 
-export interface NodeWrapperProps<T extends CustomNotebookNodeAttributes> {
-    nodeType: NotebookNodeType
+interface NodeWrapperProps<T extends CustomNotebookNodeAttributes>
+    extends Omit<NotebookNodeLogicProps, 'notebookLogic'> {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
 
-    // Meta properties - these should never be too advanced - more advanced should be done via updateAttributes in the component
-    titlePlaceholder: string
+    // View only props
     href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
-
-    // Sizing
     expandable?: boolean
-    startExpanded?: boolean
-    resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
+    selected?: boolean
     heightEstimate?: number | string
     minHeight?: number | string
     /** If true the metadata area will only show when hovered if in editing mode */
     autoHideMetadata?: boolean
     /** Expand the node if the component is clicked */
     expandOnClick?: boolean
-    settings?: NotebookNodeSettings
-
-    /** get the position in the notebook. If not set, we assume this is a side widget. TODO - make this more explicit */
-    getPos?: () => number
 }
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(
-    props: NodeWrapperProps<T> & NotebookNodeProps<T> & Pick<NodeViewProps, 'selected'>
+    props: NodeWrapperProps<T> & NotebookNodeProps<T>
 ): JSX.Element {
     const {
-        titlePlaceholder,
         nodeType,
         Component,
         selected,
         href,
         heightEstimate = '4rem',
-        resizeable: resizeableOrGenerator = true,
-        startExpanded = false,
         expandable = true,
         expandOnClick = true,
         autoHideMetadata = false,
@@ -93,21 +82,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(notebookLogic)
 
-    // nodeId can start null, but should then immediately be generated
-    const nodeId = attributes.nodeId
-    const nodeLogicProps: NotebookNodeLogicProps = {
-        nodeType,
-        attributes,
-        updateAttributes,
-        nodeId,
+    const logicProps: NotebookNodeLogicProps = {
+        ...props,
         notebookLogic: mountedNotebookLogic,
-        getPos,
-        resizeable: resizeableOrGenerator,
-        settings,
-        startExpanded,
-        titlePlaceholder,
     }
-    const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
+
+    // nodeId can start null, but should then immediately be generated
+    const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
     const { resizeable, expanded, actions } = useValues(nodeLogic)
     const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
 
@@ -161,7 +142,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
-            <BindLogic logic={notebookNodeLogic} props={nodeLogicProps}>
+            <BindLogic logic={notebookNodeLogic} props={logicProps}>
                 <NodeViewWrapper as="div">
                     <div
                         ref={ref}
@@ -211,7 +192,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
                                                                 icon={<IconFilter />}
-                                                                active={editingNodeId === nodeId}
+                                                                active={editingNodeId === attributes.nodeId}
                                                             />
                                                         ) : null}
 
@@ -276,8 +257,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(
 
 export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
-export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = NodeWrapperProps<T> & {
-    nodeType: NotebookNodeType
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
+    NodeWrapperProps<T>,
+    'updateAttributes'
+> & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string
@@ -384,14 +367,19 @@ export const NotebookNodeChildRenderer = ({
     nodeLogic,
     content,
 }: {
-    nodeLogic: notebookNodeLogicType
+    nodeLogic: BuiltLogic<notebookNodeLogicType>
     content: NotebookNodeResource
 }): JSX.Element => {
     const options = KNOWN_NODES[content.type]
 
+    // TODO: Respect attr changes
+
+    // TODO: Allow deletion
+
     return (
         <MemoizedNodeWrapper
             {...options}
+            // parentNodeLogic={nodeLogic}
             Component={options.Component}
             nodeType={content.type}
             titlePlaceholder={options.titlePlaceholder}
