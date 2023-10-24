@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import Literal, Optional, Any, List
+from typing import Literal, Optional
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedException
@@ -54,24 +54,6 @@ class CTE(Expr):
     expr: Expr
     # Whether the CTE is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
     cte_type: Literal["column", "subquery"]
-
-
-@dataclass(kw_only=True)
-class HogQLXAttribute(AST):
-    name: str
-    value: Any
-
-
-@dataclass(kw_only=True)
-class HogQLXTag(AST):
-    kind: str
-    attributes: List[HogQLXAttribute]
-
-    def to_dict(self):
-        return {
-            "kind": self.kind,
-            **{a.name: a.value for a in self.attributes},
-        }
 
 
 @dataclass(kw_only=True)

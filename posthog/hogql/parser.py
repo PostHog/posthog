@@ -5,7 +5,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from django.conf import settings
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST, HogQLXTag, HogQLXAttribute
+from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
@@ -43,7 +43,7 @@ def parse_expr(
 ) -> ast.Expr:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = "python" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
@@ -63,7 +63,7 @@ def parse_order_expr(
 ) -> ast.Expr:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = "python" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
@@ -83,7 +83,7 @@ def parse_select(
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if not backend:
         # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = "python" if settings.DEBUG else "python"
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
@@ -874,16 +874,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTagElement(self, ctx: HogQLParser.TagElementContext):
         kind = self.visit(ctx.identifier())
         attributes = [self.visit(a) for a in ctx.tagAttribute()] if ctx.tagAttribute() else []
-        return HogQLXTag(kind=kind, attributes=attributes)
+        return ast.HogQLXTag(kind=kind, attributes=attributes)
 
     def visitTagAttribute(self, ctx: HogQLParser.TagAttributeContext):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
-            return HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
+            return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
         elif ctx.STRING_LITERAL():
-            return HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
+            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
         else:
-            return HogQLXAttribute(name=name, value=ast.Constant(value=True))
+            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
 
     def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
         name = self.visit(ctx.identifier())

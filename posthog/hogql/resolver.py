@@ -5,7 +5,6 @@ from uuid import UUID
 from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.base import HogQLXTag
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
@@ -191,7 +190,7 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
-        if isinstance(node.table, HogQLXTag):
+        if isinstance(node.table, ast.HogQLXTag):
             node.table = convert_hogqlx_tag(node.table, self.context.team_id)
 
         # If selecting from a CTE, expand and visit the new node
@@ -296,7 +295,7 @@ class Resolver(CloningVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-    def visit_hogqlx_tag(self, node: HogQLXTag):
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
@@ -600,14 +599,14 @@ def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional
     return None
 
 
-def ast_to_query_node(expr: ast.Expr | HogQLXTag):
+def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
     if isinstance(expr, ast.Constant):
         return expr.value
     elif isinstance(expr, ast.Array):
         return [ast_to_query_node(e) for e in expr.exprs]
     elif isinstance(expr, ast.Tuple):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
-    elif isinstance(expr, HogQLXTag):
+    elif isinstance(expr, ast.HogQLXTag):
         for klass in schema.__dict__.values():
             if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
@@ -619,7 +618,7 @@ def ast_to_query_node(expr: ast.Expr | HogQLXTag):
         raise SyntaxException(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def convert_hogqlx_tag(node: HogQLXTag, team_id: int):
+def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
 

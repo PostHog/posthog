@@ -3,7 +3,6 @@ from typing import Literal, cast, Optional, Dict
 import math
 
 from posthog.hogql import ast
-from posthog.hogql.base import HogQLXTag, HogQLXAttribute
 from posthog.hogql.errors import HogQLException, SyntaxException
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.visitor import clear_locations
@@ -1300,9 +1299,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
             table_node = cast(ast.SelectQuery, node).select_from.table
-            assert table_node == HogQLXTag(
+            assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
-                attributes=[HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
             )
 
             node2 = self._select("select event from (<HogQLQuery query='select event from events' />)")
@@ -1312,9 +1311,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
             table_node = cast(ast.SelectQuery, node).select_from.table
             alias = cast(ast.SelectQuery, node).select_from.alias
-            assert table_node == HogQLXTag(
+            assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
-                attributes=[HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
             )
             assert alias == "a"
 
@@ -1334,21 +1333,21 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             """
             node = self._select(query)
             table_node = cast(ast.SelectQuery, node).select_from.table
-            assert table_node == HogQLXTag(
+            assert table_node == ast.HogQLXTag(
                 kind="PersonsQuery",
                 attributes=[
-                    HogQLXAttribute(
+                    ast.HogQLXAttribute(
                         name="select",
                         value=ast.Array(
                             exprs=[ast.Constant(value="id"), ast.Constant(value="properties.email as email")]
                         ),
                     ),
-                    HogQLXAttribute(
+                    ast.HogQLXAttribute(
                         name="source",
-                        value=HogQLXTag(
+                        value=ast.HogQLXTag(
                             kind="HogQLQuery",
                             attributes=[
-                                HogQLXAttribute(
+                                ast.HogQLXAttribute(
                                     name="query", value=ast.Constant(value="select distinct person_id from events")
                                 )
                             ],
