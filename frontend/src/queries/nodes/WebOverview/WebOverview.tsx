@@ -101,7 +101,7 @@ const formatPercentage = (x: number, options?: { precise?: boolean }): string =>
 
 const formatSeconds = (x: number): string => prettyMilliseconds(Math.round(x) * 1000)
 
-const formatCount = (x: number, options?: { precise?: boolean }): string => {
+const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
     } else {
@@ -121,7 +121,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return formatSeconds(value)
     } else {
-        return formatCount(value, options)
+        return formatUnit(value, options)
     }
 }
 

@@ -108,9 +108,9 @@ CROSS JOIN sessions_query
 
         return WebOverviewQueryResponse(
             results=[
-                to_data("visitors", "count", row[0], row[1]),
-                to_data("views", "count", row[2], row[3]),
-                to_data("sessions", "count", row[4], row[5]),
+                to_data("visitors", "unit", row[0], row[1]),
+                to_data("views", "unit", row[2], row[3]),
+                to_data("sessions", "unit", row[4], row[5]),
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],

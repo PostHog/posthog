@@ -602,7 +602,7 @@ class TrendsQueryResponse(BaseModel):
 
 
 class Kind(str, Enum):
-    count = "count"
+    unit = "unit"
     duration_s = "duration_s"
     percentage = "percentage"
 

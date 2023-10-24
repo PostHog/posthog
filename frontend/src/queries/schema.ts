@@ -560,7 +560,7 @@ export interface WebOverviewItem {
     key: string
     value?: number
     previous?: number
-    kind: 'count' | 'duration_s' | 'percentage'
+    kind: 'unit' | 'duration_s' | 'percentage'
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }

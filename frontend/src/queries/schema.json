@@ -2999,7 +2999,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "enum": ["count", "duration_s", "percentage"],
+                    "enum": ["unit", "duration_s", "percentage"],
                     "type": "string"
                 },
                 "previous": {
