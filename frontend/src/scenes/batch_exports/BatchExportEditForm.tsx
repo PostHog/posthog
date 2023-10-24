@@ -1,10 +1,10 @@
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { LemonInput, LemonSelect, LemonCheckbox, LemonDivider, LemonButton } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
@@ -142,6 +142,66 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                             ) : null}
                         </div>
 
+                        <Field
+                            name="exclude_events"
+                            label={
+                                <span className="flex items-center gap-2">
+                                    Events to exclude
+                                    <Tooltip
+                                        title={
+                                            'If events to exlude are selected, then those selected events will be ommitted from the export'
+                                        }
+                                    >
+                                        <IconInfo className=" text-lg text-muted-alt" />
+                                    </Tooltip>
+                                </span>
+                            }
+                            className="flex-1"
+                            showOptional
+                        >
+                            {({ value, onChange }) => (
+                                <EventSelect
+                                    selectedEvents={value}
+                                    onChange={onChange}
+                                    addElement={
+                                        <LemonButton data-attr="exclude-events-button" type="secondary">
+                                            Add event to exclude from batch export
+                                        </LemonButton>
+                                    }
+                                />
+                            )}
+                        </Field>
+
+                        <Field
+                            name="include_events"
+                            label={
+                                <span className="flex items-center gap-2">
+                                    Events to include
+                                    <Tooltip
+                                        title={
+                                            'If events to include are selected, then only those selected events will be exported'
+                                        }
+                                    >
+                                        <IconInfo className=" text-lg text-muted-alt" />
+                                    </Tooltip>
+                                </span>
+                            }
+                            className="flex-1"
+                            showOptional
+                        >
+                            {({ value, onChange }) => (
+                                <EventSelect
+                                    selectedEvents={value}
+                                    onChange={onChange}
+                                    addElement={
+                                        <LemonButton data-attr="exclude-events-button" type="secondary">
+                                            Add event to include in batch export
+                                        </LemonButton>
+                                    }
+                                />
+                            )}
+                        </Field>
+
                         <div className="space-y-4 max-w-200 w-full ">
                             <LemonDivider />
                             <Field name="destination" label="Destination">
@@ -252,23 +312,6 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             </Field>
                                         )}
                                     </div>
-
-                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
-                                        />
-                                    </Field>
-                                    <Field name="include_events" label="Events to include" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
-                                        />
-                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Snowflake' ? (
                                 <>
@@ -302,23 +345,6 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="role" label="Role" showOptional>
                                         <LemonInput placeholder="my-role" />
-                                    </Field>
-
-                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
-                                        />
-                                    </Field>
-                                    <Field name="include_events" label="Events to include" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
-                                        />
                                     </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'Postgres' ? (
@@ -366,23 +392,6 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                             }
                                         />
                                     </Field>
-
-                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
-                                        />
-                                    </Field>
-                                    <Field name="include_events" label="Events to include" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
-                                        />
-                                    </Field>
                                 </>
                             ) : batchExportConfigForm.destination === 'BigQuery' ? (
                                 <>
@@ -396,23 +405,6 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
 
                                     <Field name="dataset_id" label="Dataset ID">
                                         <LemonInput placeholder="dataset" />
-                                    </Field>
-
-                                    <Field name="exclude_events" label="Events to exclude" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={
-                                                'Input one or more events to exclude from the export (optional)'
-                                            }
-                                        />
-                                    </Field>
-                                    <Field name="include_events" label="Events to include" className="flex-1">
-                                        <LemonSelectMultiple
-                                            mode="multiple-custom"
-                                            options={[]}
-                                            placeholder={'Input one or more events to include in the export (optional)'}
-                                        />
                                     </Field>
                                 </>
                             ) : null}
