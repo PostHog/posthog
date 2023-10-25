@@ -15,7 +15,6 @@ from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
 from rest_framework import status
-from revproxy.views import ProxyView
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -27,7 +26,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import SITE_URL, DEBUG
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
@@ -44,6 +43,9 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
 ]
+
+if DEBUG:
+    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -112,6 +114,8 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
+            return self._accept(request)
+        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 
@@ -317,24 +321,6 @@ class ShortCircuitMiddleware:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response
-
-
-# Used on local devenv to forward `/i/` to capture-rs on port 3000
-class CaptureRsProxy(ProxyView):
-    upstream = "http://localhost:3000"
-
-
-# Used on local devenv to forward `/i/` to capture-rs on port 3000
-class CaptureRsProxyMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-        self.view = CaptureRsProxy.as_view()
-
-    def __call__(self, request: HttpRequest):
-        if request.path.startswith("/i/"):
-            return self.view(request, request.path.lstrip("/"))
-        else:
-            return self.get_response(request)
 
 
 class CaptureMiddleware:
