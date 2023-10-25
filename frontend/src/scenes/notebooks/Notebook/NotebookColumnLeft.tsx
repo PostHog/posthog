@@ -16,6 +16,7 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                 'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >
+            <div className="NotebookColumn__padding" />
             <div className="NotebookColumn__content">
                 {isShowingLeftColumn ? (
                     editingNodeLogic ? (

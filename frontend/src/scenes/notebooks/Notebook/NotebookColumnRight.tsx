@@ -15,6 +15,7 @@ export const NotebookColumnRight = (): JSX.Element | null => {
                 'NotebookColumn--showing': isShowing,
             })}
         >
+            <div className="NotebookColumn__padding" />
             <div className="NotebookColumn__content">
                 {isShowing ? (
                     <>
