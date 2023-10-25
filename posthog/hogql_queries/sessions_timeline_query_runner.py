@@ -49,14 +49,10 @@ class SessionsTimelineQueryRunner(QueryRunner):
         else:
             self.query = SessionsTimelineQuery.model_validate(query)
 
-    def to_query(self) -> ast.SelectQuery:
-        if self.timings is None:
-            self.timings = HogQLTimings()
-
+    def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
         before = relative_date_parse(self.query.before or "-0h", self.team.timezone_info)
-
-        with self.timings.measure("build_ast"):
+        with self.timings.measure("build_events_subquery"):
             event_conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
@@ -77,60 +73,72 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
-            select_query = cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                    SELECT
-                        e.uuid,
-                        e.timestamp,
-                        e.event,
-                        e.properties,
-                        e.distinct_id,
-                        e.elements_chain,
-                        e.session_id AS formal_session_id,
-                        first_value(e.uuid) OVER (
-                            PARTITION BY (e.person_id, session_id_flip_index) ORDER BY _toInt64(timestamp)
-                            RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW /* split informal session after 30+ min */
-                        ) AS informal_session_uuid,
-                        dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
-                    FROM (
-                        SELECT
-                            *,
-                            sum(session_id = prev_session_id ? 0 : 1) OVER (
-                                PARTITION BY person_id ORDER BY timestamp ROWS UNBOUNDED PRECEDING
-                            ) AS session_id_flip_index
-                        FROM (
-                            SELECT
-                                uuid,
-                                person_id AS person_id,
-                                timestamp AS timestamp,
-                                event,
-                                properties,
-                                distinct_id,
-                                elements_chain,
-                                $session_id AS session_id,
-                                lagInFrame($session_id, 1) OVER (
-                                    PARTITION BY person_id ORDER BY timestamp
-                                ) AS prev_session_id
-                            FROM events
-                            WHERE {event_conditions}
-                            ORDER BY timestamp DESC
-                            LIMIT {event_limit_with_more}
-                        )
-                    ) e
-                    LEFT JOIN (
-                        SELECT start_time AS start_time, end_time AS end_time, session_id FROM session_replay_events
-                    ) AS sre
-                    ON e.session_id = sre.session_id
-                    ORDER BY timestamp DESC""",
-                    placeholders={
-                        "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
-                        "event_conditions": ast.And(exprs=event_conditions),
-                    },
-                ),
+            select_query = parse_select(
+                """
+                SELECT
+                    uuid,
+                    person_id AS person_id,
+                    timestamp AS timestamp,
+                    event,
+                    properties,
+                    distinct_id,
+                    elements_chain,
+                    $session_id AS session_id,
+                    lagInFrame($session_id, 1) OVER (
+                        PARTITION BY person_id ORDER BY timestamp
+                    ) AS prev_session_id
+                FROM events
+                WHERE {event_conditions}
+                ORDER BY timestamp DESC
+                LIMIT {event_limit_with_more}""",
+                placeholders={
+                    "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
+                    "event_conditions": ast.And(exprs=event_conditions),
+                },
             )
-        return select_query
+        return cast(ast.SelectQuery, select_query)
+
+    def to_query(self) -> ast.SelectQuery:
+        if self.timings is None:
+            self.timings = HogQLTimings()
+
+        with self.timings.measure("build_sessions_timeline_query"):
+            select_query = parse_select(
+                """
+                SELECT
+                    e.uuid,
+                    e.timestamp,
+                    e.event,
+                    e.properties,
+                    e.distinct_id,
+                    e.elements_chain,
+                    e.session_id AS formal_session_id,
+                    first_value(e.uuid) OVER (
+                        PARTITION BY (e.person_id, session_id_flip_index) ORDER BY _toInt64(timestamp)
+                        RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW /* split informal session after 30+ min */
+                    ) AS informal_session_uuid,
+                    dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
+                FROM (
+                    SELECT
+                        *,
+                        sum(session_id = prev_session_id ? 0 : 1) OVER (
+                            PARTITION BY person_id ORDER BY timestamp ROWS UNBOUNDED PRECEDING
+                        ) AS session_id_flip_index
+                    FROM ({events_subquery})
+                ) e
+                LEFT JOIN (
+                    SELECT start_time AS start_time, end_time AS end_time, session_id FROM session_replay_events
+                ) AS sre
+                ON e.session_id = sre.session_id
+                ORDER BY timestamp DESC""",
+                placeholders={"events_subquery": self._get_events_subquery()},
+            )
+        return cast(ast.SelectQuery, select_query)
+
+    def to_persons_query(self):
+        return parse_select(
+            """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
+        )
 
     def calculate(self) -> SessionsTimelineQueryResponse:
         query_result = execute_hogql_query(
