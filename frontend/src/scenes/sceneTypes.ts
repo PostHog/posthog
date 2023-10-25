@@ -126,10 +126,11 @@ export interface SceneConfig {
     /**
      * If `app`, navigation is shown, and the scene has default padding.
      * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

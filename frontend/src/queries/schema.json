@@ -99,7 +99,7 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
-                    "$ref": "#/definitions/WebOverviewStatsQuery"
+                    "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
                     "$ref": "#/definitions/WebStatsTableQuery"
@@ -484,7 +484,7 @@
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         },
                         {
-                            "$ref": "#/definitions/WebOverviewStatsQuery"
+                            "$ref": "#/definitions/WebOverviewQuery"
                         },
                         {
                             "$ref": "#/definitions/WebStatsTableQuery"
@@ -1890,7 +1890,7 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
-                "WebOverviewStatsQuery",
+                "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
                 "TimeToSeeDataSessionsQuery",
@@ -2983,36 +2983,58 @@
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
-            "required": ["dateRange", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
-        "WebOverviewStatsQuery": {
+        "WebOverviewItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["unit", "duration_s", "percentage"],
+                    "type": "string"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "kind": {
-                    "const": "WebOverviewStatsQuery",
+                    "const": "WebOverviewQuery",
                     "type": "string"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
-                    "$ref": "#/definitions/WebOverviewStatsQueryResponse"
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
-        "WebOverviewStatsQueryResponse": {
+        "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -3026,17 +3048,15 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/WebOverviewItem"
+                    },
                     "type": "array"
                 },
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
                     "type": "array"
                 }
             },
@@ -3076,7 +3096,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 }
             },
-            "required": ["breakdownBy", "dateRange", "kind", "properties"],
+            "required": ["breakdownBy", "kind", "properties"],
             "type": "object"
         },
         "WebStatsTableQueryResponse": {
@@ -3133,7 +3153,7 @@
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {
