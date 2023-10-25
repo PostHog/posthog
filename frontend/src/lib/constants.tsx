@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
@@ -164,6 +165,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_PAYGATES: 'surveys-paygates',
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

@@ -111,7 +111,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
 export function NotebookPopover(): JSX.Element {
     const { visibility, fullScreen, selectedNotebook, dropProperties } = useValues(notebookPopoverLogic)
     const { setVisibility, setFullScreen, setElementRef } = useActions(notebookPopoverLogic)
-    const { isShowingSidebar } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { isShowingLeftColumn } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -145,7 +145,7 @@ export function NotebookPopover(): JSX.Element {
                 'NotebookPopover',
                 `NotebookPopover--${visibility}`,
                 fullScreen && 'NotebookPopover--full-screen',
-                isShowingSidebar && 'NotebookPopover--with-sidebar'
+                isShowingLeftColumn && 'NotebookPopover--with-sidebar'
             )}
         >
             <div
