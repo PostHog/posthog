@@ -1,11 +1,12 @@
 import re
-from functools import cached_property
 from datetime import datetime
-from typing import Optional, Dict
+from functools import cached_property
+from typing import Optional, Dict, List
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.parser import ast
 from posthog.models.team import Team
 from posthog.queries.util import get_earliest_timestamp
@@ -72,6 +73,10 @@ class QueryDateRange:
         return date_from
 
     @cached_property
+    def previous_period_date_from(self) -> datetime:
+        return self.date_from() - (self.date_to() - self.date_from())
+
+    @cached_property
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
 
@@ -82,6 +87,10 @@ class QueryDateRange:
     @cached_property
     def date_from_str(self) -> str:
         return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
+
+    @cached_property
+    def previous_period_date_from_str(self) -> str:
+        return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def is_hourly(self) -> bool:
@@ -105,6 +114,12 @@ class QueryDateRange:
             name="assumeNotNull", args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.date_from_str))])]
         )
 
+    def previous_period_date_from_as_hogql(self) -> ast.Expr:
+        return ast.Call(
+            name="assumeNotNull",
+            args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=self.previous_period_date_from_str))])],
+        )
+
     def one_interval_period(self) -> ast.Expr:
         return ast.Call(name=f"toInterval{self.interval_name.capitalize()}", args=[ast.Constant(value=1)])
 
@@ -122,3 +137,13 @@ class QueryDateRange:
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
         }
+
+    def to_properties(self, field: Optional[List[str]] = None) -> List[ast.Expr]:
+        if not field:
+            field = ["timestamp"]
+        return [
+            ast.CompareOperation(
+                left=ast.Field(chain=field), op=CompareOperationOp.LtEq, right=self.date_to_as_hogql()
+            ),
+            ast.CompareOperation(left=ast.Field(chain=field), op=CompareOperationOp.Gt, right=self.date_to_as_hogql()),
+        ]

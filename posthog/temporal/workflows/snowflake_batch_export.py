@@ -61,6 +61,8 @@ class SnowflakeInsertInputs:
     data_interval_start: str
     data_interval_end: str
     role: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -112,6 +114,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
@@ -165,6 +169,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
             )
             result = None
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
@@ -326,6 +332,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             role=inputs.role,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
         try:
             await workflow.execute_activity(

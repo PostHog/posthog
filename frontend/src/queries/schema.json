@@ -1,5 +1,4 @@
 {
-    "$ref": "#/definitions/QuerySchema",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "ActionsNode": {
@@ -79,13 +78,19 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
-                    "$ref": "#/definitions/EventsQuery"
-                },
-                {
                     "$ref": "#/definitions/ActionsNode"
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
@@ -94,16 +99,13 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
-                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
+                    "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
-                    "$ref": "#/definitions/WebTopSourcesQuery"
+                    "$ref": "#/definitions/WebStatsTableQuery"
                 },
                 {
                     "$ref": "#/definitions/WebTopClicksQuery"
-                },
-                {
-                    "$ref": "#/definitions/WebTopPagesQuery"
                 }
             ]
         },
@@ -138,6 +140,46 @@
                 },
                 {
                     "$ref": "#/definitions/EmptyPropertyFilter"
+                }
+            ]
+        },
+        "AnyResponseType": {
+            "anyOf": [
+                {
+                    "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/HogQLMetadataResponse"
+                },
+                {
+                    "anyOf": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "next": {
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/EventType"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "not": {}
+                        }
+                    ],
+                    "description": "Return a limited set of data"
+                },
+                {
+                    "$ref": "#/definitions/EventsQueryResponse"
                 }
             ]
         },
@@ -281,6 +323,45 @@
             ],
             "type": "string"
         },
+        "DashboardFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "DataNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
@@ -394,19 +475,22 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
+                            "$ref": "#/definitions/PersonsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         },
                         {
-                            "$ref": "#/definitions/WebTopSourcesQuery"
+                            "$ref": "#/definitions/WebOverviewQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/WebStatsTableQuery"
                         },
                         {
                             "$ref": "#/definitions/WebTopClicksQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/WebTopPagesQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -546,6 +630,69 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
+            "type": "object"
+        },
+        "EntityNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "EntityType": {
@@ -799,6 +946,34 @@
             "required": ["kind", "select"],
             "type": "object"
         },
+        "EventsQueryPersonColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "properties": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "email": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "type": "object"
+        },
         "EventsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -808,6 +983,9 @@
                 },
                 "hasMore": {
                     "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
                 },
                 "results": {
                     "items": {
@@ -829,7 +1007,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results"],
+            "required": ["columns", "types", "results", "hogql"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -859,6 +1037,105 @@
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
+        },
+        "FilterType": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "aggregation_group_type_index": {
+                    "type": "number"
+                },
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType"
+                },
+                "breakdown_group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "entity_id": {
+                    "type": ["string", "number"]
+                },
+                "entity_math": {
+                    "type": "string"
+                },
+                "entity_type": {
+                    "$ref": "#/definitions/EntityType"
+                },
+                "events": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "explicit_date": {
+                    "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                    "type": ["boolean", "string", "null"]
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "from_dashboard": {
+                    "type": ["boolean", "number"]
+                },
+                "insight": {
+                    "$ref": "#/definitions/InsightType"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType"
+                },
+                "new_entity": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ]
+                },
+                "sampling_factor": {
+                    "type": ["number", "null"]
+                }
+            },
+            "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -1062,6 +1339,19 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "HasPropertiesNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                }
+            ]
+        },
         "HogQLExpression": {
             "type": "string"
         },
@@ -1089,6 +1379,7 @@
             "additionalProperties": false,
             "properties": {
                 "expr": {
+                    "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
                 },
                 "filters": {
@@ -1103,6 +1394,11 @@
                     "description": "Cached query response"
                 },
                 "select": {
+                    "description": "Full select query to validate (use `select` or `expr`, but not both)",
+                    "type": "string"
+                },
+                "table": {
+                    "description": "Table to validate the expression against",
                     "type": "string"
                 }
             },
@@ -1188,6 +1484,9 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "explain": {
+                    "type": "boolean"
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },
@@ -1195,15 +1494,41 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "query": {
                     "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse",
                     "description": "Cached query response"
+                },
+                "values": {
+                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
+                    "type": "object"
                 }
             },
             "required": ["kind", "query"],
+            "type": "object"
+        },
+        "HogQLQueryModifiers": {
+            "additionalProperties": false,
+            "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
+            "properties": {
+                "inCohortVia": {
+                    "enum": ["leftjoin", "subquery"],
+                    "type": "string"
+                },
+                "personsArgMaxVersion": {
+                    "enum": ["auto", "v1", "v2"],
+                    "type": "string"
+                },
+                "personsOnEventsMode": {
+                    "enum": ["disabled", "v1_enabled", "v1_mixed", "v2_enabled"],
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "HogQLQueryResponse": {
@@ -1216,8 +1541,17 @@
                     "items": {},
                     "type": "array"
                 },
+                "explain": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "hogql": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "query": {
                     "type": "string"
@@ -1238,6 +1572,50 @@
                 }
             },
             "type": "object"
+        },
+        "InsightFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsFilter"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsFilter"
+                },
+                {
+                    "$ref": "#/definitions/RetentionFilter"
+                },
+                {
+                    "$ref": "#/definitions/PathsFilter"
+                },
+                {
+                    "$ref": "#/definitions/StickinessFilter"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleFilter"
+                }
+            ]
+        },
+        "InsightFilterProperty": {
+            "enum": [
+                "trendsFilter",
+                "funnelsFilter",
+                "retentionFilter",
+                "pathsFilter",
+                "stickinessFilter",
+                "lifecycleFilter"
+            ],
+            "type": "string"
+        },
+        "InsightNodeKind": {
+            "enum": [
+                "TrendsQuery",
+                "FunnelsQuery",
+                "RetentionQuery",
+                "PathsQuery",
+                "StickinessQuery",
+                "LifecycleQuery"
+            ],
+            "type": "string"
         },
         "InsightQueryNode": {
             "anyOf": [
@@ -1262,6 +1640,10 @@
             ]
         },
         "InsightShortId": {
+            "type": "string"
+        },
+        "InsightType": {
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -1307,6 +1689,47 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "InsightsQueryBase": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
             "type": "string"
@@ -1317,9 +1740,6 @@
             "properties": {
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 },
                 "toggledLifecycles": {
                     "items": {
@@ -1399,6 +1819,9 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -1408,7 +1831,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -1421,11 +1844,61 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
+            "type": "string"
+        },
+        "NamedParameters<typeof dateRangeForFilter>": {
+            "additionalProperties": false,
+            "properties": {
+                "source": {
+                    "$ref": "#/definitions/FilterType"
+                }
+            },
+            "type": "object"
+        },
+        "Node": {
+            "additionalProperties": false,
+            "description": "Node base class, everything else inherits from here",
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "NodeKind": {
+            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run generate:schema:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run generate:schema:python\"",
+            "enum": [
+                "EventsNode",
+                "ActionsNode",
+                "EventsQuery",
+                "PersonsNode",
+                "HogQLQuery",
+                "HogQLMetadata",
+                "PersonsQuery",
+                "DataTableNode",
+                "SavedInsightNode",
+                "InsightVizNode",
+                "TrendsQuery",
+                "FunnelsQuery",
+                "RetentionQuery",
+                "PathsQuery",
+                "StickinessQuery",
+                "LifecycleQuery",
+                "WebOverviewQuery",
+                "WebTopClicksQuery",
+                "WebStatsTableQuery",
+                "TimeToSeeDataSessionsQuery",
+                "TimeToSeeDataQuery",
+                "TimeToSeeDataSessionsJSONNode",
+                "TimeToSeeDataSessionsWaterfallNode",
+                "DatabaseSchemaQuery"
+            ],
             "type": "string"
         },
         "PathCleaningFilter": {
@@ -1622,6 +2095,115 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
+                "orderBy": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse",
+                    "description": "Cached query response"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "select": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "columns", "types", "hogql"],
+            "type": "object"
+        },
+        "PropertyFilterType": {
+            "enum": [
+                "meta",
+                "event",
+                "person",
+                "element",
+                "feature",
+                "session",
+                "cohort",
+                "recording",
+                "group",
+                "hogql"
+            ],
+            "type": "string"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -1708,6 +2290,35 @@
                 "max"
             ],
             "type": "string"
+        },
+        "QueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
         },
         "QuerySchema": {
             "anyOf": [
@@ -2006,10 +2617,6 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
-        "ShownAsValue": {
-            "enum": ["Volume", "Stickiness", "Lifecycle"],
-            "type": "string"
-        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2035,9 +2642,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 }
             },
             "type": "object"
@@ -2105,6 +2709,60 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "TimeToSeeDataJSONNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataSessionsJSONNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/TimeToSeeDataQuery"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "TimeToSeeDataNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TimeToSeeDataJSONNode"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataWaterfallNode"
+                }
+            ]
+        },
+        "TimeToSeeDataQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "sessionEnd": {
+                    "type": "string"
+                },
+                "sessionId": {
+                    "description": "Project to filter on. Defaults to current session",
+                    "type": "string"
+                },
+                "sessionStart": {
+                    "description": "Session start time. Defaults to current time - 2 hours",
+                    "type": "string"
+                },
+                "teamId": {
+                    "description": "Project to filter on. Defaults to current project",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "TimeToSeeDataSessionsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -2139,6 +2797,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TimeToSeeDataWaterfallNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "TimeToSeeDataSessionsWaterfallNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/TimeToSeeDataQuery"
+                }
+            },
+            "required": ["kind", "source"],
             "type": "object"
         },
         "TrendsFilter": {
@@ -2180,9 +2852,6 @@
                 },
                 "show_values_on_series": {
                     "type": "boolean"
-                },
-                "shown_as": {
-                    "$ref": "#/definitions/ShownAsValue"
                 },
                 "smoothing_intervals": {
                     "type": "number"
@@ -2263,6 +2932,9 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2272,7 +2944,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {
                         "type": "object"
                     },
@@ -2285,28 +2957,203 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         },
-        "WebAnalyticsFilters": {},
+        "WebAnalyticsPropertyFilters": {
+            "items": {
+                "anyOf": [
+                    {
+                        "$ref": "#/definitions/EventPropertyFilter"
+                    },
+                    {
+                        "$ref": "#/definitions/HogQLPropertyFilter"
+                    }
+                ]
+            },
+            "type": "array"
+        },
+        "WebAnalyticsQueryBase": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                }
+            },
+            "required": ["properties"],
+            "type": "object"
+        },
+        "WebOverviewItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["unit", "duration_s", "percentage"],
+                    "type": "string"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebOverviewQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebOverviewQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebOverviewQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebOverviewItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebStatsBreakdown": {
+            "enum": [
+                "Page",
+                "InitialPage",
+                "InitialReferringDomain",
+                "InitialUTMSource",
+                "InitialUTMCampaign",
+                "Browser",
+                "OS",
+                "DeviceType"
+            ],
+            "type": "string"
+        },
+        "WebStatsTableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownBy": {
+                    "$ref": "#/definitions/WebStatsBreakdown"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "WebStatsTableQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebStatsTableQueryResponse"
+                }
+            },
+            "required": ["breakdownBy", "kind", "properties"],
+            "type": "object"
+        },
+        "WebStatsTableQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "WebTopClicksQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
                 "kind": {
                     "const": "WebTopClicksQuery",
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["kind", "filters"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {
@@ -2316,6 +3163,9 @@
                     "items": {},
                     "type": "array"
                 },
+                "hogql": {
+                    "type": "string"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -2325,7 +3175,7 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
-                "result": {
+                "results": {
                     "items": {},
                     "type": "array"
                 },
@@ -2340,115 +3190,7 @@
                     "type": "array"
                 }
             },
-            "required": ["result"],
-            "type": "object"
-        },
-        "WebTopPagesQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
-                "kind": {
-                    "const": "WebTopPagesQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTopPagesQueryResponse"
-                }
-            },
-            "required": ["kind", "filters"],
-            "type": "object"
-        },
-        "WebTopPagesQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "type": "string"
-                },
-                "result": {
-                    "items": {},
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                }
-            },
-            "required": ["result"],
-            "type": "object"
-        },
-        "WebTopSourcesQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "filters": {
-                    "$ref": "#/definitions/WebAnalyticsFilters"
-                },
-                "kind": {
-                    "const": "WebTopSourcesQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTopSourcesQueryResponse"
-                }
-            },
-            "required": ["kind", "filters"],
-            "type": "object"
-        },
-        "WebTopSourcesQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "type": "string"
-                },
-                "result": {
-                    "items": {},
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
-                    "type": "array"
-                }
-            },
-            "required": ["result"],
+            "required": ["results"],
             "type": "object"
         }
     }

@@ -3,7 +3,7 @@ import { sdksLogic } from './sdksLogic'
 import { useActions, useValues } from 'kea'
 import { OnboardingStep } from '../OnboardingStep'
 import { SDKSnippet } from './SDKSnippet'
-import { onboardingLogic } from '../onboardingLogic'
+import { OnboardingStepKey, onboardingLogic } from '../onboardingLogic'
 import { useEffect } from 'react'
 import React from 'react'
 import { SDKInstructionsMap } from '~/types'
@@ -13,10 +13,12 @@ export function SDKs({
     usersAction,
     sdkInstructionMap,
     subtitle,
+    stepKey = OnboardingStepKey.SDKS,
 }: {
     usersAction?: string
     sdkInstructionMap: SDKInstructionsMap
     subtitle?: string
+    stepKey?: OnboardingStepKey
 }): JSX.Element {
     const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap } = useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect } = useValues(sdksLogic)
@@ -30,6 +32,7 @@ export function SDKs({
         <OnboardingStep
             title={`Where are you ${usersAction || 'collecting data'} from?`}
             subtitle={subtitle || 'Pick one or two to start and add more sources later.'}
+            stepKey={stepKey}
         >
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">

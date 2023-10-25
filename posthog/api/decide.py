@@ -2,7 +2,6 @@ from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.feature_flag.flag_analytics import increment_request_count
@@ -220,10 +219,23 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
+                sample_rate = team.session_recording_sample_rate or None
+                if sample_rate == "1.00":
+                    sample_rate = None
+
+                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+                linked_flag = team.session_recording_linked_flag or None
+                if isinstance(linked_flag, Dict):
+                    linked_flag = linked_flag.get("key")
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
+                    "sampleRate": sample_rate,
+                    "minimumDurationMilliseconds": minimum_duration,
+                    "linkedFlag": linked_flag,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False
@@ -245,13 +257,10 @@ def get_decide(request: HttpRequest):
 
             if feature_flags:
                 # Billing analytics for decide requests with feature flags
-                # Don't count if all requests are for survey targeting flags only.
-                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
-
-                    # Sample no. of decide requests with feature flags
-                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                        increment_request_count(team.pk, count)
+                # Sample no. of decide requests with feature flags
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
 
         else:
             # no auth provided

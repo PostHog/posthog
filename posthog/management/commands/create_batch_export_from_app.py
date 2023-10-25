@@ -115,7 +115,9 @@ class Command(BaseCommand):
             client = sync_connect()
             end_at = dt.datetime.utcnow()
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
-            backfill_export(client, batch_export_id=str(batch_export.id), start_at=start_at, end_at=end_at)
+            backfill_export(
+                client, batch_export_id=str(batch_export.id), team_id=team_id, start_at=start_at, end_at=end_at
+            )
             self.stdout.write(f"Triggered backfill for BatchExport '{name}'.")
 
         self.stdout.write("Done!")

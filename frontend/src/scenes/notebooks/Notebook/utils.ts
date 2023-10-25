@@ -10,8 +10,7 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NodeViewProps } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -27,7 +26,13 @@ export type CustomNotebookNodeAttributes = Record<string, any>
 export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T & {
     nodeId: string
     height?: string | number
-    title: string
+    title?: string
+    __init?: {
+        expanded?: boolean
+        showSettings?: boolean
+    }
+    // TODO: Type this more specifically to be our supported nodes only
+    children?: NotebookNodeResource[]
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -38,20 +43,11 @@ export type NotebookNodeAttributeProperties<T extends CustomNotebookNodeAttribut
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<T>>) => void
 }
 
-export type NotebookNodeViewProps<T extends CustomNotebookNodeAttributes> = Omit<
-    NodeViewProps,
-    'node' | 'updateAttributes'
-> &
-    NotebookNodeAttributeProperties<T> & {
-        node: NotebookNode
-    }
+export type NotebookNodeProps<T extends CustomNotebookNodeAttributes> = NotebookNodeAttributeProperties<T>
 
-export type NotebookNodeWidget = {
-    key: string
-    label?: string
+export type NotebookNodeSettings =
     // using 'any' here shouldn't be necessary but, I couldn't figure out how to set a generic on the notebookNodeLogic props
-    Component: ({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element
-}
+    (({ attributes, updateAttributes }: NotebookNodeAttributeProperties<any>) => JSX.Element) | null
 
 export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
     text: string
@@ -67,6 +63,7 @@ export interface NotebookEditor {
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void
+    setTextSelection: (position: number | EditorRange) => void
     focus: (position: EditorFocusPosition) => void
     destroy: () => void
     deleteRange: (range: EditorRange) => EditorCommands
@@ -78,6 +75,7 @@ export interface NotebookEditor {
     nextNode: (position: number) => { node: Node; position: number } | null
     hasChildOfType: (node: Node, type: string) => boolean
     scrollToSelection: () => void
+    scrollToPosition: (position: number) => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
@@ -118,13 +116,14 @@ export const textContent = (node: any): string => {
         'ph-feature-flag': customOrTitleSerializer,
         'ph-feature-flag-code-example': customOrTitleSerializer,
         'ph-image': customOrTitleSerializer,
-        'ph-insight': customOrTitleSerializer,
         'ph-person': customOrTitleSerializer,
         'ph-query': customOrTitleSerializer,
         'ph-recording': customOrTitleSerializer,
         'ph-recording-playlist': customOrTitleSerializer,
         'ph-replay-timestamp': customOrTitleSerializer,
         'ph-survey': customOrTitleSerializer,
+        'ph-group': customOrTitleSerializer,
+        'ph-cohort': customOrTitleSerializer,
     }
 
     return getText(node, {

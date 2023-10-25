@@ -7,6 +7,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
+from posthog.schema import HogQLQueryModifiers
 from posthog.test.base import BaseTest, _create_person, _create_event, flush_persons_and_events
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
@@ -38,14 +39,15 @@ class TestCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
             self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
         self.assertEqual(
             response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), equals(events.event, %(hogql_val_0)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), equals(events.event, %(hogql_val_0)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
+            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM raw_cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
         )
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
@@ -59,10 +61,11 @@ class TestCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk}",
             self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
         self.assertEqual(
             response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
         self.assertEqual(
             response.hogql,
@@ -79,10 +82,11 @@ class TestCohort(BaseTest):
         response = execute_hogql_query(
             f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
             self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
         self.assertEqual(
             response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
         self.assertEqual(
             response.hogql,

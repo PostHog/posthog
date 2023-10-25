@@ -1,12 +1,13 @@
-import { PersonsNode } from '~/queries/schema'
+import { PersonsNode, PersonsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter } from '~/types'
+import { PersonPropertyFilter } from '~/types'
 import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isPersonsQuery } from '~/queries/utils'
 
 interface PersonPropertyFiltersProps {
-    query: PersonsNode
-    setQuery?: (query: PersonsNode) => void
+    query: PersonsNode | PersonsQuery
+    setQuery?: (query: PersonsNode | PersonsQuery) => void
 }
 
 let uniqueNode = 0
@@ -15,9 +16,23 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
     return !query.properties || Array.isArray(query.properties) ? (
         <PropertyFilters
             propertyFilters={query.properties || []}
-            onChange={(value: AnyPropertyFilter[]) => setQuery?.({ ...query, properties: value })}
+            onChange={(value) => {
+                setQuery?.({
+                    ...query,
+                    properties: value as PersonPropertyFilter[],
+                })
+            }}
             pageKey={`PersonPropertyFilters.${id}`}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+            taxonomicGroupTypes={
+                isPersonsQuery(query)
+                    ? [
+                          TaxonomicFilterGroupType.PersonProperties,
+                          TaxonomicFilterGroupType.Cohorts,
+                          TaxonomicFilterGroupType.HogQLExpression,
+                      ]
+                    : [TaxonomicFilterGroupType.PersonProperties]
+            }
+            hogQLTable="persons"
             style={{ marginBottom: 0, marginTop: 0 }}
         />
     ) : (

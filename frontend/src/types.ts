@@ -26,14 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import {
+import type {
+    DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
-    InsightQueryNode,
     InsightVizNode,
     Node,
-    QueryContext,
 } from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -86,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {
@@ -342,6 +346,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
+    session_recording_minimum_duration_milliseconds: number | null
+    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -665,16 +673,8 @@ export interface SessionRecordingSnapshotSource {
 }
 
 export interface SessionRecordingSnapshotResponse {
-    // Future interface
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
-
-    // legacy interface
-    next?: string
-    // When loaded from S3
-    blob_keys?: string[]
-    // When loaded from Clickhouse (legacy)
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -684,12 +684,10 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
-    next?: string
     blob_keys?: string[]
 }
 
 export interface SessionPlayerData {
-    pinnedCount: number
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
@@ -750,6 +748,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
+    console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
 }
@@ -1030,13 +1029,11 @@ export interface SessionRecordingType {
     /** count of all mouse activity in the recording, not just clicks */
     mouse_activity_count?: number
     start_url?: string
-    /** Count of number of playlists this recording is pinned to. **/
-    pinned_count?: number
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
     /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
+    storage?: 'object_storage_lts' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1361,7 +1358,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1370,7 +1367,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
@@ -1522,6 +1519,23 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
+export enum BatchExportLogEntryLevel {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warning = 'WARNING',
+    Error = 'ERROR',
+}
+
+export interface BatchExportLogEntry {
+    team_id: number
+    batch_export_id: number
+    run_id: number
+    timestamp: string
+    level: BatchExportLogEntryLevel
+    message: string
+}
+
 export enum AnnotationScope {
     Insight = 'dashboard_item',
     Project = 'project',
@@ -1671,6 +1685,7 @@ export interface TrendsFilterType extends FilterType {
     smoothing_intervals?: number
     compare?: boolean
     formula?: string
+    /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
@@ -1687,6 +1702,7 @@ export interface TrendsFilterType extends FilterType {
 
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
+    /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
 
@@ -1757,6 +1773,7 @@ export interface RetentionFilterType extends FilterType {
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
+    /** @deprecated */
     shown_as?: ShownAsValue
 
     // frontend only
@@ -1807,7 +1824,6 @@ export enum RecordingWindowFilter {
 }
 
 export interface EditorFilterProps {
-    query: InsightQueryNode
     insightProps: InsightLogicProps
 }
 
@@ -2089,7 +2105,12 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean; seenSurveyWaitPeriodInDays?: number } | null
+    conditions: {
+        url: string
+        selector: string
+        seenSurveyWaitPeriodInDays?: number
+        urlMatchType?: SurveyUrlMatchType
+    } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2098,6 +2119,12 @@ export interface Survey {
     end_date: string | null
     archived: boolean
     remove_targeting_flag?: boolean
+}
+
+export enum SurveyUrlMatchType {
+    Exact = 'exact',
+    Contains = 'icontains',
+    Regex = 'regex',
 }
 
 export enum SurveyType {
@@ -2126,7 +2153,7 @@ export interface SurveyAppearance {
 export interface SurveyQuestionBase {
     question: string
     description?: string | null
-    required?: boolean
+    optional?: boolean
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2296,7 +2323,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    region: Region
+    region: Region | null
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -2899,13 +2926,11 @@ export type OnlineExportContext = {
     query?: any
     body?: any
     filename?: string
-    max_limit?: number
 }
 
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    max_limit?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
@@ -3041,7 +3066,6 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
-    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3051,6 +3075,8 @@ export enum NotebookNodeType {
     EarlyAccessFeature = 'ph-early-access-feature',
     Survey = 'ph-survey',
     Person = 'ph-person',
+    Group = 'ph-group',
+    Cohort = 'ph-cohort',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
@@ -3112,6 +3138,7 @@ export type BatchExportDestinationS3 = {
         aws_access_key_id: string
         aws_secret_access_key: string
         exclude_events: string[]
+        include_events: string[]
         compression: string | null
         encryption: string | null
         kms_key_id: string | null
@@ -3129,6 +3156,8 @@ export type BatchExportDestinationPostgres = {
         schema: string
         table_name: string
         has_self_signed_cert: boolean
+        exclude_events: string[]
+        include_events: string[]
     }
 }
 
@@ -3143,6 +3172,8 @@ export type BatchExportDestinationSnowflake = {
         schema: string
         table_name: string
         role: string | null
+        exclude_events: string[]
+        include_events: string[]
     }
 }
 
@@ -3157,6 +3188,7 @@ export type BatchExportDestinationBigQuery = {
         dataset_id: string
         table_id: string
         exclude_events: string[]
+        include_events: string[]
     }
 }
 
@@ -3172,7 +3204,7 @@ export type BatchExportConfiguration = {
     id: string
     name: string
     destination: BatchExportDestination
-    interval: 'hour' | 'day'
+    interval: 'hour' | 'day' | 'every 5 minutes'
     created_at: string
     start_at: string | null
     end_at: string | null

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
@@ -35,7 +35,14 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        create_session_recording_events(self.team.pk, datetime(2021, 5, 1), "user_one", "s1b")
+        timestamp = datetime(2021, 5, 1)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1b",
+            distinct_id="user_one",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         filter = Filter(data={"funnel_to_step": 1, **filter_data})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
@@ -55,7 +62,14 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         # the session recording can start a little before the events in the funnel
-        create_session_recording_events(self.team.pk, datetime(2021, 5, 1) - timedelta(hours=12), "user_one", "s1c")
+        timestamp = datetime(2021, 5, 1) - timedelta(hours=12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1c",
+            distinct_id="user_one",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         filter = Filter(data=filter_data)
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
@@ -72,7 +86,14 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        create_session_recording_events(self.team.pk, datetime(2021, 5, 1), "user_one", "s1a")
+        timestamp = datetime(2021, 5, 1)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1a",
+            distinct_id="user_one",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         filter = Filter(data={**filter_data, "drop_off": True})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()

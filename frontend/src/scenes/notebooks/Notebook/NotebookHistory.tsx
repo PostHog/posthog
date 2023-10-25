@@ -106,7 +106,7 @@ export function NotebookHistory(): JSX.Element {
     }
 
     return (
-        <LemonWidget title="Notebook History" collapsible={false} onClose={() => setShowHistory(false)}>
+        <LemonWidget title="Notebook History" onClose={() => setShowHistory(false)}>
             <div className="NotebookHistory">
                 <p className="m-3">
                     Below is the history of all persisted changes. You can select any version to view how it was at that

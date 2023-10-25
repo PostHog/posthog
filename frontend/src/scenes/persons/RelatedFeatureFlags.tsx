@@ -118,6 +118,15 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
         },
     ]
 
+    const options = [
+        { label: 'All types', value: 'all' },
+        {
+            label: FeatureFlagReleaseType.ReleaseToggle,
+            value: FeatureFlagReleaseType.ReleaseToggle,
+        },
+        { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+    ]
+
     return (
         <>
             <div className="flex justify-between mb-4">
@@ -132,16 +141,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Type</b>
                     </span>
                     <LemonSelect
-                        options={
-                            [
-                                { label: 'All types', value: 'all' },
-                                {
-                                    label: FeatureFlagReleaseType.ReleaseToggle,
-                                    value: FeatureFlagReleaseType.ReleaseToggle,
-                                },
-                                { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-                            ] as { label: string; value: string }[]
-                        }
+                        options={options}
                         onChange={(type) => {
                             if (type) {
                                 if (type === 'all') {
@@ -199,11 +199,13 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                                 }
                             }
                         }}
-                        options={[
-                            { label: 'All', value: 'all' },
-                            { label: 'Enabled', value: 'true' },
-                            { label: 'Disabled', value: 'false' },
-                        ]}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
+                            ] as { label: string; value: string }[]
+                        }
                         value="all"
                         dropdownMaxContentWidth
                     />

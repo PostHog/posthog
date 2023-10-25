@@ -24,22 +24,32 @@ from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.web_analytics.top_clicks import WebTopClicksQueryRunner
-from posthog.hogql_queries.web_analytics.top_pages import WebTopPagesQueryRunner
-from posthog.hogql_queries.web_analytics.top_sources import WebTopSourcesQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.models.event.events_query import run_events_query
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
+from posthog.schema import HogQLMetadata
 from posthog.utils import refresh_requested_by_client
+
+QUERY_WITH_RUNNER = [
+    "LifecycleQuery",
+    "TrendsQuery",
+    "WebOverviewQuery",
+    "WebTopSourcesQuery",
+    "WebTopClicksQuery",
+    "WebTopPagesQuery",
+    "WebStatsTableQuery",
+]
+QUERY_WITH_RUNNER_NO_CACHE = [
+    "EventsQuery",
+    "PersonsQuery",
+    "HogQLQuery",
+]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -55,7 +65,7 @@ class QuerySchemaParser(JSONParser):
     @staticmethod
     def validate_query(data) -> Dict:
         try:
-            schema.Model.model_validate(data)
+            schema.QuerySchema.model_validate(data)
             # currently we have to return data not the parsed Model
             # because pydantic doesn't know to discriminate on 'kind'
             # if we can get this correctly typed we can return the parsed model
@@ -201,42 +211,26 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, default_limit: Optional[int] = None, request: Optional[Request] = None
+    team: Team, query_json: Dict, in_export_context: Optional[bool] = False, request: Optional[Request] = None
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
     query_kind = query_json.get("kind")
-
     tag_queries(query=query_json)
 
-    if query_kind == "EventsQuery":
-        events_query = EventsQuery.model_validate(query_json)
-        events_response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _unwrap_pydantic_dict(events_response)
-    elif query_kind == "HogQLQuery":
-        hogql_query = HogQLQuery.model_validate(query_json)
-        hogql_response = execute_hogql_query(
-            query_type="HogQLQuery",
-            query=hogql_query.query,
-            team=team,
-            filters=hogql_query.filters,
-            default_limit=default_limit,
-        )
-        return _unwrap_pydantic_dict(hogql_response)
+    if query_kind in QUERY_WITH_RUNNER:
+        refresh_requested = refresh_requested_by_client(request) if request else False
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
+    elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
+        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.model_validate(query_json)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
         return _unwrap_pydantic_dict(metadata_response)
-    elif query_kind == "LifecycleQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        lifecycle_query_runner = LifecycleQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(lifecycle_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "TrendsQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        trends_query_runner = TrendsQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(trends_query_runner.run(refresh_requested=refresh_requested))
     elif query_kind == "DatabaseSchemaQuery":
-        database = create_hogql_database(team.pk)
+        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
         return serialize_database(database)
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
@@ -253,18 +247,6 @@ def process_query(
         )
         serializer.is_valid(raise_exception=True)
         return get_session_events(serializer) or {}
-    elif query_kind == "WebTopSourcesQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_sources_query_runner = WebTopSourcesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_sources_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "WebTopClicksQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_clicks_query_runner = WebTopClicksQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_clicks_query_runner.run(refresh_requested=refresh_requested))
-    elif query_kind == "WebTopPagesQuery":
-        refresh_requested = refresh_requested_by_client(request) if request else False
-        web_top_pages_query_runner = WebTopPagesQueryRunner(query_json, team)
-        return _unwrap_pydantic_dict(web_top_pages_query_runner.run(refresh_requested=refresh_requested))
     else:
         if query_json.get("source"):
             return process_query(team, query_json["source"])

@@ -336,7 +336,6 @@ const meta: Meta = {
                                 uuid: '018a8a51-a3d3-0000-e8fa-94621f9ddd48',
                             },
                             storage: 'clickhouse',
-                            pinned_count: 0,
                         },
                     ],
                     has_next: false,

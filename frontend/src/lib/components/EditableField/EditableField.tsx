@@ -110,6 +110,7 @@ export function EditableField({
                 className
             )}
             data-attr={dataAttr}
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
             <Tooltip

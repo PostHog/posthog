@@ -113,20 +113,12 @@ module.exports = {
                         message: 'use <LemonDivider> instead',
                     },
                     {
-                        element: 'Typography',
-                        message: 'use utility classes instead',
-                    },
-                    {
                         element: 'Card',
                         message: 'use utility classes instead',
                     },
                     {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
-                    },
-                    {
-                        element: 'Input.TextArea',
-                        message: 'use <LemonTextArea> instead',
                     },
                     {
                         element: 'Input',
@@ -147,10 +139,6 @@ module.exports = {
                     {
                         element: 'a',
                         message: 'use <Link> instead',
-                    },
-                    {
-                        element: 'ReactMarkdown',
-                        message: 'use <LemonMarkdown> instead',
                     },
                 ],
             },
@@ -182,6 +170,18 @@ module.exports = {
                     {
                         element: 'MonacoEditor',
                         message: 'use <CodeEditor> instead',
+                    },
+                    {
+                        element: 'Typography',
+                        message: 'use utility classes instead',
+                    },
+                    {
+                        element: 'Input.TextArea',
+                        message: 'use <LemonTextArea> instead',
+                    },
+                    {
+                        element: 'ReactMarkdown',
+                        message: 'use <LemonMarkdown> instead',
                     },
                 ],
             },

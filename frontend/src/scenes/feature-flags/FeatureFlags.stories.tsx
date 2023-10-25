@@ -22,6 +22,14 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/feature_flags': featureFlags,
+                '/api/projects/:team_id/feature_flags/1111111111111/': [
+                    404,
+                    {
+                        type: 'invalid',
+                        code: 'not_found',
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
@@ -56,6 +64,13 @@ export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
         useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
+    }, [])
+    return <App />
+}
+
+export function FeatureFlagNotFound(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1111111111111))
     }, [])
     return <App />
 }

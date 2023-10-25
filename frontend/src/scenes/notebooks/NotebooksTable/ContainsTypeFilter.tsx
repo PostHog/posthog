@@ -9,12 +9,13 @@ export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, Noteboo
     [NotebookNodeType.EarlyAccessFeature]: 'Early Access Features',
     [NotebookNodeType.Survey]: 'Surveys',
     [NotebookNodeType.Image]: 'Images',
-    [NotebookNodeType.Insight]: 'Insights',
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',
+    [NotebookNodeType.Cohort]: 'Cohorts',
+    [NotebookNodeType.Group]: 'Groups',
 }
 
 export function ContainsTypeFilters({

@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import {
     SessionRecordingPlayerMode,
     getCurrentPlayerTime,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -18,16 +19,16 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeViewProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
+import { NotFound } from 'lib/components/NotFound'
 
 const HEIGHT = 500
-const MIN_HEIGHT = 400
+const MIN_HEIGHT = '20rem'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const id = props.attributes.id
-    const noInspector: boolean = props.attributes.noInspector
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
+    const { id, noInspector } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -37,10 +38,21 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
         noInspector: noInspector,
     }
 
-    const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
-    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, insertReplayCommentByTimestamp } = useActions(notebookNodeLogic)
+    const {
+        setActions,
+        insertAfter,
+        insertReplayCommentByTimestamp,
+        setMessageListeners,
+        setExpanded,
+        scrollIntoView,
+    } = useActions(notebookNodeLogic)
+
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
+        sessionRecordingDataLogic(recordingLogicProps)
+    )
+    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
     useEffect(() => {
         loadRecordingMeta()
@@ -76,10 +88,28 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeRecordingAttributes>
         ])
     }, [sessionPlayerMetaData?.person?.id])
 
+    useEffect(() => {
+        setMessageListeners({
+            'play-replay': ({ time }) => {
+                if (!expanded) {
+                    setExpanded(true)
+                }
+                setPlay()
+
+                seekToTime(time)
+                scrollIntoView()
+            },
+        })
+    }, [])
+
+    if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
+        return <NotFound object="replay" />
+    }
+
     return !expanded ? (
         <div>
             {sessionPlayerMetaData ? (
-                <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+                <SessionRecordingPreview recording={sessionPlayerMetaData} />
             ) : (
                 <SessionRecordingPreviewSkeleton />
             )}
@@ -112,7 +142,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    defaultTitle: 'Session replay',
+    titlePlaceholder: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -132,13 +162,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    widgets: [
-        {
-            key: 'settings',
-            label: 'Settings',
-            Component: Settings,
-        },
-    ],
+    settings: Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

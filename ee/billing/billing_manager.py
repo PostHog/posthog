@@ -248,6 +248,11 @@ class BillingManager:
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
+        never_drop_data = data.get("never_drop_data", None)
+        if never_drop_data != organization.never_drop_data:
+            organization.never_drop_data = never_drop_data
+            org_modified = True
+
         if org_modified:
             organization.save()
 

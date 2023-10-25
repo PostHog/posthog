@@ -45,13 +45,16 @@ import {
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { QueryContext } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { InsightMeta } from './InsightMeta'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -186,7 +189,7 @@ export function FilterBasedCardContent({
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
-    const query = filtersToQueryNode(insight.filters)
+    const query: InsightQueryNode = filtersToQueryNode(insight.filters)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
         key: insightVizDataNodeKey(insightProps),
@@ -271,10 +274,10 @@ function InsightCardInternal(
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
         cachedInsight: insight,
-        doNotLoad: true,
     }
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightLogicProps)
     )
@@ -292,7 +295,7 @@ function InsightCardInternal(
             empty = true
         }
     }
-    if (insightLoading) {
+    if (insightLoading || insightDataLoading) {
         loading = true
     }
 
@@ -351,7 +354,7 @@ function InsightCardInternal(
                             <QueriesUnsupportedHere />
                         )}
                     </div>
-                ) : (
+                ) : insight.filters?.insight ? (
                     <FilterBasedCardContent
                         insight={insight}
                         insightProps={insightLogicProps}
@@ -370,6 +373,13 @@ function InsightCardInternal(
                         }
                         setAreDetailsShown={setAreDetailsShown}
                     />
+                ) : (
+                    <div className="flex justify-between items-center h-full">
+                        <InsightErrorState
+                            excludeDetail
+                            title="Missing 'filters.insight' property, can't display insight"
+                        />
+                    </div>
                 )}
             </BindLogic>
             {showResizeHandles && (

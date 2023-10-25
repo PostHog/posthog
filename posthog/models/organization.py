@@ -119,10 +119,8 @@ class Organization(UUIDModel):
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
 
-    # Managed by Billing
+    ## Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    # will be deprecated in favor of `available_product_features` once we're fully using that format in the frontend
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -132,6 +130,7 @@ class Organization(UUIDModel):
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
+    never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -139,6 +138,9 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
+    available_features = ArrayField(
+        models.CharField(max_length=64, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -304,7 +306,16 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
 
-    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
+    def validate(
+        self,
+        *,
+        user: Optional["User"] = None,
+        email: Optional[str] = None,
+        invite_email: Optional[str] = None,
+        request_path: Optional[str] = None,
+    ) -> None:
+        from .user import User
+
         _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
@@ -317,6 +328,9 @@ class OrganizationInvite(UUIDModel):
             raise exceptions.ValidationError(
                 "This invite has expired. Please ask your admin for a new one.", code="expired"
             )
+
+        if user is None and User.objects.filter(email=invite_email).exists():
+            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(

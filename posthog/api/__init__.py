@@ -4,7 +4,6 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import saved_query, table, view_link
-
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
