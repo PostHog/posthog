@@ -21,7 +21,8 @@ type FeedProps = {
 }
 
 const Feed = ({ person }: FeedProps): JSX.Element => {
-    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: person.id }))
+    const id = person.id ?? 'missing'
+    const { sessions, sessionsLoading } = useValues(notebookNodePersonFeedLogic({ personId: id }))
 
     if (!sessions && sessionsLoading) {
         return <FeedSkeleton />
