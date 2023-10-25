@@ -90,7 +90,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
                         e.elements_chain,
                         e.session_id AS formal_session_id,
                         first_value(e.uuid) OVER (
-                            PARTITION BY (e.person_id, session_id_flip_index) ORDER BY __toInt64(timestamp)
+                            PARTITION BY (e.person_id, session_id_flip_index) ORDER BY _toInt64(timestamp)
                             RANGE BETWEEN 1800 PRECEDING AND CURRENT ROW /* split informal session after 30+ min */
                         ) AS informal_session_uuid,
                         dateDiff('s', sre.start_time, sre.end_time) AS recording_duration_s
