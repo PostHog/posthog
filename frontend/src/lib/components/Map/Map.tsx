@@ -42,11 +42,12 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
             container: mapContainer.current as HTMLElement,
             style: {
                 version: 8,
-                // glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
+                glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
                 sources: {
                     protomaps: {
                         type: 'vector',
-                        url: 'pmtiles://https://example.com/example.pmtiles',
+                        tiles: ['https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt?key=KEY'],
+                        // url: 'pmtiles://https://example.com/example.pmtiles',
                         attribution:
                             '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
                     },
