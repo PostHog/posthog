@@ -45,7 +45,7 @@ class TrendsQueryBuilder:
 
         return full_query
 
-    def _get_date_subqueries(self) -> List[ast.SelectQuery]:
+    def _get_date_subqueries(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:
         if not self._breakdown.enabled:
             return [
                 parse_select(
