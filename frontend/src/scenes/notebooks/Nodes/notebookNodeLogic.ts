@@ -64,7 +64,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
-        unmount: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -227,7 +226,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 return
             }
 
-            if (!values.nextNode || values.nextNode.type.name !== 'paragraph') {
+            if (!values.nextNode || !values.nextNode.isTextblock) {
                 actions.insertAfter({
                     type: 'paragraph',
                 })
@@ -265,9 +264,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 }
                 props.updateAttributes({ __init: null })
             }
-        },
-        unmount: () => {
-            props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
         },
     })),
 

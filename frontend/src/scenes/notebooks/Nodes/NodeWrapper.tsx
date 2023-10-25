@@ -79,6 +79,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
+    const { unregisterNodeLogic } = useActions(notebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -87,12 +88,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine, unmount } = useActions(nodeLogic)
+    const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
-        return () => unmount()
+        return () => unregisterNodeLogic(nodeId)
     }, [])
 
     useWhyDidIRender('NodeWrapper.logicProps', {
@@ -195,7 +196,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
                                                                 icon={<IconFilter />}
-                                                                active={editingNodeId === attributes.nodeId}
+                                                                active={editingNodeId === nodeId}
                                                             />
                                                         ) : null}
 
