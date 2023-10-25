@@ -60,7 +60,15 @@ def create_group(
     else:
         timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
-    raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp, timestamp=timestamp, sync=sync)
+    raw_create_group_ch(
+        team_id,
+        group_type_index,
+        group_key,
+        properties,
+        timestamp,
+        timestamp=timestamp,
+        sync=sync,
+    )
     group = Group.objects.create(
         team_id=team_id,
         group_type_index=group_type_index,
@@ -73,7 +81,9 @@ def create_group(
 
 
 def get_aggregation_target_field(
-    aggregation_group_type_index: Optional[GroupTypeIndex], event_table_alias: str, default: str
+    aggregation_group_type_index: Optional[GroupTypeIndex],
+    event_table_alias: str,
+    default: str,
 ) -> str:
     if aggregation_group_type_index is not None:
         return f'{event_table_alias}."$group_{aggregation_group_type_index}"'

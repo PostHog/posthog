@@ -5,7 +5,9 @@ from posthog.hogql_queries.web_analytics.ctes import (
     COUNTS_CTE,
     BOUNCE_RATE_CTE,
 )
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
+    WebAnalyticsQueryRunner,
+)
 from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,

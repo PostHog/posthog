@@ -46,7 +46,10 @@ from posthog.settings.utils import get_from_env, str_to_bool
 # https://posthog.com/docs/self-host/configure/environment-variables
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
-INSTANCE_PREFERENCES = {"debug_queries": debug_queries, "disable_paid_fs": disable_paid_fs}
+INSTANCE_PREFERENCES = {
+    "debug_queries": debug_queries,
+    "disable_paid_fs": disable_paid_fs,
+}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
@@ -60,7 +63,10 @@ DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
 PLUGINS_PREINSTALLED_URLS: List[str] = (
-    os.getenv("PLUGINS_PREINSTALLED_URLS", "https://www.npmjs.com/package/@posthog/geoip-plugin").split(",")
+    os.getenv(
+        "PLUGINS_PREINSTALLED_URLS",
+        "https://www.npmjs.com/package/@posthog/geoip-plugin",
+    ).split(",")
     if not DISABLE_MMDB
     else []
 )

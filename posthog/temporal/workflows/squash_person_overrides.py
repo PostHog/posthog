@@ -268,7 +268,10 @@ async def drop_dictionary(inputs: QueryInputs) -> None:
 
     activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
     sync_execute(
-        DROP_DICTIONARY_QUERY.format(database=settings.CLICKHOUSE_DATABASE, dictionary_name=inputs.dictionary_name)
+        DROP_DICTIONARY_QUERY.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            dictionary_name=inputs.dictionary_name,
+        )
     )
 
 
@@ -492,7 +495,9 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
                 if inputs.dry_run is True:
                     activity.logger.info("This is a DRY RUN so nothing will be deleted.")
                     activity.logger.info(
-                        "Would have run query: %s with parameters %s", DELETE_FROM_PERSON_OVERRIDES, parameters
+                        "Would have run query: %s with parameters %s",
+                        DELETE_FROM_PERSON_OVERRIDES,
+                        parameters,
                     )
                     continue
 

@@ -13,7 +13,11 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from django_prometheus.middleware import (
+    Metrics,
+    PrometheusAfterMiddleware,
+    PrometheusBeforeMiddleware,
+)
 from rest_framework import status
 from statshog.defaults.django import statsd
 
@@ -228,7 +232,10 @@ class CHQueries:
             response: HttpResponse = self.get_response(request)
 
             if "api/" in request.path and "capture" not in request.path:
-                statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+                statsd.incr(
+                    "http_api_request_response",
+                    tags={"id": route_id, "status_code": response.status_code},
+                )
 
             return response
         finally:
@@ -243,7 +250,13 @@ class CHQueries:
 
 
 class QueryTimeCountingMiddleware:
-    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties", "person"]
+    ALLOW_LIST_ROUTES = [
+        "dashboard",
+        "insight",
+        "property_definitions",
+        "properties",
+        "person",
+    ]
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -286,7 +299,8 @@ class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
         self.decide_throttler = DecideRateThrottle(
-            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE, bucket_capacity=settings.DECIDE_BUCKET_CAPACITY
+            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE,
+            bucket_capacity=settings.DECIDE_BUCKET_CAPACITY,
         )
 
     def __call__(self, request: HttpRequest):
@@ -391,7 +405,12 @@ class CaptureMiddleware:
                 resolver_match = resolve(request.path)
                 request.resolver_match = resolver_match
                 for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_view(request, resolver_match.func, resolver_match.args, resolver_match.kwargs)
+                    middleware.process_view(
+                        request,
+                        resolver_match.func,
+                        resolver_match.args,
+                        resolver_match.kwargs,
+                    )
 
                 response: HttpResponse = get_event(request)
 

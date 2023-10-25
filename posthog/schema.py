@@ -470,27 +470,32 @@ class SavedInsightNode(BaseModel):
         extra="forbid",
     )
     allowSorting: Optional[bool] = Field(
-        default=None, description="Can the user click on column headers to sort the table? (default: true)"
+        default=None,
+        description="Can the user click on column headers to sort the table? (default: true)",
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     expandable: Optional[bool] = Field(
-        default=None, description="Can expand row to show raw event data (default: true)"
+        default=None,
+        description="Can expand row to show raw event data (default: true)",
     )
     full: Optional[bool] = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
+        default=None,
+        description="Show with most visual options enabled. Used in insight scene.",
     )
     kind: Literal["SavedInsightNode"] = "SavedInsightNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     shortId: str
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure the table's columns if possible"
+        default=None,
+        description="Show a button to configure the table's columns if possible",
     )
     showCorrelationTable: Optional[bool] = None
     showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
     showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: Optional[bool] = Field(
-        default=None, description="Include an event filter above the table (EventsNode only)"
+        default=None,
+        description="Include an event filter above the table (EventsNode only)",
     )
     showExport: Optional[bool] = Field(default=None, description="Show the export button")
     showFilters: Optional[bool] = None
@@ -499,10 +504,12 @@ class SavedInsightNode(BaseModel):
     showLastComputation: Optional[bool] = None
     showLastComputationRefresh: Optional[bool] = None
     showOpenEditorButton: Optional[bool] = Field(
-        default=None, description="Show a button to open the current query as a new insight. (default: true)"
+        default=None,
+        description="Show a button to open the current query as a new insight. (default: true)",
     )
     showPersistentColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure and persist the table's default columns if possible"
+        default=None,
+        description="Show a button to configure and persist the table's default columns if possible",
     )
     showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
@@ -551,7 +558,8 @@ class TimeToSeeDataQuery(BaseModel):
     sessionEnd: Optional[str] = None
     sessionId: Optional[str] = Field(default=None, description="Project to filter on. Defaults to current session")
     sessionStart: Optional[str] = Field(
-        default=None, description="Session start time. Defaults to current time - 2 hours"
+        default=None,
+        description="Session start time. Defaults to current time - 2 hours",
     )
     teamId: Optional[float] = Field(default=None, description="Project to filter on. Defaults to current project")
 
@@ -959,7 +967,11 @@ class WebTopClicksQuery(BaseModel):
 
 class AnyResponseType(RootModel):
     root: Union[
-        Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseTypeItem, Any], EventsQueryResponse
+        Dict[str, Any],
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        Union[AnyResponseTypeItem, Any],
+        EventsQueryResponse,
     ]
 
 
@@ -1023,7 +1035,13 @@ class EntityNode(BaseModel):
     )
     kind: NodeKind
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -1076,7 +1094,13 @@ class EventsNode(BaseModel):
     kind: Literal["EventsNode"] = "EventsNode"
     limit: Optional[float] = None
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -1108,7 +1132,10 @@ class EventsQuery(BaseModel):
     )
     actionId: Optional[int] = Field(default=None, description="Show events matching a given action")
     after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
-    before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
+    before: Optional[str] = Field(
+        default=None,
+        description="Only fetch events that happened before this timestamp",
+    )
     event: Optional[str] = Field(default=None, description="Limit to events matching this string")
     fixedProperties: Optional[
         List[
@@ -1183,13 +1210,15 @@ class HogQLMetadata(BaseModel):
         extra="forbid",
     )
     expr: Optional[str] = Field(
-        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
+        default=None,
+        description="HogQL expression to validate (use `select` or `expr`, but not both)",
     )
     filters: Optional[HogQLFilters] = None
     kind: Literal["HogQLMetadata"] = "HogQLMetadata"
     response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
     select: Optional[str] = Field(
-        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
+        default=None,
+        description="Full select query to validate (use `select` or `expr`, but not both)",
     )
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
 
@@ -1205,12 +1234,20 @@ class HogQLQuery(BaseModel):
     query: str
     response: Optional[HogQLQueryResponse] = Field(default=None, description="Cached query response")
     values: Optional[Dict[str, Any]] = Field(
-        default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+        default=None,
+        description="Constant values that can be referenced with the {placeholder} syntax in the query",
     )
 
 
 class InsightFilter(RootModel):
-    root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+    root: Union[
+        TrendsFilter,
+        FunnelsFilter,
+        RetentionFilter,
+        PathsFilter,
+        StickinessFilter,
+        LifecycleFilter,
+    ]
 
 
 class PersonsNode(BaseModel):
@@ -1312,7 +1349,13 @@ class ActionsNode(BaseModel):
     id: float
     kind: Literal["ActionsNode"] = "ActionsNode"
     math: Optional[
-        Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"], Literal["hogql"]]
+        Union[
+            BaseMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
     ] = None
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_hogql: Optional[str] = None
@@ -1356,7 +1399,8 @@ class RetentionQuery(BaseModel):
     aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     kind: Literal["RetentionQuery"] = "RetentionQuery"
     properties: Optional[
@@ -1391,10 +1435,12 @@ class StickinessQuery(BaseModel):
     aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     properties: Optional[
@@ -1431,10 +1477,12 @@ class TrendsQuery(BaseModel):
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     properties: Optional[
@@ -1518,13 +1566,15 @@ class FunnelsQuery(BaseModel):
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
         default=None, description="Properties specific to the funnels insight"
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["FunnelsQuery"] = "FunnelsQuery"
     properties: Optional[
@@ -1557,7 +1607,8 @@ class InsightsQueryBase(BaseModel):
     aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     kind: NodeKind
     properties: Optional[
@@ -1589,10 +1640,12 @@ class LifecycleQuery(BaseModel):
     aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default=None,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
     kind: Literal["LifecycleQuery"] = "LifecycleQuery"
     lifecycleFilter: Optional[LifecycleFilter] = Field(
@@ -1636,7 +1689,8 @@ class PathsQuery(BaseModel):
     aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
-        default=None, description="Exclude internal and test users by applying the respective filters"
+        default=None,
+        description="Exclude internal and test users by applying the respective filters",
     )
     kind: Literal["PathsQuery"] = "PathsQuery"
     pathsFilter: Optional[PathsFilter] = Field(default=None, description="Properties specific to the paths insight")
@@ -1713,37 +1767,48 @@ class DataTableNode(BaseModel):
         extra="forbid",
     )
     allowSorting: Optional[bool] = Field(
-        default=None, description="Can the user click on column headers to sort the table? (default: true)"
+        default=None,
+        description="Can the user click on column headers to sort the table? (default: true)",
     )
     columns: Optional[List[str]] = Field(
-        default=None, description="Columns shown in the table, unless the `source` provides them."
+        default=None,
+        description="Columns shown in the table, unless the `source` provides them.",
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(
-        default=None, description="Can expand row to show raw event data (default: true)"
+        default=None,
+        description="Can expand row to show raw event data (default: true)",
     )
-    full: Optional[bool] = Field(default=None, description="Show with most visual options enabled. Used in scenes.")
+    full: Optional[bool] = Field(
+        default=None,
+        description="Show with most visual options enabled. Used in scenes.",
+    )
     hiddenColumns: Optional[List[str]] = Field(
-        default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
+        default=None,
+        description="Columns that aren't shown in the table, even if in columns or returned data",
     )
     kind: Literal["DataTableNode"] = "DataTableNode"
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     showActions: Optional[bool] = Field(default=None, description="Show the kebab menu at the end of the row")
     showColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure the table's columns if possible"
+        default=None,
+        description="Show a button to configure the table's columns if possible",
     )
     showDateRange: Optional[bool] = Field(default=None, description="Show date range selector")
     showElapsedTime: Optional[bool] = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: Optional[bool] = Field(
-        default=None, description="Include an event filter above the table (EventsNode only)"
+        default=None,
+        description="Include an event filter above the table (EventsNode only)",
     )
     showExport: Optional[bool] = Field(default=None, description="Show the export button")
     showHogQLEditor: Optional[bool] = Field(default=None, description="Include a HogQL query editor above HogQL tables")
     showOpenEditorButton: Optional[bool] = Field(
-        default=None, description="Show a button to open the current query as a new insight. (default: true)"
+        default=None,
+        description="Show a button to open the current query as a new insight. (default: true)",
     )
     showPersistentColumnConfigurator: Optional[bool] = Field(
-        default=None, description="Show a button to configure and persist the table's default columns if possible"
+        default=None,
+        description="Show a button to configure and persist the table's default columns if possible",
     )
     showPropertyFilter: Optional[bool] = Field(default=None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
@@ -1770,7 +1835,8 @@ class InsightVizNode(BaseModel):
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     full: Optional[bool] = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
+        default=None,
+        description="Show with most visual options enabled. Used in insight scene.",
     )
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     showCorrelationTable: Optional[bool] = None
@@ -1780,7 +1846,14 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+    ]
 
 
 class QuerySchema(RootModel):

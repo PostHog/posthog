@@ -47,7 +47,10 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
                 parsed["tag"] = "refs/tags/{}".format(parsed["tag"])
             elif not re.match(r"^[a-f0-9]{40}$", parsed["tag"] or ""):
                 commits_url = "https://api.github.com/repos/{}/{}/commits?sha={}&path={}".format(
-                    parsed["user"], parsed["repo"], parsed["tag"] or "", parsed["path"] or ""
+                    parsed["user"],
+                    parsed["repo"],
+                    parsed["tag"] or "",
+                    parsed["path"] or "",
                 )
                 commits = requests.get(commits_url, headers=headers).json()
 
@@ -95,7 +98,8 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
         parsed["tag"] = path.split("/")[1]
 
     parsed["root_url"] = "https://gitlab.com/{}{}".format(
-        parsed["project"], "?private_token={}".format(private_token) if private_token else ""
+        parsed["project"],
+        "?private_token={}".format(private_token) if private_token else "",
     )
 
     if get_latest_if_none and not parsed["tag"]:
@@ -115,7 +119,9 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 
     if parsed["tag"]:
         parsed["tagged_url"] = "https://gitlab.com/{}/-/tree/{}{}".format(
-            parsed["project"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
+            parsed["project"],
+            parsed["tag"],
+            "?private_token={}".format(private_token) if private_token else "",
         )
 
     return parsed
@@ -124,7 +130,8 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, O
 def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Optional[str]]]:
     url, private_token = split_url_and_private_token(url)
     match = re.search(
-        r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$", url
+        r"^https?://(?:www\.)?npmjs\.com/package/([@a-z0-9_-]+(/[a-z0-9_-]+)?)?/?(v/([A-Za-z0-9_.-]+)/?|)$",
+        url,
     )
     if not match:
         return None
@@ -136,19 +143,25 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[Dict[str, Opti
     }
 
     parsed["root_url"] = "https://www.npmjs.com/package/{}{}".format(
-        parsed["pkg"], "?private_token={}".format(private_token) if private_token else ""
+        parsed["pkg"],
+        "?private_token={}".format(private_token) if private_token else "",
     )
     if get_latest_if_none and not parsed["tag"]:
         try:
             token = private_token or settings.NPM_TOKEN
             headers = {"Authorization": "Bearer {}".format(token)} if token else {}
-            details = requests.get("https://registry.npmjs.org/{}/latest".format(parsed["pkg"]), headers=headers).json()
+            details = requests.get(
+                "https://registry.npmjs.org/{}/latest".format(parsed["pkg"]),
+                headers=headers,
+            ).json()
             parsed["tag"] = details["version"]
         except Exception:
             raise Exception("Could not get latest version for: {}".format(url))
     if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
-            parsed["pkg"], parsed["tag"], "?private_token={}".format(private_token) if private_token else ""
+            parsed["pkg"],
+            parsed["tag"],
+            "?private_token={}".format(private_token) if private_token else "",
         )
     return parsed
 
@@ -184,7 +197,9 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
         if not (tag or parsed_url.get("tag", None)):
             raise Exception("No GitHub tag given!")
         url = "https://github.com/{user}/{repo}/archive/{tag}.zip".format(
-            user=parsed_url["user"], repo=parsed_url["repo"], tag=tag or parsed_url["tag"]
+            user=parsed_url["user"],
+            repo=parsed_url["repo"],
+            tag=tag or parsed_url["tag"],
         )
         token = parsed_url["private_token"] or settings.GITHUB_TOKEN
         if token:
@@ -259,7 +274,7 @@ def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool
         file_bytes = reader.read()
         if json_parse:
             return json.loads(file_bytes)
-        if type(file_bytes) == bytes:
+        if isinstance(file_bytes, bytes):
             return file_bytes.decode("utf-8")
         return str(file_bytes)
 

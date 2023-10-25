@@ -31,7 +31,11 @@ def persons_pdi_select(requested_fields: Dict[str, List[str]]):
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
 def persons_pdi_join(
-    from_table: str, to_table: str, requested_fields: Dict[str, List[str]], context: HogQLContext, node: SelectQuery
+    from_table: str,
+    to_table: str,
+    requested_fields: Dict[str, List[str]],
+    context: HogQLContext,
+    node: SelectQuery,
 ):
     from posthog.hogql import ast
 

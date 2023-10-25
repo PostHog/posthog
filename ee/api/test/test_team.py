@@ -44,7 +44,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(Team.objects.count(), count)
         self.assertEqual(
-            response.json(), self.permission_denied_response("Your organization access level is insufficient.")
+            response.json(),
+            self.permission_denied_response("Your organization access level is insufficient."),
         )
 
     def test_create_demo_project(self, *args):
@@ -128,7 +129,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
         response = self.client.delete(f"/api/projects/{self.team.id}")
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
@@ -140,7 +143,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
         response = self.client.delete(f"/api/projects/{self.team.id}")
         self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
@@ -219,7 +224,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.MEMBER,
         )
 
         response = self.client.patch(f"/api/projects/@current/", {"name": "Acherontia atropos"})
@@ -252,7 +259,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
 
         response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
@@ -281,7 +290,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
 
         response = self.client.patch(f"/api/projects/@current/", {"access_control": False})
@@ -304,7 +315,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
     def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
         response = self.client.patch(
-            f"/api/projects/@current/", {"correlation_config": {"excluded_person_property_names": ["$os"]}}
+            f"/api/projects/@current/",
+            {"correlation_config": {"excluded_person_property_names": ["$os"]}},
         )
         self.assertEqual(response.status_code, HTTP_200_OK)
 
@@ -314,7 +326,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictContainsSubset(
-            {"correlation_config": {"excluded_person_property_names": ["$os"]}}, response_data
+            {"correlation_config": {"excluded_person_property_names": ["$os"]}},
+            response_data,
         )
 
     # Fetching projects
@@ -364,7 +377,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(
-            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."),
+            response_data,
         )
 
     def test_fetch_private_team_as_org_member_and_project_member(self):
@@ -373,7 +387,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.MEMBER,
         )
 
         response = self.client.get(f"/api/projects/@current/")
@@ -395,7 +411,9 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.access_control = True
         self.team.save()
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
 
         response = self.client.get(f"/api/projects/@current/")

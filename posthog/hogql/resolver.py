@@ -6,7 +6,12 @@ from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
+from posthog.hogql.database.models import (
+    StringJSONDatabaseField,
+    FunctionCallTable,
+    LazyTable,
+    SavedQuery,
+)
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
@@ -48,7 +53,9 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types(
-    node: ast.Expr, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None
+    node: ast.Expr,
+    context: HogQLContext,
+    scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context).visit(node)
 
@@ -332,7 +339,10 @@ class Resolver(CloningVisitor):
                 else:
                     param_types.append(ast.UnknownType())
         node.type = ast.CallType(
-            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+            name=node.name,
+            arg_types=arg_types,
+            param_types=param_types,
+            return_type=ast.UnknownType(),
         )
         return node
 
@@ -454,7 +464,10 @@ class Resolver(CloningVisitor):
                 (isinstance(node.array.type, ast.PropertyType))
                 or (
                     isinstance(node.array.type, ast.FieldType)
-                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                    and isinstance(
+                        node.array.type.resolve_database_field(),
+                        StringJSONDatabaseField,
+                    )
                 )
             )
         ):

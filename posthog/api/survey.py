@@ -18,7 +18,10 @@ from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 

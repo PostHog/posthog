@@ -21,7 +21,11 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
 
     def test_analyze_test_cluster(self):
         self.recreate_database(create_tables=True)
-        host_tables, create_table_queries, out_of_sync_hosts = Command().analyze_cluster_tables()
+        (
+            host_tables,
+            create_table_queries,
+            out_of_sync_hosts,
+        ) = Command().analyze_cluster_tables()
 
         self.assertEqual(len(host_tables), 1)
         self.assertGreater(len(create_table_queries), 0)
@@ -34,7 +38,11 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
     def test_analyze_empty_cluster(self):
         self.recreate_database(create_tables=False)
 
-        host_tables, create_table_queries, out_of_sync_hosts = Command().analyze_cluster_tables()
+        (
+            host_tables,
+            create_table_queries,
+            out_of_sync_hosts,
+        ) = Command().analyze_cluster_tables()
 
         self.assertEqual(host_tables, {})
         self.assertEqual(create_table_queries, {})

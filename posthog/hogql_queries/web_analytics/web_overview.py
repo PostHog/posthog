@@ -7,7 +7,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
+    WebAnalyticsQueryRunner,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import WebOverviewQueryResponse, WebOverviewQuery
 
@@ -118,14 +120,23 @@ CROSS JOIN sessions_query
 
     @cached_property
     def query_date_range(self):
-        return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
 
     def event_properties(self) -> ast.Expr:
         return property_to_expr(self.query.properties, team=self.team)
 
 
 def to_data(
-    key: str, kind: str, value: Optional[float], previous: Optional[float], is_increase_bad: Optional[bool] = None
+    key: str,
+    kind: str,
+    value: Optional[float],
+    previous: Optional[float],
+    is_increase_bad: Optional[bool] = None,
 ) -> dict:
     if kind == "percentage":
         if value is not None:

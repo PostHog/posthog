@@ -49,7 +49,14 @@ def generate_redis_results_key(query_id):
 
 
 def execute_with_progress(
-    team_id, query_id, query, args=None, settings=None, with_column_types=False, update_freq=0.2, task_id=None
+    team_id,
+    query_id,
+    query,
+    args=None,
+    settings=None,
+    with_column_types=False,
+    update_freq=0.2,
+    task_id=None,
 ):
     """
     Kick off query with progress reporting
@@ -81,7 +88,10 @@ def execute_with_progress(
 
     try:
         progress = ch_client.execute_with_progress(
-            prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
+            prepared_sql,
+            params=prepared_args,
+            settings=settings,
+            with_column_types=with_column_types,
         )
         for num_rows, total_rows in progress:
             query_status = QueryStatus(
@@ -145,7 +155,14 @@ def execute_with_progress(
 
 
 def enqueue_execute_with_progress(
-    team_id, query, args=None, settings=None, with_column_types=False, bypass_celery=False, query_id=None, force=False
+    team_id,
+    query,
+    args=None,
+    settings=None,
+    with_column_types=False,
+    bypass_celery=False,
+    query_id=None,
+    force=False,
 ):
     if not query_id:
         query_id = _query_hash(query, team_id, args)
