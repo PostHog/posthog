@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -65,6 +65,12 @@ dependencies:
   '@tiptap/extension-placeholder':
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
+  '@tiptap/extension-task-item':
+    specifier: ^2.1.11
+    version: 2.1.11(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12)
+  '@tiptap/extension-task-list':
+    specifier: ^2.1.11
+    version: 2.1.11(@tiptap/core@2.1.0-rc.12)
   '@tiptap/pm':
     specifier: ^2.1.0-rc.12
     version: 2.1.0-rc.12
@@ -5499,6 +5505,24 @@ packages:
 
   /@tiptap/extension-strike@2.1.0-rc.12(@tiptap/core@2.1.0-rc.12):
     resolution: {integrity: sha512-Iwl1OvjUEMdNrPfJYsBo7XKcowHTR1DTEZQBBhNVweAQcoOzl/PYLKqVeh9Y4Mk/c/tMRTr8Lcp1q2r14q60RQ==}
+    peerDependencies:
+      '@tiptap/core': ^2.0.0
+    dependencies:
+      '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
+    dev: false
+
+  /@tiptap/extension-task-item@2.1.11(@tiptap/core@2.1.0-rc.12)(@tiptap/pm@2.1.0-rc.12):
+    resolution: {integrity: sha512-721inc/MAZkljPup/EWCpNho4nf+XrYVKWRixqgX+AjikusTJefylbiZ5OeRn+71osTA7SdnXiKkM2ZbHtAsYA==}
+    peerDependencies:
+      '@tiptap/core': ^2.0.0
+      '@tiptap/pm': ^2.0.0
+    dependencies:
+      '@tiptap/core': 2.1.0-rc.12(@tiptap/pm@2.1.0-rc.12)
+      '@tiptap/pm': 2.1.0-rc.12
+    dev: false
+
+  /@tiptap/extension-task-list@2.1.11(@tiptap/core@2.1.0-rc.12):
+    resolution: {integrity: sha512-9C1M9N3jbNjm4001mPkgwUH19b6ZvKj5nnRT3zib/gFIQLOnSHE3VErDPHP/lkkjH84LgOMrm69cm8chQpgNsA==}
     peerDependencies:
       '@tiptap/core': ^2.0.0
     dependencies:

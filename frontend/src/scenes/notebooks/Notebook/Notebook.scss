@@ -37,12 +37,40 @@
                 height: 0;
             }
 
-            > ul {
+            > ol {
+                list-style-type: decimal;
+            }
+
+            ul {
                 list-style-type: disc;
             }
 
-            > ol {
-                list-style-type: decimal;
+            > ul[data-type='taskList'] {
+                list-style-type: none;
+                padding-left: 0px;
+
+                li {
+                    display: flex;
+
+                    > label {
+                        flex: 0 0 auto;
+                        margin-right: 0.5rem;
+                        user-select: none;
+                    }
+
+                    > div {
+                        flex: 1 1 auto;
+                    }
+
+                    ul li,
+                    ol li {
+                        display: list-item;
+                    }
+
+                    ul[data-type='taskList'] > li {
+                        display: flex;
+                    }
+                }
             }
 
             > ul,
