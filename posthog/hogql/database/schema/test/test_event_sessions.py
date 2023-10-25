@@ -2,8 +2,8 @@ from typing import List, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.schema.event_sessions import WhereClauseExtractor
-from posthog.hogql.parser import parse_select
+from posthog.hogql.database.schema.event_sessions import CleanTableNameFromChain, WhereClauseExtractor
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
@@ -119,3 +119,87 @@ class TestWhereClauseExtractor(BaseTest):
         compare_operators = self._compare_operators(query, "events")
 
         assert len(compare_operators) == 0
+
+
+class TestCleanTableNameFromChain(BaseTest):
+    def setUp(self):
+        self.database = create_hogql_database(self.team.pk)
+        self.context = HogQLContext(database=self.database, team_id=self.team.pk)
+
+    def _select(self, query: str) -> ast.SelectQuery:
+        select_query = cast(ast.SelectQuery, clone_expr(parse_select(query), clear_locations=True))
+        return cast(ast.SelectQuery, resolve_types(select_query, self.context))
+
+    def _clean(self, table_name: str, query: ast.SelectQuery, expr: ast.Expr) -> ast.Expr:
+        assert query.type is not None
+        return CleanTableNameFromChain(table_name, query.type).visit(expr)
+
+    def test_table_with_no_alias(self):
+        query = self._select(
+            """
+                SELECT event
+                FROM events
+            """
+        )
+
+        expr = parse_expr('event = "$pageview"')
+        cleaned_expr = cast(ast.CompareOperation, self._clean("events", query, expr))
+        expr_left = cast(ast.Field, cleaned_expr.left)
+
+        assert expr_left.chain == ["event"]
+
+    def test_table_with_alias(self):
+        query = self._select(
+            """
+                SELECT e.event
+                FROM events e
+            """
+        )
+
+        expr = parse_expr('e.event = "$pageview"')
+        cleaned_expr = cast(ast.CompareOperation, self._clean("e", query, expr))
+        expr_left = cast(ast.Field, cleaned_expr.left)
+
+        assert expr_left.chain == ["event"]
+
+    def test_field_with_properties(self):
+        query = self._select(
+            """
+                SELECT event
+                FROM events
+            """
+        )
+
+        expr = parse_expr('properties.$browser = "Chrome"')
+        cleaned_expr = cast(ast.CompareOperation, self._clean("events", query, expr))
+        expr_left = cast(ast.Field, cleaned_expr.left)
+
+        assert expr_left.chain == ["properties", "$browser"]
+
+    def test_table_alias_and_field_with_properties(self):
+        query = self._select(
+            """
+                SELECT e.event
+                FROM events e
+            """
+        )
+
+        expr = parse_expr('e.properties.$browser = "Chrome"')
+        cleaned_expr = cast(ast.CompareOperation, self._clean("e", query, expr))
+        expr_left = cast(ast.Field, cleaned_expr.left)
+
+        assert expr_left.chain == ["properties", "$browser"]
+
+    def test_with_incorrect_alias(self):
+        query = self._select(
+            """
+                SELECT e.event
+                FROM events e
+            """
+        )
+
+        expr = parse_expr('e.event = "$pageview"')
+        cleaned_expr = cast(ast.CompareOperation, self._clean("some_other_alias", query, expr))
+        expr_left = cast(ast.Field, cleaned_expr.left)
+
+        assert expr_left.chain == ["e", "event"]

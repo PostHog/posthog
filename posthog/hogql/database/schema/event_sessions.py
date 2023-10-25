@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FieldOrTable, IntegerDatabaseField, StringDatabaseField, VirtualTable
@@ -33,6 +33,23 @@ class GetFieldsTraverser(TraversingVisitor):
         self.fields.append(node)
 
 
+class CleanTableNameFromChain(CloningVisitor):
+    def __init__(self, table_name: str, select_query_type: ast.SelectQueryType):
+        super().__init__()
+        self.table_name = table_name
+        self.select_query_type = select_query_type
+
+    def visit_field(self, node: ast.Field):
+        if len(node.chain) > 1 and str(node.chain[0]) in self.select_query_type.tables:
+            type = self.select_query_type.tables[str(node.chain[0])]
+
+            name = get_long_table_name(self.select_query_type, type)
+            if name == self.table_name:
+                node.chain.pop(0)
+
+        return super().visit_field(node)
+
+
 class WhereClauseExtractor:
     compare_operators: List[ast.Expr]
 
@@ -45,22 +62,39 @@ class WhereClauseExtractor:
         if len(field.chain) == 0:
             return False
 
+        type: Optional[ast.Type] = None
+
         # If the field contains at least two parts, the first might be a table.
-        if len(field.chain) > 1:
+        if len(field.chain) > 1 and str(field.chain[0]) in self.select_query_type.tables:
             type = self.select_query_type.tables[str(field.chain[0])]
 
             name = get_long_table_name(self.select_query_type, type)
-            if name == self.table_name:
-                field.chain.pop(0)
-                return True
-            else:
+            if name != self.table_name:
                 return False
 
         # Field in scope
-        if lookup_field_by_name(self.select_query_type, str(field.chain[0])):
-            return True
+        if not type:
+            type = lookup_field_by_name(self.select_query_type, str(field.chain[0]))
 
-        return False
+        if not type:
+            return False
+
+        # Recursively resolve the rest of the chain until we can point to the deepest node.
+        loop_type = type
+        chain_to_parse = field.chain[1:]
+        while True:
+            if isinstance(loop_type, ast.FieldTraverserType):
+                chain_to_parse = loop_type.chain + chain_to_parse
+                loop_type = loop_type.table_type
+                continue
+            if len(chain_to_parse) == 0:
+                break
+            next_chain = chain_to_parse.pop(0)
+            loop_type = loop_type.get_child(str(next_chain))
+            if loop_type is None:
+                return False
+
+        return True
 
     def run(self, expr: ast.Expr) -> List[ast.Expr]:
         exprs_to_apply: List[ast.Expr] = []
@@ -79,7 +113,13 @@ class WhereClauseExtractor:
         elif isinstance(expr, ast.Or):
             pass  # Ignore for now
 
-        return [CloningVisitor(clear_types=True, clear_locations=True).visit(e) for e in exprs_to_apply]
+        # Clone field nodes and remove table name from field chains
+        return [
+            CleanTableNameFromChain(self.table_name, self.select_query_type).visit(
+                CloningVisitor(clear_types=True, clear_locations=True).visit(e)
+            )
+            for e in exprs_to_apply
+        ]
 
 
 def join_with_events_table_session_duration(
