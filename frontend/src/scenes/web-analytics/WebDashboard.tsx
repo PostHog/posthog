@@ -12,6 +12,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconBugReport, IconFeedback } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -214,19 +215,24 @@ const Tiles = (): JSX.Element => {
 
 export const Notice = (): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const showSupportOptions = preflight?.cloud
 
     return (
         <LemonBanner type={'info'}>
             <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
-            <p>
-                <a onClick={() => openSupportForm('bug')}>
-                    <IconBugReport /> Report a bug
-                </a>{' '}
-                -{' '}
-                <a onClick={() => openSupportForm('feedback')}>
-                    <IconFeedback /> Give feedback
-                </a>
-            </p>
+            {showSupportOptions ? (
+                <p>
+                    <a onClick={() => openSupportForm('bug')}>
+                        <IconBugReport /> Report a bug
+                    </a>{' '}
+                    -{' '}
+                    <a onClick={() => openSupportForm('feedback')}>
+                        <IconFeedback /> Give feedback
+                    </a>
+                </p>
+            ) : null}
         </LemonBanner>
     )
 }
