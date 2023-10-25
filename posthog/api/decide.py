@@ -219,10 +219,23 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
+                sample_rate = team.session_recording_sample_rate or None
+                if sample_rate == "1.00":
+                    sample_rate = None
+
+                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+                linked_flag = team.session_recording_linked_flag or None
+                if isinstance(linked_flag, Dict):
+                    linked_flag = linked_flag.get("key")
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
+                    "sampleRate": sample_rate,
+                    "minimumDurationMilliseconds": minimum_duration,
+                    "linkedFlag": linked_flag,
                 }
 
             response["surveys"] = True if team.surveys_opt_in else False

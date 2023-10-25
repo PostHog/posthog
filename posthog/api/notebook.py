@@ -290,6 +290,8 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
                             id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                        elif target == "query":
+                            id_match_structure = [{"attrs": {"query": {"kind": "SavedInsightNode", "shortId": match}}}]
 
                         if match == "true" or match is None:
                             queryset = queryset.filter(content__content__contains=presence_match_structure)

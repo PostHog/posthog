@@ -9,7 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
@@ -18,7 +17,7 @@ export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
-    const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
+    const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
@@ -30,7 +29,7 @@ export function Navbar(): JSX.Element {
         <nav className="Navbar3000">
             <div className="Navbar3000__content">
                 <div className="Navbar3000__top">
-                    {NAVBAR_ITEMS.map((section, index) => (
+                    {navbarItems.map((section, index) => (
                         <ul key={index}>
                             {section.map((item) => (
                                 <NavbarButton
@@ -84,7 +83,12 @@ export function Navbar(): JSX.Element {
                         />
                         <HelpButton
                             customComponent={
-                                <NavbarButton icon={<IconQuestion />} identifier="help-button" title="Need any help?" />
+                                <NavbarButton
+                                    icon={<IconQuestion />}
+                                    identifier="help-button"
+                                    title="Need any help?"
+                                    popoverMarker
+                                />
                             }
                             placement="right-end"
                         />
@@ -104,6 +108,7 @@ export function Navbar(): JSX.Element {
                                 identifier="me"
                                 title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                 onClick={toggleSitePopover}
+                                popoverMarker
                             />
                         </Popover>
                     </ul>

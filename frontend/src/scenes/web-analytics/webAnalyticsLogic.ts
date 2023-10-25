@@ -211,13 +211,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             colSpan: 12,
                         },
                         query: {
-                            full: true,
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.WebOverviewStatsQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                            },
+                            kind: NodeKind.WebOverviewQuery,
+                            properties: webAnalyticsFilters,
+                            dateRange,
                         },
                     },
                     {

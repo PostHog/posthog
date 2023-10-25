@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.service import RPCError
 
@@ -484,6 +485,97 @@ class TestTeamAPI(APIBaseTest):
             response.json()["detail"]
             == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
         )
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Welwyn Garden City", "invalid_input", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than one", "1.5", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.534", "max_decimal_places", "Ensure that there are no more than 2 decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_sample_rates(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_sample_rate": provided_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_sample_rate",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Trentham monkey forest", "invalid_input", "A valid integer is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than 15000", "15001", "max_value", "Ensure this value is less than or equal to 15000."],
+            ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
+        ]
+    )
+    def test_invalid_session_recording_minimum_duration(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_minimum_duration_milliseconds": provided_value}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_minimum_duration_milliseconds",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no id",
+                {"key": "something"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
+            ],
+            [
+                "unexpected json - no key",
+                {"id": 1},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
+            ],
+            [
+                "unexpected json - neither",
+                {"wat": "wat"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_linked_flag(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": provided_value})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_linked_flag",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_linked_flag": {"id": 1, "key": "provided_value"}}
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_linked_flag"] == {"id": 1, "key": "provided_value"}
+
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": None})
+        assert response.status_code == status.HTTP_200_OK
+        second_get_response = self.client.get("/api/projects/@current/")
+        assert second_get_response.json()["session_recording_linked_flag"] is None
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

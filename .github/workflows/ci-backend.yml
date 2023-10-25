@@ -129,7 +129,7 @@ jobs:
 
             - name: Check formatting
               run: |
-                  black --exclude posthog/hogql/grammar --check .
+                  black --exclude posthog/hogql/grammar --check --diff .
 
             - name: Check static typing
               run: |
