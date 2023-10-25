@@ -55,7 +55,8 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
     }, [])
 
     return (
-        <div className="NotebookFloatingButton absolute" style={{ zIndex: 9999, top: position.top, left: 0 }}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className="NotebookFloatingButton" style={{ top: position.top }}>
             {shouldShow && (
                 <div className="FloatingSuggestion flex items-center justify-content">
                     {Component && <Component previousNode={previousNode} editor={notebookEditor} />}
