@@ -86,7 +86,14 @@ export function Notebook({
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', mode && `Notebook--${mode}`)}>
+            <div
+                className={clsx(
+                    'Notebook',
+                    !isExpanded && 'Notebook--compact',
+                    mode && `Notebook--${mode}`,
+                    isEditable && 'Notebook--editable'
+                )}
+            >
                 {isTemplate && (
                     <LemonBanner
                         type="info"
