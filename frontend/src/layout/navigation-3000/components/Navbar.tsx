@@ -12,6 +12,7 @@ import { navigation3000Logic } from '../navigationLogic'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -22,16 +23,17 @@ export function Navbar(): JSX.Element {
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     return (
         <nav className="Navbar3000">
-            <div className="Navbar3000__content">
-                <div className="Navbar3000__top">
-                    {navbarItems.map((section, index) => (
-                        <ul key={index}>
-                            {section.map((item) => (
+            <div className="Navbar3000__top">
+                {navbarItems.map((section, index) => (
+                    <ul key={index}>
+                        {section.map((item) =>
+                            item.featureFlag && !featureFlags[item.featureFlag] ? null : (
                                 <NavbarButton
                                     key={item.identifier}
                                     title={item.label}
@@ -51,68 +53,70 @@ export function Navbar(): JSX.Element {
                                     }
                                     active={activeNavbarItemId === item.identifier && isSidebarShown}
                                 />
-                            ))}
-                        </ul>
-                    ))}
-                </div>
-                <div className="Navbar3000__bottom">
-                    <ul>
-                        <NavbarButton
-                            icon={
-                                isThemeSyncedWithSystem ? (
-                                    <div className="relative">
-                                        {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
-                                    </div>
-                                ) : (
-                                    activeThemeIcon
-                                )
-                            }
-                            identifier="theme-button"
-                            title={
-                                darkModeSavedPreference === false
-                                    ? `Sync theme with system preference (${
-                                          darkModeSystemPreference ? 'dark' : 'light'
-                                      } mode)`
-                                    : darkModeSavedPreference
-                                    ? 'Switch to light mode'
-                                    : 'Switch to dark mode'
-                            }
-                            onClick={() => toggleTheme()}
-                            persistentTooltip
-                        />
-                        <HelpButton
-                            customComponent={
-                                <NavbarButton
-                                    icon={<IconQuestion />}
-                                    identifier="help-button"
-                                    title="Need any help?"
-                                    popoverMarker
-                                />
-                            }
-                            placement="right-end"
-                        />
-                        <NavbarButton
-                            icon={<IconGear />}
-                            identifier={Scene.ProjectSettings}
-                            to={urls.projectSettings()}
-                        />
-                        <Popover
-                            overlay={<SitePopoverOverlay />}
-                            visible={isSitePopoverOpen}
-                            onClickOutside={closeSitePopover}
-                            placement="right-end"
-                        >
-                            <NavbarButton
-                                icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
-                                identifier="me"
-                                title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
-                                onClick={toggleSitePopover}
-                                popoverMarker
-                            />
-                        </Popover>
+                            )
+                        )}
                     </ul>
-                </div>
+                ))}
+            </div>
+            <div className="Navbar3000__bottom">
+                <ul>
+                    <NavbarButton
+                        icon={
+                            isThemeSyncedWithSystem ? (
+                                <div className="relative">
+                                    {activeThemeIcon}
+                                    <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
+                                </div>
+                            ) : (
+                                activeThemeIcon
+                            )
+                        }
+                        identifier="theme-button"
+                        title={
+                            darkModeSavedPreference === false
+                                ? `Sync theme with system preference (${
+                                      darkModeSystemPreference ? 'dark' : 'light'
+                                  } mode)`
+                                : darkModeSavedPreference
+                                ? 'Switch to light mode'
+                                : 'Switch to dark mode'
+                        }
+                        shortTitle="Toggle theme"
+                        onClick={() => toggleTheme()}
+                        persistentTooltip
+                    />
+                    <HelpButton
+                        customComponent={
+                            <NavbarButton
+                                icon={<IconQuestion />}
+                                identifier="help-button"
+                                title="Need any help?"
+                                shortTitle="Help"
+                            />
+                        }
+                        placement="right-end"
+                    />
+                    <NavbarButton
+                        icon={<IconGear />}
+                        identifier={Scene.ProjectSettings}
+                        title="Project settings"
+                        to={urls.projectSettings()}
+                    />
+                    <Popover
+                        overlay={<SitePopoverOverlay />}
+                        visible={isSitePopoverOpen}
+                        onClickOutside={closeSitePopover}
+                        placement="right-end"
+                    >
+                        <NavbarButton
+                            icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
+                            identifier="me"
+                            title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
+                            shortTitle={user?.first_name || user?.email}
+                            onClick={toggleSitePopover}
+                        />
+                    </Popover>
+                </ul>
             </div>
         </nav>
     )

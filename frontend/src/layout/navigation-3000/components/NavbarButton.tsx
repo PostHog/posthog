@@ -11,28 +11,33 @@ export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
     title?: string
+    shortTitle?: string
     onClick?: () => void
     to?: string
     persistentTooltip?: boolean
     active?: boolean
-    popoverMarker?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, title, onClick, persistentTooltip, popoverMarker, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, shortTitle, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-    const here = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV] ? aliasedActiveScene === identifier : false
+    const isUsingNewNav = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
+    const here = aliasedActiveScene === identifier
+
+    if (!isUsingNewNav) {
+        buttonProps.active = here
+    }
 
     return (
-        <li>
+        <li className="w-full">
             <Tooltip
-                title={here ? `${title} (you are here)` : title}
+                title={isUsingNewNav ? (here ? `${title} (you are here)` : title) : null}
                 placement="right"
                 delayMs={0}
                 visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
@@ -45,13 +50,12 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         setHasBeenClicked(true)
                         onClick?.()
                     }}
-                    className={clsx(
-                        'NavbarButton',
-                        here && 'NavbarButton--here',
-                        popoverMarker && 'NavbarButton--popover'
-                    )}
+                    className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+                    fullWidth
                     {...buttonProps}
-                />
+                >
+                    {!isUsingNewNav ? shortTitle || title : null}
+                </LemonButton>
             </Tooltip>
         </li>
     )

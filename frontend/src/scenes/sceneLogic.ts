@@ -42,6 +42,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
 export const sceneLogic = kea<sceneLogicType>([

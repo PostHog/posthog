@@ -26,6 +26,9 @@ import {
     IconTestTube,
     IconToggle,
     IconToolbar,
+    IconNotebook,
+    IconHardDrive,
+    IconRocket,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 import { annotationsSidebarLogic } from './sidebars/annotations'
@@ -290,6 +293,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.dashboards(),
                         },
                         {
+                            identifier: Scene.Notebooks,
+                            label: 'Notebooks',
+                            icon: <IconNotebook />,
+                            to: urls.notebooks(),
+                            featureFlag: FEATURE_FLAGS.NOTEBOOKS,
+                        },
+                        {
                             identifier: Scene.DataManagement,
                             label: 'Data management',
                             icon: <IconDatabase />,
@@ -326,6 +336,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.events(),
                         },
                         {
+                            identifier: Scene.WebAnalytics,
+                            label: 'Web Analytics',
+                            icon: <IconGraph />, // TODO
+                            to: urls.webAnalytics(),
+                            featureFlag: FEATURE_FLAGS.WEB_ANALYTICS,
+                        },
+                        {
                             identifier: Scene.SavedInsights,
                             label: 'Product Analytics',
                             icon: <IconGraph />,
@@ -340,6 +357,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
                               }
                             : null,
+                        {
+                            identifier: Scene.DataWarehouse,
+                            label: 'Data Warehouse',
+                            icon: <IconHardDrive />, // TODO
+                            to: urls.dataWarehouse(),
+                            featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session Replay',
@@ -359,6 +383,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
+                        },
+                        {
+                            identifier: Scene.EarlyAccessFeatures,
+                            label: 'Early Access Features',
+                            icon: <IconRocket />,
+                            to: urls.earlyAccessFeatures(),
                         },
                         {
                             identifier: Scene.ToolbarLaunch,

@@ -243,19 +243,6 @@
             color: var(--muted);
         }
 
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            color: var(--default);
-            background: var(--border);
-            .LemonButton__icon {
-                color: var(--default);
-            }
-        }
-
-        &:not([aria-disabled='true']):active {
-            transform: scale(0.96875); // 31/32 (0.5px less on both sides, assuming a 32px tall button)
-        }
-
         &.LemonButton--status-primary {
             color: var(--muted);
         }
@@ -288,6 +275,19 @@
             .LemonButton__icon {
                 color: var(--default);
             }
+        }
+
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            color: var(--default);
+            background: var(--border);
+            .LemonButton__icon {
+                color: var(--default);
+            }
+        }
+
+        &:not([aria-disabled='true']):active {
+            transform: scale(calc(35 / 36));
         }
     }
 }
