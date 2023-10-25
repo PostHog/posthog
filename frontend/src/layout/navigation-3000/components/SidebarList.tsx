@@ -21,6 +21,8 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
 
+    const emptyStateSkeletonCount = useMemo(() => 4 + Math.floor(Math.random() * 4), [])
+
     const { items, remote } = category
 
     const addingNewItem = newItemInlineCategory === category.key
@@ -85,10 +87,14 @@ export function SidebarList({ category }: { category: SidebarCategory }): JSX.El
 
     return (
         // The div is for AutoSizer to work
-        <div className="flex-1">
+        <div className="flex-1" aria-busy={category.loading}>
             <AutoSizer disableWidth>
                 {({ height }) =>
-                    remote ? (
+                    category.loading && category.items.length === 0 ? (
+                        Array(emptyStateSkeletonCount)
+                            .fill(null)
+                            .map((_, index) => <SidebarListItemSkeleton key={index} style={{ height: 32 }} />)
+                    ) : remote ? (
                         <InfiniteLoader
                             isRowLoaded={({ index }) => remote.isItemLoaded(index)}
                             loadMoreRows={({ startIndex, stopIndex }) => remote.loadMoreItems(startIndex, stopIndex)}

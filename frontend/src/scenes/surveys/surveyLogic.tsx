@@ -375,6 +375,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
+                            AND trim(JSONExtractString(properties, '${getResponseField(questionIndex)}')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                         LIMIT 20

@@ -39,7 +39,7 @@ from posthog.utils import refresh_requested_by_client
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
     "TrendsQuery",
-    "WebOverviewStatsQuery",
+    "WebOverviewQuery",
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",

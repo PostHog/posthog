@@ -11,6 +11,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
     FieldOrTable,
 )
+from posthog.hogql.database.schema.event_sessions import EventsSessionSubTable, join_with_events_table_session_duration
 from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
@@ -54,6 +55,7 @@ class EventsGroupSubTable(VirtualTable):
 
 
 class EventsTable(Table):
+
     fields: Dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid"),
         "event": StringDatabaseField(name="event"),
@@ -97,6 +99,11 @@ class EventsTable(Table):
         "group_3": LazyJoin(from_field="$group_3", join_table=GroupsTable(), join_function=join_with_group_n_table(3)),
         "$group_4": StringDatabaseField(name="$group_4"),
         "group_4": LazyJoin(from_field="$group_4", join_table=GroupsTable(), join_function=join_with_group_n_table(4)),
+        "session": LazyJoin(
+            from_field="$session_id",
+            join_table=EventsSessionSubTable(),
+            join_function=join_with_events_table_session_duration,
+        ),
     }
 
     def to_printed_clickhouse(self, context):

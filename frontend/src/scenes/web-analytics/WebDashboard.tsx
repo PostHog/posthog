@@ -9,6 +9,10 @@ import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleCompo
 import { useCallback } from 'react'
 import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -50,9 +54,9 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             throw new UnexpectedNeverError(breakdownBy)
     }
 }
+
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { source } = query
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
@@ -91,6 +95,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             throw new UnexpectedNeverError(breakdownBy)
     }
 
+    return <BreakdownValueCellInner value={value} propertyName={propertyName} />
+}
+const BreakdownValueCellInner = ({ value, propertyName }: { value: string; propertyName: string }): JSX.Element => {
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+
     const onClick = useCallback(() => {
         togglePropertyFilter(propertyName, value)
     }, [togglePropertyFilter, propertyName, value])
@@ -122,82 +131,122 @@ const queryContext: QueryContext = {
     },
 }
 
-export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { tiles, webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
+const Filters = (): JSX.Element => {
+    const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     return (
-        <div>
-            <div className="sticky top-0 bg-white z-20 pt-2">
-                <div className="flex flex-row flex-wrap gap-2">
-                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-                    <PropertyFilters
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
-                        propertyFilters={webAnalyticsFilters}
-                        pageKey={'web-analytics'}
-                    />
-                </div>
-                <div className={'bg-border h-px w-full mt-2'} />
+        <div className="sticky top-0 bg-white z-20 pt-2">
+            <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                <PropertyFilters
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
+                    propertyFilters={webAnalyticsFilters}
+                    pageKey={'web-analytics'}
+                />
             </div>
-            <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
-                {tiles.map((tile, i) => {
-                    if ('query' in tile) {
-                        const { query, title, layout } = tile
-                        return (
-                            <div
-                                key={i}
-                                className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                    layout.rowSpan ?? 1
-                                } min-h-100 flex flex-col`}
-                            >
-                                {title && <h2>{title}</h2>}
-                                <Query query={query} readOnly={true} context={queryContext} />
-                            </div>
-                        )
-                    } else if ('tabs' in tile) {
-                        const { tabs, activeTabId, layout, setTabId } = tile
-                        const tab = tabs.find((t) => t.id === activeTabId)
-                        if (!tab) {
-                            return null
-                        }
-                        const { query, title } = tab
-                        return (
-                            <div
-                                key={i}
-                                className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                    layout.rowSpan ?? 1
-                                } min-h-100 flex flex-col`}
-                            >
-                                <div className="flex flex-row items-center">
-                                    {<h2 className="flex-1 m-0">{title}</h2>}
-                                    {tabs.length > 1 && (
-                                        <div className="space-x-2">
-                                            {/* TODO switch to a select if more than 3 */}
-                                            {tabs.map(({ id, linkText }) => (
-                                                <a
-                                                    className={
-                                                        id === activeTabId
-                                                            ? 'text-link'
-                                                            : 'text-inherit hover:text-link'
-                                                    }
-                                                    key={id}
-                                                    onClick={() => setTabId(id)}
-                                                >
-                                                    {linkText}
-                                                </a>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                {/* Setting key forces the component to be recreated when the tab changes */}
-                                <Query key={activeTabId} query={query} readOnly={true} context={queryContext} />
-                            </div>
-                        )
-                    } else {
+            <div className={'bg-border h-px w-full mt-2'} />
+        </div>
+    )
+}
+
+const Tiles = (): JSX.Element => {
+    const { tiles } = useValues(webAnalyticsLogic)
+    return (
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
+            {tiles.map((tile, i) => {
+                if ('query' in tile) {
+                    const { query, title, layout } = tile
+                    return (
+                        <div
+                            key={i}
+                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
+                                layout.rowSpan ?? 1
+                            }  flex flex-col`}
+                        >
+                            {title && <h2 className="m-0  mb-1">{title}</h2>}
+                            <Query query={query} readOnly={true} context={queryContext} />
+                        </div>
+                    )
+                } else if ('tabs' in tile) {
+                    const { tabs, activeTabId, layout, setTabId } = tile
+                    const tab = tabs.find((t) => t.id === activeTabId)
+                    if (!tab) {
                         return null
                     }
-                })}
-            </div>
+                    const { query, title } = tab
+                    return (
+                        <div
+                            key={i}
+                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
+                                layout.rowSpan ?? 1
+                            } flex flex-col`}
+                        >
+                            <div className="flex flex-row items-center">
+                                {<h2 className="flex-1 m-0 mb-1">{title}</h2>}
+                                {tabs.length > 1 && (
+                                    <div className="space-x-2">
+                                        {/* TODO switch to a select if more than 3 */}
+                                        {tabs.map(({ id, linkText }) => (
+                                            <a
+                                                className={
+                                                    id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
+                                                }
+                                                key={id}
+                                                onClick={() => setTabId(id)}
+                                            >
+                                                {linkText}
+                                            </a>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            {/* Setting key forces the component to be recreated when the tab changes */}
+                            <Query key={activeTabId} query={query} readOnly={true} context={queryContext} />
+                        </div>
+                    )
+                } else {
+                    return null
+                }
+            })}
+        </div>
+    )
+}
+
+export const Notice = (): JSX.Element => {
+    const { openSupportForm } = useActions(supportLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const showSupportOptions = preflight?.cloud
+
+    return (
+        <LemonBanner type={'info'}>
+            <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
+            {showSupportOptions ? (
+                <p>
+                    <a onClick={() => openSupportForm('bug')}>
+                        <IconBugReport /> Report a bug
+                    </a>{' '}
+                    -{' '}
+                    <a onClick={() => openSupportForm('feedback')}>
+                        <IconFeedback /> Give feedback
+                    </a>{' '}
+                    -{' '}
+                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
+                        <IconGithub /> View GitHub issue
+                    </a>
+                </p>
+            ) : null}
+        </LemonBanner>
+    )
+}
+
+export const WebAnalyticsDashboard = (): JSX.Element => {
+    return (
+        <div className="w-full flex flex-col pt-2">
+            <Notice />
+            <Filters />
+            <Tiles />
         </div>
     )
 }

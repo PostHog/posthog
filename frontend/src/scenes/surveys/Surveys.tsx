@@ -66,14 +66,7 @@ export function Surveys(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Surveys
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
+                title="Surveys"
                 buttons={
                     <>
                         <LemonButtonWithSideAction

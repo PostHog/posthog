@@ -2,14 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors, sharedList
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    EventPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { EventPropertyFilter, HogQLPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { isNotNil } from 'lib/utils'
 
 interface Layout {
@@ -211,13 +204,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             colSpan: 12,
                         },
                         query: {
-                            full: true,
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.WebOverviewStatsQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                            },
+                            kind: NodeKind.WebOverviewQuery,
+                            properties: webAnalyticsFilters,
+                            dateRange,
                         },
                     },
                     {
@@ -367,63 +356,63 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    {
-                        title: 'Unique users',
-                        layout: {
-                            colSpan: 6,
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.TrendsQuery,
-                                dateRange,
-                                interval: 'day',
-                                series: [
-                                    {
-                                        event: '$pageview',
-                                        kind: NodeKind.EventsNode,
-                                        math: BaseMathType.UniqueUsers,
-                                        name: '$pageview',
-                                    },
-                                ],
-                                trendsFilter: {
-                                    compare: true,
-                                    display: ChartDisplayType.ActionsLineGraph,
-                                },
-                                filterTestAccounts: true,
-                                properties: webAnalyticsFilters,
-                            },
-                        },
-                    },
-                    {
-                        title: 'World Map (Unique Users)',
-                        layout: {
-                            colSpan: 6,
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.TrendsQuery,
-                                breakdown: {
-                                    breakdown: '$geoip_country_code',
-                                    breakdown_type: 'person',
-                                },
-                                dateRange,
-                                series: [
-                                    {
-                                        event: '$pageview',
-                                        kind: NodeKind.EventsNode,
-                                        math: BaseMathType.UniqueUsers,
-                                    },
-                                ],
-                                trendsFilter: {
-                                    display: ChartDisplayType.WorldMap,
-                                },
-                                filterTestAccounts: true,
-                                properties: webAnalyticsFilters,
-                            },
-                        },
-                    },
+                    // {
+                    //     title: 'Unique visitors',
+                    //     layout: {
+                    //         colSpan: 6,
+                    //     },
+                    //     query: {
+                    //         kind: NodeKind.InsightVizNode,
+                    //         source: {
+                    //             kind: NodeKind.TrendsQuery,
+                    //             dateRange,
+                    //             interval: 'day',
+                    //             series: [
+                    //                 {
+                    //                     event: '$pageview',
+                    //                     kind: NodeKind.EventsNode,
+                    //                     math: BaseMathType.UniqueUsers,
+                    //                     name: '$pageview',
+                    //                 },
+                    //             ],
+                    //             trendsFilter: {
+                    //                 compare: true,
+                    //                 display: ChartDisplayType.ActionsLineGraph,
+                    //             },
+                    //             filterTestAccounts: true,
+                    //             properties: webAnalyticsFilters,
+                    //         },
+                    //     },
+                    // },
+                    // {
+                    //     title: 'World Map (Unique Users)',
+                    //     layout: {
+                    //         colSpan: 6,
+                    //     },
+                    //     query: {
+                    //         kind: NodeKind.InsightVizNode,
+                    //         source: {
+                    //             kind: NodeKind.TrendsQuery,
+                    //             breakdown: {
+                    //                 breakdown: '$geoip_country_code',
+                    //                 breakdown_type: 'person',
+                    //             },
+                    //             dateRange,
+                    //             series: [
+                    //                 {
+                    //                     event: '$pageview',
+                    //                     kind: NodeKind.EventsNode,
+                    //                     math: BaseMathType.UniqueUsers,
+                    //                 },
+                    //             ],
+                    //             trendsFilter: {
+                    //                 display: ChartDisplayType.WorldMap,
+                    //             },
+                    //             filterTestAccounts: true,
+                    //             properties: webAnalyticsFilters,
+                    //         },
+                    //     },
+                    // },
                 ]
             },
         ],
