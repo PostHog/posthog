@@ -74,7 +74,10 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "session_recording_linked_flag": null,
+        "session_recording_minimum_duration_milliseconds": null,
         "session_recording_opt_in": true,
+        "session_recording_sample_rate": "1.0",
         "slack_incoming_webhook": "",
         "test_account_filters": [
           {

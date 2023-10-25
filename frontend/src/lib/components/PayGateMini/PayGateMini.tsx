@@ -145,7 +145,7 @@ export function PayGateMini({
                 center
             >
                 {gateVariant === 'add-card'
-                    ? 'Upgrade now'
+                    ? 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
                     : 'Subscribe'}

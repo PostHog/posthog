@@ -5,7 +5,6 @@ import { SessionRecording } from './SessionRecording'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ToolbarSettings } from './ToolbarSettings'
 import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -235,13 +234,6 @@ export function ProjectSettings(): JSX.Element {
                     Data capture configuration
                 </h2>
                 <IPCapture />
-                <LemonDivider className="my-6" />
-                <h2 className="subtitle">PostHog Toolbar</h2>
-                <p>
-                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
-                    right there on your website!
-                </p>
-                <ToolbarSettings />
                 <LemonDivider className="my-6" />
                 <SessionRecording />
                 <LemonDivider className="my-6" />

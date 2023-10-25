@@ -355,6 +355,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <LemonButton
                                                         fullWidth
                                                         status="stealth"
+                                                        disabledReason={
+                                                            billing?.discount_percent === 100
+                                                                ? "You can't set a billing limit with a 100% discount"
+                                                                : null
+                                                        }
+                                                        tooltipPlacement="bottom"
                                                         onClick={() => setIsEditingBillingLimit(true)}
                                                     >
                                                         Set billing limit
