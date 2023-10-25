@@ -237,11 +237,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (select_union_stmt_ctx) {
       return visit(select_union_stmt_ctx);
     }
+
+    auto select_stmt_ctx = ctx->selectStmt();
+    if (select_stmt_ctx) {
+      return visit(select_stmt_ctx);
+    }
+
     auto tag_element_ctx = ctx->tagElement();
     if (tag_element_ctx) {
       return visit(tag_element_ctx);
     }
-    return visit(ctx->selectStmt());
+
+    throw HogQLParsingException("Unexpected Select node. Must have either selectUnionStmt, selectStmt, or tagElement set.");
   }
 
   VISIT(SelectStmtWithParens) {
@@ -1215,22 +1222,26 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TagAttribute) {
     string name = visitAsString(ctx->identifier());
 
-    if (ctx->columnExpr()) {
+    auto column_expr_ctx = ctx->columnExpr();
+    if (column_expr_ctx) {
       return build_ast_node(
-          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", visitAsPyObject(ctx->columnExpr())
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", visitAsPyObject(column_expr_ctx)
       );
-    } else if (ctx->STRING_LITERAL()) {
-      string text = unquote_string_terminal(ctx->STRING_LITERAL());
+    }
+
+    auto string_literal_ctx = ctx->STRING_LITERAL();
+    if (string_literal_ctx) {
+      string text = unquote_string_terminal(string_literal_ctx);
       PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
       return build_ast_node(
           "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
       );
-    } else {
-      PyObject* value = build_ast_node("Constant", "{s:O}", "value", Py_True);
-      return build_ast_node(
-          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
-      );
     }
+
+    PyObject* value = build_ast_node("Constant", "{s:O}", "value", Py_True);
+    return build_ast_node(
+        "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
+    );
   }
 
   VISIT(TagElement) {
