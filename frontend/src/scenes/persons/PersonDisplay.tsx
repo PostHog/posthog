@@ -73,13 +73,13 @@ export function PersonDisplay({
                           } else {
                               setVisible(true)
 
-                              if (notebookNode) {
+                              if (notebookNode && person) {
                                   notebookNode.actions.updateAttributes({
                                       children: [
                                           {
                                               type: NotebookNodeType.Person,
                                               attrs: {
-                                                  id: person?.distinct_id || person?.distinct_ids?.[0],
+                                                  id: person.distinct_id || person.distinct_ids?.[0],
                                               },
                                           },
                                       ],
