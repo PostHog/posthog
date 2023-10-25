@@ -34,7 +34,6 @@ from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
-
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 from .year_in_posthog import year_in_posthog

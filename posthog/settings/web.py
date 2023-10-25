@@ -112,6 +112,13 @@ if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+if DEBUG:
+    # Used on local devenv to forward `/i/` to capture-rs on port 3000,
+    # we short-circuit the whole middleware chain to avoid CSRF and auth errors,
+    # like CaptureMiddleware does.
+    MIDDLEWARE.insert(0, "posthog.middleware.CaptureRsProxyMiddleware")
+    INSTALLED_APPS.append("revproxy")
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig  # noqa: F401

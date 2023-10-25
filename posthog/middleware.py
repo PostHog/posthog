@@ -15,6 +15,7 @@ from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
 from rest_framework import status
+from revproxy.views import ProxyView
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -29,9 +30,8 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
-from .utils_cors import cors_response
-
 from .auth import PersonalAPIKeyAuthentication
+from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -317,6 +317,24 @@ class ShortCircuitMiddleware:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response
+
+
+# Used on local devenv to forward `/i/` to capture-rs on port 3000
+class CaptureRsProxy(ProxyView):
+    upstream = "http://localhost:3000"
+
+
+# Used on local devenv to forward `/i/` to capture-rs on port 3000
+class CaptureRsProxyMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.view = CaptureRsProxy.as_view()
+
+    def __call__(self, request: HttpRequest):
+        if request.path.startswith("/i/"):
+            return self.view(request, request.path.lstrip("/"))
+        else:
+            return self.get_response(request)
 
 
 class CaptureMiddleware:
