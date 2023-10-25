@@ -223,7 +223,6 @@
         "@types/react-resizable": "^3.0.4",
         "@types/react-syntax-highlighter": "^15.5.7",
         "@types/react-textfit": "^1.1.0",
-        "@types/react-transition-group": "^4.4.4",
         "@types/react-virtualized": "^9.21.14",
         "@types/testing-library__jest-dom": "^5.14.5",
         "@types/zxcvbn": "^4.4.0",
