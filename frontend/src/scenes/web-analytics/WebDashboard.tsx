@@ -9,6 +9,10 @@ import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleCompo
 import { useCallback } from 'react'
 import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -209,9 +213,38 @@ const Tiles = (): JSX.Element => {
     )
 }
 
+export const Notice = (): JSX.Element => {
+    const { openSupportForm } = useActions(supportLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const showSupportOptions = preflight?.cloud
+
+    return (
+        <LemonBanner type={'info'}>
+            <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
+            {showSupportOptions ? (
+                <p>
+                    <a onClick={() => openSupportForm('bug')}>
+                        <IconBugReport /> Report a bug
+                    </a>{' '}
+                    -{' '}
+                    <a onClick={() => openSupportForm('feedback')}>
+                        <IconFeedback /> Give feedback
+                    </a>{' '}
+                    -{' '}
+                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
+                        <IconGithub /> View GitHub issue
+                    </a>
+                </p>
+            ) : null}
+        </LemonBanner>
+    )
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="w-full flex flex-col">
+        <div className="w-full flex flex-col pt-2">
+            <Notice />
             <Filters />
             <Tiles />
         </div>

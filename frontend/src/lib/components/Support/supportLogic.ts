@@ -57,6 +57,7 @@ export const TARGET_AREA_TO_NAME = {
     session_replay: 'Session Replay (Recordings)',
     toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
+    web_analytics: 'Web Analytics',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -85,6 +86,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
+    web: 'web_analytics',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
