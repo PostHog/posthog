@@ -935,6 +935,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    FEED = 'feed',
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
@@ -3066,6 +3067,7 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
+    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3080,6 +3082,7 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    PersonFeed = 'ph-person-feed',
 }
 
 export type NotebookNodeResource = {
