@@ -1291,7 +1291,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_malformed_sql(self):
             query = "SELEC 2"
-            with self.assertRaises(SyntaxException) as e:
+            with self.assertRaisesMessage(
+                SyntaxException, "mismatched input 'SELEC' expecting {SELECT, WITH, '(', '<'}"
+            ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 0)
             self.assertEqual(e.exception.end, 7)
