@@ -11,7 +11,7 @@ import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconBugReport, IconFeedback } from 'lib/lemon-ui/icons'
+import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
@@ -230,6 +230,10 @@ export const Notice = (): JSX.Element => {
                     -{' '}
                     <a onClick={() => openSupportForm('feedback')}>
                         <IconFeedback /> Give feedback
+                    </a>{' '}
+                    -{' '}
+                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
+                        <IconGithub /> View GitHub issue
                     </a>
                 </p>
             ) : null}
