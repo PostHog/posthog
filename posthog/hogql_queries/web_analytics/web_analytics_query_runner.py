@@ -11,13 +11,13 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     EventPropertyFilter,
     WebTopClicksQuery,
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     WebStatsTableQuery,
     HogQLPropertyFilter,
 )
 
 WebQueryNode = Union[
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
 ]
@@ -48,12 +48,14 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, HogQLPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
-    def session_where(self):
+    def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
                 "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
-                    "date_from": self.query_date_range.date_from_as_hogql(),
+                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                    if include_previous_period
+                    else self.query_date_range.date_from_as_hogql(),
                     "date_to": self.query_date_range.date_to_as_hogql(),
                 },
             )
@@ -63,18 +65,25 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             self.team,
         )
 
-    def session_having(self):
+    def session_having(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
                 "min_timestamp >= {date_from}",
-                placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
+                placeholders={
+                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                    if include_previous_period
+                    else self.query_date_range.date_from_as_hogql(),
+                },
             )
         ]
         pathname = self.pathname_property_filter
         if pathname:
             properties.append(
                 EventPropertyFilter(
-                    key="earliest_pathname", label=pathname.label, operator=pathname.operator, value=pathname.value
+                    key="session_initial_pathname",
+                    label=pathname.label,
+                    operator=pathname.operator,
+                    value=pathname.value,
                 )
             )
         return property_to_expr(

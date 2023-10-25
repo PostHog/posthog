@@ -10,7 +10,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     DashboardTile,
     DashboardType,
-    FilterType,
     InsightColor,
     InsightModel,
     InsightShortId,
@@ -24,6 +23,7 @@ import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import api from 'lib/api'
+import { DashboardFilter } from '~/queries/schema'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -63,7 +63,7 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
 export const dashboardResult = (
     dashboardId: number,
     tiles: DashboardTile[],
-    filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
+    filters: Partial<DashboardFilter> = {}
 ): DashboardType => {
     return {
         ...dashboardJson,

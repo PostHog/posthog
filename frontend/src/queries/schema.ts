@@ -61,7 +61,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
 
     // Web analytics queries
-    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
@@ -85,7 +85,7 @@ export type AnyDataNode =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
-    | WebOverviewStatsQuery
+    | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
 
@@ -315,7 +315,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
-        | WebOverviewStatsQuery
+        | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
 
@@ -575,19 +575,26 @@ export interface SessionsTimelineQuery extends DataNode {
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
-    dateRange: DateRange
+    dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
 }
 
-export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebOverviewStatsQuery
-    response?: WebOverviewStatsQueryResponse
+export interface WebOverviewQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewQuery
+    response?: WebOverviewQueryResponse
 }
 
-export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
+export interface WebOverviewItem {
+    key: string
+    value?: number
+    previous?: number
+    kind: 'unit' | 'duration_s' | 'percentage'
+    changeFromPreviousPct?: number
+    isIncreaseBad?: boolean
+}
+
+export interface WebOverviewQueryResponse extends QueryResponse {
+    results: WebOverviewItem[]
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -726,4 +733,10 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+}
+
+export interface DashboardFilter {
+    date_from?: string | null
+    date_to?: string | null
+    properties?: AnyPropertyFilter[] | null
 }

@@ -136,6 +136,7 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-monitoring
@@ -143,7 +144,6 @@ export const FEATURE_FLAGS = {
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
-    SURVEYS_POSITIONS: 'surveys-positions', // owner: @liyiy
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     // owner: team monitoring, only to be enabled for PostHog team testing
@@ -162,9 +162,10 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_MULTIPLE_QUESTIONS: 'surveys-multiple-questions', // owner: @liyiy
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
-    SURVEYS_NEW_CREATION_FLOW: 'surveys-new-creation-flow', // owner: @liyiy
+    SURVEYS_PAYGATES: 'surveys-paygates',
     CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
+    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -194,6 +195,9 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
+    [AvailableFeature.SURVEYS_STYLING]: LicensePlan.Scale,
+    [AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS]: LicensePlan.Scale,
+    [AvailableFeature.SURVEYS_TEXT_HTML]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

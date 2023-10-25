@@ -338,7 +338,7 @@ class NodeKind(str, Enum):
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
-    WebOverviewStatsQuery = "WebOverviewStatsQuery"
+    WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
     TimeToSeeDataSessionsQuery = "TimeToSeeDataSessionsQuery"
@@ -611,18 +611,34 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class WebOverviewStatsQueryResponse(BaseModel):
+class Kind(str, Enum):
+    unit = "unit"
+    duration_s = "duration_s"
+    percentage = "percentage"
+
+
+class WebOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: Optional[List] = None
+    changeFromPreviousPct: Optional[float] = None
+    isIncreaseBad: Optional[bool] = None
+    key: str
+    kind: Kind
+    previous: Optional[float] = None
+    value: Optional[float] = None
+
+
+class WebOverviewQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
-    results: List
+    results: List[WebOverviewItem]
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List] = None
 
 
 class WebStatsBreakdown(str, Enum):
@@ -926,18 +942,18 @@ class WebAnalyticsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
 
 
-class WebOverviewStatsQuery(BaseModel):
+class WebOverviewQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
-    kind: Literal["WebOverviewStatsQuery"] = "WebOverviewStatsQuery"
+    dateRange: Optional[DateRange] = None
+    kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
-    response: Optional[WebOverviewStatsQueryResponse] = None
+    response: Optional[WebOverviewQueryResponse] = None
 
 
 class WebStatsTableQuery(BaseModel):
@@ -945,7 +961,7 @@ class WebStatsTableQuery(BaseModel):
         extra="forbid",
     )
     breakdownBy: WebStatsBreakdown
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
@@ -955,7 +971,7 @@ class WebTopClicksQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: DateRange
+    dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     properties: List[Union[EventPropertyFilter, HogQLPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
@@ -965,6 +981,30 @@ class AnyResponseType(RootModel):
     root: Union[
         Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseTypeItem, Any], EventsQueryResponse
     ]
+
+
+class DashboardFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        List[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingDurationFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
+    ] = None
 
 
 class DatabaseSchemaQuery(BaseModel):
@@ -1753,7 +1793,7 @@ class DataTableNode(BaseModel):
         PersonsQuery,
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
-        WebOverviewStatsQuery,
+        WebOverviewQuery,
         WebStatsTableQuery,
         WebTopClicksQuery,
     ] = Field(..., description="Source of the events")
@@ -1801,7 +1841,7 @@ class QuerySchema(RootModel):
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
-            WebOverviewStatsQuery,
+            WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
         ],

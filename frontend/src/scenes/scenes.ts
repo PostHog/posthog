@@ -46,6 +46,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web Analytics',
+        layout: 'app-container',
     },
     [Scene.Cohorts]: {
         projectBased: true,
