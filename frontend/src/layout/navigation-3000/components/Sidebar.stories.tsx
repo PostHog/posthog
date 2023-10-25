@@ -8,6 +8,7 @@ import { Sidebar } from './Sidebar'
 import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
 import { SidebarNavbarItem } from '../types'
+import { setFeatureFlags } from '~/mocks/browser'
 
 const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
@@ -31,6 +32,7 @@ const multipliedFeatureFlagsJson = {
 }
 
 export function Dashboards(): JSX.Element {
+    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/dashboards/': dashboardsJson,
@@ -50,6 +52,7 @@ export function Dashboards(): JSX.Element {
 }
 
 export function FeatureFlags(): JSX.Element {
+    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/feature_flags/': multipliedFeatureFlagsJson,

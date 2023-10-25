@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -26,7 +26,18 @@ const meta: Meta = {
     },
 }
 export default meta
-export function Navigation(): JSX.Element {
+
+export function NavigationBase(): JSX.Element {
+    setFeatureFlags(['posthog-3000'])
+    useEffect(() => {
+        router.actions.push(urls.projectHomepage())
+    }, [])
+
+    return <App />
+}
+
+export function Navigation3000(): JSX.Element {
+    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])
