@@ -17,9 +17,9 @@ class DataManagementViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         activity_page = load_all_activity(
             scope_list=["EventDefinition", "PropertyDefinition"],
-            team_id=request.user.team.id,
+            team_id=request.user.team.id,  # type: ignore
             limit=limit,
             page=page,
-        )  # type: ignore
+        )
 
         return activity_page_response(activity_page, limit, page, request)

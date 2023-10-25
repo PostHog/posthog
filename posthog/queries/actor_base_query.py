@@ -111,9 +111,9 @@ class ActorBaseQuery:
 
         if (
             hasattr(self._filter, "include_recordings")
-            and self._filter.include_recordings
+            and self._filter.include_recordings  # type: ignore
             and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]
-        ):  # type: ignore
+        ):
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors, len(raw_result)

@@ -468,15 +468,15 @@ class PropertyDefinitionViewSet(
 
         property_definition_fields = ", ".join(
             [
-                f'posthog_propertydefinition."{f.column}"'
+                f'posthog_propertydefinition."{f.column}"'  # type: ignore
                 for f in PropertyDefinition._meta.get_fields()
                 if hasattr(f, "column")
-            ]  # type: ignore
+            ]
         )
 
-        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(
+        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY
-        )  # type: ignore
+        )
         order_by_verified = False
         if use_enterprise_taxonomy:
             try:

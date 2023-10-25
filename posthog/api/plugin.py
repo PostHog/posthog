@@ -459,10 +459,10 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         activity_page = load_all_activity(
             scope_list=["Plugin", "PluginConfig"],
-            team_id=request.user.team.id,
+            team_id=request.user.team.id,  # type: ignore
             limit=limit,
             page=page,
-        )  # type: ignore
+        )
 
         return activity_page_response(activity_page, limit, page, request)
 
@@ -585,13 +585,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
 
-    def update(
+    def update(  # type: ignore
         self,
         plugin_config: PluginConfig,
         validated_data: Dict,
         *args: Any,
         **kwargs: Any,
-    ) -> PluginConfig:  # type: ignore
+    ) -> PluginConfig:
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
 

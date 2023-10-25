@@ -41,14 +41,14 @@ def _create_action(**kwargs):
 
 class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(
+    funnel_breakdown_test_factory(  # type: ignore
         ClickhouseFunnelUnordered,
         ClickhouseFunnelUnorderedActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -641,13 +641,13 @@ class TestFunnelUnorderedStepsBreakdown(
 
 class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(
+    funnel_conversion_time_test_factory(  # type: ignore
         ClickhouseFunnelUnordered,
         ClickhouseFunnelUnorderedActors,
         _create_event,
         _create_person,
     ),
-):  # type: ignore
+):
     maxDiff = None
     pass
 

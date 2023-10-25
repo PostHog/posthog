@@ -432,10 +432,10 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     # Try loading as json for dicts or arrays
                     flattened.append(
                         {
-                            "name": convert_property_value(json.loads(value)),
+                            "name": convert_property_value(json.loads(value)),  # type: ignore
                             "count": count,
                         }
-                    )  # type: ignore
+                    )
                 except json.decoder.JSONDecodeError:
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)

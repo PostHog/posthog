@@ -43,22 +43,24 @@ def _create_action(**kwargs):
 
 class TestFunnelBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(
+    funnel_breakdown_test_factory(  # type: ignore
         ClickhouseFunnel,
         ClickhouseFunnelActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     maxDiff = None
     pass
 
 
 class TestFunnelConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person),
-):  # type: ignore
+    funnel_conversion_time_test_factory(  # type: ignore
+        ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person
+    ),
+):
     maxDiff = None
     pass
 

@@ -61,9 +61,9 @@ def send_license_usage():
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
                 groups={
-                    "organization": str(user.current_organization.id),
+                    "organization": str(user.current_organization.id),  # type: ignore
                     "instance": SITE_URL,
-                },  # type: ignore
+                },
             )
             response.raise_for_status()
             return
@@ -78,9 +78,9 @@ def send_license_usage():
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
                 groups={
-                    "organization": str(user.current_organization.id),
+                    "organization": str(user.current_organization.id),  # type: ignore
                     "instance": SITE_URL,
-                },  # type: ignore
+                },
             )
     except Exception as err:
         try:
@@ -93,9 +93,9 @@ def send_license_usage():
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
                 groups={
-                    "organization": str(user.current_organization.id),
+                    "organization": str(user.current_organization.id),  # type: ignore
                     "instance": SITE_URL,
-                },  # type: ignore
+                },
             )
             raise err
         except:

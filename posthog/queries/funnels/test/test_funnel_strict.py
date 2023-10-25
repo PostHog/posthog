@@ -36,14 +36,14 @@ def _create_action(**kwargs):
 
 class TestFunnelStrictStepsBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_test_factory(
+    funnel_breakdown_test_factory(  # type: ignore
         ClickhouseFunnelStrict,
         ClickhouseFunnelStrictActors,
         _create_event,
         _create_action,
         _create_person,
     ),
-):  # type: ignore
+):
     maxDiff = None
 
     def test_basic_funnel_default_funnel_days_breakdown_event(self):
@@ -177,13 +177,13 @@ class TestFunnelStrictStepsBreakdown(
 
 class TestFunnelStrictStepsConversionTime(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(
+    funnel_conversion_time_test_factory(  # type: ignore
         ClickhouseFunnelStrict,
         ClickhouseFunnelStrictActors,
         _create_event,
         _create_person,
     ),
-):  # type: ignore
+):
     maxDiff = None
     pass
 

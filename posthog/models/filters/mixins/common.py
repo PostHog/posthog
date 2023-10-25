@@ -352,8 +352,10 @@ class DateMixin(BaseParamMixin):
                 return None
             elif isinstance(self._date_from, str):
                 date, delta_mapping = relative_date_parse_with_delta_mapping(
-                    self._date_from, self.team.timezone_info, always_truncate=True
-                )  # type: ignore
+                    self._date_from,
+                    self.team.timezone_info,  # type: ignore
+                    always_truncate=True,
+                )
                 self.date_from_delta_mapping = delta_mapping
                 return date
             else:
@@ -384,8 +386,10 @@ class DateMixin(BaseParamMixin):
                         )
                     except ValueError:
                         date, delta_mapping = relative_date_parse_with_delta_mapping(
-                            self._date_to, self.team.timezone_info, always_truncate=True
-                        )  # type: ignore
+                            self._date_to,
+                            self.team.timezone_info,  # type: ignore
+                            always_truncate=True,
+                        )
                         self.date_to_delta_mapping = delta_mapping
                         return date
             else:

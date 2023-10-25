@@ -696,7 +696,10 @@ def get_all_feature_flags(
                         SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
                             AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
                     """
-                    cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids)})  # type: ignore
+                    cursor.execute(
+                        query,
+                        {"team_id": team_id, "distinct_ids": tuple(distinct_ids)},  # type: ignore
+                    )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
             except Exception as e:
@@ -825,10 +828,10 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": tuple(distinct_ids),
+                        "distinct_ids": tuple(distinct_ids),  # type: ignore
                         "hash_key_override": hash_key_override,
                     },
-                )  # type: ignore
+                )
                 return cursor.rowcount > 0
 
         except IntegrityError as e:
