@@ -30,8 +30,10 @@ interface NavbarItemBase {
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string
+    logic?: undefined
 }
 export interface SidebarNavbarItem extends NavbarItemBase {
+    to?: undefined
     logic: LogicWrapper<SidebarLogic>
 }
 /** A navbar item either points to a sidebar (via a sidebar logic) or directly to a scene (via a URL). */
