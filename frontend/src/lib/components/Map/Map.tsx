@@ -2,8 +2,11 @@ import { useEffect, useRef } from 'react'
 import { Map as RawMap, Marker, StyleSpecification } from 'maplibre-gl'
 import layers from 'protomaps-themes-base'
 import useResizeObserver from 'use-resize-observer'
+import { useValues } from 'kea'
 
 import 'maplibre-gl/dist/maplibre-gl.css'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 /** Latitude and longtitude in degrees (+lat is east, -lat is west, +lon is south, -lon is north). */
 export interface MapProps {
@@ -36,6 +39,7 @@ export function Map({ className, ...rest }: Omit<MapProps, 'mapLibreStyleUrl'>):
 export function MapComponent({ center, markers, className, mapLibreStyleUrl }: MapProps): JSX.Element {
     const mapContainer = useRef<HTMLDivElement>(null)
     const map = useRef<RawMap | null>(null)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
         map.current = new RawMap({
@@ -52,7 +56,7 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
                             '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
                     },
                 },
-                layers: layers('protomaps', 'light'),
+                layers: layers('protomaps', isDarkModeOn ? 'dark' : 'light'),
             },
             center,
             zoom: 4,
