@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
@@ -11,23 +11,38 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { EditorFocusPosition } from './utils'
-import { NotebookSidebar } from './NotebookSidebar'
+import { EditorFocusPosition, JSONContent } from './utils'
+import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { NotebookColumnRight } from './NotebookColumnRight'
 
-export type NotebookProps = {
-    shortId: string
-    editable?: boolean
+export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
+    initialContent?: JSONContent
+    editable?: boolean
 }
 
-export function Notebook({ shortId, editable = false, initialAutofocus = 'start' }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId })
-    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable } = useValues(logic)
-    const { duplicateNotebook, loadNotebook, setEditable } = useActions(logic)
+export function Notebook({
+    shortId,
+    mode,
+    editable = true,
+    initialAutofocus = 'start',
+    initialContent,
+}: NotebookProps): JSX.Element {
+    const logicProps: NotebookLogicProps = { shortId, mode }
+    const logic = notebookLogic(logicProps)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
+        useValues(logic)
+    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
+
+    useEffect(() => {
+        if (initialContent && mode === 'canvas') {
+            setLocalContent(initialContent)
+        }
+    }, [notebook])
 
     useWhyDidIRender('Notebook', {
         notebook,
@@ -36,7 +51,6 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         conflictWarningVisible,
         isEditable,
         shortId,
-        editable,
         initialAutofocus,
     })
 
@@ -66,14 +80,21 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
         return <NotebookConflictWarning />
     } else if (!notebook && notebookLoading) {
         return <NotebookLoadingState />
-    } else if (!notebook) {
+    } else if (notebookMissing) {
         return <NotFound object="notebook" />
     }
 
     return (
-        <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {notebook.is_template && (
+        <BindLogic logic={notebookLogic} props={logicProps}>
+            <div
+                className={clsx(
+                    'Notebook',
+                    !isExpanded && 'Notebook--compact',
+                    mode && `Notebook--${mode}`,
+                    isEditable && 'Notebook--editable'
+                )}
+            >
+                {isTemplate && (
                     <LemonBanner
                         type="info"
                         className="my-4"
@@ -102,10 +123,11 @@ export function Notebook({ shortId, editable = false, initialAutofocus = 'start'
                 ) : null}
 
                 <div className="flex flex-1 justify-center">
-                    <NotebookSidebar />
+                    <NotebookColumnLeft />
                     <ErrorBoundary>
                         <Editor />
                     </ErrorBoundary>
+                    <NotebookColumnRight />
                 </div>
             </div>
         </BindLogic>
