@@ -6,6 +6,7 @@ from posthog.schema import HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
+    from posthog.hogql.ast import SelectQuery
 
 
 class FieldOrTable(BaseModel):
@@ -101,7 +102,7 @@ class Table(FieldOrTable):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any], HogQLQueryModifiers], Any]
+    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
     join_table: Table
     from_field: str
 
