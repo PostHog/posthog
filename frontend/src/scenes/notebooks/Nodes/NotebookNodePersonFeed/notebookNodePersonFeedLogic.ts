@@ -2,13 +2,13 @@ import { kea, key, path, props, afterMount } from 'kea'
 import { loaders } from 'kea-loaders'
 
 // import { query } from '~/queries/query'
-import {
-    // NodeKind,
-    // SessionsTimelineQuery,
-    SessionsTimelineQueryResponse,
-} from '~/queries/schema'
+// import {
+//     // NodeKind,
+//     // SessionsTimelineQuery,
+//     SessionsTimelineQueryResponse,
+// } from '~/queries/schema'
 
-import { default as mockSessionsTimelineQueryResponse } from './mockSessionsTimelineQueryResponse.json'
+import mockSessionsTimelineQueryResponse from './mockSessionsTimelineQueryResponse.json'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 
@@ -21,9 +21,10 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
 
-    loaders(({ props }) => ({
+    loaders(() => ({
         sessions: [
-            null as SessionsTimelineQueryResponse['results'] | null,
+            // null as SessionsTimelineQueryResponse['results'] | null,
+            null as any | null,
             {
                 loadSessionsTimeline: async () => {
                     // const result = await query<SessionsTimelineQuery>({
