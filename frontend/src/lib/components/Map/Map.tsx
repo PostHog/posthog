@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { Map as RawMap, Marker } from 'maplibre-gl'
+import { Map as RawMap, Marker, StyleSpecification } from 'maplibre-gl'
+import layers from 'protomaps-themes-base'
 import useResizeObserver from 'use-resize-observer'
 
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -13,7 +14,7 @@ export interface MapProps {
     /** Map container class names. */
     className?: string
     /** The map's MapLibre style. This must be a JSON object conforming to the schema described in the MapLibre Style Specification, or a URL to such JSON. */
-    mapLibreStyleUrl: string
+    mapLibreStyleUrl: string | StyleSpecification
 }
 
 export function Map({ className, ...rest }: Omit<MapProps, 'mapLibreStyleUrl'>): JSX.Element {
@@ -39,7 +40,19 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
     useEffect(() => {
         map.current = new RawMap({
             container: mapContainer.current as HTMLElement,
-            style: mapLibreStyleUrl,
+            style: {
+                version: 8,
+                // glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
+                sources: {
+                    protomaps: {
+                        type: 'vector',
+                        url: 'pmtiles://https://example.com/example.pmtiles',
+                        attribution:
+                            '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
+                    },
+                },
+                layers: layers('protomaps', 'light'),
+            },
             center,
             zoom: 4,
             maxZoom: 10,

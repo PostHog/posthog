@@ -1,5 +1,7 @@
 import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { ToastContainer, Slide } from 'react-toastify'
+import maplibregl from 'maplibre-gl'
+import { Protocol } from 'pmtiles'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -132,6 +134,15 @@ function AppScene(): JSX.Element | null {
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // add pmtiles support to maplibre
+    useEffect(() => {
+        const protocol = new Protocol()
+        maplibregl.addProtocol('pmtiles', protocol.tile)
+        return () => {
+            maplibregl.removeProtocol('pmtiles')
+        }
+    }, [])
 
     const toastContainer = (
         <ToastContainer
