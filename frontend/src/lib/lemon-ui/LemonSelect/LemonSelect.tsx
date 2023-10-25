@@ -122,8 +122,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
     const activeLeaf = allLeafOptions.find((o) => o.value === value)
     const isClearButtonShown = allowClear && !!value
 
-    activeLeaf?.label
-
     return (
         <LemonMenu
             items={items}
