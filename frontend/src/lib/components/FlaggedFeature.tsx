@@ -7,7 +7,7 @@ export type PostHogFeatureProps = {
     /** What specific state or variant of feature flag needs to be active. */
     match?: string | boolean
     /** Rendered when the flag state/variant matches. */
-    children: JSX.Element | ((payload: any) => JSX.Element)
+    children: JSX.Element | ((payload: any) => JSX.Element) | null
     /** Rendered when the flag state/variant doesn't match. */
     fallback?: React.ReactNode
 }

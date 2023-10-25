@@ -115,7 +115,7 @@ export function ToolbarButton(): JSX.Element {
             rootNode
             width={62}
             className="floating-toolbar-button"
-            content={
+            innerContent={
                 !hedgehogMode ? (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ width: 45, display: 'flex' }}>
@@ -140,7 +140,7 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={closeDistance}
                 rotation={closeRotation}
-                content={<Close style={{ width: 14, height: 14 }} />}
+                innerContent={<Close style={{ width: 14, height: 14 }} />}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={logout}
                 style={{
@@ -157,7 +157,7 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={hedgehogModeDistance}
                 rotation={hedgehogModeRotation}
-                content="🦔"
+                innerContent="🦔"
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={() => setHedgehogMode(!hedgehogMode)}
                 style={{
@@ -175,7 +175,7 @@ export function ToolbarButton(): JSX.Element {
                         extensionPercentage={extensionPercentage}
                         distance={helpButtonOnTop ? 75 : 55}
                         rotation={helpButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<IconHelpOutline style={{ fontSize: 22 }} />}
+                        innerContent={<IconHelpOutline style={{ fontSize: 22 }} />}
                         label="Help"
                         zIndex={2}
                         onClick={() => window.open(HELP_URL, '_blank')?.focus()}
@@ -200,7 +200,7 @@ export function ToolbarButton(): JSX.Element {
                         labelStyle={{
                             opacity: inspectExtensionPercentage > 0.8 ? (inspectExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
-                        content={
+                        innerContent={
                             <div className="relative">
                                 <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
@@ -236,7 +236,9 @@ export function ToolbarButton(): JSX.Element {
                                     ? (heatmapExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
-                        content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} animated={heatmapLoading} />}
+                        innerContent={
+                            <Fire style={{ height: 26 }} engaged={heatmapEnabled} animated={heatmapLoading} />
+                        }
                         zIndex={2}
                         onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
@@ -255,7 +257,7 @@ export function ToolbarButton(): JSX.Element {
                                     heatmapExtensionPercentage
                                 }
                                 y={0}
-                                content={
+                                innerContent={
                                     <Tooltip
                                         visible={showHeatmapTooltip}
                                         title="Click for details"
@@ -293,7 +295,7 @@ export function ToolbarButton(): JSX.Element {
                         labelStyle={{
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
-                        content={
+                        innerContent={
                             <IconTarget
                                 style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
                             />
@@ -316,7 +318,7 @@ export function ToolbarButton(): JSX.Element {
                                     actionsExtensionPercentage
                                 }
                                 y={0}
-                                content={
+                                innerContent={
                                     <Tooltip
                                         visible={showActionsTooltip}
                                         title="Click for details"
@@ -357,7 +359,7 @@ export function ToolbarButton(): JSX.Element {
                                     ? (featureFlagsExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
-                        content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
+                        innerContent={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
                         zIndex={1}
                         onClick={flagsVisible ? hideFlags : showFlags}
                         style={{

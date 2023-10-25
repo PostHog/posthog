@@ -5,7 +5,8 @@ import { InsightType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
-import { InputFocusOptions, InputRef } from 'antd/lib/input/Input'
+import { InputFocusOptions } from 'antd/lib/input/Input'
+import InputRef from 'antd/lib/input/Input'
 
 interface RenameModalProps {
     typeKey: string

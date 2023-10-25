@@ -7,7 +7,7 @@ interface CircleProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']
     extensionPercentage?: number
     distance?: number
     rotation?: number
-    content?: string | JSX.Element
+    innerContent?: string | JSX.Element
     className?: string
     top?: number
     left?: number
@@ -35,7 +35,7 @@ export function Circle({
     extensionPercentage = 1,
     distance,
     rotation = 0,
-    content,
+    innerContent,
     className,
     top,
     left,
@@ -168,7 +168,7 @@ export function Circle({
                             }}
                             {...props}
                         >
-                            {content}
+                            {innerContent}
                         </div>
                         {label ? (
                             <div
