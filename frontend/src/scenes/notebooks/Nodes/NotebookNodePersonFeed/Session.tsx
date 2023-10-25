@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconRewindPlay } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
-import { TimelineEntry } from '~/queries/schema'
+// import { TimelineEntry } from '~/queries/schema'
 import { NotebookNodeType } from '~/types'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
@@ -12,7 +12,7 @@ import { SessionEvent } from './SessionEvent'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 
 type SessionProps = {
-    session: TimelineEntry
+    session: any // TimelineEntry
 }
 
 export const Session = ({ session }: SessionProps): JSX.Element => {
@@ -79,7 +79,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
             </div>
             {!isFolded && (
                 <div className="p-1 border-t space-y-1">
-                    {session.events.map((event) => (
+                    {session.events.map((event: any) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}
                 </div>
