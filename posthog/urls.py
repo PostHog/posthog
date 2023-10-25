@@ -177,7 +177,7 @@ if settings.DEBUG:
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
-    # Reverse-proxy all of /i/* to capture-rs on port 3000
+    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
     urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
 
 

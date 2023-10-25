@@ -45,6 +45,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
 ]
 
 if DEBUG:
+    # /i/ is the new root path for capture endpoints
     ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
