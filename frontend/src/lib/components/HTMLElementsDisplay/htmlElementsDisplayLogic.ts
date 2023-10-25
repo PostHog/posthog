@@ -20,7 +20,7 @@ export interface HtmlElementDisplayLogicProps {
 
 export const elementsChain = (providedElements: ElementType[] | undefined): ElementType[] => {
     const safeElements = [...(providedElements || [])]
-    return safeElements.reverse().slice(Math.max(safeElements.length - 10, 1))
+    return safeElements.reverse()
 }
 
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
@@ -30,6 +30,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     actions({
         setParsedSelectors: (selectors: Record<number, ParsedCSSSelector>) => ({ selectors }),
         setElements: (providedElements: ElementType[]) => ({ providedElements }),
+        showAdditionalElements: true,
     }),
     reducers(({ props }) => ({
         elements: [
@@ -38,10 +39,9 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         ],
         parsedSelectorsRaw: [
             {} as Record<number, ParsedCSSSelector>,
-            {
-                setParsedSelectors: (_, { selectors }) => selectors,
-            },
+            { setParsedSelectors: (_, { selectors }) => selectors },
         ],
+        visibleElements: [10, { showAdditionalElements: (state) => state + 3 }],
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.providedElements && !objectsEqual(props.providedElements, oldProps.providedElements)) {
@@ -56,6 +56,18 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                 startingSelector && Object.keys(parsedSelectorsRaw).length === 0
                     ? preselect(providedElements, startingSelector)
                     : parsedSelectorsRaw,
+        ],
+        parsedElements: [
+            (s) => [s.elements, s.visibleElements],
+            (elements, visibleElements) => {
+                return elements.slice(Math.max(elements.length - visibleElements, 0))
+            },
+        ],
+        elementsToShowDepth: [
+            (s) => [s.elements, s.visibleElements],
+            (elements: ElementType[], visibleElements: number) => {
+                return Math.max(elements.length - visibleElements, 0)
+            },
         ],
         // contains the selector string built from the parsed selectors
         chosenSelector: [

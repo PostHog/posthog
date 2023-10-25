@@ -248,7 +248,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [NodeKind.WebOverviewStatsQuery]: {
+    [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
         icon: InsightsTrendsIcon,

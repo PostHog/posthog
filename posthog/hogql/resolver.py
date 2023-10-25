@@ -2,16 +2,16 @@ from datetime import date, datetime
 from typing import List, Optional, Any, cast
 from uuid import UUID
 
-from posthog import schema
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
 from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
-from posthog.hogql.errors import ResolverException, SyntaxException
+from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 from posthog.hogql.database.schema.events import EventsTable
@@ -570,62 +570,3 @@ class Resolver(CloningVisitor):
         if isinstance(node.type, ast.TableAliasType):
             return isinstance(node.type.table_type.table, S3Table)
         return False
-
-
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
-    """Looks for a field in the scope's list of aliases and children for each joined table."""
-    if name in scope.aliases:
-        return scope.aliases[name]
-    else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name)]
-        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
-        tables_with_field = named_tables + anonymous_tables
-
-        if len(tables_with_field) > 1:
-            raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
-        elif len(tables_with_field) == 1:
-            return tables_with_field[0].get_child(name)
-
-        if scope.parent:
-            return lookup_field_by_name(scope.parent, name)
-
-        return None
-
-
-def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
-    for scope in reversed(scopes):
-        if scope and scope.ctes and name in scope.ctes:
-            return scope.ctes[name]
-    return None
-
-
-def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
-    if isinstance(expr, ast.Constant):
-        return expr.value
-    elif isinstance(expr, ast.Array):
-        return [ast_to_query_node(e) for e in expr.exprs]
-    elif isinstance(expr, ast.Tuple):
-        return tuple(ast_to_query_node(e) for e in expr.exprs)
-    elif isinstance(expr, ast.HogQLXTag):
-        for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
-                attributes = expr.to_dict()
-                attributes.pop("kind")
-                attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
-                return klass(**attributes)
-        raise SyntaxException(f'Tag of kind "{expr.kind}" not found in schema.')
-    else:
-        raise SyntaxException(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
-
-
-def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):
-    from posthog.hogql_queries.query_runner import get_query_runner
-    from posthog.models import Team
-
-    try:
-        query_node = ast_to_query_node(node)
-        runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
-        query = clone_expr(runner.to_query(), clear_locations=True)
-        return query
-    except Exception as e:
-        raise ResolverException(f"Error parsing query tag: {e}", start=node.start, end=node.end)

@@ -7,19 +7,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconEyeVisible } from 'lib/lemon-ui/icons'
 import { NotebookHistory } from './NotebookHistory'
 
-export const NotebookSidebar = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingSidebar, showHistory } = useValues(notebookLogic)
+export const NotebookColumnLeft = (): JSX.Element | null => {
+    const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)
 
     return (
         <div
-            className={clsx('NotebookSidebar', {
-                'NotebookSidebar--showing': isShowingSidebar,
+            className={clsx('NotebookColumn NotebookColumn--left', {
+                'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >
-            <div className="NotebookSidebar__content">
-                {isShowingSidebar ? (
+            <div className="NotebookColumn__padding" />
+            <div className="NotebookColumn__content">
+                {isShowingLeftColumn ? (
                     editingNodeLogic ? (
-                        <Widgets logic={editingNodeLogic} />
+                        <NodeSettings logic={editingNodeLogic} />
                     ) : showHistory ? (
                         <NotebookHistory />
                     ) : null
@@ -29,7 +30,7 @@ export const NotebookSidebar = (): JSX.Element | null => {
     )
 }
 
-const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
+const NodeSettings = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
     const { setEditingNodeId } = useActions(notebookLogic)
     const { settings: Settings, nodeAttributes, title } = useValues(logic)
     const { updateAttributes, selectNode } = useActions(logic)
@@ -37,7 +38,7 @@ const Widgets = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.E
     return (
         <LemonWidget
             title={`Editing '${title}'`}
-            className="NotebookSidebar__widget"
+            className="NotebookColumn__widget"
             actions={
                 <>
                     <LemonButton icon={<IconEyeVisible />} size="small" status="primary" onClick={() => selectNode()} />
