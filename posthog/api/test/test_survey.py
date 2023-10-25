@@ -1100,5 +1100,4 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     ],
 )
 def test_nh3_clean_configuration(test_input, expected):
-    # print(nh3_clean_with_whitelist(test_input))
     assert nh3_clean_with_whitelist(test_input).replace(" ", "") == expected.replace(" ", "")
