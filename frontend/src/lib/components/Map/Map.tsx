@@ -50,8 +50,9 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
                 sources: {
                     protomaps: {
                         type: 'vector',
-                        tiles: ['https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt?key=KEY'],
+                        // tiles: ['https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt?key=KEY'],
                         // url: 'pmtiles://https://example.com/example.pmtiles',
+                        url: 'pmtiles://http://127.0.0.1:8080/20230913.pmtiles',
                         attribution:
                             '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
                     },
