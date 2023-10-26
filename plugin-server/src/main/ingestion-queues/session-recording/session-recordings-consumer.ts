@@ -8,7 +8,6 @@ import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { runInstrumentedFunction } from '../../../main/utils'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, RRWebEvent, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
@@ -16,6 +15,7 @@ import { status } from '../../../utils/status'
 import { createRedisPool } from '../../../utils/utils'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
@@ -95,6 +95,11 @@ type PartitionMetrics = {
     lastKnownCommit?: number
 }
 
+export interface TeamIDWithConfig {
+    teamId: TeamId | null
+    consoleLogIngestionEnabled: boolean
+}
+
 export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
@@ -107,7 +112,7 @@ export class SessionRecordingIngester {
     batchConsumer?: BatchConsumer
     partitionAssignments: Record<number, PartitionMetrics> = {}
     partitionLockInterval: NodeJS.Timer | null = null
-    teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
+    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     offsetsRefresher: BackgroundRefresher<Record<number, number>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
@@ -120,7 +125,7 @@ export class SessionRecordingIngester {
         private objectStorage: ObjectStorage
     ) {
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
-        // We stil connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
+        // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
         this.redisPool = createRedisPool(this.config)
 
@@ -198,7 +203,7 @@ export class SessionRecordingIngester {
             op: 'checkHighWaterMark',
         })
 
-        // Check that we are not below the high water mark for this partition (another consumer may have flushed further than us when revoking)
+        // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
             await this.persistentHighWaterMarker.isBelowHighWaterMark(event.metadata, KAFKA_CONSUMER_GROUP_ID, offset)
         ) {
@@ -228,7 +233,7 @@ export class SessionRecordingIngester {
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
 
-            const sessionManager = new SessionManager(
+            this.sessions[key] = new SessionManager(
                 this.config,
                 this.objectStorage.s3,
                 this.realtimeManager,
@@ -238,8 +243,6 @@ export class SessionRecordingIngester {
                 partition,
                 topic
             )
-
-            this.sessions[key] = sessionManager
         }
 
         await this.sessions[key]?.add(event)
@@ -250,7 +253,7 @@ export class SessionRecordingIngester {
 
     public async parseKafkaMessage(
         message: Message,
-        getTeamFn: (s: string) => Promise<TeamId | null>
+        getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
     ): Promise<IncomingRecordingMessage | void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
@@ -288,14 +291,15 @@ export class SessionRecordingIngester {
             return statusWarn('no_token')
         }
 
-        let teamId: TeamId | null = null
+        let teamIdWithConfig: TeamIDWithConfig | null = null
         const token = messagePayload.token
 
         if (token) {
-            teamId = await getTeamFn(token)
+            teamIdWithConfig = await getTeamFn(token)
         }
 
-        if (teamId == null) {
+        // NB `==` so we're comparing undefined and null
+        if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -328,7 +332,7 @@ export class SessionRecordingIngester {
                     event,
                 },
                 tags: {
-                    team_id: teamId,
+                    team_id: teamIdWithConfig.teamId,
                     session_id: $session_id,
                 },
             })
@@ -343,22 +347,21 @@ export class SessionRecordingIngester {
             })
         }
 
-        const recordingMessage: IncomingRecordingMessage = {
+        return {
             metadata: {
                 partition: message.partition,
                 topic: message.topic,
                 offset: message.offset,
                 timestamp: message.timestamp,
+                consoleLogIngestionEnabled: teamIdWithConfig.consoleLogIngestionEnabled,
             },
 
-            team_id: teamId,
+            team_id: teamIdWithConfig.teamId,
             distinct_id: messagePayload.distinct_id,
             session_id: $session_id,
             window_id: $window_id,
             events: events,
         }
-
-        return recordingMessage
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
@@ -408,7 +411,10 @@ export class SessionRecordingIngester {
                             }
 
                             const recordingMessage = await this.parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => teams[token] || null)
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                }))
                             )
 
                             if (recordingMessage) {

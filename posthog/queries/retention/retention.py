@@ -6,7 +6,10 @@ from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
+from posthog.queries.retention.actors_query import (
+    RetentionActorsByPeriod,
+    build_actor_activity_query,
+)
 from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
@@ -49,7 +52,9 @@ class Retention:
                 "count": correct_result_for_sampling(count, filter.sampling_factor),
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
-                    filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base
+                    filter=filter,
+                    breakdown_values=breakdown_values,
+                    selected_interval=intervals_from_base,
                 ),
             }
             for (breakdown_values, intervals_from_base, count) in result
@@ -58,10 +63,17 @@ class Retention:
         return result_dict
 
     def _construct_people_url_for_trend_breakdown_interval(
-        self, filter: RetentionFilter, selected_interval: int, breakdown_values: BreakdownValues
+        self,
+        filter: RetentionFilter,
+        selected_interval: int,
+        breakdown_values: BreakdownValues,
     ):
         params = RetentionFilter(
-            {**filter._data, "breakdown_values": breakdown_values, "selected_interval": selected_interval},
+            {
+                **filter._data,
+                "breakdown_values": breakdown_values,
+                "selected_interval": selected_interval,
+            },
         ).to_params()
         return f"{self._base_uri}api/person/retention/?{urlencode(params)}"
 
@@ -69,7 +81,10 @@ class Retention:
         result = [
             {
                 "values": [
-                    resultset.get(CohortKey(breakdown_values, interval), {"count": 0, "people": []})
+                    resultset.get(
+                        CohortKey(breakdown_values, interval),
+                        {"count": 0, "people": []},
+                    )
                     for interval in range(filter.total_intervals)
                 ],
                 "label": "::".join(map(str, breakdown_values)),
@@ -84,7 +99,12 @@ class Retention:
 
         return result
 
-    def process_table_result(self, resultset: Dict[CohortKey, Dict[str, Any]], filter: RetentionFilter, team: Team):
+    def process_table_result(
+        self,
+        resultset: Dict[CohortKey, Dict[str, Any]],
+        filter: RetentionFilter,
+        team: Team,
+    ):
         """
         Constructs a response for the rest api when there is no breakdown specified
 
@@ -96,7 +116,11 @@ class Retention:
 
         def construct_url(first_day):
             params = RetentionFilter(
-                {**filter._data, "display": "ActionsTable", "breakdown_values": [first_day]},
+                {
+                    **filter._data,
+                    "display": "ActionsTable",
+                    "breakdown_values": [first_day],
+                },
             ).to_params()
             return "/api/person/retention/?" f"{urlencode(params)}"
 

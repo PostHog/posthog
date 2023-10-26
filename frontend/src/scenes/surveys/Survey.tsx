@@ -8,13 +8,13 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Survey, SurveyUrlMatchType } from '~/types'
-import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { SurveyView } from './SurveyView'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import SurveyEdit from './SurveyEdit'
 import { NotFound } from 'lib/components/NotFound'
+import { FlagSelector } from 'lib/components/FlagSelector'
 
 export const scene: SceneExport = {
     component: SurveyComponent,

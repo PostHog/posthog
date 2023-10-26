@@ -6,7 +6,6 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Form, Field } from 'kea-forms'
 import { useActions, useValues } from 'kea'
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 
 export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean }): JSX.Element {
     const { isFieldModalOpen } = useValues(viewLinkLogic)
@@ -35,9 +34,9 @@ interface ViewLinkFormProps {
 }
 
 export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Element {
-    const { viewOptions, toJoinKeyOptions, selectedView, selectedTable, fromJoinKeyOptions } = useValues(viewLinkLogic)
-    const { selectView, toggleFieldModal, selectTable } = useActions(viewLinkLogic)
-    const { tableOptions } = useValues(databaseSceneLogic)
+    const { viewOptions, tableOptions, toJoinKeyOptions, selectedView, selectedTableName, fromJoinKeyOptions } =
+        useValues(viewLinkLogic)
+    const { selectView, toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
@@ -47,16 +46,15 @@ export function ViewLinkForm({ tableSelectable }: ViewLinkFormProps): JSX.Elemen
                         <span className="l4">Table</span>
                         {tableSelectable ? (
                             <LemonSelect
-                                value={selectedTable}
+                                value={selectedTableName}
                                 fullWidth
+                                allowClear
                                 options={tableOptions}
-                                onSelect={selectTable}
+                                onSelect={selectTableName}
                                 placeholder="Select a table"
                             />
-                        ) : selectedTable ? (
-                            selectedTable.name
                         ) : (
-                            ''
+                            selectedTableName ?? ''
                         )}
                     </div>
                     <div className="w-50">

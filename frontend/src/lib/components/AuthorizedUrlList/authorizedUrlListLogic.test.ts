@@ -2,6 +2,7 @@ import {
     appEditorUrl,
     authorizedUrlListLogic,
     AuthorizedUrlListType,
+    filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
@@ -145,6 +146,37 @@ describe('the authorized urls list logic', () => {
                     expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
+        })
+    })
+
+    describe('filterNotAuthorizedUrls', () => {
+        const testUrls = [
+            'https://1.wildcard.com',
+            'https://2.wildcard.com',
+            'https://a.single.io',
+            'https://a.sub.b.multi-wildcard.com',
+            'https://a.not.b.multi-wildcard.com',
+            'https://not.valid.io',
+        ]
+
+        it('suggests all if empty', () => {
+            expect(filterNotAuthorizedUrls(testUrls, [])).toEqual(testUrls)
+        })
+
+        it('allows specific domains', () => {
+            expect(filterNotAuthorizedUrls(testUrls, ['https://a.single.io'])).toEqual([
+                'https://1.wildcard.com',
+                'https://2.wildcard.com',
+                'https://a.sub.b.multi-wildcard.com',
+                'https://a.not.b.multi-wildcard.com',
+                'https://not.valid.io',
+            ])
+        })
+
+        it('filters wildcard domains', () => {
+            expect(
+                filterNotAuthorizedUrls(testUrls, ['https://*.wildcard.com', 'https://*.sub.*.multi-wildcard.com'])
+            ).toEqual(['https://a.single.io', 'https://a.not.b.multi-wildcard.com', 'https://not.valid.io'])
         })
     })
 })

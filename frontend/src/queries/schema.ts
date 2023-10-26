@@ -12,7 +12,6 @@ import {
     GroupMathType,
     HogQLMathType,
     HogQLPropertyFilter,
-    InsightLogicProps,
     InsightShortId,
     IntervalType,
     LifecycleFilterType,
@@ -24,7 +23,6 @@ import {
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
-import { ComponentType } from 'react'
 
 /**
  * PostHog Query Schema definition.
@@ -47,6 +45,7 @@ export enum NodeKind {
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     PersonsQuery = 'PersonsQuery',
+    SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -63,7 +62,7 @@ export enum NodeKind {
     InsightPersonsQuery = 'InsightPersonsQuery',
 
     // Web analytics queries
-    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
@@ -85,9 +84,10 @@ export type AnyDataNode =
     | EventsQuery
     | PersonsQuery
     | InsightPersonsQuery
+    | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
-    | WebOverviewStatsQuery
+    | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
 
@@ -133,7 +133,7 @@ export interface DataNode extends Node {
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v2_enabled'
+    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'leftjoin' | 'subquery'
 }
@@ -317,7 +317,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
-        | WebOverviewStatsQuery
+        | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
 
@@ -548,22 +548,55 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
+export interface TimelineEntry {
+    /** Session ID. None means out-of-session events */
+    sessionId?: string
+    events: EventType[]
+    /** Duration of the recording in seconds. */
+    recording_duration_s?: number
+}
+
+export interface SessionsTimelineQueryResponse {
+    results: TimelineEntry[]
+    hasMore?: boolean
+    timings?: QueryTiming[]
+    hogql?: string
+}
+
+export interface SessionsTimelineQuery extends DataNode {
+    kind: NodeKind.SessionsTimelineQuery
+    /** Fetch sessions only for a given person */
+    personId?: string
+    /** Only fetch sessions that started after this timestamp (default: '-24h') */
+    after?: string
+    /** Only fetch sessions that started before this timestamp (default: '+5s') */
+    before?: string
+    response?: SessionsTimelineQueryResponse
+}
+
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
-    dateRange: DateRange
+    dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
 }
 
-export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebOverviewStatsQuery
-    response?: WebOverviewStatsQueryResponse
+export interface WebOverviewQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewQuery
+    response?: WebOverviewQueryResponse
 }
 
-export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
+export interface WebOverviewItem {
+    key: string
+    value?: number
+    previous?: number
+    kind: 'unit' | 'duration_s' | 'percentage'
+    changeFromPreviousPct?: number
+    isIncreaseBad?: boolean
+}
+
+export interface WebOverviewQueryResponse extends QueryResponse {
+    results: WebOverviewItem[]
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -713,34 +746,8 @@ export interface BreakdownFilter {
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
-/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
-export interface QueryContext {
-    /** Column templates for the DataTable */
-    columns?: Record<string, QueryContextColumn>
-    /** used to override the value in the query */
-    showOpenEditorButton?: boolean
-    showQueryEditor?: boolean
-    /* Adds help and examples to the query editor component */
-    showQueryHelp?: boolean
-    insightProps?: InsightLogicProps
-    emptyStateHeading?: string
-    emptyStateDetail?: string
-}
-
-export type QueryContextColumnTitleComponent = ComponentType<{
-    columnName: string
-    query: DataTableNode
-}>
-
-export type QueryContextColumnComponent = ComponentType<{
-    columnName: string
-    query: DataTableNode
-    record: unknown
-    value: unknown
-}>
-
-interface QueryContextColumn {
-    title?: string
-    renderTitle?: QueryContextColumnTitleComponent
-    render?: QueryContextColumnComponent
+export interface DashboardFilter {
+    date_from?: string | null
+    date_to?: string | null
+    properties?: AnyPropertyFilter[] | null
 }

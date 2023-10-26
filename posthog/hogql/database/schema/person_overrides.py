@@ -1,4 +1,6 @@
 from typing import Any, Dict, List
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
@@ -32,7 +34,11 @@ def select_from_person_overrides_table(requested_fields: Dict[str, List[str]]):
 
 
 def join_with_person_overrides_table(
-    from_table: str, to_table: str, requested_fields: Dict[str, Any], modifiers: HogQLQueryModifiers
+    from_table: str,
+    to_table: str,
+    requested_fields: Dict[str, Any],
+    context: HogQLContext,
+    node: SelectQuery,
 ):
     from posthog.hogql import ast
 

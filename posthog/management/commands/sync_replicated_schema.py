@@ -24,7 +24,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--dry-run", action="store_true", help="Exits with a non-zero status if schema changes would be required."
+            "--dry-run",
+            action="store_true",
+            help="Exits with a non-zero status if schema changes would be required.",
         )
 
     def handle(self, *args, **options):
@@ -35,7 +37,10 @@ class Command(BaseCommand):
         _, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
 
         if len(out_of_sync_hosts) > 0:
-            logger.info("Schema out of sync on some clickhouse nodes!", out_of_sync_hosts=out_of_sync_hosts)
+            logger.info(
+                "Schema out of sync on some clickhouse nodes!",
+                out_of_sync_hosts=out_of_sync_hosts,
+            )
 
             if options.get("dry_run"):
                 exit(1)
@@ -81,7 +86,9 @@ class Command(BaseCommand):
         return out_of_sync
 
     def create_missing_tables(
-        self, out_of_sync_hosts: Dict[HostName, Set[TableName]], create_table_queries: Dict[TableName, Query]
+        self,
+        out_of_sync_hosts: Dict[HostName, Set[TableName]],
+        create_table_queries: Dict[TableName, Query],
     ):
         missing_tables = set(table for tables in out_of_sync_hosts.values() for table in tables)
 
@@ -95,5 +102,5 @@ class Command(BaseCommand):
             r"^CREATE TABLE (\S+)",
             f"CREATE TABLE IF NOT EXISTS \\1 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             create_table_query,
-            1,
+            count=1,
         )

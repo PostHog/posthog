@@ -118,8 +118,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     }, [])
 
     return (
-        <div className="space-y-2 flex flex-col flex-1 h-full overflow-hidden">
-            <div className="border-b space-y-2 flex-0">
+        <div className="flex flex-col flex-1 h-full overflow-hidden">
+            <div className="space-y-2 flex-0">
                 <LemonInput
                     type="search"
                     placeholder="Search notebooks..."
@@ -131,6 +131,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     New notebook
                 </LemonButton>
             </div>
+            <LemonDivider />
             <div className="overflow-y-auto flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
                     <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>

@@ -14,18 +14,27 @@ from posthog.models.subscription import Subscription
 logger = structlog.get_logger(__name__)
 
 SUBSCRIPTION_QUEUED = Counter(
-    "subscription_queued", "A subscription was queued for delivery", labelnames=["destination"]
+    "subscription_queued",
+    "A subscription was queued for delivery",
+    labelnames=["destination"],
 )
 SUBSCRIPTION_SUCCESS = Counter(
-    "subscription_send_success", "A subscription was sent successfully", labelnames=["destination"]
+    "subscription_send_success",
+    "A subscription was sent successfully",
+    labelnames=["destination"],
 )
-SUBSCRIPTION_FAILURE = Counter("subscription_send_failure", "A subscription failed to send", labelnames=["destination"])
+SUBSCRIPTION_FAILURE = Counter(
+    "subscription_send_failure",
+    "A subscription failed to send",
+    labelnames=["destination"],
+)
 
 
 def _deliver_subscription_report(
-    subscription_id: int, previous_value: Optional[str] = None, invite_message: Optional[str] = None
+    subscription_id: int,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
 ) -> None:
-
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
         .select_related("created_by", "insight", "dashboard")
@@ -44,7 +53,10 @@ def _deliver_subscription_report(
     insights, assets = generate_assets(subscription)
 
     if not assets:
-        capture_message("No assets are in this subscription", tags={"subscription_id": subscription.id})
+        capture_message(
+            "No assets are in this subscription",
+            tags={"subscription_id": subscription.id},
+        )
         return
 
     if subscription.target_type == "email":
@@ -83,7 +95,10 @@ def _deliver_subscription_report(
 
         try:
             send_slack_subscription_report(
-                subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
+                subscription,
+                assets,
+                total_asset_count=len(insights),
+                is_new_subscription=is_new_subscription_target,
             )
             SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
         except Exception as e:

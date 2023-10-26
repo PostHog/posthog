@@ -136,11 +136,10 @@ export const personsLogic = kea<personsLogicType>({
                     : 'https://posthog.com/docs/api/persons',
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
-        currentTab: [
-            (s) => [s.activeTab],
-            (activeTab) => {
-                return activeTab || PersonsTabType.PROPERTIES
-            },
+        currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
+        defaultTab: [
+            (s) => [s.feedEnabled],
+            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
@@ -179,6 +178,7 @@ export const personsLogic = kea<personsLogicType>({
             (s) => [s.featureFlags],
             (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
         ],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
     }),
     listeners: ({ actions, values }) => ({
         editProperty: async ({ key, newValue }) => {
@@ -375,7 +375,7 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonDistinctId) {
@@ -397,7 +397,7 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonUUID) {

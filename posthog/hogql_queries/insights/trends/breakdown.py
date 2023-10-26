@@ -4,7 +4,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain, series_event_name
+from posthog.hogql_queries.insights.trends.utils import (
+    get_properties_chain,
+    series_event_name,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
@@ -143,7 +146,6 @@ class Breakdown:
         buckets = self._get_breakdown_histogram_buckets()
 
         for lower_bound, upper_bound in buckets:
-
             multi_if_exprs.extend(
                 [
                     ast.And(

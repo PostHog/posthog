@@ -8,7 +8,6 @@ def reset_team_timezone_to_UTC(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0236_add_instance_setting_model"),
     ]

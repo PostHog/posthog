@@ -91,7 +91,8 @@ def get_clickhouse_schema_drift(
 
 
 def check_clickhouse_schema_drift(
-    clickhouse_nodes: List[Tuple[str]] = [], clickhouse_schema: List[Tuple[str, str, str]] = []
+    clickhouse_nodes: List[Tuple[str]] = [],
+    clickhouse_schema: List[Tuple[str, str, str]] = [],
 ) -> None:
     try:
         if not clickhouse_nodes:

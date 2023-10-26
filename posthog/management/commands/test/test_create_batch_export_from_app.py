@@ -92,7 +92,11 @@ def config(request):
 @pytest.fixture
 def snowflake_plugin_config(snowflake_plugin, team) -> typing.Generator[PluginConfig, None, None]:
     plugin_config = PluginConfig.objects.create(
-        plugin=snowflake_plugin, order=1, team=team, enabled=True, config=test_snowflake_config
+        plugin=snowflake_plugin,
+        order=1,
+        team=team,
+        enabled=True,
+        config=test_snowflake_config,
     )
     yield plugin_config
     plugin_config.delete()
@@ -321,7 +325,7 @@ async def list_workflows(temporal, schedule_id: str):
     return workflows
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
     "interval,plugin_config",
     [

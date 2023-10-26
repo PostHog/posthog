@@ -283,7 +283,10 @@ async def test_bigquery_export_workflow(
     team = await acreate_team(organization=organization)
 
     test_table_id = f"test_workflow_table_{team.pk}_{interval}"
-    destination_data = {"type": "BigQuery", "config": {**bigquery_config, "table_id": test_table_id}}
+    destination_data = {
+        "type": "BigQuery",
+        "config": {**bigquery_config, "table_id": test_table_id},
+    }
     batch_export_data = {
         "name": "my-production-bigquery-export",
         "destination": destination_data,
@@ -385,12 +388,16 @@ async def test_bigquery_export_workflow(
     )
 
     with freeze_time(TEST_TIME) as frozen_time:
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with await (WorkflowEnvironment.start_time_skipping()) as activity_environment:
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
-                activities=[create_export_run, insert_into_bigquery_activity, update_export_run_status],
+                activities=[
+                    create_export_run,
+                    insert_into_bigquery_activity,
+                    update_export_run_status,
+                ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
                 await activity_environment.client.execute_workflow(
@@ -493,7 +500,11 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(team, bat
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
-            activities=[create_export_run, insert_into_bigquery_activity_mocked, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_bigquery_activity_mocked,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
@@ -536,7 +547,11 @@ async def test_bigquery_export_workflow_handles_cancellation(team, batch_export)
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
-            activities=[create_export_run, never_finish_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                never_finish_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await activity_environment.client.start_workflow(

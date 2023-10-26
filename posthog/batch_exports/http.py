@@ -88,7 +88,11 @@ class RunsCursorPagination(CursorPagination):
 
 class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = BatchExportRun.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
 
@@ -98,7 +102,8 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ReadOnlyModelViewSe
 
         if date_range:
             return self.queryset.filter(
-                batch_export_id=self.kwargs["parent_lookup_batch_export_id"], created_at__range=date_range
+                batch_export_id=self.kwargs["parent_lookup_batch_export_id"],
+                created_at__range=date_range,
             ).order_by("-created_at")
         else:
             return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
@@ -178,7 +183,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 str(team.uuid),
                 groups={"organization": str(team.organization.id)},
                 group_properties={
-                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
                 },
                 send_feature_flag_events=False,
             ):
@@ -216,7 +224,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = BatchExport.objects.all()
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
@@ -248,9 +260,11 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
+        team_id = request.user.current_team.id
+
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_export(temporal, str(batch_export.pk), start_at, end_at)
+        backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
 
         return response.Response()
 
@@ -317,7 +331,11 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
 
 
 class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     serializer_class = BatchExportLogEntrySerializer
 
     def get_queryset(self):

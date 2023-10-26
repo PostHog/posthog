@@ -101,9 +101,11 @@ export function SessionRecordingsFilters({
                     size="small"
                     onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
                     disabledReason={
-                        hasAdvancedFilters &&
-                        'You are only allowed person filters and a single pageview event to switch back to simple filters'
+                        hasAdvancedFilters
+                            ? 'You are only allowed person filters and a single pageview event (filtered by current url) to switch back to simple filters'
+                            : undefined
                     }
+                    data-attr={`session-recordings-show-${showAdvancedFilters ? 'simple' : 'advanced'}-filters`}
                 >
                     Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
                 </LemonButton>
