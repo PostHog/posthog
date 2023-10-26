@@ -50,8 +50,8 @@ import {
     BatchExportRun,
     UserBasicType,
     NotebookNodeResource,
-    AirbyteStripeResourceCreatePayload,
-    AirbyteStripeResource,
+    ExternalDataStripeResourceCreatePayload,
+    ExternalDataStripeResource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1579,10 +1579,12 @@ const api = {
     },
 
     externalDataResources: {
-        async list(): Promise<PaginatedResponse<AirbyteStripeResource>> {
+        async list(): Promise<PaginatedResponse<ExternalDataStripeResource>> {
             return await new ApiRequest().externalDataResources().get()
         },
-        async create(data: Partial<AirbyteStripeResourceCreatePayload>): Promise<AirbyteStripeResourceCreatePayload> {
+        async create(
+            data: Partial<ExternalDataStripeResourceCreatePayload>
+        ): Promise<ExternalDataStripeResourceCreatePayload> {
             return await new ApiRequest().externalDataResources().create({ data })
         },
     },

@@ -38,14 +38,14 @@ class StripeSourcePayload(BaseModel):
         return v
 
 
-class AirbyteSource(BaseModel):
+class ExternalDataSource(BaseModel):
     source_id: str
     name: str
     source_type: str
     workspace_id: str
 
 
-def create_stripe_source(payload: StripeSourcePayload) -> AirbyteSource:
+def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
     workspace_name = settings.AIRBYTE_INSTANCE_NAME
     if not workspace_name:
         raise ValueError("AIRBYTE_INSTANCE_NAME must be set in order to create a source.")
@@ -77,7 +77,7 @@ def create_stripe_source(payload: StripeSourcePayload) -> AirbyteSource:
     return _create_source(payload)
 
 
-def _create_source(payload: Dict) -> AirbyteSource:
+def _create_source(payload: Dict) -> ExternalDataSource:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
@@ -89,7 +89,7 @@ def _create_source(payload: Dict) -> AirbyteSource:
     if not response.ok:
         raise ValueError(response_payload["detail"])
 
-    return AirbyteSource(
+    return ExternalDataSource(
         source_id=response_payload["sourceId"],
         name=response_payload["name"],
         source_type=response_payload["sourceType"],

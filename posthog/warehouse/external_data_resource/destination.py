@@ -5,11 +5,11 @@ from pydantic import BaseModel
 AIRBYTE_DESTINATION_URL = "https://api.airbyte.com/v1/destinations"
 
 
-class AirbyteDestination(BaseModel):
+class ExternalDataDestination(BaseModel):
     destination_id: str
 
 
-def create_destination(team_id: int) -> AirbyteDestination:
+def create_destination(team_id: int) -> ExternalDataDestination:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
@@ -35,6 +35,6 @@ def create_destination(team_id: int) -> AirbyteDestination:
     if not response.ok:
         raise ValueError(response_payload["detail"])
 
-    return AirbyteDestination(
+    return ExternalDataDestination(
         destination_id=response_payload["destinationId"],
     )

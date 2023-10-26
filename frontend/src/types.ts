@@ -3115,12 +3115,12 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface AirbyteStripeResourceCreatePayload {
+export interface ExternalDataStripeResourceCreatePayload {
     account_id: string
     client_secret: string
 }
 
-export interface AirbyteStripeResource {
+export interface ExternalDataStripeResource {
     id: string
     source_id: string
     connection_id: string

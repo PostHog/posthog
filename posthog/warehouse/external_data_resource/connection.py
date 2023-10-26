@@ -7,7 +7,7 @@ AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
 
 
-class AirbyteConnection(BaseModel):
+class ExternalDataConnection(BaseModel):
     connection_id: str
     source_id: str
     destination_id: str
@@ -15,7 +15,7 @@ class AirbyteConnection(BaseModel):
     workspace_id: str
 
 
-def create_connection(source_id: str, destination_id: str) -> AirbyteConnection:
+def create_connection(source_id: str, destination_id: str) -> ExternalDataConnection:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
@@ -38,7 +38,7 @@ def create_connection(source_id: str, destination_id: str) -> AirbyteConnection:
     update_connection_stream(response_payload["connectionId"], headers)
     start_sync(response_payload["connectionId"], headers)
 
-    return AirbyteConnection(
+    return ExternalDataConnection(
         source_id=response_payload["sourceId"],
         name=response_payload["name"],
         connection_id=response_payload["connectionId"],
