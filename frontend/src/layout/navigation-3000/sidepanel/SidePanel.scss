@@ -17,12 +17,20 @@
     }
 }
 
-.SidePanel3000__content {
+.SidePanel3000__bar {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     height: 100vh;
     width: 3rem;
     border-left-width: 1px;
+    overflow-y: auto;
+}
+
+.SidePanel3000__content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    height: 100vh;
     overflow-y: auto;
 }

@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
@@ -39,6 +39,12 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
     }
     const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
+}
+
+const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
+    bug: 'Report a bug',
+    feedback: 'Give feedback',
+    support: 'Get support',
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -184,6 +190,15 @@ export const supportLogic = kea<supportLogicType>([
             },
         },
     })),
+    selectors({
+        title: [
+            (s) => [s.sendSupportRequest ?? null],
+            (sendSupportRequest) =>
+                sendSupportRequest.kind
+                    ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                    : 'Leave a message with PostHog',
+        ],
+    }),
     listeners(({ actions }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
