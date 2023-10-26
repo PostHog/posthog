@@ -30,9 +30,10 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
     const deduped: ConsoleLogEntry[] = []
 
     for (const cle of consoleLogEntries) {
-        if (!seen.has(cle.message)) {
+        const fingerPrint = `${cle.log_level}-${cle.message}`
+        if (!seen.has(fingerPrint)) {
             deduped.push(cle)
-            seen.add(`${cle.log_level}-${cle.message}`)
+            seen.add(fingerPrint)
         }
     }
     return deduped
