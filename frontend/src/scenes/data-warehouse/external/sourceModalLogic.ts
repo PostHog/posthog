@@ -36,7 +36,14 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     connect({
         values: [dataWarehouseTableLogic, ['tableLoading'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
-        actions: [dataWarehouseSceneLogic, ['toggleSourceModal'], dataWarehouseTableLogic, ['resetTable']],
+        actions: [
+            dataWarehouseSceneLogic,
+            ['toggleSourceModal'],
+            dataWarehouseTableLogic,
+            ['resetTable'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
         selectedConnector: [
@@ -71,7 +78,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
     }),
     forms(() => ({
-        airbyteResource: {
+        externalDataResource: {
             defaults: { account_id: '', client_secret: '' } as AirbyteStripeResourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
@@ -80,19 +87,20 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                 }
             },
             submit: async (payload: AirbyteStripeResourceCreatePayload) => {
-                const newResource = await api.airbyteResources.create(payload)
+                const newResource = await api.externalDataResources.create(payload)
                 return newResource
             },
         },
     })),
     listeners(({ actions }) => ({
-        submitAirbyteResourceSuccess: () => {
+        submitExternalDataResourceSuccess: () => {
             lemonToast.success('New Data Resource Created')
             actions.toggleSourceModal()
-            actions.resetAirbyteResource()
+            actions.resetExternalDataResource()
+            actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
-        submitAirbyteResourceFailure: () => {
+        submitExternalDataResourceFailure: () => {
             lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
         },
     })),

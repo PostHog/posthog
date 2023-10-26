@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="AirbyteResource",
+            name="ExternalDataResource",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

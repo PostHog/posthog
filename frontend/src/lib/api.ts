@@ -568,9 +568,9 @@ class ApiRequest {
         return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
-    // Airbyte
-    public airbyteResources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('airbyte_resources')
+    // External Data Resource
+    public externalDataResources(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_resources')
     }
 
     // Request finalization
@@ -1578,12 +1578,12 @@ const api = {
         },
     },
 
-    airbyteResources: {
+    externalDataResources: {
         async list(): Promise<PaginatedResponse<AirbyteStripeResource>> {
-            return await new ApiRequest().airbyteResources().get()
+            return await new ApiRequest().externalDataResources().get()
         },
         async create(data: Partial<AirbyteStripeResourceCreatePayload>): Promise<AirbyteStripeResourceCreatePayload> {
-            return await new ApiRequest().airbyteResources().create({ data })
+            return await new ApiRequest().externalDataResources().create({ data })
         },
     },
 

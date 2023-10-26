@@ -5,33 +5,33 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import AirbyteResource
-from posthog.warehouse.airbyte.source import StripeSourcePayload, create_stripe_source
-from posthog.warehouse.airbyte.connection import create_connection
-from posthog.warehouse.airbyte.destination import create_destination
+from posthog.warehouse.models import ExternalDataResource
+from posthog.warehouse.external_data_resource.source import StripeSourcePayload, create_stripe_source
+from posthog.warehouse.external_data_resource.connection import create_connection
+from posthog.warehouse.external_data_resource.destination import create_destination
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
 from typing import Any
 
 
-class AirbyteResourceSerializers(serializers.ModelSerializer):
+class ExternalDataReourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
 
     class Meta:
-        model = AirbyteResource
+        model = ExternalDataResource
         fields = ["id", "source_id", "created_at", "created_by", "status", "client_secret", "account_id", "source_type"]
         read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type"]
 
 
-class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataReourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
-    Create, Read, Update and Delete Airbyte Sources.
+    Create, Read, Update and Delete External data Sources.
     """
 
-    queryset = AirbyteResource.objects.all()
-    serializer_class = AirbyteResourceSerializers
+    queryset = ExternalDataResource.objects.all()
+    serializer_class = ExternalDataReourceSerializers
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["source_id"]
@@ -58,7 +58,7 @@ class AirbyteSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         new_destination = create_destination(self.team_id)
         new_connection = create_connection(new_source.source_id, new_destination.destination_id)
 
-        AirbyteResource.objects.create(
+        ExternalDataResource.objects.create(
             source_id=new_source.source_id,
             connection_id=new_connection.connection_id,
             team=self.request.user.current_team,

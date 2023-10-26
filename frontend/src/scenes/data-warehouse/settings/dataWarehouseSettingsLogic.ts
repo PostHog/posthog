@@ -15,7 +15,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             null as PaginatedResponse<AirbyteStripeResource> | null,
             {
                 loadSources: async () => {
-                    return api.airbyteResources.list()
+                    return api.externalDataResources.list()
                 },
             },
         ],
