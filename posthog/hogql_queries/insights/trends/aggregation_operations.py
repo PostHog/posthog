@@ -95,8 +95,19 @@ class AggregationOperations:
         return self.series.math == "weekly_active" or self.series.math == "monthly_active"
 
     def _math_func(self, method: str) -> ast.Call:
+        if self.series.math_property == "$time":
+            return ast.Call(
+                name=method,
+                args=[
+                    ast.Call(
+                        name="toUnixTimestamp",
+                        args=[ast.Field(chain=["properties", "$time"])],
+                    )
+                ],
+            )
+
         if self.series.math_property == "$session_duration":
-            chain = ["session", "session_duration"]
+            chain = ["session", "duration"]
         else:
             chain = ["properties", self.series.math_property]
         return ast.Call(name=method, args=[ast.Field(chain=chain)])
