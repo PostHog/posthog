@@ -60,8 +60,8 @@ export const navigationLogic = kea<navigationLogicType>([
         ],
     }),
     windowValues(() => ({
-        fullscreen: (window) => !!window.document.fullscreenElement,
-        mobileLayout: (window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        fullscreen: (window: Window) => !!window.document.fullscreenElement,
+        mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
         // Non-mobile base

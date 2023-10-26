@@ -30,8 +30,8 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
     })),
     windowValues(() => ({
-        windowHeight: (window) => window.innerHeight,
-        windowWidth: (window) => Math.min(window.innerWidth, window.document.body.clientWidth),
+        windowHeight: (window: Window) => window.innerHeight,
+        windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     })),
     reducers(() => ({
         heatmapInfoVisible: [

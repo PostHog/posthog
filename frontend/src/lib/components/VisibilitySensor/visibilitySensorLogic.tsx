@@ -16,7 +16,7 @@ export const visibilitySensorLogic = kea<visibilitySensorLogicType>([
         scrolling: (element: HTMLElement) => ({ element }),
     })),
     windowValues({
-        innerHeight: (window) => window.innerHeight,
+        innerHeight: (window: Window) => window.innerHeight,
     }),
     reducers(() => ({
         visible: [
