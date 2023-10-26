@@ -9,12 +9,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def _expr(self, query: str, table: str = "events") -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", expr=query, table=table, response=None), team=self.team
+            query=HogQLMetadata(kind="HogQLMetadata", expr=query, table=table, response=None),
+            team=self.team,
         )
 
     def _select(self, query: str) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None), team=self.team
+            query=HogQLMetadata(kind="HogQLMetadata", select=query, response=None),
+            team=self.team,
         )
 
     def test_metadata_valid_expr_select(self):
@@ -26,7 +28,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
-                "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}],
+                "errors": [
+                    {
+                        "message": "extraneous input '1' expecting <EOF>",
+                        "start": 7,
+                        "end": 8,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -64,7 +73,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": "timestamp",
                 "errors": [
                     {
-                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '(', '<'}",
                         "start": 0,
                         "end": 9,
                         "fix": None,

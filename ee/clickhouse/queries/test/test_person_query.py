@@ -40,7 +40,11 @@ def testdata(db, team):
     _create_person(
         distinct_ids=["3"],
         team_id=team.pk,
-        properties={"email": "karl@example.com", "$os": "windows", "$browser": "mozilla"},
+        properties={
+            "email": "karl@example.com",
+            "$os": "windows",
+            "$browser": "mozilla",
+        },
     )
 
 
@@ -54,7 +58,12 @@ def test_person_query(testdata, team, snapshot):
         data={
             "properties": [
                 {"key": "event_prop", "value": "value"},
-                {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "posthog",
+                    "operator": "icontains",
+                },
             ]
         }
     )
@@ -67,7 +76,11 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
     filter = Filter(data={"properties": []})
 
     for i in range(10):
-        _create_person(team_id=team.pk, distinct_ids=[f"person{i}"], properties={"group": i, "email": f"{i}@hey.com"})
+        _create_person(
+            team_id=team.pk,
+            distinct_ids=[f"person{i}"],
+            properties={"group": i, "email": f"{i}@hey.com"},
+        )
 
     cohort1 = Cohort.objects.create(
         team=team,
@@ -97,7 +110,11 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "group", "value": [1, 2, 3, 4, 5, 6], "type": "person"},
+                            {
+                                "key": "group",
+                                "value": [1, 2, 3, 4, 5, 6],
+                                "type": "person",
+                            },
                         ],
                     }
                 ],
@@ -117,7 +134,12 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
     filter = Filter(
         data={
             "properties": [
-                {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "posthog",
+                    "operator": "icontains",
+                },
             ]
         }
     )
@@ -125,7 +147,12 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
     filter2 = Filter(
         data={
             "properties": [
-                {"key": "email", "type": "person", "value": "hey", "operator": "icontains"},
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "hey",
+                    "operator": "icontains",
+                },
             ]
         }
     )
@@ -134,7 +161,10 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
 
     # 3 rows because the intersection between cohorts 1 and 2 is person1, person2, and person3,
     # with their respective group properties
-    assert run_query(team, filter2, cohort_filters=cohort_filters) == {"rows": 3, "columns": 1}
+    assert run_query(team, filter2, cohort_filters=cohort_filters) == {
+        "rows": 3,
+        "columns": 1,
+    }
     assert person_query(team, filter2, cohort_filters=cohort_filters) == snapshot
 
 
@@ -145,9 +175,24 @@ def test_person_query_with_anded_property_groups(testdata, team, snapshot):
                 "type": "AND",
                 "values": [
                     {"key": "event_prop", "value": "value"},
-                    {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-                    {"key": "$os", "type": "person", "value": "windows", "operator": "exact"},
-                    {"key": "$browser", "type": "person", "value": "chrome", "operator": "exact"},
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "posthog",
+                        "operator": "icontains",
+                    },
+                    {
+                        "key": "$os",
+                        "type": "person",
+                        "value": "windows",
+                        "operator": "exact",
+                    },
+                    {
+                        "key": "$browser",
+                        "type": "person",
+                        "value": "chrome",
+                        "operator": "exact",
+                    },
                 ],
             }
         }
@@ -166,8 +211,18 @@ def test_person_query_with_and_and_or_property_groups(testdata, team, snapshot):
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-                            {"key": "$browser", "type": "person", "value": "karl", "operator": "icontains"},
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "posthog",
+                                "operator": "icontains",
+                            },
+                            {
+                                "key": "$browser",
+                                "type": "person",
+                                "value": "karl",
+                                "operator": "icontains",
+                            },
                         ],
                     },
                     {
@@ -195,7 +250,14 @@ def test_person_query_with_and_and_or_property_groups(testdata, team, snapshot):
 def test_person_query_with_extra_requested_fields(testdata, team, snapshot):
     filter = Filter(
         data={
-            "properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"}],
+            "properties": [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "posthog",
+                    "operator": "icontains",
+                }
+            ],
             "breakdown": "person_prop_4326",
             "breakdown_type": "person",
         }
@@ -215,7 +277,14 @@ def test_person_query_with_entity_filters(testdata, team, snapshot):
             "events": [
                 {
                     "id": "$pageview",
-                    "properties": [{"key": "email", "type": "person", "value": "karl", "operator": "icontains"}],
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "karl",
+                            "operator": "icontains",
+                        }
+                    ],
                 }
             ]
         }
@@ -225,16 +294,31 @@ def test_person_query_with_entity_filters(testdata, team, snapshot):
     assert run_query(team, filter) == {"rows": 3, "columns": 2}
 
     assert person_query(team, filter, entity=filter.entities[0]) == snapshot
-    assert run_query(team, filter, entity=filter.entities[0]) == {"rows": 1, "columns": 1}
+    assert run_query(team, filter, entity=filter.entities[0]) == {
+        "rows": 1,
+        "columns": 1,
+    }
 
 
 def test_person_query_with_extra_fields(testdata, team, snapshot):
     filter = Filter(
-        data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"}]}
+        data={
+            "properties": [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "posthog",
+                    "operator": "icontains",
+                }
+            ]
+        }
     )
 
     assert person_query(team, filter, extra_fields=["person_props", "pmat_email"]) == snapshot
-    assert run_query(team, filter, extra_fields=["person_props", "pmat_email"]) == {"rows": 2, "columns": 3}
+    assert run_query(team, filter, extra_fields=["person_props", "pmat_email"]) == {
+        "rows": 2,
+        "columns": 3,
+    }
 
 
 def test_person_query_with_entity_filters_and_property_group_filters(testdata, team, snapshot):
@@ -246,8 +330,18 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "email", "type": "person", "value": "marius", "operator": "icontains"},
-                            {"key": "$os", "type": "person", "value": "windows", "operator": "icontains"},
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "marius",
+                                "operator": "icontains",
+                            },
+                            {
+                                "key": "$os",
+                                "type": "person",
+                                "value": "windows",
+                                "operator": "icontains",
+                            },
                         ],
                     },
                 }
@@ -258,15 +352,30 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
                     {
                         "type": "OR",
                         "values": [
-                            {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
-                            {"key": "$browser", "type": "person", "value": "karl", "operator": "icontains"},
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "posthog",
+                                "operator": "icontains",
+                            },
+                            {
+                                "key": "$browser",
+                                "type": "person",
+                                "value": "karl",
+                                "operator": "icontains",
+                            },
                         ],
                     },
                     {
                         "type": "OR",
                         "values": [
                             {"key": "event_prop", "value": "value"},
-                            {"key": "$os", "type": "person", "value": "windows", "operator": "exact"},
+                            {
+                                "key": "$os",
+                                "type": "person",
+                                "value": "windows",
+                                "operator": "exact",
+                            },
                         ],
                     },
                 ],
@@ -278,7 +387,10 @@ def test_person_query_with_entity_filters_and_property_group_filters(testdata, t
     assert run_query(team, filter) == {"rows": 2, "columns": 3}
 
     assert person_query(team, filter, entity=filter.entities[0]) == snapshot
-    assert run_query(team, filter, entity=filter.entities[0]) == {"rows": 2, "columns": 2}
+    assert run_query(team, filter, entity=filter.entities[0]) == {
+        "rows": 2,
+        "columns": 2,
+    }
 
 
 def test_person_query_with_updated_after(testdata, team, snapshot):

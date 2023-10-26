@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -36,8 +36,8 @@ dependencies:
     specifier: 4.4.6
     version: 4.4.6(monaco-editor@0.39.0)(react-dom@16.14.0)(react@16.14.0)
   '@posthog/icons':
-    specifier: 0.1.4
-    version: 0.1.4(react-dom@16.14.0)(react@16.14.0)
+    specifier: 0.1.21
+    version: 0.1.21(react-dom@16.14.0)(react@16.14.0)
   '@posthog/plugin-scaffold':
     specifier: ^1.4.3
     version: 1.4.3
@@ -546,6 +546,9 @@ devDependencies:
   eslint-plugin-no-only-tests:
     specifier: ^3.1.0
     version: 3.1.0
+  eslint-plugin-posthog:
+    specifier: link:./eslint-rules
+    version: link:eslint-rules
   eslint-plugin-prettier:
     specifier: ^5.0.1
     version: 5.0.1(eslint-config-prettier@9.0.0)(eslint@8.52.0)(prettier@2.8.8)
@@ -3345,8 +3348,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/icons@0.1.4(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-pSC+6kmg+myTQ4Qdq/jgW5SmD8+NaIL+BNAG2FD+d08W/TdMhDQ77RaJSnNS3jsExHRuebIYQrfaD3dWYf50rg==}
+  /@posthog/icons@0.1.21(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-tHOSgGyU8LLZzbW0N6OAXkzvcSiQO5aBv8bErdL8tSQd9mE1efSTJNDg8WzFk9xP7AmVmwwqiqt0b4PLXL7kJQ==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'

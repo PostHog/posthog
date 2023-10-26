@@ -12,13 +12,17 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording_event import (
+    SessionRecordingViewed,
+)
 from posthog.api.test.test_team import create_team
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -122,10 +126,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_session_recordings(self):
         user = Person.objects.create(
-            team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["user"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         user2 = Person.objects.create(
-            team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
@@ -160,7 +168,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 False,
                 user2.pk,
             ),
-            (session_id_one, "user", base_time, base_time + relativedelta(seconds=30), 30, False, user.pk),
+            (
+                session_id_one,
+                "user",
+                base_time,
+                base_time + relativedelta(seconds=30),
+                30,
+                False,
+                user.pk,
+            ),
         ]
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromReplaySummary")
@@ -170,7 +186,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.client.get(f'/api/projects/{self.team.id}/session_recordings?console_logs=["warn", "error"]')
 
         assert len(mock_summary_lister.call_args_list) == 1
-        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
+        filter_passed_to_mock: (SessionRecordingsFilter) = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
 
     @snapshot_postgres_queries
@@ -194,7 +210,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
         Person.objects.create(
-            team=self.team, distinct_ids=[distinct_id], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=[distinct_id],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         self.create_snapshot(distinct_id, session_id, base_time)
         self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
@@ -203,10 +221,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_session_recordings_dont_leak_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
         Person.objects.create(
-            team=another_team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=another_team,
+            distinct_ids=["user"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         Person.objects.create(
-            team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["user"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -236,7 +258,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_viewed_state_of_session_recording_version_1(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["u1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
@@ -252,7 +276,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_viewed_state_of_session_recording_version_3(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["u1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         session_id_one = "1"
@@ -272,7 +298,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_setting_viewed_state_of_session_recording(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+            team=self.team,
+            distinct_ids=["u1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
@@ -326,7 +354,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_get_single_session_recording_metadata(self):
         with freeze_time("2023-01-01T12:00:00.000Z"):
             p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+                team=self.team,
+                distinct_ids=["d1"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             session_recording_id = "session_1"
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -370,7 +400,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
-        self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
+        self.create_snapshot(
+            "user",
+            "id_no_team_leaking",
+            now() - relativedelta(days=1),
+            team_id=another_team.pk,
+        )
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -400,7 +435,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_request_to_another_teams_endpoint_returns_401(self):
         org = Organization.objects.create(name="Separate Org")
         another_team = Team.objects.create(organization=org)
-        self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
+        self.create_snapshot(
+            "user",
+            "id_no_team_leaking",
+            now() - relativedelta(days=1),
+            team_id=another_team.pk,
+        )
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -413,11 +453,28 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_session_ids_filter(self, use_recording_events: bool, api_version: int):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            self.create_snapshot("user", "1", now() - relativedelta(days=1), use_recording_table=use_recording_events)
-            self.create_snapshot("user", "2", now() - relativedelta(days=2), use_recording_table=use_recording_events)
-            self.create_snapshot("user", "3", now() - relativedelta(days=3), use_recording_table=use_recording_events)
+            self.create_snapshot(
+                "user",
+                "1",
+                now() - relativedelta(days=1),
+                use_recording_table=use_recording_events,
+            )
+            self.create_snapshot(
+                "user",
+                "2",
+                now() - relativedelta(days=2),
+                use_recording_table=use_recording_events,
+            )
+            self.create_snapshot(
+                "user",
+                "3",
+                now() - relativedelta(days=3),
+                use_recording_table=use_recording_events,
+            )
 
             # Fetch playlist
             params_string = urlencode({"session_ids": '["1", "2", "3"]', "version": api_version})
@@ -433,7 +490,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
             self.create_snapshot("user", "1", now() - relativedelta(days=1))
             self.create_snapshot("user", "2", now() - relativedelta(days=2))
@@ -455,7 +514,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
+    @patch(
+        "ee.session_recordings.session_recording_extensions.object_storage.copy_objects",
+        return_value=2,
+    )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
 
@@ -473,7 +535,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
@@ -510,7 +575,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
@@ -568,7 +636,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freeze_time("2023-01-01T00:00:00Z")
-    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects, _mock_exists) -> None:
         session_id = str(uuid.uuid4())
@@ -591,12 +662,19 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
 
-    @patch("posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists", return_value=True)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_blob(
-        self, _mock_requests, mock_presigned_url, mock_get_session_recording, _mock_exists
+        self,
+        _mock_requests,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -662,7 +740,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             )
 
         token = self.client.patch(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing",
+            {"enabled": True},
         ).json()["access_token"]
 
         self.client.logout()
@@ -764,7 +843,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
         self.create_snapshot("user", session_id, base_time)
         event_id = _create_event(
-            event="$pageview", properties={"$session_id": session_id}, team=self.team, distinct_id=uuid.uuid4()
+            event="$pageview",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
         )
 
         # a non-matching session

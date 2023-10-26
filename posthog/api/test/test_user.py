@@ -206,7 +206,11 @@ class TestUserAPI(APIBaseTest):
                     "partial_notification_settings",
                 ]
             },
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
     @patch("posthog.tasks.user_identify.identify_task")
@@ -221,7 +225,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
-            {"user": 12345, "team": 12345, "dashboard": str(dashboard_one.id), "scene": "Person"},
+            {
+                "user": 12345,
+                "team": 12345,
+                "dashboard": str(dashboard_one.id),
+                "scene": "Person",
+            },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -320,7 +329,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
-            {"user": 12345, "team": 12345, "dashboard": str(dashboard.id), "scene": scene},
+            {
+                "user": 12345,
+                "team": 12345,
+                "dashboard": str(dashboard.id),
+                "scene": scene,
+            },
         )
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
@@ -354,7 +368,10 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     @patch("posthog.tasks.email.send_email_verification.delay")
     def test_notifications_sent_when_user_email_is_changed_and_email_available(
-        self, mock_send_email_verification, mock_send_email_change_emails, mock_is_email_available
+        self,
+        mock_send_email_verification,
+        mock_send_email_change_emails,
+        mock_is_email_available,
     ):
         """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
         self.user.email = "alpha@example.com"
@@ -381,7 +398,10 @@ class TestUserAPI(APIBaseTest):
 
             token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
-                response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+                response = self.client.post(
+                    f"/api/users/@me/verify_email/",
+                    {"uuid": self.user.uuid, "token": token},
+                )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.user.refresh_from_db()
@@ -389,7 +409,10 @@ class TestUserAPI(APIBaseTest):
             self.assertIsNone(self.user.pending_email)
             mock_is_email_available.assert_called_once()
             mock_send_email_change_emails.assert_called_once_with(
-                "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
+                "2020-01-01T21:37:00+00:00",
+                self.user.first_name,
+                "alpha@example.com",
+                "beta@example.com",
             )
 
     @patch("posthog.api.user.is_email_available", return_value=True)
@@ -420,7 +443,8 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response.json(), self.permission_denied_response("You are not a staff user, contact your instance admin.")
+            response.json(),
+            self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
         self.user.refresh_from_db()
@@ -447,7 +471,11 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(self.new_project.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.new_org.id),
+                "project": str(self.new_project.uuid),
+            },
         )
 
     @patch("posthog.tasks.user_identify.identify_task")
@@ -471,7 +499,11 @@ class TestUserAPI(APIBaseTest):
             self.user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["current_organization", "current_team"]},
-            groups={"instance": ANY, "organization": str(self.new_org.id), "project": str(team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.new_org.id),
+                "project": str(team.uuid),
+            },
         )
 
     def test_cannot_set_mismatching_org_and_team(self):
@@ -481,7 +513,11 @@ class TestUserAPI(APIBaseTest):
         self.user.join(organization=org)
 
         response = self.client.patch(
-            "/api/users/@me/", {"set_current_team": team.id, "set_current_organization": self.organization.id}
+            "/api/users/@me/",
+            {
+                "set_current_team": team.id,
+                "set_current_organization": self.organization.id,
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -583,7 +619,10 @@ class TestUserAPI(APIBaseTest):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
-        response = self.client.patch("/api/users/@me/", {"current_password": "A12345678", "password": "a_new_password"})
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": "A12345678", "password": "a_new_password"},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["email"], "bob@posthog.com")
@@ -602,7 +641,11 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
         # User can log in with new password
@@ -616,7 +659,8 @@ class TestUserAPI(APIBaseTest):
         self.client.force_login(user)
 
         response = self.client.patch(
-            "/api/users/@me/", {"password": "a_new_password"}  # note we don't send current password
+            "/api/users/@me/",
+            {"password": "a_new_password"},  # note we don't send current password
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -636,11 +680,18 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={"updated_attrs": ["password"]},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
         # User can log in with new password
-        response = self.client.post("/api/login", {"email": "no_password@posthog.com", "password": "a_new_password"})
+        response = self.client.post(
+            "/api/login",
+            {"email": "no_password@posthog.com", "password": "a_new_password"},
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_user_with_unusable_password_set_can_set_password(self):
@@ -663,7 +714,10 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_cannot_update_to_insecure_password(self, mock_capture, mock_identify):
-        response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": "123"},
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -740,7 +794,10 @@ class TestUserAPI(APIBaseTest):
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset({"attr": None, "code": "throttled", "type": "throttled_error"}, response.json())
+        self.assertDictContainsSubset(
+            {"attr": None, "code": "throttled", "type": "throttled_error"},
+            response.json(),
+        )
 
         # Password was not changed
         self.user.refresh_from_db()
@@ -957,7 +1014,9 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(
-            html_message, "https://my.posthog.net", preheader="Please follow the link inside to verify your account."
+            html_message,
+            "https://my.posthog.net",
+            preheader="Please follow the link inside to verify your account.",
         )
         link_index = html_message.find("https://my.posthog.net/verify_email")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
@@ -975,7 +1034,11 @@ class TestEmailVerificationAPI(APIBaseTest):
             self.user.distinct_id,
             "user logged in",
             properties={"social_provider": ""},
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
         mock_capture.assert_any_call(
             self.user.distinct_id,
@@ -1003,14 +1066,18 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         for i in range(7):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
-                response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+                response = self.client.post(
+                    f"/api/users/@me/request_email_verification/",
+                    {"uuid": self.user.uuid},
+                )
             if i < 6:
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
                 self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"}, response.json()
+                    {"attr": None, "code": "throttled", "type": "throttled_error"},
+                    response.json(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -1028,7 +1095,12 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"},
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "token",
+            },
         )
 
     def test_invalid_verification_token_returns_error(self):
@@ -1038,8 +1110,16 @@ class TestEmailVerificationAPI(APIBaseTest):
             # tokens expire after one day
             expired_token = default_token_generator.make_token(self.user)
 
-        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
-            response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        for token in [
+            valid_token[:-1],
+            "not_even_trying",
+            self.user.uuid,
+            expired_token,
+        ]:
+            response = self.client.post(
+                f"/api/users/@me/verify_email/",
+                {"uuid": self.user.uuid, "token": token},
+            )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(
                 response.json(),

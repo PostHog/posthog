@@ -2,7 +2,10 @@ from unittest.mock import Mock, call, patch
 
 from clickhouse_driver.errors import Error as ClickhouseError
 
-from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift, get_clickhouse_schema_drift
+from posthog.tasks.check_clickhouse_schema_drift import (
+    check_clickhouse_schema_drift,
+    get_clickhouse_schema_drift,
+)
 
 
 def test_get_clickhouse_schema_drift() -> None:

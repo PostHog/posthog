@@ -328,6 +328,7 @@ class NodeKind(str, Enum):
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
     PersonsQuery = "PersonsQuery"
+    SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
     SavedInsightNode = "SavedInsightNode"
     InsightVizNode = "InsightVizNode"
@@ -569,6 +570,15 @@ class TimeToSeeDataWaterfallNode(BaseModel):
     )
     kind: Literal["TimeToSeeDataSessionsWaterfallNode"] = "TimeToSeeDataSessionsWaterfallNode"
     source: TimeToSeeDataQuery
+
+
+class TimelineEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventType]
+    recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
+    sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
 class TrendsFilter(BaseModel):
@@ -894,6 +904,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class SessionsTimelineQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class TimeToSeeDataJSONNode(BaseModel):
@@ -1283,6 +1303,21 @@ class PropertyGroupFilterValue(BaseModel):
             ],
         ]
     ]
+
+
+class SessionsTimelineQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started after this timestamp (default: '-24h')"
+    )
+    before: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
+    )
+    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
+    response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
 
 
 class ActionsNode(BaseModel):
@@ -1803,6 +1838,7 @@ class QuerySchema(RootModel):
             TimeToSeeDataSessionsQuery,
             EventsQuery,
             PersonsQuery,
+            SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
             WebOverviewQuery,

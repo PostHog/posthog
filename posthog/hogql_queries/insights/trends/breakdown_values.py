@@ -122,7 +122,12 @@ class BreakdownValues:
         )
 
         if self.event_name is not None:
-            filters.append(parse_expr("event = {event}", placeholders={"event": ast.Constant(value=self.event_name)}))
+            filters.append(
+                parse_expr(
+                    "event = {event}",
+                    placeholders={"event": ast.Constant(value=self.event_name)},
+                )
+            )
 
         return ast.And(exprs=filters)
 

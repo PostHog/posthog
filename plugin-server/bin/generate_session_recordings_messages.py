@@ -242,11 +242,15 @@ def generate_snapshot_messages(
     )
 
     incremental_snapshot_count_samples = sample_log_normal_distribution(
-        incremental_snapshot_count_mean, incremental_snapshot_count_standard_deviation, count
+        incremental_snapshot_count_mean,
+        incremental_snapshot_count_standard_deviation,
+        count,
     )
 
     full_snapshot_size_samples = sample_log_normal_distribution(
-        full_snapshot_size_mean, full_snapshot_size_standard_deviation, max(full_snapshot_count_samples)
+        full_snapshot_size_mean,
+        full_snapshot_size_standard_deviation,
+        max(full_snapshot_count_samples),
     )
 
     incremental_snapshot_size_samples = sample_log_normal_distribution(

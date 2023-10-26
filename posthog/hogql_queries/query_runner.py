@@ -17,6 +17,7 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
+    SessionsTimelineQuery,
     TrendsQuery,
     LifecycleQuery,
     WebTopClicksQuery,
@@ -71,6 +72,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     EventsQuery,
     PersonsQuery,
+    SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
@@ -133,6 +135,14 @@ def get_query_runner(
             team=team,
             timings=timings,
             in_export_context=in_export_context,
+        )
+    if kind == "SessionsTimelineQuery":
+        from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
+
+        return SessionsTimelineQueryRunner(
+            query=cast(SessionsTimelineQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
         )
     if kind == "WebOverviewQuery":
         from .web_analytics.web_overview import WebOverviewQueryRunner
