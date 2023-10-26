@@ -129,6 +129,7 @@
         "kea-test-utils": "^0.2.4",
         "kea-waitfor": "^0.2.1",
         "kea-window-values": "^3.0.0",
+        "maplibre-gl": "^3.5.1",
         "md5": "^2.3.0",
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
