@@ -348,7 +348,6 @@ def surveys(request: Request):
 
 
 def nh3_clean_with_whitelist(to_clean: str):
-
     return nh3.clean(
         to_clean,
         link_rel="noopener",
@@ -394,7 +393,6 @@ def nh3_clean_with_whitelist(to_clean: str):
             "i",
             "img",
             "ins",
-            "kbd",
             "kbd",
             "li",
             "map",
@@ -445,7 +443,17 @@ def nh3_clean_with_whitelist(to_clean: str):
             "ins": {"cite", "datetime"},
             "ol": {"start", "type"},
             "q": {"cite"},
-            "table": {"align", "bgcolor", "border", "cellpadding", "cellspacing", "frame", "rules", "summary", "width"},
+            "table": {
+                "align",
+                "bgcolor",
+                "border",
+                "cellpadding",
+                "cellspacing",
+                "frame",
+                "rules",
+                "summary",
+                "width",
+            },
             "tbody": {"align", "char", "charoff", "valign"},
             "td": {
                 "abbr",
