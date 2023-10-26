@@ -33,11 +33,11 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                     attrs: { id: personId, nodeId: uuid(), title: 'Info' },
                                 },
                                 {
-                                    type: 'ph-properties',
+                                    type: 'ph-map',
                                     attrs: { id: personId, nodeId: uuid() },
                                 },
                                 {
-                                    type: 'ph-map',
+                                    type: 'ph-properties',
                                     attrs: { id: personId, nodeId: uuid() },
                                 },
                             ],
