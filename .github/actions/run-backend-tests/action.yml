@@ -75,6 +75,14 @@ runs:
           run: |
               pip install -r requirements.txt -r requirements-dev.txt
 
+        - name: Install transpiler
+          if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+          shell: bash
+          run: |
+              cd transpiler
+              pnpm install
+              pnpm run build
+
         - name: Install the working version of hogql-parser
           if: steps.hogql-parser-diff.outputs.changed == 'true'
           shell: bash
