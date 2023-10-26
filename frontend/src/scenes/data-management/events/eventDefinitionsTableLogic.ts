@@ -1,5 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyPropertyFilter, Breadcrumb, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/taxonomy'
@@ -7,7 +7,6 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
-import { urls } from 'scenes/urls'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -280,21 +279,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        name: `Data Management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
-                        name: 'Events',
-                        path: urls.eventDefinitions(),
-                    },
-                ]
-            },
-        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: async () => {

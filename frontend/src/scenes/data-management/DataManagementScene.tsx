@@ -22,10 +22,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
 import { DatabaseTableList } from './database/DatabaseTableList'
-
-export const scene: SceneExport = {
-    component: DataManagementScene,
-}
+import { Breadcrumb } from '~/types'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -134,6 +132,20 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
         ],
     },
     selectors: {
+        breadcrumbs: [
+            (s) => [s.tab],
+            (tab): Breadcrumb[] => {
+                return [
+                    {
+                        name: `Data Management`,
+                    },
+                    {
+                        name: capitalizeFirstLetter(tab),
+                        path: tabs[tab].url,
+                    },
+                ]
+            },
+        ],
         showWarningsTab: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
@@ -192,4 +204,9 @@ export function DataManagementScene(): JSX.Element {
             {tabs[tab].children}
         </>
     )
+}
+
+export const scene: SceneExport = {
+    component: DataManagementScene,
+    logic: dataManagementSceneLogic,
 }
