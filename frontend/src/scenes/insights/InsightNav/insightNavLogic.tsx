@@ -38,7 +38,7 @@ import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { getDisplay, getShownAs, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
+import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 
 export interface Tab {
     label: string | JSX.Element
@@ -321,7 +321,6 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
             ...(getShowValueOnSeries(node) ? { show_values_on_series: getShowValueOnSeries(node) } : {}),
             ...(getShowPercentStackView(node) ? { show_percent_stack_view: getShowPercentStackView(node) } : {}),
-            ...(getShownAs(node) ? { shown_as: getShownAs(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }
     }
