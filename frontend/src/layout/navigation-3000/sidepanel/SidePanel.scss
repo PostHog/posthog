@@ -12,7 +12,8 @@
     }
 
     &--open {
-        width: 20rem;
+        // TODO: This should be the default, but controllable in the UI
+        width: 50rem;
     }
 }
 
