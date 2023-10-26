@@ -7,7 +7,14 @@ from posthog.test.base import APIBaseTest
 
 
 def assert_template_equals(received, expected):
-    keys_to_check = ["template_name", "dashboard_description", "tags", "variables", "tiles", "dashboard_filters"]
+    keys_to_check = [
+        "template_name",
+        "dashboard_description",
+        "tags",
+        "variables",
+        "tiles",
+        "dashboard_filters",
+    ]
 
     for key in keys_to_check:
         assert received[key] == expected[key], f"key {key} failed, expected {expected[key]} but got {received[key]}"
@@ -256,7 +263,8 @@ class TestDashboardTemplates(APIBaseTest):
         dashboard_template = DashboardTemplate.objects.get(id=response.json()["id"])
 
         update_response = self.client.patch(
-            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}", {"deleted": True}
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"deleted": True},
         )
         assert update_response.status_code == status.HTTP_200_OK, update_response
 
@@ -279,7 +287,8 @@ class TestDashboardTemplates(APIBaseTest):
         self.user.save()
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}", {"deleted": True}
+            f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
+            {"deleted": True},
         )
         assert patch_response.status_code == status.HTTP_403_FORBIDDEN, patch_response
 
@@ -307,15 +316,41 @@ class TestDashboardTemplates(APIBaseTest):
     def test_dashboard_template_schema(self) -> None:
         dashboard_template_schema = {
             "type": "object",
-            "required": ["template_name", "dashboard_description", "dashboard_filters", "tiles"],
+            "required": [
+                "template_name",
+                "dashboard_description",
+                "dashboard_filters",
+                "tiles",
+            ],
             "properties": {
-                "id": {"description": "The id of the dashboard template", "type": "string"},
-                "template_name": {"description": "The name of the dashboard template", "type": "string"},
-                "team_id": {"description": "The team this dashboard template belongs to", "type": ["number", "null"]},
-                "created_at": {"description": "When the dashboard template was created", "type": "string"},
-                "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},
-                "dashboard_description": {"description": "The description of the dashboard template", "type": "string"},
-                "dashboard_filters": {"description": "The filters of the dashboard template", "type": "object"},
+                "id": {
+                    "description": "The id of the dashboard template",
+                    "type": "string",
+                },
+                "template_name": {
+                    "description": "The name of the dashboard template",
+                    "type": "string",
+                },
+                "team_id": {
+                    "description": "The team this dashboard template belongs to",
+                    "type": ["number", "null"],
+                },
+                "created_at": {
+                    "description": "When the dashboard template was created",
+                    "type": "string",
+                },
+                "image_url": {
+                    "description": "The image of the dashboard template",
+                    "type": ["string", "null"],
+                },
+                "dashboard_description": {
+                    "description": "The description of the dashboard template",
+                    "type": "string",
+                },
+                "dashboard_filters": {
+                    "description": "The filters of the dashboard template",
+                    "type": "object",
+                },
                 "tiles": {
                     "description": "The tiles of the dashboard template",
                     "type": "array",
@@ -329,14 +364,39 @@ class TestDashboardTemplates(APIBaseTest):
                             "type": "array",
                             "items": {
                                 "type": "object",
-                                "required": ["id", "name", "type", "default", "description", "required"],
+                                "required": [
+                                    "id",
+                                    "name",
+                                    "type",
+                                    "default",
+                                    "description",
+                                    "required",
+                                ],
                                 "properties": {
-                                    "id": {"description": "The id of the variable", "type": "string"},
-                                    "name": {"description": "The name of the variable", "type": "string"},
-                                    "type": {"description": "The type of the variable", "enum": ["event"]},
-                                    "default": {"description": "The default value of the variable", "type": "object"},
-                                    "description": {"description": "The description of the variable", "type": "string"},
-                                    "required": {"description": "Whether the variable is required", "type": "boolean"},
+                                    "id": {
+                                        "description": "The id of the variable",
+                                        "type": "string",
+                                    },
+                                    "name": {
+                                        "description": "The name of the variable",
+                                        "type": "string",
+                                    },
+                                    "type": {
+                                        "description": "The type of the variable",
+                                        "enum": ["event"],
+                                    },
+                                    "default": {
+                                        "description": "The default value of the variable",
+                                        "type": "object",
+                                    },
+                                    "description": {
+                                        "description": "The description of the variable",
+                                        "type": "string",
+                                    },
+                                    "required": {
+                                        "description": "Whether the variable is required",
+                                        "type": "boolean",
+                                    },
                                 },
                             },
                         },
@@ -373,7 +433,8 @@ class TestDashboardTemplates(APIBaseTest):
 
         # can't update the default template to be private
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/dashboard_templates/{dashboard_template.id}", {"scope": "team"}
+            f"/api/projects/{self.team.pk}/dashboard_templates/{dashboard_template.id}",
+            {"scope": "team"},
         )
         # unauthorized
         assert response.status_code == status.HTTP_400_BAD_REQUEST

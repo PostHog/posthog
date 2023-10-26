@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.clickhouse.table_engines import (
+    AggregatingMergeTree,
+    Distributed,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 
 SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(

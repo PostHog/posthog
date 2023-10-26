@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0278_organization_customer_id"),
     ]
@@ -19,7 +18,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="SessionRecordingPlaylistItem",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("session_id", models.CharField(max_length=200)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(blank=True, null=True)),

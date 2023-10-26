@@ -1,6 +1,8 @@
 from django.conf import settings
 
-from posthog.session_recordings.sql.session_replay_event_sql import SESSION_REPLAY_EVENTS_DATA_TABLE
+from posthog.session_recordings.sql.session_replay_event_sql import (
+    SESSION_REPLAY_EVENTS_DATA_TABLE,
+)
 
 DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
     lambda: "DROP TABLE IF EXISTS session_replay_events_mv ON CLUSTER {cluster}".format(

@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0192_event_properties"),
     ]
@@ -44,8 +43,14 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 check=models.Q(
                     models.Q(
-                        ("property_type__in", ["DateTime", "String", "Numeric", "Boolean"]),
-                        ("property_type_format__in", ["unix_timestamp", "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD"]),
+                        (
+                            "property_type__in",
+                            ["DateTime", "String", "Numeric", "Boolean"],
+                        ),
+                        (
+                            "property_type_format__in",
+                            ["unix_timestamp", "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD"],
+                        ),
                     )
                 ),
                 name="property_type_and_format_are_valid",

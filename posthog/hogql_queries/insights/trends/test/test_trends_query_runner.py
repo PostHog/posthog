@@ -3,8 +3,19 @@ from typing import List, Optional
 from freezegun import freeze_time
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from posthog.schema import DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.schema import (
+    DateRange,
+    EventsNode,
+    IntervalType,
+    TrendsFilter,
+    TrendsQuery,
+)
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
 
 
 @dataclass
@@ -41,7 +52,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             for event in person.events:
                 for timestamp in event.timestamps:
-                    _create_event(team=self.team, event=event.event, distinct_id=id, timestamp=timestamp)
+                    _create_event(
+                        team=self.team,
+                        event=event.event,
+                        distinct_id=id,
+                        timestamp=timestamp,
+                    )
         return person_result
 
     def _create_test_events(self):
@@ -74,7 +90,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 SeriesTestData(
                     distinct_id="p2",
                     events=[
-                        Series(event="$pageview", timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"],
+                        ),
                         Series(
                             event="$pageleave",
                             timestamps=[
@@ -111,7 +130,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         return TrendsQueryRunner(team=self.team, query=query)
 
     def _run_trends_query(
-        self, date_from, date_to, interval, series=None, trends_filters: Optional[TrendsFilter] = None
+        self,
+        date_from,
+        date_to,
+        interval,
+        series=None,
+        trends_filters: Optional[TrendsFilter] = None,
     ):
         return self._create_query_runner(date_from, date_to, interval, series, trends_filters).calculate()
 
@@ -221,7 +245,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
 
         response = self._run_trends_query(
-            "2020-01-15", "2020-01-19", IntervalType.day, [EventsNode(event="$pageview")], TrendsFilter(compare=True)
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(compare=True),
         )
 
         self.assertEqual(2, len(response.results))

@@ -8,7 +8,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class FixingDashboardTilesTestCase(TestMigrations):
-
     migrate_from = "0227_add_dashboard_tiles"
     migrate_to = "0228_fix_tile_layouts"
 
@@ -27,7 +26,9 @@ class FixingDashboardTilesTestCase(TestMigrations):
         # dashboard tile with valid layouts
         # Expect: no conversion for this tile
         insight_for_case_1 = Insight.objects.create(
-            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has valid layouts on tile"
+            team=team,
+            filters={"insight": "TRENDS", "date_from": "-7d"},
+            name="has valid layouts on tile",
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight_for_case_1, layouts={"a": "dict"})
 
@@ -35,9 +36,15 @@ class FixingDashboardTilesTestCase(TestMigrations):
         # dashboard with layout that has been stringified once
         # Expect: conversion for this tile
         insight_for_case_2 = Insight.objects.create(
-            team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, name="has invalid layouts on tile"
+            team=team,
+            filters={"insight": "TRENDS", "date_from": "-7d"},
+            name="has invalid layouts on tile",
         )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight_for_case_2, layouts=json.dumps({"a": "dict"}))
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight_for_case_2,
+            layouts=json.dumps({"a": "dict"}),
+        )
 
     def test_migrate_to_create_tiles(self):
         """
@@ -56,12 +63,14 @@ class FixingDashboardTilesTestCase(TestMigrations):
 
         # CASE 1:
         self.assertIsInstance(
-            DashboardTile.objects.get(dashboard__name="d1", insight__name="has valid layouts on tile").layouts, dict
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has valid layouts on tile").layouts,
+            dict,
         )
 
         # CASE 2:
         self.assertIsInstance(
-            DashboardTile.objects.get(dashboard__name="d1", insight__name="has invalid layouts on tile").layouts, dict
+            DashboardTile.objects.get(dashboard__name="d1", insight__name="has invalid layouts on tile").layouts,
+            dict,
         )
 
     def tearDown(self):

@@ -31,4 +31,7 @@ class MessagingRecord(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("email_hash", "campaign_key")  # can only send campaign once to each email
+        unique_together = (
+            "email_hash",
+            "campaign_key",
+        )  # can only send campaign once to each email

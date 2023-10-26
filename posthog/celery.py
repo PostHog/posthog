@@ -104,7 +104,10 @@ def on_worker_start(**kwargs) -> None:
 
 
 def add_periodic_task_with_expiry(
-    sender: Celery, schedule_seconds: int, task_signature: Signature, name: str | None = None
+    sender: Celery,
+    schedule_seconds: int,
+    task_signature: Signature,
+    name: str | None = None,
 ):
     """
     If the workers get delayed in processing tasks, then tasks that fire every X seconds get queued multiple times
@@ -125,7 +128,10 @@ def add_periodic_task_with_expiry(
 def setup_periodic_tasks(sender: Celery, **kwargs):
     # Monitoring tasks
     add_periodic_task_with_expiry(
-        sender, 60, monitoring_check_clickhouse_schema_drift.s(), "check clickhouse schema drift"
+        sender,
+        60,
+        monitoring_check_clickhouse_schema_drift.s(),
+        "check clickhouse schema drift",
     )
 
     if not settings.DEBUG:
@@ -136,15 +142,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
-        crontab(day_of_week="mon,fri", hour="0", minute="0"), update_event_partitions.s()  # check twice a week
+        crontab(day_of_week="mon,fri", hour="0", minute="0"),
+        update_event_partitions.s(),  # check twice a week
     )
 
     # Send all instance usage to the Billing service
     sender.add_periodic_task(
-        crontab(hour="0", minute="5"), send_org_usage_reports.s(), name="send instance usage report"
+        crontab(hour="0", minute="5"),
+        send_org_usage_reports.s(),
+        name="send instance usage report",
     )
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
-    sender.add_periodic_task(crontab(hour="*", minute="30"), update_quota_limiting.s(), name="update quota limiting")
+    sender.add_periodic_task(
+        crontab(hour="*", minute="30"),
+        update_quota_limiting.s(),
+        name="update quota limiting",
+    )
 
     # PostHog Cloud cron jobs
     # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
@@ -152,7 +165,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(hour="4", minute="0"), verify_persons_data_in_sync.s())
 
     # Every 30 minutes, send decide request counts to the main posthog instance
-    sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
+    sender.add_periodic_task(
+        crontab(minute="*/30"),
+        calculate_decide_usage.s(),
+        name="calculate decide usage",
+    )
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
     # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
@@ -166,7 +183,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
     if sync_insight_cache_states_schedule:
         sender.add_periodic_task(
-            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
+            sync_insight_cache_states_schedule,
+            sync_insight_cache_states_task.s(),
+            name="sync insight cache states",
         )
 
     add_periodic_task_with_expiry(
@@ -226,7 +245,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="PG table cache hit rate",
     )
     sender.add_periodic_task(
-        crontab(minute="0", hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
+        crontab(minute="0", hour="*"),
+        pg_plugin_server_query_timing.s(),
+        name="PG plugin server query timing",
     )
     add_periodic_task_with_expiry(
         sender,
@@ -244,7 +265,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
-            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+            clear_clickhouse_crontab,
+            clickhouse_clear_removed_data.s(),
+            name="clickhouse clear removed data",
         )
 
     if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
@@ -256,17 +279,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
-            crontab(hour="0", minute=str(randrange(0, 40))), clickhouse_send_license_usage.s()
+            crontab(hour="0", minute=str(randrange(0, 40))),
+            clickhouse_send_license_usage.s(),
         )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         sender.add_periodic_task(
-            crontab(hour="4", minute=str(randrange(0, 40))), clickhouse_send_license_usage.s()
+            crontab(hour="4", minute=str(randrange(0, 40))),
+            clickhouse_send_license_usage.s(),
         )  # again a few hours later just to make sure
 
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
             sender.add_periodic_task(
-                materialize_columns_crontab, clickhouse_materialize_columns.s(), name="clickhouse materialize columns"
+                materialize_columns_crontab,
+                clickhouse_materialize_columns.s(),
+                name="clickhouse materialize columns",
             )
 
             sender.add_periodic_task(
@@ -276,7 +303,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             )
 
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
-        sender.add_periodic_task(crontab(hour="2", minute=str(randrange(0, 40))), ee_persist_finished_recordings.s())
+        sender.add_periodic_task(
+            crontab(hour="2", minute=str(randrange(0, 40))),
+            ee_persist_finished_recordings.s(),
+        )
 
         sender.add_periodic_task(
             crontab(minute="0", hour="*"),
@@ -303,7 +333,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 def pre_run_signal_handler(task_id, task, **kwargs):
     from statshog.defaults.django import statsd
 
-    from posthog.clickhouse.client.connection import Workload, set_default_clickhouse_workload_type
+    from posthog.clickhouse.client.connection import (
+        Workload,
+        set_default_clickhouse_workload_type,
+    )
     from posthog.clickhouse.query_tagging import tag_queries
 
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
@@ -359,7 +392,15 @@ def enqueue_clickhouse_execute_with_progress(
     """
     from posthog.client import execute_with_progress
 
-    execute_with_progress(team_id, query_id, query, args, settings, with_column_types, task_id=self.request.id)
+    execute_with_progress(
+        team_id,
+        query_id,
+        query,
+        args,
+        settings,
+        with_column_types,
+        task_id=self.request.id,
+    )
 
 
 @app.task(ignore_result=True)
@@ -425,7 +466,9 @@ def pg_plugin_server_query_timing():
                     if key == "query_type":
                         continue
                     statsd.gauge(
-                        f"pg_plugin_server_query_{key}", value, tags={"query_type": row_dictionary["query_type"]}
+                        f"pg_plugin_server_query_{key}",
+                        value,
+                        tags={"query_type": row_dictionary["query_type"]},
                     )
         except:
             # if this doesn't work keep going
@@ -457,7 +500,13 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_replay_events", "log_entries"]
+CLICKHOUSE_TABLES = [
+    "events",
+    "person",
+    "person_distinct_id2",
+    "session_replay_events",
+    "log_entries",
+]
 if not is_cloud():
     CLICKHOUSE_TABLES.append("session_recording_events")
 
@@ -482,7 +531,11 @@ def clickhouse_lag():
                 )
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
-                statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+                statsd.gauge(
+                    "posthog_celery_clickhouse__table_lag_seconds",
+                    lag,
+                    tags={"table": table},
+                )
                 lag_gauge.labels(table_name=table).set(lag)
             except:
                 pass
@@ -535,7 +588,12 @@ def ingestion_lag():
         pass
 
 
-KNOWN_CELERY_TASK_IDENTIFIERS = {"pluginJob", "runEveryHour", "runEveryMinute", "runEveryDay"}
+KNOWN_CELERY_TASK_IDENTIFIERS = {
+    "pluginJob",
+    "runEveryHour",
+    "runEveryMinute",
+    "runEveryDay",
+}
 
 
 @app.task(ignore_result=True)
@@ -588,7 +646,11 @@ def graphile_worker_queue_size():
                 seen_task_identifier.add(task_identifier)
                 waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
                 processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
-                statsd.gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
+                statsd.gauge(
+                    "graphile_waiting_jobs",
+                    count,
+                    tags={"task_identifier": task_identifier},
+                )
 
             # The query will not return rows for empty queues, creating missing points.
             # Let's emit updates for known queues even if they are empty.
@@ -618,7 +680,11 @@ def clickhouse_row_count():
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
-                statsd.gauge(f"posthog_celery_clickhouse_table_row_count", rows, tags={"table": table})
+                statsd.gauge(
+                    f"posthog_celery_clickhouse_table_row_count",
+                    rows,
+                    tags={"table": table},
+                )
             except:
                 pass
 
@@ -681,7 +747,11 @@ def clickhouse_part_count():
         )
         for table, parts in rows:
             parts_count_gauge.labels(table=table).set(parts)
-            statsd.gauge(f"posthog_celery_clickhouse_table_parts_count", parts, tags={"table": table})
+            statsd.gauge(
+                f"posthog_celery_clickhouse_table_parts_count",
+                parts,
+                tags={"table": table},
+            )
 
 
 @app.task(ignore_result=True)
@@ -710,7 +780,11 @@ def clickhouse_mutation_count():
         )
     for table, muts in rows:
         mutations_count_gauge.labels(table=table).set(muts)
-        statsd.gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
+        statsd.gauge(
+            f"posthog_celery_clickhouse_table_mutations_count",
+            muts,
+            tags={"table": table},
+        )
 
 
 @app.task(ignore_result=True)
@@ -739,7 +813,9 @@ def redis_celery_queue_depth():
     try:
         with pushed_metrics_registry("redis_celery_queue_depth_registry") as registry:
             celery_task_queue_depth_gauge = Gauge(
-                "posthog_celery_queue_depth", "We use this to monitor the depth of the celery queue.", registry=registry
+                "posthog_celery_queue_depth",
+                "We use this to monitor the depth of the celery queue.",
+                registry=registry,
             )
 
             llen = get_client().llen("celery")
@@ -767,7 +843,9 @@ def clean_stale_partials():
 
 @app.task(ignore_result=True)
 def monitoring_check_clickhouse_schema_drift():
-    from posthog.tasks.check_clickhouse_schema_drift import check_clickhouse_schema_drift
+    from posthog.tasks.check_clickhouse_schema_drift import (
+        check_clickhouse_schema_drift,
+    )
 
     check_clickhouse_schema_drift()
 
@@ -801,7 +879,11 @@ def update_cache_task(caching_state_id: UUID):
 
 
 @app.task(ignore_result=True)
-def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+def sync_insight_caching_state(
+    team_id: int,
+    insight_id: Optional[int] = None,
+    dashboard_tile_id: Optional[int] = None,
+):
     from posthog.caching.insight_caching_state import sync_insight_caching_state
 
     sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
@@ -851,7 +933,9 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics():
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from posthog.models.feature_flag.flag_analytics import (
+        find_flags_with_enriched_analytics,
+    )
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -869,7 +953,9 @@ def demo_reset_master_team():
 
 @app.task(ignore_result=True)
 def sync_all_organization_available_features():
-    from posthog.tasks.sync_all_organization_available_features import sync_all_organization_available_features
+    from posthog.tasks.sync_all_organization_available_features import (
+        sync_all_organization_available_features,
+    )
 
     sync_all_organization_available_features()
 
@@ -883,7 +969,9 @@ def check_async_migration_health():
 
 @app.task(ignore_result=True)
 def verify_persons_data_in_sync():
-    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+    from posthog.tasks.verify_persons_data_in_sync import (
+        verify_persons_data_in_sync as verify,
+    )
 
     if not is_cloud():
         return
@@ -905,7 +993,9 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns():
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+            from ee.clickhouse.materialized_columns.analyze import (
+                materialize_properties_task,
+            )
         except ImportError:
             pass
         else:
@@ -943,7 +1033,9 @@ def update_quota_limiting():
 @app.task(ignore_result=True)
 def schedule_all_subscriptions():
     try:
-        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
+        from ee.tasks.subscriptions import (
+            schedule_all_subscriptions as _schedule_all_subscriptions,
+        )
     except ImportError:
         pass
     else:

@@ -15,7 +15,9 @@ from posthog.test.base import _create_event, flush_persons_and_events
 
 
 def journeys_for(
-    events_by_person: Dict[str, List[Dict[str, Any]]], team: Team, create_people: bool = True
+    events_by_person: Dict[str, List[Dict[str, Any]]],
+    team: Team,
+    create_people: bool = True,
 ) -> Dict[str, Person]:
     """
     Helper for creating specific events for a team.
@@ -50,18 +52,22 @@ def journeys_for(
             )
         else:
             people[distinct_id] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id, persondistinctid__team_id=team.pk
+                persondistinctid__distinct_id=distinct_id,
+                persondistinctid__team_id=team.pk,
             )
 
         for event in events:
-
             # Populate group properties as well
             group_mapping = {}
             for property_key, value in (event.get("properties") or {}).items():
                 if property_key.startswith("$group_"):
                     group_type_index = property_key[-1]
                     try:
-                        group = Group.objects.get(team_id=team.pk, group_type_index=group_type_index, group_key=value)
+                        group = Group.objects.get(
+                            team_id=team.pk,
+                            group_type_index=group_type_index,
+                            group_key=value,
+                        )
                         group_mapping[f"group{group_type_index}"] = group
 
                     except Group.DoesNotExist:
@@ -195,6 +201,10 @@ def update_or_create_person(distinct_ids: List[str], team_id: int, **kwargs):
         PersonDistinctId.objects.update_or_create(
             distinct_id=distinct_id,
             team_id=person.team_id,
-            defaults={"person_id": person.id, "team_id": team_id, "distinct_id": distinct_id},
+            defaults={
+                "person_id": person.id,
+                "team_id": team_id,
+                "distinct_id": distinct_id,
+            },
         )
     return person

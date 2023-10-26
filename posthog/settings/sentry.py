@@ -136,7 +136,12 @@ def sentry_init() -> None:
             send_default_pii=send_pii,
             dsn=os.environ["SENTRY_DSN"],
             release=release,
-            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
+            integrations=[
+                DjangoIntegration(),
+                CeleryIntegration(),
+                RedisIntegration(),
+                sentry_logging,
+            ],
             request_bodies="always" if send_pii else "never",
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
