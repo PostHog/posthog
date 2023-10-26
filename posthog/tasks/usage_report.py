@@ -41,7 +41,13 @@ from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
-from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
+from posthog.utils import (
+    get_helm_info_env,
+    get_instance_realm,
+    get_instance_region,
+    get_machine_id,
+    get_previous_day,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -174,7 +180,10 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
     metadata = InstanceMetadata(
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
-        period={"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
+        period={
+            "start_inclusive": period_start.isoformat(),
+            "end_inclusive": period_end.isoformat(),
+        },
         site_url=settings.SITE_URL,
         product=get_product_name(realm, has_license),
         # Non-cloud vars
@@ -197,7 +206,12 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
         metadata.users_who_logged_in = [
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
-            else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
+            else {
+                "id": user.id,
+                "distinct_id": user.distinct_id,
+                "first_name": user.first_name,
+                "email": user.email,
+            }
             for user in User.objects.filter(is_active=True, last_login__gte=period_start, last_login__lte=period_end)
         ]
         metadata.users_who_logged_in_count = len(metadata.users_who_logged_in)
@@ -205,8 +219,17 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
         metadata.users_who_signed_up = [
             {"id": user.id, "distinct_id": user.distinct_id}
             if user.anonymize_data
-            else {"id": user.id, "distinct_id": user.distinct_id, "first_name": user.first_name, "email": user.email}
-            for user in User.objects.filter(is_active=True, date_joined__gte=period_start, date_joined__lte=period_end)
+            else {
+                "id": user.id,
+                "distinct_id": user.distinct_id,
+                "first_name": user.first_name,
+                "email": user.email,
+            }
+            for user in User.objects.filter(
+                is_active=True,
+                date_joined__gte=period_start,
+                date_joined__lte=period_end,
+            )
         ]
         metadata.users_who_signed_up_count = len(metadata.users_who_signed_up)
 
@@ -243,7 +266,8 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
         user = membership.user
     else:
         capture_exception(
-            Exception("No user found for org while generating report"), {"org": {"organization_id": organization_id}}
+            Exception("No user found for org while generating report"),
+            {"org": {"organization_id": organization_id}},
         )
     return user
 
@@ -288,7 +312,12 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
-        capture_event(pha_client, f"organization usage report to billing service failure", org_id, {"err": str(err)})
+        capture_event(
+            pha_client,
+            f"organization usage report to billing service failure",
+            org_id,
+            {"err": str(err)},
+        )
         raise err
 
 
@@ -496,7 +525,12 @@ def get_teams_with_hogql_metric(
           AND access_method = %(access_method)s
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+        {
+            "begin": begin,
+            "end": end,
+            "query_types": query_types,
+            "access_method": access_method,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -559,7 +593,10 @@ def get_teams_with_survey_responses_count_in_period(
 
 @app.task(ignore_result=True, max_retries=0)
 def capture_report(
-    capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
+    capture_event_name: str,
+    org_id: str,
+    full_report_dict: Dict[str, Any],
+    at_date: Optional[datetime] = None,
 ) -> None:
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
@@ -821,7 +858,10 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
 
 
 def _add_team_report_to_org_reports(
-    org_reports: Dict[str, OrgReport], team: Team, team_report: UsageReportCounters, period_start: datetime
+    org_reports: Dict[str, OrgReport],
+    team: Team,
+    team_report: UsageReportCounters,
+    period_start: datetime,
 ) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:

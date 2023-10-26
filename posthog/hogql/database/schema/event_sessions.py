@@ -2,7 +2,12 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import FieldOrTable, IntegerDatabaseField, StringDatabaseField, VirtualTable
+from posthog.hogql.database.models import (
+    FieldOrTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    VirtualTable,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -53,7 +58,12 @@ class CleanTableNameFromChain(CloningVisitor):
 class WhereClauseExtractor:
     compare_operators: List[ast.Expr]
 
-    def __init__(self, where_expression: ast.Expr, from_table_name: str, select_query_type: ast.SelectQueryType):
+    def __init__(
+        self,
+        where_expression: ast.Expr,
+        from_table_name: str,
+        select_query_type: ast.SelectQueryType,
+    ):
         self.table_name = from_table_name
         self.select_query_type = select_query_type
         self.compare_operators = self.run(deepcopy(where_expression))
@@ -147,7 +157,9 @@ def join_with_events_table_session_duration(
             exprs=[
                 *compare_operators,
                 ast.CompareOperation(
-                    left=ast.Field(chain=["$session_id"]), op=ast.CompareOperationOp.NotEq, right=ast.Constant(value="")
+                    left=ast.Field(chain=["$session_id"]),
+                    op=ast.CompareOperationOp.NotEq,
+                    right=ast.Constant(value=""),
                 ),
             ]
         )

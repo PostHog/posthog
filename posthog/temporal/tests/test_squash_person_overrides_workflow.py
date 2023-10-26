@@ -41,10 +41,19 @@ from posthog.temporal.workflows.squash_person_overrides import (
 @pytest.mark.parametrize(
     "inputs,expected",
     [
-        ({"partition_ids": None, "last_n_months": 5}, ["202303", "202302", "202301", "202212", "202211"]),
+        (
+            {"partition_ids": None, "last_n_months": 5},
+            ["202303", "202302", "202301", "202212", "202211"],
+        ),
         ({"last_n_months": 1}, ["202303"]),
-        ({"partition_ids": ["202303", "202302"], "last_n_months": 3}, ["202303", "202302"]),
-        ({"partition_ids": ["202303", "202302"], "last_n_months": None}, ["202303", "202302"]),
+        (
+            {"partition_ids": ["202303", "202302"], "last_n_months": 3},
+            ["202303", "202302"],
+        ),
+        (
+            {"partition_ids": ["202303", "202302"], "last_n_months": None},
+            ["202303", "202302"],
+        ),
     ],
 )
 def test_workflow_inputs_yields_partition_ids(inputs, expected):
@@ -490,7 +499,10 @@ def events_to_override(person_overrides_data):
             }
             all_test_events.append(values)
 
-    sync_execute("INSERT INTO sharded_events (uuid, event, timestamp, team_id, person_id) VALUES", all_test_events)
+    sync_execute(
+        "INSERT INTO sharded_events (uuid, event, timestamp, team_id, person_id) VALUES",
+        all_test_events,
+    )
 
     yield all_test_events
 
@@ -505,7 +517,8 @@ def assert_events_have_been_overriden(overriden_events, person_overrides):
     """
     for event in overriden_events:
         rows = sync_execute(
-            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
+            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s",
+            {"uuid": event["uuid"]},
         )
         new_event = {
             "uuid": rows[0][0],
@@ -569,7 +582,8 @@ async def test_squash_events_partition_dry_run(
 
     for event in events_to_override:
         rows = sync_execute(
-            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s", {"uuid": event["uuid"]}
+            "SELECT uuid, event, team_id, person_id FROM events WHERE uuid = %(uuid)s",
+            {"uuid": event["uuid"]},
         )
         new_event = {
             "uuid": rows[0][0],
@@ -586,7 +600,11 @@ async def test_squash_events_partition_dry_run(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_events_partition_with_older_overrides(
-    query_inputs, activity_environment, person_overrides_data, events_to_override, older_overrides
+    query_inputs,
+    activity_environment,
+    person_overrides_data,
+    events_to_override,
+    older_overrides,
 ):
     """Test events are properly squashed even in the prescence of older overrides.
 
@@ -613,7 +631,11 @@ async def test_squash_events_partition_with_older_overrides(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_events_partition_with_newer_overrides(
-    query_inputs, activity_environment, person_overrides_data, events_to_override, newer_overrides
+    query_inputs,
+    activity_environment,
+    person_overrides_data,
+    events_to_override,
+    newer_overrides,
 ):
     """Test events are properly squashed even in the prescence of newer overrides.
 
@@ -1218,7 +1240,11 @@ async def test_squash_person_overrides_workflow(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow_with_newer_overrides(
-    query_inputs, events_to_override, person_overrides_data, person_overrides, newer_overrides
+    query_inputs,
+    events_to_override,
+    person_overrides_data,
+    person_overrides,
+    newer_overrides,
 ):
     """Test the squash_person_overrides workflow end-to-end with newer overrides."""
     client = await Client.connect(

@@ -24,7 +24,12 @@ from posthog.models.group import Group
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
+from posthog.test.base import (
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
+)
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
@@ -34,7 +39,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[
-                {"properties": [{"key": "email", "value": ["@posthog.com"], "type": "person", "operator": "icontains"}]}
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": ["@posthog.com"],
+                            "type": "person",
+                            "operator": "icontains",
+                        }
+                    ]
+                }
             ],
         )
         flag: FeatureFlag = FeatureFlag.objects.create(
@@ -49,7 +63,12 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             [
                 {
                     "properties": [
-                        {"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]}
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "type": "person",
+                            "value": ["@posthog.com"],
+                        }
                     ],
                     "rollout_percentage": None,
                 }
@@ -91,8 +110,18 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             groups=[
                 {
                     "properties": [
-                        {"key": "email", "value": ["@posthog.com"], "type": "person", "operator": "icontains"},
-                        {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"},
+                        {
+                            "key": "email",
+                            "value": ["@posthog.com"],
+                            "type": "person",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "name",
+                            "value": ["posthog"],
+                            "type": "person",
+                            "operator": "icontains",
+                        },
                     ]
                 }
             ],
@@ -109,8 +138,18 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             [
                 {
                     "properties": [
-                        {"key": "email", "operator": "icontains", "type": "person", "value": ["@posthog.com"]},
-                        {"key": "name", "value": ["posthog"], "type": "person", "operator": "icontains"},
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "type": "person",
+                            "value": ["@posthog.com"],
+                        },
+                        {
+                            "key": "name",
+                            "value": ["posthog"],
+                            "type": "person",
+                            "operator": "icontains",
+                        },
                     ],
                     "rollout_percentage": None,
                 }
@@ -127,8 +166,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -143,7 +190,10 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    }
                 ]
             },
         )
@@ -155,7 +205,13 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                     "rollout_percentage": 50,
                 },
                 {
-                    "properties": [{"key": "$some_prop2", "value": "nomatchihope2", "type": "person"}],
+                    "properties": [
+                        {
+                            "key": "$some_prop2",
+                            "value": "nomatchihope2",
+                            "type": "person",
+                        }
+                    ],
                     "rollout_percentage": 50,
                 },
             ],
@@ -171,8 +227,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                                 {
                                     "key": "$pageview",
                                     "event_type": "events",
@@ -195,13 +259,21 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    }
                 ]
             },
         )
         self.assertEqual(
             flag.transform_cohort_filters_for_easy_evaluation(),
-            [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}],
+            [
+                {
+                    "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                    "rollout_percentage": 50,
+                }
+            ],
         )
 
     def test_multiple_cohorts(self):
@@ -214,8 +286,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -233,8 +313,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -249,8 +337,14 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
-                    {"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}], "rollout_percentage": 50},
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    },
+                    {
+                        "properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    },
                 ]
             },
         )
@@ -269,15 +363,31 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$some_prop3", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop4", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop3",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop4",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         },
                     ],
@@ -293,7 +403,10 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    },
                 ]
             },
         )
@@ -310,8 +423,16 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -350,20 +471,36 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$name", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$name",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$email", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$email",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                     ],
@@ -383,8 +520,14 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         "properties": [{"key": "name_above", "value": "name", "type": "person"}],
                         "rollout_percentage": 50,
                     },
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
-                    {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    },
+                    {
+                        "properties": [{"key": "name", "value": "name", "type": "person"}],
+                        "rollout_percentage": 50,
+                    },
                 ]
             },
         )
@@ -392,12 +535,26 @@ class TestFeatureFlagCohortExpansion(BaseTest):
         self.assertEqual(
             flag.transform_cohort_filters_for_easy_evaluation(),
             [
-                {"properties": [{"key": "name_above", "value": "name", "type": "person"}], "rollout_percentage": 50},
-                {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [{"key": "name_above", "value": "name", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
+                {
+                    "properties": [{"key": "name", "value": "name", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
                 {
                     "properties": [
-                        {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                        {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                        {
+                            "key": "$some_prop",
+                            "value": "nomatchihope",
+                            "type": "person",
+                        },
+                        {
+                            "key": "$some_prop2",
+                            "value": "nomatchihope2",
+                            "type": "person",
+                        },
                     ],
                     "rollout_percentage": 50,
                 },
@@ -426,19 +583,31 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$name", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$name",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$email", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$email",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                     ],
@@ -454,8 +623,14 @@ class TestFeatureFlagCohortExpansion(BaseTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50},
-                    {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    },
+                    {
+                        "properties": [{"key": "name", "value": "name", "type": "person"}],
+                        "rollout_percentage": 50,
+                    },
                 ]
             },
         )
@@ -463,12 +638,18 @@ class TestFeatureFlagCohortExpansion(BaseTest):
         self.assertEqual(
             flag.transform_cohort_filters_for_easy_evaluation(),
             [
-                {"properties": [{"key": "name", "value": "name", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [{"key": "name", "value": "name", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
                 {
                     "properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}],
                     "rollout_percentage": 50,
                 },
-                {"properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}], "rollout_percentage": 50},
+                {
+                    "properties": [{"key": "$name", "value": "nomatchihope", "type": "person"}],
+                    "rollout_percentage": 50,
+                },
                 {
                     "properties": [{"key": "$email", "value": "nomatchihope", "type": "person"}],
                     "rollout_percentage": 50,
@@ -590,7 +771,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
-                    {"properties": [{"key": "Organizer Id", "value": ["307"], "operator": "exact", "type": "person"}]}
+                    {
+                        "properties": [
+                            {
+                                "key": "Organizer Id",
+                                "value": ["307"],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    }
                 ]
             }
         )
@@ -598,8 +788,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random",
             filters={
                 "groups": [
-                    {"properties": [{"key": "Distinct Id", "value": ["307"], "operator": "exact", "type": "person"}]},
-                    {"properties": [{"key": "Distinct Id", "value": [307], "operator": "exact", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": ["307"],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": [307],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
                 ]
             },
         )
@@ -660,7 +868,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random1",
             filters={
                 "groups": [
-                    {"properties": [{"key": "enabled", "value": ["true"], "operator": "exact", "type": "person"}]}
+                    {
+                        "properties": [
+                            {
+                                "key": "enabled",
+                                "value": ["true"],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    }
                 ]
             },
         )
@@ -668,8 +885,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random2",
             filters={
                 "groups": [
-                    {"properties": [{"key": "enabled", "value": True, "operator": "exact", "type": "person"}]},
-                    {"properties": [{"key": "enabled", "value": [True], "operator": "exact", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "enabled",
+                                "value": True,
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "enabled",
+                                "value": [True],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
                 ]
             },
         )
@@ -677,8 +912,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random3",
             filters={
                 "groups": [
-                    {"properties": [{"key": "string_enabled", "value": [True], "operator": "exact", "type": "person"}]},
-                    {"properties": [{"key": "string_enabled", "value": True, "operator": "exact", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "string_enabled",
+                                "value": [True],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "string_enabled",
+                                "value": True,
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
                 ]
             },
         )
@@ -688,12 +941,22 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "string_enabled", "value": ['"true"'], "operator": "exact", "type": "person"}
+                            {
+                                "key": "string_enabled",
+                                "value": ['"true"'],
+                                "operator": "exact",
+                                "type": "person",
+                            }
                         ]
                     },
                     {
                         "properties": [
-                            {"key": "string_enabled", "value": '"true"', "operator": "exact", "type": "person"}
+                            {
+                                "key": "string_enabled",
+                                "value": '"true"',
+                                "operator": "exact",
+                                "type": "person",
+                            }
                         ]
                     },
                 ]
@@ -731,15 +994,19 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag3], "307", property_value_overrides={"string_enabled": True}).get_match(
-                feature_flag3
-            ),
+            FeatureFlagMatcher(
+                [feature_flag3],
+                "307",
+                property_value_overrides={"string_enabled": True},
+            ).get_match(feature_flag3),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag4], "307", property_value_overrides={"string_enabled": True}).get_match(
-                feature_flag4
-            ),
+            FeatureFlagMatcher(
+                [feature_flag4],
+                "307",
+                property_value_overrides={"string_enabled": True},
+            ).get_match(feature_flag4),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -756,15 +1023,19 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag3], "307", property_value_overrides={"string_enabled": "true"}).get_match(
-                feature_flag3
-            ),
+            FeatureFlagMatcher(
+                [feature_flag3],
+                "307",
+                property_value_overrides={"string_enabled": "true"},
+            ).get_match(feature_flag3),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag4], "307", property_value_overrides={"string_enabled": "true"}).get_match(
-                feature_flag4
-            ),
+            FeatureFlagMatcher(
+                [feature_flag4],
+                "307",
+                property_value_overrides={"string_enabled": "true"},
+            ).get_match(feature_flag4),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -782,7 +1053,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
-                    {"properties": [{"key": "Distinct Id", "value": ["307"], "operator": "exact", "type": "person"}]}
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": ["307"],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    }
                 ]
             }
         )
@@ -790,7 +1070,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random",
             filters={
                 "groups": [
-                    {"properties": [{"key": "Distinct Id", "value": [307], "operator": "exact", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": [307],
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
                 ]
             },
         )
@@ -799,7 +1088,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="random2",
             filters={
                 "groups": [
-                    {"properties": [{"key": "Distinct Id", "value": 307, "operator": "exact", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": 307,
+                                "operator": "exact",
+                                "type": "person",
+                            }
+                        ]
+                    },
                 ]
             },
         )
@@ -873,14 +1171,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_complicated_flag(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -904,7 +1211,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_matches_boolean(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": True},
         )
 
         feature_flag = self.create_feature_flag(
@@ -912,13 +1221,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -926,7 +1245,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": ["true"]}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": ["true"],
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -948,7 +1274,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_matches_string(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": "true"}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": "true"},
         )
 
         feature_flag = self.create_feature_flag(
@@ -956,13 +1284,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -970,7 +1308,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": "true"}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": "true",
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -985,7 +1330,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_matches_and_false(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": True},
         )
 
         feature_flag = self.create_feature_flag(
@@ -993,13 +1340,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1007,7 +1364,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": False}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": False,
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -1028,20 +1392,34 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_super_condition_is_not_set(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1049,7 +1427,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": True,
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -1071,7 +1456,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_promoted(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": True},
         )
 
         feature_flag = self.create_feature_flag(
@@ -1079,13 +1466,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1116,7 +1513,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_rolled_out_to_50(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": True},
         )
 
         feature_flag = self.create_feature_flag(
@@ -1124,13 +1523,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1161,7 +1570,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_super_condition_with_override_properties(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": False}
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com", "is_enabled": False},
         )
 
         feature_flag = self.create_feature_flag(
@@ -1169,13 +1580,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1183,7 +1604,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": True,
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -1205,9 +1633,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                [feature_flag],
+                "example_id",
+                property_value_overrides={"is_enabled": True},
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
@@ -1215,27 +1645,43 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                [feature_flag],
+                "another_id",
+                property_value_overrides={"is_enabled": True},
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
 
     def test_super_condition_with_override_properties_with_property_not_ingested(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "fake@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 0,
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1243,7 +1689,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": True,
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -1265,9 +1718,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                [feature_flag],
+                "example_id",
+                property_value_overrides={"is_enabled": True},
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
@@ -1275,15 +1730,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                [feature_flag],
+                "another_id",
+                property_value_overrides={"is_enabled": True},
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
 
     @pytest.mark.skip("TODO: We're going to the database for now, but we should be able to do this in memory.")
     def test_super_condition_with_override_properties_doesnt_make_database_requests(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
@@ -1292,7 +1753,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "super_groups": [
                     {
-                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "properties": [
+                            {
+                                "key": "is_enabled",
+                                "type": "person",
+                                "operator": "exact",
+                                "value": True,
+                            }
+                        ],
                         "rollout_percentage": 100,
                     },
                 ],
@@ -1301,27 +1769,40 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(0), snapshot_postgres_queries_context(self):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
-                    feature_flag
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "test_id",
+                    property_value_overrides={"is_enabled": True},
+                ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
             )
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "example_id", property_value_overrides={"is_enabled": True}
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"is_enabled": True},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
             )
 
     def test_flag_with_variant_overrides(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                         "variant": "second-variant",
@@ -1330,9 +1811,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             }
@@ -1355,7 +1848,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def test_flag_with_clashing_variant_overrides(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["test_id", "example_id"], properties={"email": "test@posthog.com"}
+            team=self.team,
+            distinct_ids=["test_id", "example_id"],
+            properties={"email": "test@posthog.com"},
         )
 
         feature_flag = self.create_feature_flag(
@@ -1363,7 +1858,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                         "variant": "second-variant",
@@ -1371,7 +1871,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     # since second-variant comes first in the list, it will be the one that gets picked
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                         "variant": "first-variant",
@@ -1380,9 +1885,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             }
@@ -1402,14 +1919,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_flag_with_invalid_variant_overrides(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                         "variant": "second???",
@@ -1418,9 +1944,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             }
@@ -1442,7 +1980,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_flag_with_multiple_variant_overrides(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
 
         feature_flag = self.create_feature_flag(
             filters={
@@ -1453,7 +1995,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     },
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                         "variant": "second-variant",
@@ -1462,9 +2009,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             }
@@ -1484,14 +2043,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_multiple_flags(self):
-        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_id"],
+            properties={"email": "test@posthog.com"},
+        )
         self.create_groups()
         feature_flag_one = self.create_feature_flag(
             filters={
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": "test@posthog.com",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": 100,
                     },
@@ -1507,10 +2075,18 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"rollout_percentage": 0}]}, key="never_match"
         )
         feature_flag_group_match = self.create_feature_flag(
-            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}]}, key="group_match"
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [{"rollout_percentage": 100}],
+            },
+            key="group_match",
         )
         feature_flag_group_no_match = self.create_feature_flag(
-            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 0}]}, key="group_no_match"
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [{"rollout_percentage": 0}],
+            },
+            key="group_no_match",
         )
         feature_flag_group_property_match = self.create_feature_flag(
             filters={
@@ -1621,13 +2197,34 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(
             reasons,
             {
-                "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-                "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
+                "one": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "always_match": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "group_match": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "variant": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "group_property_match": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "never_match": {
+                    "reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND,
+                    "condition_index": 0,
+                },
+                "group_no_match": {
+                    "reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND,
+                    "condition_index": 0,
+                },
                 "group_property_different_match": {
                     "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
                     "condition_index": 0,
@@ -1678,23 +2275,52 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(
             reasons,
             {
-                "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-                "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "one": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "always_match": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
+                "group_match": {
+                    "reason": FeatureFlagMatchReason.NO_GROUP_TYPE,
+                    "condition_index": None,
+                },
+                "variant": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
+                },
                 "group_property_different_match": {
                     "reason": FeatureFlagMatchReason.CONDITION_MATCH,
                     "condition_index": 0,
                 },
-                "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-                "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-                "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0},
+                "never_match": {
+                    "reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND,
+                    "condition_index": 0,
+                },
+                "group_no_match": {
+                    "reason": FeatureFlagMatchReason.NO_GROUP_TYPE,
+                    "condition_index": None,
+                },
+                "group_property_match": {
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    "condition_index": 0,
+                },
             },
         )
 
     def test_multi_property_filters(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-        Person.objects.create(team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
+        )
         Person.objects.create(team=self.team, distinct_ids=["false_id"], properties={})
         feature_flag = self.create_feature_flag(
             filters={
@@ -1720,8 +2346,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_multi_property_filters_with_override_properties(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-        Person.objects.create(team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
+        )
         Person.objects.create(team=self.team, distinct_ids=["random_id"], properties={})
         feature_flag = self.create_feature_flag(
             filters={
@@ -1738,9 +2372,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             # can be computed locally
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
-                    feature_flag
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
@@ -1753,7 +2389,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # can be computed locally
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
+                    [feature_flag],
+                    "random_id",
+                    property_value_overrides={"email": "example@example.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
             )
@@ -1766,8 +2404,18 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "name", "value": ["foo.inc"], "type": "group", "group_type_index": 0},
-                            {"key": "not_ingested", "value": "example.com", "type": "group", "group_type_index": 0},
+                            {
+                                "key": "name",
+                                "value": ["foo.inc"],
+                                "type": "group",
+                                "group_type_index": 0,
+                            },
+                            {
+                                "key": "not_ingested",
+                                "value": "example.com",
+                                "type": "group",
+                                "group_type_index": 0,
+                            },
                         ]
                     },
                 ],
@@ -1775,7 +2423,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         cache = FlagsMatcherCache(self.team.id)
         # force the query to load group types
-        cache.group_type_index_to_name
+        cache.group_type_index_to_name  # noqa: B018
 
         with self.assertNumQueries(12):
             self.assertEqual(
@@ -1824,7 +2472,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     "random_id",
                     cache=cache,
                     groups={"organization": "foo"},
-                    group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
+                    group_property_value_overrides={
+                        "organization": {
+                            "not_ingested": "example.com",
+                            "name": "foo.inc",
+                        }
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -1835,7 +2488,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     "random_id",
                     cache=cache,
                     groups={"organization": "bar"},
-                    group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
+                    group_property_value_overrides={
+                        "organization": {
+                            "not_ingested": "example.com",
+                            "name": "foo.inc",
+                        }
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -1844,7 +2502,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
-                    {"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "tim@posthog.com",
+                                "type": "person",
+                            }
+                        ]
+                    },
                     {"properties": [{"key": "email", "value": "example@example.com"}]},
                 ]
             }
@@ -1852,14 +2518,18 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "tim@posthog.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
-                    feature_flag
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
@@ -1872,7 +2542,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
+                    [feature_flag],
+                    "random_id",
+                    property_value_overrides={"email": "example@example.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
             )
@@ -1896,14 +2568,18 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # and user doesn't exist yet
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "tim@posthog.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
-                    feature_flag
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
@@ -1919,7 +2595,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher(
                     [feature_flag],
                     "random_id_without_rollout",
-                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
+                    property_value_overrides={
+                        "email": "tim@posthog.com",
+                        "another_prop": "slow",
+                        "blah": "blah",
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -1927,7 +2607,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher(
                     [feature_flag],
                     "random_id_within_rollout",
-                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
+                    property_value_overrides={
+                        "email": "tim@posthog.com",
+                        "another_prop": "slow",
+                        "blah": "blah",
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
             )
@@ -1938,7 +2622,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher(
                     [feature_flag],
                     "random_id_without_rollout",
-                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow2", "blah": "blah"},
+                    property_value_overrides={
+                        "email": "tim@posthog.com",
+                        "another_prop": "slow2",
+                        "blah": "blah",
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
@@ -1946,14 +2634,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher(
                     [feature_flag],
                     "random_id_without_rollout",
-                    property_value_overrides={"email": "tim2@posthog.com", "another_prop": "slow", "blah": "blah"},
+                    property_value_overrides={
+                        "email": "tim2@posthog.com",
+                        "another_prop": "slow",
+                        "blah": "blah",
+                    },
                 ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
     def test_multi_property_filters_with_override_properties_with_is_not_set(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-        Person.objects.create(team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "example@example.com"},
+        )
         Person.objects.create(team=self.team, distinct_ids=["random_id"], properties={})
         feature_flag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "email", "operator": "is_not_set"}]}]}
@@ -1964,9 +2664,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
-                    feature_flag
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
@@ -1977,7 +2679,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
+                    [feature_flag],
+                    "random_id",
+                    property_value_overrides={"email": "example@example.com"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -2037,7 +2741,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         feature_flag1: FeatureFlag = self.create_feature_flag(
-            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+            key="x1",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]},
         )
         feature_flag2: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}]}
@@ -2052,14 +2757,20 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             },
         )
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         with self.assertNumQueries(5):
             # single query for all cohorts
             # no team queries
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1, feature_flag2, feature_flag3], "example_id", property_value_overrides={}
+                    [feature_flag1, feature_flag2, feature_flag3],
+                    "example_id",
+                    property_value_overrides={},
                 ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -2101,18 +2812,25 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         feature_flag1: FeatureFlag = self.create_feature_flag(
-            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+            key="x1",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]},
         )
         feature_flag2: FeatureFlag = self.create_feature_flag(
             filters={"groups": [{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}]}
         )
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1, feature_flag2], "example_id", property_value_overrides={}).get_match(
-                    feature_flag1
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2],
+                    "example_id",
+                    property_value_overrides={},
+                ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
@@ -2121,7 +2839,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "bzz"}
+                    [feature_flag1, feature_flag2],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
                 ).get_match(feature_flag1),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
@@ -2130,7 +2850,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                    [feature_flag1, feature_flag2],
+                    "example_id",
+                    property_value_overrides={"email": "neil@posthog.com"},
                 ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -2139,7 +2861,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1, feature_flag2], "random_id", property_value_overrides={"email": "xxx"}
+                    [feature_flag1, feature_flag2],
+                    "random_id",
+                    property_value_overrides={"email": "xxx"},
                 ).get_match(feature_flag2),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
@@ -2192,13 +2916,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             name="cohort1",
         )
         feature_flag1: FeatureFlag = self.create_feature_flag(
-            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+            key="x1",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]},
         )
 
         with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"email": "neil@posthog.com"},
                 ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -2206,9 +2933,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(5):
             # no local computation because cohort lookup is required
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={"email": "bzz"}).get_match(
-                    feature_flag1
-                ),
+                FeatureFlagMatcher(
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"email": "bzz"},
+                ).get_match(feature_flag1),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
@@ -2234,7 +2963,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "type": "person", "value": ["fuzion@xyz.com"], "operator": "exact"}
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["fuzion@xyz.com"],
+                                    "operator": "exact",
+                                }
                             ],
                         },
                     ],
@@ -2247,7 +2981,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
         )
 
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         with self.assertNumQueries(5):
             self.assertEqual(
@@ -2259,16 +2997,32 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                    [feature_flag1],
+                    "example_id",
+                    property_value_overrides={"email": "neil@posthog.com"},
                 ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
     def test_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
             name="cohort1",
         )
         cohort.calculate_people_ch(pending_version=0)
@@ -2287,9 +3041,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_cohort_expansion_returns_same_result_as_regular_flag(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_4"], properties={"$some_prop1": "something1"})
-        Person.objects.create(team=self.team, distinct_ids=["example_id_5"], properties={"$some_prop2": "something2"})
-        Person.objects.create(team=self.team, distinct_ids=["example_id_6"], properties={"$some_prop": "something"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_4"],
+            properties={"$some_prop1": "something1"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_5"],
+            properties={"$some_prop2": "something2"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_6"],
+            properties={"$some_prop": "something"},
+        )
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -2300,8 +3066,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop1", "value": "something1", "type": "person"},
-                                {"key": "$some_prop2", "value": "something2", "type": "person"},
+                                {
+                                    "key": "$some_prop1",
+                                    "value": "something1",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "something2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -2318,7 +3092,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key=ff_key,
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 28}
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 28,
+                    }
                 ]
             },
         )
@@ -2377,10 +3154,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_user_in_cohort_without_calculation(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_1",
+                            "value": "something_1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
             name="cohort1",
         )
         feature_flag: FeatureFlag = self.create_feature_flag(
@@ -2407,8 +3198,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                                 {
                                     "key": "$pageview",
                                     "event_type": "events",
@@ -2431,7 +3230,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="active-flag",
             filters={
                 "groups": [
-                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 50,
+                    }
                 ]
             },
         )
@@ -2469,7 +3271,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             matcher.get_matches(),
             (
                 {"active-flag": True},
-                {"active-flag": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}},
+                {
+                    "active-flag": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    }
+                },
                 {},
                 True,
             ),
@@ -2512,9 +3319,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_legacy_rollout_and_property_filter(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-        Person.objects.create(team=self.team, distinct_ids=["another_id"], properties={"email": "tim@posthog.com"})
-        Person.objects.create(team=self.team, distinct_ids=["id_number_3"], properties={"email": "example@example.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["another_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["id_number_3"],
+            properties={"email": "example@example.com"},
+        )
         feature_flag = self.create_feature_flag(
             rollout_percentage=50,
             filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
@@ -2534,10 +3353,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def test_legacy_user_in_cohort(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_2"],
+            properties={"$some_prop_2": "something_2"},
+        )
         cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_2", "value": "something_2", "type": "person"}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "$some_prop_2",
+                            "value": "something_2",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
             name="cohort2",
         )
         cohort.calculate_people_ch(pending_version=0)
@@ -2561,9 +3394,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             }
@@ -2572,26 +3417,38 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "11").get_match(feature_flag),
             FeatureFlagMatch(
-                True, variant="first-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
+                True,
+                variant="first-variant",
+                reason=FeatureFlagMatchReason.CONDITION_MATCH,
+                condition_index=0,
             ),
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(
-                True, variant="second-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
+                True,
+                variant="second-variant",
+                reason=FeatureFlagMatchReason.CONDITION_MATCH,
+                condition_index=0,
             ),
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag),
             FeatureFlagMatch(
-                True, variant="third-variant", reason=FeatureFlagMatchReason.CONDITION_MATCH, condition_index=0
+                True,
+                variant="third-variant",
+                reason=FeatureFlagMatchReason.CONDITION_MATCH,
+                condition_index=0,
             ),
         )
 
     def test_flag_by_groups_with_rollout_100(self):
         self.create_groups()
         feature_flag = self.create_feature_flag(
-            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}]}
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [{"rollout_percentage": 100}],
+            }
         )
 
         self.assertEqual(
@@ -2614,7 +3471,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def test_flag_by_groups_with_rollout_50(self):
         self.create_groups()
         feature_flag = self.create_feature_flag(
-            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 50}]}
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [{"rollout_percentage": 50}],
+            }
         )
 
         self.assertEqual(
@@ -2632,7 +3492,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={
                 "aggregation_group_type_index": 0,
                 "groups": [
-                    {"properties": [{"key": "name", "value": ["foo.inc"], "type": "group", "group_type_index": 0}]}
+                    {
+                        "properties": [
+                            {
+                                "key": "name",
+                                "value": ["foo.inc"],
+                                "type": "group",
+                                "group_type_index": 0,
+                            }
+                        ]
+                    }
                 ],
             }
         )
@@ -2659,18 +3528,34 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 version=1,
             )
         Group.objects.create(
-            team=self.team, group_type_index=0, group_key="foo", group_properties={"name": "foo.inc"}, version=1
+            team=self.team,
+            group_type_index=0,
+            group_key="foo",
+            group_properties={"name": "foo.inc"},
+            version=1,
         )
         Group.objects.create(
-            team=self.team, group_type_index=0, group_key="bar", group_properties={"name": "var.inc"}, version=1
+            team=self.team,
+            group_type_index=0,
+            group_key="bar",
+            group_properties={"name": "var.inc"},
+            version=1,
         )
         # Add other irrelevant groups
         for i in range(5):
             Group.objects.create(
-                team=self.team, group_type_index=1, group_key=f"group_key{i}", group_properties={}, version=1
+                team=self.team,
+                group_type_index=1,
+                group_key=f"group_key{i}",
+                group_properties={},
+                version=1,
             )
         Group.objects.create(
-            team=self.team, group_type_index=1, group_key="group_key", group_properties={"name": "var.inc"}, version=1
+            team=self.team,
+            group_type_index=1,
+            group_key="group_key",
+            group_properties={"name": "var.inc"},
+            version=1,
         )
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
@@ -2704,9 +3589,21 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -2717,12 +3614,16 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
         cls.person = Person.objects.create(
-            team=cls.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=cls.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
     def test_setting_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            team_id=self.team.pk,
+            distinct_ids=self.person.distinct_ids,
+            hash_key_override="other_id",
         )
 
         with connection.cursor() as cursor:
@@ -2735,7 +3636,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            team_id=self.team.pk,
+            distinct_ids=self.person.distinct_ids,
+            hash_key_override="other_id",
         )
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
@@ -2744,11 +3647,15 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
         Person.objects.create(
-            team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"email": "beuk@posthog.com", "team": "posthog"},
         )
 
         Person.objects.create(
-            team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
+            team=self.team,
+            distinct_ids=["2"],
+            properties={"email": "beuk2@posthog.com", "team": "posthog"},
         )
 
         set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1")
@@ -2766,7 +3673,10 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         FeatureFlagHashKeyOverride.objects.bulk_create(
             [
                 FeatureFlagHashKeyOverride(
-                    team_id=self.team.pk, person_id=self.person.id, feature_flag_key=feature_flag.key, hash_key=hash_key
+                    team_id=self.team.pk,
+                    person_id=self.person.id,
+                    feature_flag_key=feature_flag.key,
+                    hash_key=hash_key,
                 )
                 for feature_flag in all_feature_flags
             ]
@@ -2774,7 +3684,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
         # and now we come to get new overrides
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
+            team_id=self.team.pk,
+            distinct_ids=self.person.distinct_ids,
+            hash_key_override="other_id",
         )
 
         with connection.cursor() as cursor:
@@ -2787,7 +3699,9 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_when_persons_dont_exist(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
+            team_id=self.team.pk,
+            distinct_ids=["1", "2", "3", "4"],
+            hash_key_override="other_id",
         )
 
         with connection.cursor() as cursor:
@@ -2830,7 +3744,10 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-@patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+@patch(
+    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
+    return_value=True,
+)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
@@ -2861,9 +3778,21 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -2874,12 +3803,20 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
         )
 
         Person.objects.create(
-            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_index = {
-                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
+                executor.submit(
+                    get_all_feature_flags,
+                    team.pk,
+                    "other_id",
+                    {},
+                    hash_key_override="example_id",
+                ): index
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
@@ -2934,9 +3871,21 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -2947,10 +3896,14 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
         )
 
         Person.objects.create(
-            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
         Person.objects.create(
-            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["other_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
         with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
@@ -3011,9 +3964,21 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -3024,10 +3989,14 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
         )
 
         Person.objects.create(
-            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
         Person.objects.create(
-            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["other_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
         with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
@@ -3070,9 +4039,21 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -3083,10 +4064,14 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
         )
 
         person1 = Person.objects.create(
-            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
         person2 = Person.objects.create(
-            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+            team=team,
+            distinct_ids=["other_id"],
+            properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
         def delete_and_add(person, person2, distinct_id):
@@ -3097,7 +4082,13 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_index = {
-                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
+                executor.submit(
+                    get_all_feature_flags,
+                    team.pk,
+                    "other_id",
+                    {},
+                    hash_key_override="example_id",
+                ): index
                 for index in range(5)
             }
 
@@ -4142,11 +5133,13 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
 
             if results[i]:
                 self.assertEqual(
-                    feature_flag_match, FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0)
+                    feature_flag_match,
+                    FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
                 )
             else:
                 self.assertEqual(
-                    feature_flag_match, FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+                    feature_flag_match,
+                    FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
                 )
 
     def test_multivariate_flag_consistency(self):
@@ -4159,11 +5152,31 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
                 "groups": [{"properties": [], "rollout_percentage": 55}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 20},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 20},
-                        {"key": "fourth-variant", "name": "Fourth Variant", "rollout_percentage": 5},
-                        {"key": "fifth-variant", "name": "Fifth Variant", "rollout_percentage": 5},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 20,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 20,
+                        },
+                        {
+                            "key": "fourth-variant",
+                            "name": "Fourth Variant",
+                            "rollout_percentage": 5,
+                        },
+                        {
+                            "key": "fifth-variant",
+                            "name": "Fifth Variant",
+                            "rollout_percentage": 5,
+                        },
                     ]
                 },
             },
@@ -5189,5 +6202,6 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
                 )
             else:
                 self.assertEqual(
-                    feature_flag_match, FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0)
+                    feature_flag_match,
+                    FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
                 )

@@ -16,7 +16,10 @@ class Survey(UUIDModel):
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
 
     team: models.ForeignKey = models.ForeignKey(
-        "posthog.Team", on_delete=models.CASCADE, related_name="surveys", related_query_name="survey"
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="surveys",
+        related_query_name="survey",
     )
     name: models.CharField = models.CharField(max_length=400)
     description: models.TextField = models.TextField(blank=True)
@@ -57,7 +60,12 @@ class Survey(UUIDModel):
 @mutable_receiver([post_save, post_delete], sender=Survey)
 def update_surveys_opt_in(sender, instance, **kwargs):
     active_surveys_count = (
-        Survey.objects.filter(team_id=instance.team_id, start_date__isnull=False, end_date__isnull=True, archived=False)
+        Survey.objects.filter(
+            team_id=instance.team_id,
+            start_date__isnull=False,
+            end_date__isnull=True,
+            archived=False,
+        )
         .exclude(type="api")
         .count()
     )

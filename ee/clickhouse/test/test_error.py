@@ -14,8 +14,18 @@ from posthog.errors import wrap_query_error
             "Estimated query execution time (34.5 seconds) is too long.",
             None,
         ),
-        (ServerException("Syntax error", code=62), "CHQueryErrorSyntaxError", "Code: 62.\nSyntax error", 62),
-        (ServerException("Syntax error", code=9999), "CHQueryErrorUnknownException", "Code: 9999.\nSyntax error", 9999),
+        (
+            ServerException("Syntax error", code=62),
+            "CHQueryErrorSyntaxError",
+            "Code: 62.\nSyntax error",
+            62,
+        ),
+        (
+            ServerException("Syntax error", code=9999),
+            "CHQueryErrorUnknownException",
+            "Code: 9999.\nSyntax error",
+            9999,
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code):

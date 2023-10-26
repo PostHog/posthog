@@ -104,7 +104,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["owner"]["id"], self.user.id)
 
         self.assertAlmostEqual(
-            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(), 0, delta=1
+            (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds(),
+            0,
+            delta=1,
         )
         self.assertIn("last_seen_at", response_data)
 
@@ -139,7 +141,8 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(
-            sorted([r["name"] for r in response_data["results"]]), ["entered_free_trial", "enterprise event"]
+            sorted([r["name"] for r in response_data["results"]]),
+            ["entered_free_trial", "enterprise event"],
         )
 
         self.assertEqual(response_data["results"][1]["name"], "enterprise event")
@@ -156,7 +159,8 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(
-            sorted([r["name"] for r in response_data["results"]]), ["$pageview", "enterprise event", "regular event"]
+            sorted([r["name"] for r in response_data["results"]]),
+            ["$pageview", "enterprise event", "regular event"],
         )
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=bust")
@@ -180,7 +184,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         event.refresh_from_db()
         self.assertEqual(event.description, "This is a description.")
-        self.assertEqual(set(event.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
+        self.assertEqual(
+            set(event.tagged_items.values_list("tag__name", flat=True)),
+            {"official", "internal"},
+        )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
         assert activity_log is not None
@@ -208,10 +215,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
+            f"/api/projects/@current/event_definitions/{str(event.id)}",
+            data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -219,10 +230,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
+            f"/api/projects/@current/event_definitions/{str(event.id)}",
+            data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -297,7 +312,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["updated_at"] == "2020-01-02T00:00:00Z"
 
         with freeze_time("2020-01-02T00:01:00Z"):
-            self.client.patch(f"/api/projects/@current/event_definitions/{event.id}", {"verified": True})
+            self.client.patch(
+                f"/api/projects/@current/event_definitions/{event.id}",
+                {"verified": True},
+            )
             response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -338,11 +356,14 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}", data={"tags": ["a", "b", "a"]}
+            f"/api/projects/@current/event_definitions/{str(event.id)}",
+            data={"tags": ["a", "b", "a"]},
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

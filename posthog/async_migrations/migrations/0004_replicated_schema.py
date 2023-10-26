@@ -49,7 +49,6 @@ Constraints:
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = "Replace tables with replicated counterparts"
 
     depends_on = "0003_fill_person_distinct_id2"

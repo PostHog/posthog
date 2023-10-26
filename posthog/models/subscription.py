@@ -92,7 +92,10 @@ class Subscription(models.Model):
     interval: models.IntegerField = models.IntegerField(default=1)
     count: models.IntegerField = models.IntegerField(null=True)
     byweekday: ArrayField = ArrayField(
-        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices), null=True, blank=True, default=None
+        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices),
+        null=True,
+        blank=True,
+        default=None,
     )
     bysetpos: models.IntegerField = models.IntegerField(null=True)
     start_date: models.DateTimeField = models.DateTimeField()
@@ -141,7 +144,9 @@ class Subscription(models.Model):
     def resource_info(self) -> Optional[SubscriptionResourceInfo]:
         if self.insight:
             return SubscriptionResourceInfo(
-                "Insight", f"{self.insight.name or self.insight.derived_name}", self.insight.url
+                "Insight",
+                f"{self.insight.name or self.insight.derived_name}",
+                self.insight.url,
             )
         elif self.dashboard:
             return SubscriptionResourceInfo("Dashboard", self.dashboard.name, self.dashboard.url)
@@ -151,14 +156,25 @@ class Subscription(models.Model):
     @property
     def summary(self):
         try:
-            human_frequency = {"daily": "day", "weekly": "week", "monthly": "month", "yearly": "year"}[self.frequency]
+            human_frequency = {
+                "daily": "day",
+                "weekly": "week",
+                "monthly": "month",
+                "yearly": "year",
+            }[self.frequency]
             if self.interval > 1:
                 human_frequency = f"{human_frequency}s"
 
             summary = f"sent every {str(self.interval) + ' ' if self.interval > 1 else ''}{human_frequency}"
 
             if self.byweekday and self.bysetpos:
-                human_bysetpos = {1: "first", 2: "second", 3: "third", 4: "fourth", -1: "last"}[self.bysetpos]
+                human_bysetpos = {
+                    1: "first",
+                    2: "second",
+                    3: "third",
+                    4: "fourth",
+                    -1: "last",
+                }[self.bysetpos]
                 summary += (
                     f" on the {human_bysetpos} {self.byweekday[0].capitalize() if len(self.byweekday) == 1 else 'day'}"
                 )

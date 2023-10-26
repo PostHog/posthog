@@ -4,9 +4,18 @@ from freezegun.api import freeze_time
 
 from posthog.models import Person
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.session_recordings.queries.session_recording_properties import (
+    SessionRecordingProperties,
+)
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestSessionRecordingProperties(BaseTest, ClickhouseTestMixin):
@@ -20,7 +29,13 @@ class TestSessionRecordingProperties(BaseTest, ClickhouseTestMixin):
     ):
         if team is None:
             team = self.team
-        _create_event(team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties)
+        _create_event(
+            team=team,
+            event=event_name,
+            timestamp=timestamp,
+            distinct_id=distinct_id,
+            properties=properties,
+        )
 
     @property
     def base_time(self):
@@ -77,7 +92,10 @@ class TestSessionRecordingProperties(BaseTest, ClickhouseTestMixin):
         self.assertEqual(session_recordings_properties[0]["properties"]["$browser"], "Chrome")
         self.assertEqual(session_recordings_properties[0]["properties"]["$os"], "Mac OS X")
         self.assertEqual(session_recordings_properties[0]["properties"]["$device_type"], "Desktop")
-        self.assertEqual(session_recordings_properties[0]["properties"]["$current_url"], "https://blah.com/blah")
+        self.assertEqual(
+            session_recordings_properties[0]["properties"]["$current_url"],
+            "https://blah.com/blah",
+        )
         self.assertEqual(session_recordings_properties[0]["properties"]["$host"], "blah.com")
         self.assertEqual(session_recordings_properties[0]["properties"]["$pathname"], "/blah")
         self.assertEqual(session_recordings_properties[0]["properties"]["$geoip_country_code"], "KR")

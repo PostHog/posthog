@@ -15,7 +15,6 @@ def create_uuid(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0082_personalapikey"),
     ]

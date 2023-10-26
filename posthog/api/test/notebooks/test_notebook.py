@@ -54,7 +54,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         notebook_two = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()
         notebook_three = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()
 
-        self.client.patch(f"/api/projects/{self.team.id}/notebooks/{notebook_two['short_id']}", data={"deleted": True})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_two['short_id']}",
+            data={"deleted": True},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
 
@@ -68,12 +71,17 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("without_content", None, None),
-            ("with_content", {"some": "kind", "of": "tip", "tap": "content"}, "some kind of tip tap content"),
+            (
+                "with_content",
+                {"some": "kind", "of": "tip", "tap": "content"},
+                "some kind of tip tap content",
+            ),
         ]
     )
     def test_create_a_notebook(self, _, content: Dict | None, text_content: str | None) -> None:
         response = self.client.post(
-            f"/api/projects/{self.team.id}/notebooks", data={"content": content, "text_content": text_content}
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": content, "text_content": text_content},
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
@@ -113,7 +121,11 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         with freeze_time("2022-01-02"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
-                {"content": {"some": "updated content"}, "version": response_json["version"], "title": "New title"},
+                {
+                    "content": {"some": "updated content"},
+                    "version": response_json["version"],
+                    "title": "New title",
+                },
             )
 
         assert response.json()["short_id"] == short_id
@@ -157,7 +169,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                     },
                     "item_id": response.json()["id"],
                     "scope": "Notebook",
-                    "user": {"email": self.user.email, "first_name": self.user.first_name},
+                    "user": {
+                        "email": self.user.email,
+                        "first_name": self.user.first_name,
+                    },
                 },
             ],
         )

@@ -17,11 +17,14 @@ def adjust_teams_for_stricter_requirements(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0126_fix_funnels_insights_links"),
     ]
 
     operations = [
-        migrations.RunPython(adjust_teams_for_stricter_requirements, migrations.RunPython.noop, elidable=True),
+        migrations.RunPython(
+            adjust_teams_for_stricter_requirements,
+            migrations.RunPython.noop,
+            elidable=True,
+        ),
     ]

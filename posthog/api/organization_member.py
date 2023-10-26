@@ -26,7 +26,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership)
-        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+        requesting_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
             user_id=cast(User, request.user).id,
             organization=organization,
         )
@@ -44,7 +44,15 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level", "joined_at", "updated_at", "is_2fa_enabled", "has_social_auth"]
+        fields = [
+            "id",
+            "user",
+            "level",
+            "joined_at",
+            "updated_at",
+            "is_2fa_enabled",
+            "has_social_auth",
+        ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 
     def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
@@ -58,7 +66,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
         raise_errors_on_nested_writes("update", self, validated_data)
-        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
+        requesting_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
             organization=updated_membership.organization,
             user=self.context["request"].user,
         )
@@ -78,7 +86,11 @@ class OrganizationMemberViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = OrganizationMemberSerializer
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
+    permission_classes = [
+        IsAuthenticated,
+        OrganizationMemberPermissions,
+        OrganizationMemberObjectPermissions,
+    ]
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
@@ -87,7 +99,10 @@ class OrganizationMemberViewSet(
         )
         .select_related("user")
         .prefetch_related(
-            Prefetch("user__totpdevice_set", queryset=TOTPDevice.objects.filter(name="default")),
+            Prefetch(
+                "user__totpdevice_set",
+                queryset=TOTPDevice.objects.filter(name="default"),
+            ),
             Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
         )
     )
