@@ -762,6 +762,22 @@ export const surveyLogic = kea<surveyLogicType>([
                 return null
             },
         ],
+        surveyNPSScore: [
+            (s) => [s.surveyRatingResults],
+            (surveyRatingResults) => {
+                if (surveyRatingResults) {
+                    const questionIdx = Object.keys(surveyRatingResults)[0]
+                    const questionResults = surveyRatingResults[questionIdx].data
+                    if (questionResults.length === 11) {
+                        const promoters = questionResults.slice(9, 11).reduce((a, b) => a + b, 0)
+                        const passives = questionResults.slice(7, 9).reduce((a, b) => a + b, 0)
+                        const detractors = questionResults.slice(0, 7).reduce((a, b) => a + b, 0)
+                        const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
+                        return npsScore
+                    }
+                }
+            }
+        ]
     }),
     forms(({ actions, props, values }) => ({
         survey: {
