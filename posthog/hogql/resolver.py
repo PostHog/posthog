@@ -16,7 +16,7 @@ from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import lookup_cte_by_name, lookup_field_by_name
+from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 from posthog.hogql.database.schema.events import EventsTable
@@ -197,6 +197,9 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
+        if isinstance(node.table, ast.HogQLXTag):
+            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
+
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = node.table.chain[0]
@@ -298,6 +301,9 @@ class Resolver(CloningVisitor):
             return node
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""

@@ -569,6 +569,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     right=ast.Constant(value=123),
                 ),
             )
+            self.assertEqual(
+                self._expr("timestamp={timestamp}", {"timestamp": ast.Constant(value=123)}),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=123),
+                ),
+            )
 
         def test_intervals(self):
             self.assertEqual(
@@ -1459,10 +1467,70 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             query = "SELEC 2"
             with self.assertRaisesMessage(
                 SyntaxException,
-                "mismatched input 'SELEC' expecting {SELECT, WITH, '('}",
+                "mismatched input 'SELEC' expecting {SELECT, WITH, '(', '<'}",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 0)
             self.assertEqual(e.exception.end, 7)
+
+        def test_visit_hogqlx_tag(self):
+            node = self._select("select event from <HogQLQuery query='select event from events' />")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="HogQLQuery",
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+            )
+
+            node2 = self._select("select event from (<HogQLQuery query='select event from events' />)")
+            assert node2 == node
+
+        def test_visit_hogqlx_tag_alias(self):
+            node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            alias = cast(ast.SelectQuery, node).select_from.alias
+            assert table_node == ast.HogQLXTag(
+                kind="HogQLQuery",
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+            )
+            assert alias == "a"
+
+            node2 = self._select("select event from <HogQLQuery query='select event from events' /> a")
+            assert node2 == node
+
+        def test_visit_hogqlx_tag_source(self):
+            query = """
+                select id, email from (
+                    <PersonsQuery
+                        select={['id', 'properties.email as email']}
+                        source={
+                            <HogQLQuery query='select distinct person_id from events' />
+                        }
+                    />
+                )
+            """
+            node = self._select(query)
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="PersonsQuery",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="select",
+                        value=ast.Array(
+                            exprs=[ast.Constant(value="id"), ast.Constant(value="properties.email as email")]
+                        ),
+                    ),
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(
+                                    name="query", value=ast.Constant(value="select distinct person_id from events")
+                                )
+                            ],
+                        ),
+                    ),
+                ],
+            )
 
     return TestParser
