@@ -1,6 +1,8 @@
 import json
+import os
 import re
-from typing import Any, Dict, List, Optional, Set, cast
+import subprocess
+from typing import Any, Dict, List, Optional, Set, cast, Literal
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -155,6 +157,24 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
     if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
+
+
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise Exception(error)
+    return stdout.decode()
 
 
 class PlainRenderer(renderers.BaseRenderer):
@@ -334,10 +354,31 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for source in PluginSourceFile.objects.filter(plugin=plugin):
             sources[source.filename] = source
         for key, value in request.data.items():
+            transpiled = None
+            error = None
+            status = None
+            try:
+                if key == "site.ts":
+                    transpiled = transpile(value, type="site")
+                    status = PluginSourceFile.Status.TRANSPILED
+                elif key == "frontend.tsx":
+                    transpiled = transpile(value, type="frontend")
+                    status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
+
             if key not in sources:
                 performed_changes = True
                 sources[key], created = PluginSourceFile.objects.update_or_create(
-                    plugin=plugin, filename=key, defaults={"source": value}
+                    plugin=plugin,
+                    filename=key,
+                    defaults={
+                        "source": value,
+                        "transpiled": transpiled,
+                        "status": status,
+                        "error": error,
+                    },
                 )
             elif sources[key].source != value:
                 performed_changes = True
@@ -346,10 +387,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     del sources[key]
                 else:
                     sources[key].source = value
-                    sources[key].status = None
-                    sources[key].transpiled = None
-                    sources[key].error = None
+                    sources[key].transpiled = transpiled
+                    sources[key].status = status
+                    sources[key].error = error
                     sources[key].save()
+
         response: Dict[str, str] = {}
         for _, source in sources.items():
             response[source.filename] = source.source
