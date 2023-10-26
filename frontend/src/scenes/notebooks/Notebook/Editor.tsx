@@ -8,6 +8,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -95,6 +97,10 @@ export function Editor(): JSX.Element {
                         Tab: () => true,
                     }
                 },
+            }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
             }),
             NotebookMarkLink,
             NotebookNodeBacklink,
