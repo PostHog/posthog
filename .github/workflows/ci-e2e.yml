@@ -163,6 +163,10 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: ./bin/check_kafka_clickhouse_up
 
+            - name: Install Depot CLI
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              uses: depot/setup-action@v1
+
             - name: Get Docker image cached in Depot
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: depot/pull-action@v1
