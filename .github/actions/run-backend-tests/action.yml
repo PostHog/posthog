@@ -49,6 +49,18 @@ runs:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
+        - name: Install pnpm
+          uses: pnpm/action-setup@v2
+          with:
+              version: 8.x.x
+
+        - name: Set up Node.js
+          uses: actions/setup-node@v3
+          with:
+              node-version: 18
+              cache: pnpm
+              cache-dependency-path: posthog/pnpm-lock.yaml
+
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
           id: hogql-parser-diff
