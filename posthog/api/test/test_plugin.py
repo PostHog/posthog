@@ -703,7 +703,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json(), {"plugin.json": '{"name":"my plugin"}'})
         self.assertEqual(mock_reload.call_count, 3)
 
-    def test_create_plugin_frontend_source(self, mock_get, mock_reload):
+    def test_transpile_plugin_frontend_source(self, mock_get, mock_reload):
         # Setup
         assert mock_reload.call_count == 0
         response = self.client.post(
@@ -733,9 +733,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert Plugin.objects.count() == 1
         assert mock_reload.call_count == 0
 
-        # First source file, frontend.tsx
-
-        response = self.client.patch(
+        # Add first source file, frontend.tsx
+        self.client.patch(
             f"/api/organizations/@current/plugins/{id}/update_source",
             {"frontend.tsx": "export const scene = {}"},
         )
@@ -743,33 +742,25 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert PluginSourceFile.objects.count() == 1
         assert mock_reload.call_count == 1
 
+        # Fetch transpiled source via API call
         plugin = Plugin.objects.get(pk=id)
         plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-
-        # no frontend, since no pluginserver transpiles the code
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.content,
-            b'export function getFrontendApp () { return {"transpiling": true} }',
-        )
-
-        # mock the plugin server's transpilation
-        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
-        assert plugin_source.source == "export const scene = {}"
-        assert plugin_source.transpiled == (
+            response.content.decode("utf-8"),
             '"use strict";\nexport function getFrontendApp (require) { let exports = {}; '
             '"use strict";\n\nObject.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
             "var scene = exports.scene = {};"  # this is it
-            "; return exports; }"
+            "; return exports; }",
         )
-        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
-        assert plugin_source.error is None
 
-        # Can get transpiled code back
-        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
-        assert response.status_code == 200
-        assert response.content == bytes(plugin_source.transpiled, "utf8")
+        # Check in the database
+        plugin_source = PluginSourceFile.objects.get(plugin_id=id)
+        assert plugin_source.source == "export const scene = {}"
+        assert plugin_source.error is None
+        assert plugin_source.transpiled == response.content.decode("utf-8")
+        assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
         # Updates work
         self.client.patch(
@@ -778,6 +769,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
+        assert plugin_source.error is None
         assert plugin_source.transpiled == (
             '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
             'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
@@ -785,11 +777,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             "; return exports; }"
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
-        assert plugin_source.error is None
-
-        response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
-        assert response.status_code == 200
-        assert response.content == bytes(plugin_source.transpiled, "utf8")
 
         # Errors as well
         self.client.patch(
@@ -816,19 +803,19 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         except PluginSourceFile.DoesNotExist:
             assert True
 
-        # Site app syntax
+        # Check that the syntax for "site.ts" is slightly different
         self.client.patch(
             f"/api/organizations/@current/plugins/{id}/update_source",
             {"site.ts": "console.log('hello')"},
         )
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "console.log('hello')"
+        assert plugin_source.error is None
         assert (
             plugin_source.transpiled
             == "(function () {let exports={};\"use strict\";\n\nconsole.log('hello');;return exports;})"
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
-        assert plugin_source.error is None
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")
