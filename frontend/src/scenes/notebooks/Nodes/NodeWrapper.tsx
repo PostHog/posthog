@@ -15,6 +15,7 @@ import {
     IconDragHandle,
     IconFilter,
     IconLink,
+    IconPlus,
     IconPlusMini,
     IconUnfoldLess,
     IconUnfoldMore,
@@ -38,6 +39,7 @@ import {
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { SlashCommandsButtonPopover } from '../Notebook/SlashCommands'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -135,7 +137,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
         // add new content below. If we are in editing mode, we should select the next line if there is one, otherwise
         insertOrSelectNextLine()
-        // setTextSelection(getPos() + 1)
     }
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
@@ -153,7 +154,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                            'NotebookNode--has-actions': getPos && isEditable && actions.length,
+                            'NotebookNode--is-editable': getPos && isEditable,
                         })}
                     >
                         <div className="NotebookNode__box">
@@ -232,14 +233,20 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             // UX improvement so that the actions don't get in the way of the cursor
                             onClick={() => onActionsAreaClick()}
                         >
-                            {getPos && isEditable && actions.length ? (
+                            {getPos && isEditable ? (
                                 <>
+                                    <SlashCommandsButtonPopover
+                                        size="tiny"
+                                        type="secondary"
+                                        status="primary"
+                                        icon={<IconPlus />}
+                                    />
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}
+                                            size="tiny"
                                             type="secondary"
                                             status="primary"
-                                            size="small"
                                             icon={x.icon ?? <IconPlusMini />}
                                             onClick={(e) => {
                                                 e.stopPropagation()
