@@ -24,7 +24,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                         attrs: {
                             height: null,
                             title: null,
-                            nodeId: '6d485066-ec99-483d-8b98-4d8a2dc9cc4b',
+                            nodeId: uuid(),
                             id: personId,
                             __init: null,
                             children: [
