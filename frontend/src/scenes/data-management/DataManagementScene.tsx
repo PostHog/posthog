@@ -156,10 +156,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
                 const allTabs = Object.keys(tabs)
 
                 return allTabs.filter((x) => {
-                    if (x === DataManagementTab.IngestionWarnings) {
-                        return showWarningsTab
-                    }
-                    return true
+                    return x === DataManagementTab.IngestionWarnings ? showWarningsTab : true
                 }) as DataManagementTab[]
             },
         ],
