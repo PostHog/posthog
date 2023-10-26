@@ -4,15 +4,16 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { DataTableNode, NodeKind, QuerySchema, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { useCallback } from 'react'
 import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from 'lib/lemon-ui/Link'
+import { useCallback } from 'react'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -64,47 +65,35 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (typeof value !== 'string') {
         return null
     }
-    const { breakdownBy } = source
-    let propertyName: string
+
+    return <BreakdownValueCellInner value={value} />
+}
+
+const webStatsBreakdownToPropertyName = (breakdownBy: WebStatsBreakdown): string => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
-            propertyName = '$pathname'
-            break
+            return '$pathname'
         case WebStatsBreakdown.InitialPage:
-            propertyName = '$initial_pathname'
-            break
+            return '$initial_pathname'
         case WebStatsBreakdown.InitialReferringDomain:
-            propertyName = '$initial_referrer'
-            break
+            return '$initial_referrer'
         case WebStatsBreakdown.InitialUTMSource:
-            propertyName = '$initial_utm_source'
-            break
+            return '$initial_utm_source'
         case WebStatsBreakdown.InitialUTMCampaign:
-            propertyName = '$initial_utm_campaign'
-            break
+            return '$initial_utm_campaign'
         case WebStatsBreakdown.Browser:
-            propertyName = '$browser'
-            break
+            return '$browser'
         case WebStatsBreakdown.OS:
-            propertyName = '$os'
-            break
+            return '$os'
         case WebStatsBreakdown.DeviceType:
-            propertyName = '$device_type'
-            break
+            return '$device_type'
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
-
-    return <BreakdownValueCellInner value={value} propertyName={propertyName} />
 }
-const BreakdownValueCellInner = ({ value, propertyName }: { value: string; propertyName: string }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
-    const onClick = useCallback(() => {
-        togglePropertyFilter(propertyName, value)
-    }, [togglePropertyFilter, propertyName, value])
-
-    return <a onClick={onClick}>{value}</a>
+const BreakdownValueCellInner = ({ value }: { value: string }): JSX.Element => {
+    return <span>{value}</span>
 }
 
 const queryContext: QueryContext = {
@@ -152,6 +141,7 @@ const Filters = (): JSX.Element => {
 
 const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
+
     return (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
             {tiles.map((tile, i) => {
@@ -165,7 +155,7 @@ const Tiles = (): JSX.Element => {
                             }  flex flex-col`}
                         >
                             {title && <h2 className="m-0  mb-1">{title}</h2>}
-                            <Query query={query} readOnly={true} context={queryContext} />
+                            <QueryTile query={query} />
                         </div>
                     )
                 } else if ('tabs' in tile) {
@@ -188,7 +178,7 @@ const Tiles = (): JSX.Element => {
                                     <div className="space-x-2">
                                         {/* TODO switch to a select if more than 3 */}
                                         {tabs.map(({ id, linkText }) => (
-                                            <a
+                                            <Link
                                                 className={
                                                     id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
                                                 }
@@ -196,13 +186,13 @@ const Tiles = (): JSX.Element => {
                                                 onClick={() => setTabId(id)}
                                             >
                                                 {linkText}
-                                            </a>
+                                            </Link>
                                         ))}
                                     </div>
                                 )}
                             </div>
                             {/* Setting key forces the component to be recreated when the tab changes */}
-                            <Query key={activeTabId} query={query} readOnly={true} context={queryContext} />
+                            <QueryTile key={activeTabId} query={query} />
                         </div>
                     )
                 } else {
@@ -210,6 +200,54 @@ const Tiles = (): JSX.Element => {
                 }
             })}
         </div>
+    )
+}
+
+const QueryTile = ({ query }: { query: QuerySchema }): JSX.Element => {
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} />
+    }
+
+    return <Query query={query} readOnly={true} context={queryContext} />
+}
+
+const WebStatsTableTile = ({
+    query,
+    breakdownBy,
+}: {
+    query: DataTableNode
+    breakdownBy: WebStatsBreakdown
+}): JSX.Element => {
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const propertyName = webStatsBreakdownToPropertyName(breakdownBy)
+
+    const onClick = useCallback(
+        (record: unknown) => {
+            if (typeof record !== 'object' || !record || !('result' in record)) {
+                return
+            }
+            const result = record.result
+            if (!Array.isArray(result)) {
+                return
+            }
+            // assume that the first element is the value
+            togglePropertyFilter(propertyName, result[0])
+        },
+        [togglePropertyFilter, propertyName]
+    )
+
+    return (
+        <Query
+            query={query}
+            readOnly={true}
+            context={{
+                ...queryContext,
+                rowProps: (record) => ({
+                    onClick: () => onClick(record),
+                    className: 'hover:underline cursor-pointer hover:bg-mark',
+                }),
+            }}
+        />
     )
 }
 
@@ -224,17 +262,17 @@ export const Notice = (): JSX.Element => {
             <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
             {showSupportOptions ? (
                 <p>
-                    <a onClick={() => openSupportForm('bug')}>
+                    <Link onClick={() => openSupportForm('bug')}>
                         <IconBugReport /> Report a bug
-                    </a>{' '}
+                    </Link>{' '}
                     -{' '}
-                    <a onClick={() => openSupportForm('feedback')}>
+                    <Link onClick={() => openSupportForm('feedback')}>
                         <IconFeedback /> Give feedback
-                    </a>{' '}
+                    </Link>{' '}
                     -{' '}
-                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
+                    <Link to={'https://github.com/PostHog/posthog/issues/18177'}>
                         <IconGithub /> View GitHub issue
-                    </a>
+                    </Link>
                 </p>
             ) : null}
         </LemonBanner>
