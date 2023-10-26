@@ -3082,6 +3082,7 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
     PersonFeed = 'ph-person-feed',
+    Map = 'ph-map',
 }
 
 export type NotebookNodeResource = {

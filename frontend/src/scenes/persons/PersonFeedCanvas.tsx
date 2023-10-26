@@ -32,6 +32,10 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                     type: 'ph-person',
                                     attrs: { id: personId, nodeId: uuid(), title: 'Info' },
                                 },
+                                {
+                                    type: 'ph-map',
+                                    attrs: { id: personId, nodeId: uuid() },
+                                },
                             ],
                         },
                     },

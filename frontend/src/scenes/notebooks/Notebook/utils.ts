@@ -125,6 +125,7 @@ export const textContent = (node: any): string => {
         'ph-group': customOrTitleSerializer,
         'ph-cohort': customOrTitleSerializer,
         'ph-person-feed': customOrTitleSerializer,
+        'ph-map': customOrTitleSerializer,
     }
 
     return getText(node, {
