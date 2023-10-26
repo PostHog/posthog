@@ -1,6 +1,7 @@
 describe('Annotations', () => {
     beforeEach(() => {
-        cy.clickNavMenu('annotations')
+        cy.clickNavMenu('datamanagement')
+        cy.get('[data-attr=data-management-annotations-tab]').click()
     })
 
     it('Annotations loaded', () => {
