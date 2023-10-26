@@ -111,7 +111,7 @@ export const notebookLogic = kea<notebookLogicType>([
     reducers(({ props }) => ({
         localContent: [
             null as JSONContent | null,
-            { persist: props.mode === 'notebook', prefix: NOTEBOOKS_VERSION },
+            { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -198,7 +198,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
-                            content: {},
+                            content: null,
                             text_content: null,
                             version: 0,
                         }
@@ -215,7 +215,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = migrate(response)
 
-                    if (!values.notebook) {
+                    if (!values.notebook && notebook.content) {
                         // If this is the first load we need to override the content fully
                         values.editor?.setContent(notebook.content)
                     }
