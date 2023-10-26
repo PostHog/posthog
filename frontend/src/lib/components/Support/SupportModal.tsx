@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from './supportLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { lemonToast } from '@posthog/lemon-ui'
 import { SupportForm, SupportFormButtons } from './SupportForm'
 
 export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
@@ -11,9 +10,6 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     // the support model can be shown when logged out, file upload is not offered to anonymous users
 
     if (!preflightLogic.values.preflight?.cloud) {
-        if (isSupportFormOpen) {
-            lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
-        }
         return null
     }
 
