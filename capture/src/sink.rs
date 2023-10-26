@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use metrics::{counter, histogram};
 use tokio::task::JoinSet;
 
 use crate::api::CaptureError;
@@ -20,8 +21,7 @@ pub struct PrintSink {}
 impl EventSink for PrintSink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         tracing::info!("single event: {:?}", event);
-
-        metrics::increment_counter!("capture_events_total");
+        counter!("capture_events_ingested_total", 1);
 
         Ok(())
     }
@@ -29,8 +29,9 @@ impl EventSink for PrintSink {
         let span = tracing::span!(tracing::Level::INFO, "batch of events");
         let _enter = span.enter();
 
+        histogram!("capture_event_batch_size", events.len() as f64);
+        counter!("capture_events_ingested_total", events.len() as u64);
         for event in events {
-            metrics::increment_counter!("capture_events_total");
             tracing::info!("event: {:?}", event);
         }
 

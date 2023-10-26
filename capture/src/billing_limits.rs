@@ -51,7 +51,7 @@ pub struct BillingLimiter {
     limited: Arc<RwLock<HashSet<String>>>,
     redis: Arc<dyn Client + Send + Sync>,
     interval: Duration,
-    updated: Arc<RwLock<time::OffsetDateTime>>,
+    updated: Arc<RwLock<OffsetDateTime>>,
 }
 
 impl BillingLimiter {

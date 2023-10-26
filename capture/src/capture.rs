@@ -10,6 +10,8 @@ use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use metrics::counter;
+
 use time::OffsetDateTime;
 
 use crate::billing_limits::QuotaResource;
@@ -50,7 +52,13 @@ pub async fn event(
     if events.is_empty() {
         return Err(CaptureError::EmptyBatch);
     }
-    let token = extract_and_verify_token(&events)?;
+
+    let token = extract_and_verify_token(&events).map_err(|err| {
+        counter!("capture_token_shape_invalid_total", events.len() as u64);
+        err
+    })?;
+
+    counter!("capture_events_received_total", events.len() as u64);
 
     let sent_at = meta.sent_at.and_then(|value| {
         let value_nanos: i128 = i128::from(value) * 1_000_000; // Assuming the value is in milliseconds, latest posthog-js releases
@@ -77,13 +85,14 @@ pub async fn event(
         .await;
 
     if limited {
+        counter!("capture_events_dropped_over_quota", 1);
+
         // for v0 we want to just return ok 🙃
         // this is because the clients are pretty dumb and will just retry over and over and
         // over...
         //
         // for v1, we'll return a meaningful error code and error, so that the clients can do
         // something meaningful with that error
-
         return Ok(Json(CaptureResponse {
             status: CaptureResponseCode::Ok,
         }));
