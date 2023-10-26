@@ -10,3 +10,4 @@ tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 time = { workspace = true }
+envconfig = "0.10.0"
