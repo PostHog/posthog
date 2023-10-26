@@ -30,6 +30,6 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
     }
 }
 
-export const useFeatureFlags = (featureFlags: string[]): void => {
+export const setFeatureFlags = (featureFlags: string[]): void => {
     ;(window as any).POSTHOG_APP_CONTEXT.persisted_feature_flags = featureFlags
 }

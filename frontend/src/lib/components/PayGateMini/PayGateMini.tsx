@@ -120,12 +120,12 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Subscribe to gain {featureSummary.umbrella}.
+                Subscribe to gain {featureSummary.umbrella}.
                 {featureSummary.docsHref && (
                     <>
                         {' '}
                         <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
-                            Learn more in PostHog Docs.
+                            Learn more in PostHog Docs.
                         </a>
                     </>
                 )}

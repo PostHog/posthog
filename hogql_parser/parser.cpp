@@ -237,7 +237,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (select_union_stmt_ctx) {
       return visit(select_union_stmt_ctx);
     }
-    return visit(ctx->selectStmt());
+
+    auto select_stmt_ctx = ctx->selectStmt();
+    if (select_stmt_ctx) {
+      return visit(select_stmt_ctx);
+    }
+
+    auto tag_element_ctx = ctx->hogqlxTagElement();
+    if (tag_element_ctx) {
+      return visit(tag_element_ctx);
+    }
+
+    throw HogQLParsingException("Unexpected Select node. Must have either selectUnionStmt, selectStmt, or hogqlxTagElement set.");
   }
 
   VISIT(SelectStmtWithParens) {
@@ -570,12 +581,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(RatioExpr) {
-    auto placeholder_ctx = ctx->PLACEHOLDER();
+    auto placeholder_ctx = ctx->placeholder();
     if (placeholder_ctx) {
-      string placeholder = unquote_string_terminal(placeholder_ctx);
-      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+      return visitAsPyObject(placeholder_ctx);
     }
-    
+
     auto number_literal_ctxs = ctx->numberLiteral();
 
     if (number_literal_ctxs.size() > 2) {
@@ -1017,6 +1027,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return build_ast_node("Field", "{s:[s]}", "chain", "*");
   }
 
+  VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
+
   VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
   VISIT(ColumnLambdaExpr) {
@@ -1055,12 +1067,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnIdentifier) {
-    auto placeholder_ctx = ctx->PLACEHOLDER();
+    auto placeholder_ctx = ctx->placeholder();
     if (placeholder_ctx) {
-      string placeholder = unquote_string_terminal(placeholder_ctx);
-      return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+      return visitAsPyObject(placeholder_ctx);
     }
-
     auto table_identifier_ctx = ctx->tableIdentifier();
     auto nested_identifier_ctx = ctx->nestedIdentifier();
     vector<string> table =
@@ -1094,8 +1104,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprSubquery) { return visit(ctx->selectUnionStmt()); }
 
   VISIT(TableExprPlaceholder) {
-    string placeholder = unquote_string_terminal(ctx->PLACEHOLDER());
-    return build_ast_node("Placeholder", "{s:s#}", "field", placeholder.data(), placeholder.size());
+    return visitAsPyObject(ctx->placeholder());
   }
 
   VISIT(TableExprAlias) {
@@ -1116,6 +1125,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
+
+  VISIT(TableExprTag) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(TableFunctionExpr) {
     string name = visitAsString(ctx->identifier());
@@ -1206,6 +1217,46 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
     }
     return text;
+  }
+
+  VISIT(HogqlxTagAttribute) {
+    string name = visitAsString(ctx->identifier());
+
+    auto column_expr_ctx = ctx->columnExpr();
+    if (column_expr_ctx) {
+      return build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", visitAsPyObject(column_expr_ctx)
+      );
+    }
+
+    auto string_literal_ctx = ctx->STRING_LITERAL();
+    if (string_literal_ctx) {
+      string text = unquote_string_terminal(string_literal_ctx);
+      PyObject* value = build_ast_node("Constant", "{s:s#}", "value", text.data(), text.size());
+      return build_ast_node(
+          "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
+      );
+    }
+
+    PyObject* value = build_ast_node("Constant", "{s:O}", "value", Py_True);
+    return build_ast_node(
+        "HogQLXAttribute", "{s:s#,s:N}", "name", name.data(), name.size(), "value", value
+    );
+  }
+
+  VISIT(HogqlxTagElement) {
+    string kind = visitAsString(ctx->identifier());
+    PyObject* tag_element = build_ast_node(
+        "HogQLXTag", "{s:s#,s:N}",
+        "kind", kind.data(), kind.size(),
+        "attributes", visitPyListOfObjects(ctx->hogqlxTagAttribute())
+    );
+    return tag_element;
+  }
+
+  VISIT(Placeholder) {
+    string name = visitAsString(ctx->identifier());
+    return build_ast_node("Placeholder", "{s:s#}", "field", name.data(), name.size());
   }
 
   VISIT_UNSUPPORTED(EnumValue)
