@@ -797,8 +797,8 @@ export function getKeyMapping(
             data.description = `${data.description} Data from the first time this user was seen.`
         }
         return data
-    } else if (value.startsWith('$survey_response/')) {
-        const surveyId = value.replace(/^\$survey_response\//, '')
+    } else if (value.startsWith('$survey_responded/')) {
+        const surveyId = value.replace(/^\$survey_responded\//, '')
         if (surveyId) {
             return {
                 label: `Survey Responded: ${surveyId}`,
@@ -824,14 +824,6 @@ export function getKeyMapping(
             return {
                 label: `Survey Response Question ID: ${surveyIndex}`,
                 description: `The response value for the ${index}${suffix} question in the survey.`,
-            }
-        }
-    } else if (value.startsWith('$survey_responded/')) {
-        const surveyId = value.replace(/^\$survey_responded\//, '')
-        if (surveyId) {
-            return {
-                label: `Survey Responded: ${surveyId}`,
-                description: `Whether the user responded to survey with ID: "${surveyId}".`,
             }
         }
     } else if (value.startsWith('$feature/')) {
