@@ -30,12 +30,11 @@ from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL
+from posthog.settings import SITE_URL, DEBUG
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
-from .utils_cors import cors_response
-
 from .auth import PersonalAPIKeyAuthentication
+from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -48,6 +47,10 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
 ]
+
+if DEBUG:
+    # /i/ is the new root path for capture endpoints
+    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -116,6 +119,8 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
+            return self._accept(request)
+        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 

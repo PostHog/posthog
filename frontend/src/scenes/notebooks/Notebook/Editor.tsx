@@ -8,6 +8,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -36,6 +38,9 @@ import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -94,6 +99,10 @@ export function Editor(): JSX.Element {
                     }
                 },
             }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
+            }),
             NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeQuery,
@@ -109,9 +118,12 @@ export function Editor(): JSX.Element {
             NotebookNodeEarlyAccessFeature,
             NotebookNodeSurvey,
             NotebookNodeImage,
+            NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
+            NotebookNodePersonFeed,
+            NotebookNodeMap,
         ],
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {

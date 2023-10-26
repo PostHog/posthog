@@ -112,6 +112,10 @@ if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
+if DEBUG:
+    # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000
+    INSTALLED_APPS.append("revproxy")
+
 # Append Enterprise Edition as an app if available
 try:
     from ee.apps import EnterpriseConfig  # noqa: F401
