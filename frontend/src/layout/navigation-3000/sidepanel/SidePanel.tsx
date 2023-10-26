@@ -12,7 +12,6 @@ export function SidePanel(): JSX.Element {
                         <LemonButton icon={<IconComment className="rotate-270" />}>Feedback</LemonButton>
                     </div>
                 </div>
-                <div className="SidePanel3000__bottom"></div>
             </div>
         </nav>
     )
