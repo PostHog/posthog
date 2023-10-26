@@ -1,4 +1,4 @@
-import { windowValues } from 'kea-windowvalues'
+import { windowValues } from 'kea-window-values'
 import { kea, props, key, path, actions, reducers, selectors, listeners } from 'kea'
 
 import type { visibilitySensorLogicType } from './visibilitySensorLogicType'
