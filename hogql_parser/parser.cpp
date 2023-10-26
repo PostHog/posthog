@@ -1244,12 +1244,50 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     );
   }
 
-  VISIT(HogqlxTagElement) {
+  VISIT(HogqlxTagElementClosed) {
     string kind = visitAsString(ctx->identifier());
     PyObject* tag_element = build_ast_node(
         "HogQLXTag", "{s:s#,s:N}",
         "kind", kind.data(), kind.size(),
         "attributes", visitPyListOfObjects(ctx->hogqlxTagAttribute())
+    );
+    return tag_element;
+  }
+
+  VISIT(HogqlxTagElementNested) {
+    string opening = visitAsString(ctx->identifier(0));
+    string closing = visitAsString(ctx->identifier(1));
+    if (opening != closing) {
+      throw HogQLSyntaxException("Opening and closing HogQLX tags must match. Got " + opening + " and " + closing);
+    }
+
+    auto tag_attribute_ctx = ctx->hogqlxTagAttribute();
+    PyObject* attributes = PyList_New(tag_attribute_ctx.size() + 1);
+    bool found_source = false;
+    for (size_t i = 0; i < tag_attribute_ctx.size(); i++) {
+      PyObject* object = visitAsPyObject(tag_attribute_ctx[i]);
+      PyList_SET_ITEM(attributes, i, object);
+
+      PyObject* name = PyObject_GetAttrString(object, "name");
+      if (PyObject_RichCompareBool(name, PyUnicode_FromString("source"), Py_EQ)) {
+        found_source = true;
+      }
+      Py_DECREF(name);
+    }
+
+    if (found_source) {
+        Py_DECREF(attributes);
+        throw HogQLSyntaxException("Nested HogQLX tags cannot have a source attribute");
+    }
+
+    PyList_SET_ITEM(attributes, tag_attribute_ctx.size(), build_ast_node(
+        "HogQLXAttribute", "{s:s#,s:N}", "name", "source", 6, "value", visitAsPyObject(ctx->hogqlxTagElement())
+    ));
+
+    PyObject* tag_element = build_ast_node(
+        "HogQLXTag", "{s:s#,s:N}",
+        "kind", opening.data(), opening.size(),
+        "attributes", attributes
     );
     return tag_element;
   }
