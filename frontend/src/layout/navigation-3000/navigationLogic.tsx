@@ -20,6 +20,7 @@ import {
     IconLive,
     IconPeople,
     IconPerson,
+    IconPieChart,
     IconQuestion,
     IconRewindPlay,
     IconTestTube,
@@ -36,7 +37,6 @@ import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { toolbarSidebarLogic } from './sidebars/toolbar'
-import { IconWeb } from 'lib/lemon-ui/icons'
 import { isNotNil } from 'lib/utils'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
@@ -336,7 +336,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ? {
                                   identifier: Scene.WebAnalytics,
                                   label: 'Web Analytics',
-                                  icon: <IconWeb />,
+                                  icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
                               }
                             : null,
