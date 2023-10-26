@@ -49,18 +49,6 @@ runs:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
-        - name: Install pnpm
-          uses: pnpm/action-setup@v2
-          with:
-              version: 8.x.x
-
-        - name: Set up Node.js
-          uses: actions/setup-node@v3
-          with:
-              node-version: 18
-              cache: pnpm
-              cache-dependency-path: posthog/pnpm-lock.yaml
-
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
           id: hogql-parser-diff
@@ -72,6 +60,18 @@ runs:
           shell: bash
           run: |
               sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+        - name: Install pnpm
+          uses: pnpm/action-setup@v2
+          with:
+              version: 8.x.x
+
+        - name: Set up Node.js
+          uses: actions/setup-node@v3
+          with:
+              node-version: 18
+              cache: pnpm
+              cache-dependency-path: posthog/pnpm-lock.yaml
 
         - name: Install transpiler
           shell: bash
