@@ -315,6 +315,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     if (cache[filterKey] || cache.commonFilter) {
         const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
         mergedQuery[filterKey] = {
+            ...query[filterKey],
             ...cache[filterKey],
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
