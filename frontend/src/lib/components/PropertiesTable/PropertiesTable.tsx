@@ -4,7 +4,7 @@ import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -93,9 +93,8 @@ function ValueDisplay({
             {!isURL(value) ? (
                 valueString
             ) : (
-                <Link to={value} target="_blank" className="value-link">
-                    <span>{valueString}</span>
-                    <IconOpenInNew />
+                <Link to={value} target="_blank" className="value-link" targetBlankIcon>
+                    {valueString}
                 </Link>
             )}
         </span>

@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconChevronLeft, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
@@ -162,8 +162,9 @@ export function EditSubscription({
                                         to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                         target="_blank"
                                         rel="noopener"
+                                        targetBlankIcon
                                     >
-                                        Learn more <IconOpenInNew />
+                                        Learn more
                                     </Link>
                                 </>
                             </LemonBanner>
@@ -188,9 +189,9 @@ export function EditSubscription({
                                                 to="https://posthog.com/docs/self-host/configure/email"
                                                 target="_blank"
                                                 rel="noopener"
+                                                targetBlankIcon
                                             >
                                                 configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
-                                                <IconOpenInNew />
                                             </Link>
                                             .
                                         </>

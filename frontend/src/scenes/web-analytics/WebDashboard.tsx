@@ -13,6 +13,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Link } from '@posthog/lemon-ui'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -104,7 +105,7 @@ const BreakdownValueCellInner = ({ value, propertyName }: { value: string; prope
         togglePropertyFilter(propertyName, value)
     }, [togglePropertyFilter, propertyName, value])
 
-    return <a onClick={onClick}>{value}</a>
+    return <Link onClick={onClick}>{value}</Link>
 }
 
 const queryContext: QueryContext = {
@@ -188,7 +189,7 @@ const Tiles = (): JSX.Element => {
                                     <div className="space-x-2">
                                         {/* TODO switch to a select if more than 3 */}
                                         {tabs.map(({ id, linkText }) => (
-                                            <a
+                                            <Link
                                                 className={
                                                     id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
                                                 }
@@ -196,7 +197,7 @@ const Tiles = (): JSX.Element => {
                                                 onClick={() => setTabId(id)}
                                             >
                                                 {linkText}
-                                            </a>
+                                            </Link>
                                         ))}
                                     </div>
                                 )}
@@ -224,17 +225,17 @@ export const Notice = (): JSX.Element => {
             <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
             {showSupportOptions ? (
                 <p>
-                    <a onClick={() => openSupportForm('bug')}>
+                    <Link onClick={() => openSupportForm('bug')}>
                         <IconBugReport /> Report a bug
-                    </a>{' '}
+                    </Link>{' '}
                     -{' '}
-                    <a onClick={() => openSupportForm('feedback')}>
+                    <Link onClick={() => openSupportForm('feedback')}>
                         <IconFeedback /> Give feedback
-                    </a>{' '}
+                    </Link>{' '}
                     -{' '}
-                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
+                    <Link to={'https://github.com/PostHog/posthog/issues/18177'}>
                         <IconGithub /> View GitHub issue
-                    </a>
+                    </Link>
                 </p>
             ) : null}
         </LemonBanner>
