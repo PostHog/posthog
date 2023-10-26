@@ -368,6 +368,8 @@ export function LineGraph_({
             }
         }
 
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         datasets = datasets.map((dataset) => processDataset(dataset))
 
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))

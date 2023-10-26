@@ -68,6 +68,8 @@ export function Login(): JSX.Element {
         } catch (e) {
             captureException(e)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useEffect(() => {

@@ -132,6 +132,8 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedLanguage, featureFlag])
 
     const groups = featureFlag?.filters?.groups || []

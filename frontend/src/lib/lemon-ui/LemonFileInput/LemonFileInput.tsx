@@ -40,6 +40,8 @@ export const LemonFileInput = ({
         if (value && value !== files) {
             setFiles(value)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value])
 
     const onInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -104,6 +106,8 @@ export const LemonFileInput = ({
             div?.removeEventListener('dragover', handleDrag)
             div?.removeEventListener('drop', handleDrop)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value])
 
     useEffect(() => {

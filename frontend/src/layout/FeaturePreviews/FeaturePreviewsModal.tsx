@@ -15,6 +15,8 @@ export function FeaturePreviewsModal({
         useValues(featurePreviewsLogic)
     const { hideFeaturePreviewsModal, loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useLayoutEffect(() => loadEarlyAccessFeatures(), [])
 
     return (

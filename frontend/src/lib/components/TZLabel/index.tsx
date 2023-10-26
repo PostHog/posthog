@@ -33,6 +33,8 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 
     useEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (
@@ -106,6 +108,8 @@ function TZLabelRaw({
             }
         }, 1000)
         return () => clearInterval(interval)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parsedTime, format])
 
     const innerContent = (

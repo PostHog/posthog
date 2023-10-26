@@ -12,6 +12,8 @@ export function PersonCohorts(): JSX.Element {
 
     useEffect(() => {
         loadCohorts()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [person])
 
     const columns: LemonTableColumns<CohortType> = [

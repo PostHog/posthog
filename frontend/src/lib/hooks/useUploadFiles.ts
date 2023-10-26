@@ -67,6 +67,8 @@ export function useUploadFiles({
             }
         }
         uploadFiles().catch(console.error)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filesToUpload])
 
     return { setFilesToUpload, filesToUpload, uploading }

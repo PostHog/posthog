@@ -37,6 +37,8 @@ export function Paths(): JSX.Element {
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodeCards)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
 
     if (insightDataError) {

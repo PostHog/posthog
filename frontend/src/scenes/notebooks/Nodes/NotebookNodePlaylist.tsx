@@ -46,6 +46,8 @@ const Component = ({
                 })
             },
         }),
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [playerKey, filters, pinned]
     )
 
@@ -93,6 +95,8 @@ const Component = ({
                   ]
                 : []
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSessionRecording])
 
     useEffect(() => {
@@ -108,6 +112,8 @@ const Component = ({
                 }, 100)
             },
         })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />

@@ -45,7 +45,11 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             item.current?.addEventListener('keydown', handleKeyDown)
         }
         return () => {
+            // FIXME
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             referenceRef.current?.removeEventListener('keydown', handleKeyDown)
+            // FIXME
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             for (const item of itemsRef.current) {
                 item.current?.removeEventListener('keydown', handleKeyDown)
             }

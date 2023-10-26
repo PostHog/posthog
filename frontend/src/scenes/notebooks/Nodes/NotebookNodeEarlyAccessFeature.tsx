@@ -38,12 +38,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                   ]
                 : []
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [earlyAccessFeature])
 
     useEffect(() => {
         setTitlePlaceholder(
             earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [earlyAccessFeature?.name])
 
     if (earlyAccessFeatureMissing) {

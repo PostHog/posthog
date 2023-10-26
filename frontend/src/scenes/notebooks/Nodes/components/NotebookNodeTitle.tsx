@@ -14,6 +14,8 @@ export function NotebookNodeTitle(): JSX.Element {
 
     useEffect(() => {
         setNewValue(nodeAttributes.title ?? '')
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing])
 
     const commitEdit = (): void => {

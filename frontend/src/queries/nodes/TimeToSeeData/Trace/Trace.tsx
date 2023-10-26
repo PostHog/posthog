@@ -41,6 +41,8 @@ function SpanBar({
         if (nextStartMargin !== startMargin) {
             setStartMargin(nextStartMargin)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [spanData, maxSpan])
 
     return (

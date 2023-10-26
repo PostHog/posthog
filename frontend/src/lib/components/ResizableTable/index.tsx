@@ -206,6 +206,8 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
             updateScrollGradient()
             setHeaderShouldRender(true)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (

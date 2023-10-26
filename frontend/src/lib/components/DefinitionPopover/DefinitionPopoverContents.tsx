@@ -391,15 +391,23 @@ export function ControlledDefinitionPopover({
         return null
     }
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { state, singularType, isElement, definition } = useValues(definitionPopoverLogic)
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { setDefinition } = useActions(definitionPopoverLogic)
 
     const icon = group.getIcon?.(definition || item)
 
     // Must use `useEffect` here to hydrate popover card with the newest item, since lifecycle of `ItemPopover` is controlled
     // independently by `infiniteListLogic`
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => {
         setDefinition(item)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item])
 
     return (

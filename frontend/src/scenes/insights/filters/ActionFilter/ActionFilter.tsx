@@ -115,6 +115,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
     useEffect(() => {
         setLocalFilters(filters)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filters])
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {

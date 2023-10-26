@@ -25,6 +25,8 @@ export function createdAtColumn<T extends Record<string, any> = Record<string, a
 }
 
 export function createdByColumn<T extends Record<string, any> = Record<string, any>>(items: T[]): ColumnType<T> {
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { user } = useValues(userLogic)
     return {
         title: normalizeColumnTitle('Created by'),

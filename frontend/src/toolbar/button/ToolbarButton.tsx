@@ -85,6 +85,8 @@ export function ToolbarButton(): JSX.Element {
         }
         window.addEventListener('mousemove', globalMouseMove.current)
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAuthenticated])
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)

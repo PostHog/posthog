@@ -32,6 +32,8 @@ export function HistoricalExportsTab(): JSX.Element {
 
         updateTimer()
         return () => timer && clearTimeout(timer)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasRunningExports])
 
     return (

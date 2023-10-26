@@ -45,6 +45,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propsQuery])
 
     const query = readOnly ? propsQuery : localQuery

@@ -37,6 +37,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [insightId])
 
     // Show the skeleton if loading an insight for which we only know the id

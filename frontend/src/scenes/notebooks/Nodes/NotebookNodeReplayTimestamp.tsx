@@ -25,6 +25,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
         const logicById = sourceNodeId ? findNodeLogicById(sourceNodeId) : null
 
         return logicById ?? findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {

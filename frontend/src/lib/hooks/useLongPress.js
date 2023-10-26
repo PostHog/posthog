@@ -42,6 +42,8 @@ export function useLongPress(
         return () => {
             clearTimeout(timerId)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [callback, ms, startLongPress])
 
     function start(e) {

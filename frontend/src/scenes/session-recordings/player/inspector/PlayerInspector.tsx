@@ -51,6 +51,8 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
         window.addEventListener('click', onClickHandler)
 
         return () => window.removeEventListener('click', onClickHandler)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [inspectorFocus])
 
     return (

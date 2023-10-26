@@ -57,6 +57,8 @@ export function PropertyFilters({
     // Update the logic's internal filters when the props change
     useEffect(() => {
         setFilters(propertyFilters ?? [])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propertyFilters])
 
     return (

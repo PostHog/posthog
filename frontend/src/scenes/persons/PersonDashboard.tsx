@@ -40,6 +40,8 @@ export function PersonDashboard({ person }: { person: PersonType }): JSX.Element
                 ])
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboard, person])
 
     return (

@@ -370,6 +370,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const setQuerySource = useCallback(
         (source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery) =>
             setQuery?.({ ...query, source }),
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [setQuery]
     )
 

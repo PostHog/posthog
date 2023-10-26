@@ -27,6 +27,8 @@ export function HedgehogButton(): JSX.Element {
         if (actorRef.current) {
             setHedgehogActor(actorRef.current)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [actorRef.current])
 
     return (

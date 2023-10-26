@@ -52,6 +52,8 @@ export function FullScreen({ onExit }: { onExit?: () => any }): null {
                 // will break on IE11
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return null

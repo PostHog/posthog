@@ -26,6 +26,8 @@ export function SDKs({
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (

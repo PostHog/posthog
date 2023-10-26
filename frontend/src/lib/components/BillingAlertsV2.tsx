@@ -15,6 +15,8 @@ export function BillingAlertsV2(): JSX.Element | null {
         if (billingAlert) {
             reportBillingAlertShown(billingAlert)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [billingAlert])
 
     if (!billingAlert || alertHidden) {

@@ -31,6 +31,8 @@ export function Seekbar(): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
@@ -63,7 +65,7 @@ export function Seekbar(): JSX.Element {
                             ))}
                         </div>
 
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        {}
                         <div
                             className="PlayerSeekbar__currentbar"
                             style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}

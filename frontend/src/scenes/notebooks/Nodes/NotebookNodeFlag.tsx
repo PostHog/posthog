@@ -93,6 +93,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                   }
                 : undefined,
         ])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [featureFlag])
 
     if (featureFlagMissing) {

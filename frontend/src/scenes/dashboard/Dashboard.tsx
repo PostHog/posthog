@@ -67,6 +67,8 @@ function DashboardScene(): JSX.Element {
             // request cancellation of any running queries when this component is no longer in the dom
             abortAnyRunningQuery()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useKeyboardHotkeys(

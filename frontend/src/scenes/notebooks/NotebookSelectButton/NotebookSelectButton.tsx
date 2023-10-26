@@ -115,6 +115,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             loadNotebooksContainingResource()
         }
         loadAllNotebooks()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (
@@ -215,6 +217,8 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
         if (!nodeLogic) {
             loadNotebooksContainingResource()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [nodeLogic])
 
     const button = (

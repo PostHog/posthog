@@ -136,6 +136,8 @@ export function NotebookPopover(): JSX.Element {
         if (ref.current) {
             setElementRef(ref)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ref.current])
 
     return (

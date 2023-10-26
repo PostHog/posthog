@@ -21,6 +21,8 @@ export function InstanceConfigTab(): JSX.Element {
 
     useEffect(() => {
         loadInstanceSettings()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useKeyboardHotkeys({

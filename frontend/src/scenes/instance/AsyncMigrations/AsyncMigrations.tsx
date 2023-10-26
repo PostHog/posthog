@@ -61,6 +61,8 @@ export function AsyncMigrations(): JSX.Element {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isAnyMigrationRunning])
 
     const nameColumn: AsyncMigrationColumnType = {

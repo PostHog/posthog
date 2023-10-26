@@ -56,6 +56,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         loadRecordingMeta()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     // TODO Only load data when in view...
 
@@ -86,6 +88,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionPlayerMetaData?.person?.id])
 
     useEffect(() => {
@@ -100,6 +104,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {

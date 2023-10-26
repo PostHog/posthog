@@ -264,12 +264,16 @@ const AutosizeInput = ({
 
     const inputStyles = useMemo(() => {
         return inputRef.current ? window.getComputedStyle(inputRef.current) : null
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [inputRef.current])
 
     useLayoutEffect(() => {
         if (inputStyles && placeHolderSizerRef.current) {
             copyStyles(inputStyles, placeHolderSizerRef.current)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [placeHolderSizerRef, placeHolderSizerRef])
 
     useLayoutEffect(() => {
@@ -291,6 +295,8 @@ const AutosizeInput = ({
         if (newInputWidth !== inputWidth) {
             setInputWidth(newInputWidth)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sizerRef.current, placeHolderSizerRef.current, placeholder, value])
 
     return (

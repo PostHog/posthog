@@ -16,6 +16,8 @@ export const PlayerFrame = (): JSX.Element => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frameRef, sessionRecordingId])
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -31,11 +33,15 @@ export const PlayerFrame = (): JSX.Element => {
         window.addEventListener('resize', windowResize)
 
         return () => window.removeEventListener('resize', windowResize)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [player?.replayer])
 
     // Recalculate the player size when the player changes dimensions
     useEffect(() => {
         windowResize()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [containerDimensions])
 
     const windowResize = (): void => {

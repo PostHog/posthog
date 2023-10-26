@@ -76,6 +76,8 @@ function useBoldNumberTooltip({
                 }
             }
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isTooltipShown])
 
     return divRef

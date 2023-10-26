@@ -82,12 +82,16 @@ export function PlayerInspectorListItem({
             return
         }
         onLayoutDebounced({ width, height: totalHeight })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [width])
     useEffect(() => {
         if (!width || !totalHeight) {
             return
         }
         onLayout({ width, height: totalHeight })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [totalHeight])
 
     const windowNumber =

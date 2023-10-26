@@ -65,9 +65,16 @@ const Textfit = ({ min, max, children }: { min: number; max: number; children: R
     useEffect(() => {
         window.addEventListener('resize', handleWindowResize)
         return () => window.removeEventListener('resize', handleWindowResize)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    useEffect(() => handleWindowResize(), [parentRef, childRef])
+    useEffect(
+        () => handleWindowResize(),
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [parentRef, childRef]
+    )
 
     return (
         // eslint-disable-next-line react/forbid-dom-props

@@ -112,6 +112,8 @@ export function Products(): JSX.Element {
         if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
             location.href = urls.ingestion()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (

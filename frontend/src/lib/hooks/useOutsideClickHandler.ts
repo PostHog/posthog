@@ -45,5 +45,7 @@ export function useOutsideClickHandler(
                 document.removeEventListener('touchend', handleClick)
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [...allRefs, ...extraDeps])
 }

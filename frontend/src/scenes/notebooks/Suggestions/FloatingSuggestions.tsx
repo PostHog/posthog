@@ -17,6 +17,8 @@ export function FloatingSuggestions({ editor }: { editor: TTEditor }): JSX.Eleme
 
     useEffect(() => {
         setEditor(notebookEditor)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [notebookEditor])
 
     return (

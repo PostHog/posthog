@@ -309,6 +309,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const allCommmands = [...TEXT_CONTROLS, ...SLASH_COMMANDS]
 
     const fuse = useMemo(() => {
@@ -323,6 +325,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
@@ -377,6 +381,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
             return false
         },
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 

@@ -78,6 +78,8 @@ function useSelectAllText(
             return () => clearTimeout(autoFocusTimeout)
         },
 
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         dependencies
     )
 }

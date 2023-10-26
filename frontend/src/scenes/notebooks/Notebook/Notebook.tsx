@@ -42,6 +42,8 @@ export function Notebook({
         if (initialContent && mode === 'canvas') {
             setLocalContent(initialContent)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [notebook])
 
     useWhyDidIRender('Notebook', {
@@ -58,10 +60,14 @@ export function Notebook({
         if (!notebook && !notebookLoading) {
             loadNotebook()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useEffect(() => {
         setEditable(editable)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editable])
 
     useEffect(() => {
@@ -72,6 +78,8 @@ export function Notebook({
         if (editor) {
             editor.focus(initialAutofocus)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editor])
 
     // TODO - Render a special state if the notebook is empty

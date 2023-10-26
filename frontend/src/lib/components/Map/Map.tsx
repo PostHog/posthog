@@ -49,6 +49,8 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
                 marker.addTo(map.current)
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useResizeObserver({

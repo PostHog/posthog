@@ -55,8 +55,12 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
         }
         return null
     }
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const dropRef = useRef<HTMLDivElement>(null)
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
             setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)

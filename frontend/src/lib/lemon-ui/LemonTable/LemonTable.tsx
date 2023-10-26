@@ -147,6 +147,8 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [location, searchParams, hashParams, push]
     )
 
@@ -190,6 +192,8 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dataSource, currentSorting])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
@@ -203,6 +207,8 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [paginationState.currentPage, scrollRef.current])
 
     if (firstColumnSticky && expandable) {

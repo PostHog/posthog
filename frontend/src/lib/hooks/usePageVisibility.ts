@@ -37,5 +37,7 @@ export function usePageVisibility(callback: (pageIsVisible: boolean) => void): v
         return function cleanUp() {
             document.removeEventListener(visibilityChange, onVisibilityChange)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 }

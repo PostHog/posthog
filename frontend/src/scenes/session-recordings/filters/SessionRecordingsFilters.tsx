@@ -57,6 +57,8 @@ export function SessionRecordingsFilters({
                 events: localFilters.events,
             })
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [localFilters])
 
     useEffect(() => {
@@ -65,6 +67,8 @@ export function SessionRecordingsFilters({
         if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
             setLocalFilters(filtersToLocalFilters(filters))
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filters])
 
     return (

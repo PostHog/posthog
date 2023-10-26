@@ -37,6 +37,8 @@ export function IngestionWizard(): JSX.Element {
         if (!platform) {
             reportIngestionLandingSeen()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [platform])
 
     if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] === 'test') {

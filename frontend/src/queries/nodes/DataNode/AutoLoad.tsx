@@ -13,6 +13,8 @@ export function AutoLoad(): JSX.Element {
     useEffect(() => {
         startAutoLoad()
         return () => stopAutoLoad()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (

@@ -17,7 +17,8 @@ export const useD3 = (
             }
             return () => {}
         },
-
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         dependencies
     )
     return ref

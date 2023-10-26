@@ -89,6 +89,8 @@ export function OperatorValueSelect({
         } else if (limitedElementProperty && !operators.includes(currentOperator)) {
             setCurrentOperator(PropertyOperator.Exact)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propertyDefinition, propkey, operator])
 
     return (

@@ -43,6 +43,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         if (loadedPropertyCorrelationsTableOnce) {
             loadPropertyCorrelations({})
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [querySource])
 
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))

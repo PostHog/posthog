@@ -15,11 +15,15 @@ export const PersonsSearch = (): JSX.Element => {
 
     useEffect(() => {
         setSearchTerm(listFilters.search || '')
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useEffect(() => {
         setListFilters({ search: searchTerm || undefined })
         loadPersonsDebounced()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchTerm])
 
     return (

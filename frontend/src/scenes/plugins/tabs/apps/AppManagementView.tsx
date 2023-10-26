@@ -23,7 +23,11 @@ export function AppManagementView({
         return <></>
     }
     const { installingPluginUrl, pluginsNeedingUpdates, pluginsUpdating, loading, unusedPlugins } =
+        // FIXME
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         useValues(pluginsLogic)
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { installPlugin, editPlugin, updatePlugin, uninstallPlugin, patchPlugin } = useActions(pluginsLogic)
 
     return (

@@ -34,6 +34,8 @@ export function PathItemFilters({
         if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
             setFilters([...propertyFilters, {} as EmptyPropertyFilter])
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propertyFilters])
 
     return (

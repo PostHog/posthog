@@ -24,6 +24,8 @@ export function StickyView({ children, top = '0px', marginTop = 0 }: StickyViewP
         window.addEventListener('scroll', onScroll)
 
         return () => window.removeEventListener('scroll', onScroll)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fixed])
 
     return (

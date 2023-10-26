@@ -32,6 +32,8 @@ export function useScrollable(): [React.RefObject<HTMLDivElement>, [boolean, boo
                 clearInterval(timeout)
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scrollRef.current])
 
     useLayoutEffect(() => {

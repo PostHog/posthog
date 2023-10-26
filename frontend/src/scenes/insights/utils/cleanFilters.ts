@@ -83,6 +83,8 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'
+        // FIXME
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }

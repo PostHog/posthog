@@ -65,7 +65,11 @@ export function AggregationSelect({
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
         }
     }
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const baseValues = [UNIQUE_USERS]

@@ -87,6 +87,8 @@ export function Histogram({
                 config.margin.right
         )
         setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.length, layout, width, height])
 
     const ref = useD3(

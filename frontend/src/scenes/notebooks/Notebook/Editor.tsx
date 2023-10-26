@@ -56,6 +56,8 @@ export function Editor(): JSX.Element {
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
     const updatePreviousNode = useCallback(() => {
@@ -63,6 +65,8 @@ export function Editor(): JSX.Element {
         if (editor) {
             setPreviousNode(getNodeBeforeActiveNode(editor))
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editorRef.current])
 
     const _editor = useEditor({

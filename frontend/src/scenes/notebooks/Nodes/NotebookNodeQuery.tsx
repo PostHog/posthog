@@ -56,6 +56,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
         }
 
         setTitlePlaceholder(title)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [query])
 
     const modifiedQuery = useMemo(() => {

@@ -30,6 +30,8 @@ export function PluginImage({
                 image: `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`,
             })
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [url])
 
     return pluginType === 'source' ? (

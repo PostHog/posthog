@@ -118,6 +118,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                   ]
                 : []
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cohort, cohortMissing])
 
     if (cohortMissing) {

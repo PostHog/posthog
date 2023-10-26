@@ -8,6 +8,8 @@ export function useSecondRender(callback) {
             setSecondRender(true)
             callback()
         })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return secondRender

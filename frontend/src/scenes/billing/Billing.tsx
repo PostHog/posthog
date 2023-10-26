@@ -47,6 +47,8 @@ export function Billing(): JSX.Element {
         if (billing) {
             reportBillingV2Shown()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [!!billing])
 
     const { ref, size } = useResizeBreakpoints({

@@ -83,6 +83,8 @@ export function AppMetricsGraph({ tab, metrics, metricsLoading }: AppMetricsGrap
                 chart?.destroy()
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metrics])
 
     if (metricsLoading || !metrics) {

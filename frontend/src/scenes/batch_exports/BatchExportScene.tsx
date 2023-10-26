@@ -312,7 +312,11 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
         batchExportLogsBackground,
         isThereMoreToLoad,
         batchExportLogsTypes,
+        // FIXME
+        // eslint-disable-next-line react-hooks/rules-of-hooks
     } = useValues(logic)
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { revealBackground, loadBatchExportLogsMore, setBatchExportLogsTypes, setSearchTerm } = useActions(logic)
 
     return (
@@ -377,6 +381,8 @@ export function BatchExportScene(): JSX.Element {
     useEffect(() => {
         loadBatchExportConfig()
         loadBatchExportRuns()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     if (!batchExportConfig && !batchExportConfigLoading) {

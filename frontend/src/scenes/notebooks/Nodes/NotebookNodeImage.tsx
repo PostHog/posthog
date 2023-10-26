@@ -36,6 +36,8 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                     setUploading(false)
                 })
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file])
 
     const imageSource = useMemo(

@@ -106,6 +106,8 @@ export function Experiment(): JSX.Element {
 
     useEffect(() => {
         setExposureAndSampleSize(exposure, sampleSize)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [exposure, sampleSize])
 
     // Parameters for experiment results

@@ -40,6 +40,8 @@ export function GroupDashboard({ groupData }: { groupData: Group }): JSX.Element
                 setProperties([...current, desired])
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboard, groupData])
 
     return (

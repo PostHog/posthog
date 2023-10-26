@@ -43,6 +43,8 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.leftmostMonth])
 
     return (

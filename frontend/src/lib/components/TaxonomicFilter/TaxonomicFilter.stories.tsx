@@ -32,6 +32,8 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
         // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
         // - we do want to show the definition popover here too
         setIndex(1)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     return (
         <div className="w-fit border rounded p-2 bg-bg-light">
@@ -66,6 +68,8 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
         // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
         // - we do want to show the definition popover here too
         setIndex(0)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     return (
         <div className="w-fit border rounded p-2 bg-white">

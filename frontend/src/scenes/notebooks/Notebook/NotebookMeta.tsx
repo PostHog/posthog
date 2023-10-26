@@ -65,6 +65,8 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             clearTimeout(t)
             clearDebounceTimeout()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [syncStatus])
 
     if (!debouncedSyncStatus) {

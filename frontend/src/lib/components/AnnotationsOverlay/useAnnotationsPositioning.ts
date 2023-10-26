@@ -36,5 +36,7 @@ export function useAnnotationsPositioning(
                 firstTickLeftPx: 0,
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chart, chartWidth, chartHeight])
 }

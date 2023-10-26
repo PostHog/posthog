@@ -44,6 +44,8 @@ export function CustomUnitModal({
     )
     useEffect(() => {
         setLocalFormativeElementValue(chooseFormativeElementValue(formativeElement, trendsFilter))
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [formativeElement])
 
     if (formativeElement === null) {

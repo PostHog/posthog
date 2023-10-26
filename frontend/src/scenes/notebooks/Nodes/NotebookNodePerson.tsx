@@ -58,6 +58,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                 },
             },
         ])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [person])
 
     const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']

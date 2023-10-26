@@ -36,10 +36,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                   }
                 : undefined,
         ])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [survey])
 
     useEffect(() => {
         setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [survey.name])
 
     if (surveyMissing) {

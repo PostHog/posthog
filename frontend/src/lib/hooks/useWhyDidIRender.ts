@@ -20,5 +20,6 @@ export function useWhyDidIRender(name: string, props: Record<string, any>): void
             }
         }
         oldProps.current = props
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [Object.values(props)])
 }

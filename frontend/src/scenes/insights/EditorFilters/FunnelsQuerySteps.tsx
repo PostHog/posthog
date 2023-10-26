@@ -30,6 +30,8 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
         updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as FunnelsQuery)
     }
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 
     const filterSteps = series || []

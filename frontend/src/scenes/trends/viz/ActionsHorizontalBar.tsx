@@ -63,6 +63,8 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
         if (indexedResults) {
             updateData()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [indexedResults])
 
     return data && total > 0 ? (

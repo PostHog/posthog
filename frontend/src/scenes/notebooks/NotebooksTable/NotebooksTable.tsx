@@ -23,6 +23,8 @@ export function NotebooksTable(): JSX.Element {
 
     useEffect(() => {
         loadNotebooks()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const columns: LemonTableColumns<NotebookListItemType> = [

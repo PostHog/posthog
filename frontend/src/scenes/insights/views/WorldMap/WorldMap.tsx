@@ -94,6 +94,8 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isTooltipShown, tooltipCoordinates, currentTooltip])
 
     return svgRef

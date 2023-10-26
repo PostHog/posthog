@@ -41,6 +41,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
 
     useEffect(() => {
         loadExperiment()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id])
 
     if (experimentMissing) {

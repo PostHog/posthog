@@ -150,6 +150,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (referenceElement) {
             reference(referenceElement)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [referenceElement])
 
     useEventListener(
@@ -180,6 +182,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingRef?.current) {
             return autoUpdate(referenceRef.current, floatingRef.current, update)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {

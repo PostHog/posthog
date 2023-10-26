@@ -76,6 +76,8 @@ export function Bar({
 
     useEffect(() => {
         decideLabelPosition()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [wrapperWidth])
 
     return (

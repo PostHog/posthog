@@ -207,6 +207,8 @@ export function FilterBasedCardContent({
         ) {
             window.dispatchEvent(new Event('resize'))
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [style?.height])
 
     return (

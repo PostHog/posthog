@@ -49,6 +49,8 @@ export function CardMeta({
 
     useEffect(() => {
         setPrimaryHeight?.(primaryHeight)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [primaryHeight])
 
     const foldedHeight = `calc(${primaryHeight}px ${

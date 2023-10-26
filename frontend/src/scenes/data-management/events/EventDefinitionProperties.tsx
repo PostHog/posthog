@@ -17,6 +17,8 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const columns: LemonTableColumns<PropertyDefinition> = [

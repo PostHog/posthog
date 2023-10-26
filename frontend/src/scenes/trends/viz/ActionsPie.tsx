@@ -62,6 +62,8 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
         if (indexedResults) {
             updateData()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [indexedResults, hiddenLegendKeys])
 
     return data ? (

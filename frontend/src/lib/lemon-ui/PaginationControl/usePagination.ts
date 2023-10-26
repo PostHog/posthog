@@ -16,6 +16,8 @@ export function usePagination<T>(
 
     const setCurrentPage = useCallback(
         (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [location, searchParams, hashParams, push]
     )
 
@@ -39,6 +41,8 @@ export function usePagination<T>(
             currentStartIndex: calculatedStartIndex,
             currentEndIndex: calculatedEndIndex,
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentPage, pageCount, pagination, dataSource])
 
     return {

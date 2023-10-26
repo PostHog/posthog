@@ -141,6 +141,8 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
             // NOTE: queueMicrotask protects us from TipTap's flushSync calls, ensuring we never modify the state whilst the flush is happening
             queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
         },
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [props.updateAttributes]
     )
 

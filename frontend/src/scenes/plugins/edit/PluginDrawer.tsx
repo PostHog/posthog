@@ -70,6 +70,8 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
         updateInvisibleAndRequiredFields()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editingPlugin?.id, editingPlugin?.config_schema])
 
     const updateInvisibleAndRequiredFields = (): void => {

@@ -42,6 +42,8 @@ export function Dashboards(): JSX.Element {
     const { activeNavbarItem } = useValues(navigation3000Logic)
     useEffect(() => {
         showSidebar(Scene.Dashboards) // Active this sidebar
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (
@@ -62,6 +64,8 @@ export function FeatureFlags(): JSX.Element {
     const { activeNavbarItem } = useValues(navigation3000Logic)
     useEffect(() => {
         showSidebar(Scene.FeatureFlags) // Activate this sidebar
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return (

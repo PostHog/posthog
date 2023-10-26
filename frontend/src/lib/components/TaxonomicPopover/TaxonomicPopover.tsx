@@ -72,6 +72,8 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
         if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value])
 
     return (

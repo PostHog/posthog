@@ -114,6 +114,8 @@ export function PlayerInspectorList(): JSX.Element {
             positionMarkerEl.id = 'PlayerInspectorListMarker'
             listElement?.appendChild(positionMarkerEl)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [listRef.current])
 
     useEffect(() => {
@@ -131,6 +133,8 @@ export function PlayerInspectorList(): JSX.Element {
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [playbackIndicatorIndex, syncScroll])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {

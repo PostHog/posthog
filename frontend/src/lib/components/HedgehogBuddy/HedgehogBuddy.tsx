@@ -414,6 +414,8 @@ export function HedgehogBuddy({
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -422,10 +424,14 @@ export function HedgehogBuddy({
 
     useEffect(() => {
         actor.accessories = accessories
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [accessories])
 
     useEffect(() => {
         actor.darkMode = isDarkModeOn
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isDarkModeOn])
 
     useEffect(() => {
@@ -441,6 +447,8 @@ export function HedgehogBuddy({
         return () => {
             clearTimeout(timer)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     useEffect(() => {
@@ -455,6 +463,8 @@ export function HedgehogBuddy({
 
     useEffect(() => {
         onPositionChange?.(actor)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [actor.x, actor.y])
 
     const onClick = (): void => {

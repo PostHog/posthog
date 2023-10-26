@@ -62,6 +62,8 @@ export function TaxonomicFilter({
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
             window.setTimeout(() => focusInput(), 1)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const style = {

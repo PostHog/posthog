@@ -86,6 +86,8 @@ export function PieChart({
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
+            // FIXME
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             datasets = filterNestedDataset(hiddenLegendKeys, datasets)
         }
 

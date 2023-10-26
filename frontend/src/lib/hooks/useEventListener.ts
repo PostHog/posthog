@@ -51,6 +51,8 @@ export function useEventListener(
             }
         },
 
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [eventName, element, ...(deps || [])] // Re-run if eventName or element changes
     )
 }

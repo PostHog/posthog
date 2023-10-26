@@ -19,6 +19,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
         setTitlePlaceholder(
             featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [featureFlag?.key])
 
     if (!featureFlagMissing) {

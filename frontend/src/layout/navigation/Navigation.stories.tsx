@@ -73,6 +73,8 @@ export function AppPageWithSideBarHidden(): JSX.Element {
     useEffect(() => {
         toggleSideBarBase(false)
         toggleSideBarMobile(false)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return <BaseAppPage />
@@ -84,6 +86,8 @@ export function AppPageWithSideBarShown(): JSX.Element {
     useEffect(() => {
         toggleSideBarBase(true)
         toggleSideBarMobile(true)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     return <BaseAppPage />

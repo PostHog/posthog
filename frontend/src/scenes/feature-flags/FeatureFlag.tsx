@@ -601,6 +601,8 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         ) {
             enrichUsageDashboard()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboard])
 
     const propertyFilter: AnyPropertyFilter[] = [

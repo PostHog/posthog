@@ -48,6 +48,8 @@ const PlayerSeekbarPreviewFrame = ({
         if (isVisible) {
             debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [percentage, minMs, maxMs, isVisible])
 
     return (
@@ -90,6 +92,8 @@ export function PlayerSeekbarPreview({ minMs, maxMs, seekBarRef }: PlayerSeekbar
         // fixes react-hooks/exhaustive-deps warning about stale ref elements
         const { current } = ref
         return () => current?.removeEventListener('mousemove', handleMouseMove)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [seekBarRef])
 
     return (

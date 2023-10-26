@@ -107,6 +107,8 @@ export function FunnelBarChart({
                 </tbody>
             </table>
         )
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visibleStepsWithConversionMetrics, height])
 
     // negative margin-top so that the scrollable shadow is visible on the canvas label as well

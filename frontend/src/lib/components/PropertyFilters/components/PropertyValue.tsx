@@ -73,6 +73,8 @@ export function PropertyValue({
                 setInput(toString(value))
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value])
 
     const load = (newInput: string | undefined): void => {
@@ -94,6 +96,8 @@ export function PropertyValue({
 
     useEffect(() => {
         load('')
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propertyKey])
 
     useEffect(() => {

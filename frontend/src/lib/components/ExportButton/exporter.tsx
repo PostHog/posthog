@@ -131,6 +131,8 @@ function DelayedContent({ atStart, afterDelay }: DelayedContentProps): JSX.Eleme
         setTimeout(() => {
             setContent(afterDelay)
         }, 30000)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
     return <>{content}</>
 }

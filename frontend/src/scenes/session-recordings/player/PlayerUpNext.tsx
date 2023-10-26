@@ -43,6 +43,8 @@ export function PlayerUpNext({ interrupted, clearInterrupted, playlistLogic }: P
         }
 
         return () => clearTimeout(timeoutRef.current)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [endReached, !!nextSessionRecording])
 
     useEffect(() => {

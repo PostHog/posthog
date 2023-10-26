@@ -11,6 +11,8 @@ export function useKeyHeld(key: string, deps?: DependencyList): boolean {
 
     useEffect(() => {
         checkKeysHeld()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key, ...(deps || [])])
 
     useEventListener(

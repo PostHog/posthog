@@ -116,6 +116,8 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 }
                 onSelect?.(newValue)
             }),
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [options, value]
     )
 

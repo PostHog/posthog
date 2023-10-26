@@ -56,6 +56,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                 },
             },
         ])
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groupData])
 
     if (!groupData && !groupDataLoading) {

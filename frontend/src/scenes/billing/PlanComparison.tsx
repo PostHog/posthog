@@ -94,7 +94,11 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { redirectPath, billing } = useValues(billingLogic)
 
     const upgradeButtons = plans?.map((plan) => {

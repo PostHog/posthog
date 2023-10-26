@@ -29,6 +29,7 @@ module.exports = {
         'eslint:recommended',
         'plugin:@typescript-eslint/recommended',
         'plugin:react/recommended',
+        'plugin:react-hooks/recommended',
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'prettier',
@@ -59,6 +60,8 @@ module.exports = {
                 html: true,
             },
         ],
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'error',
         'no-unused-vars': 'off',
         '@typescript-eslint/no-unused-vars': [
             'error',
@@ -250,6 +253,12 @@ module.exports = {
             },
             env: {
                 node: true,
+            },
+        },
+        {
+            files: ['*Type.ts'],
+            rules: {
+                'no-restricted-imports': 'off',
             },
         },
     ],

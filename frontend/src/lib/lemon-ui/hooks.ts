@@ -35,6 +35,8 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
                 hasRenderedInitiallyRef.current = true
             }
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentValue, containerWidth])
 
     return {

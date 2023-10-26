@@ -148,6 +148,8 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isTooltipShown, tooltipOrigin, currentTooltip])
 
     return vizRef

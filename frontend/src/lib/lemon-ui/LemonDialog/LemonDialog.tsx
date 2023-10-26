@@ -61,6 +61,8 @@ export function LemonDialog({
             setIsOpen(false)
         }
         lastLocation.current = currentLocation.pathname
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentLocation])
 
     return (

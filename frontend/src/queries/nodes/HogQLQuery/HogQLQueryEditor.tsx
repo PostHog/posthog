@@ -39,6 +39,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const monacoDisposables = useRef([] as IDisposable[])
     useEffect(() => {
         return () => {
+            // FIXME
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
     }, [])

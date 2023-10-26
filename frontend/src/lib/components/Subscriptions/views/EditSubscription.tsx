@@ -82,6 +82,8 @@ export function EditSubscription({
         if (subscription?.target_type === 'slack' && slackIntegration) {
             loadSlackChannels()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [subscription?.target_type, slackIntegration])
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value

@@ -180,6 +180,8 @@ export function RatingQuestionBarChart({
 
     useEffect(() => {
         loadSurveyRatingResults({ questionIndex })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -279,6 +281,8 @@ export function SingleChoiceQuestionPieChart({
 
     useEffect(() => {
         loadSurveySingleChoiceResults({ questionIndex })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -379,6 +383,8 @@ export function MultipleChoiceQuestionBarChart({
 
     useEffect(() => {
         loadSurveyMultipleChoiceResults({ questionIndex })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -450,6 +456,8 @@ export function OpenTextViz({
 
     useEffect(() => {
         loadSurveyOpenTextResults({ questionIndex })
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (

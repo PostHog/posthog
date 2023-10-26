@@ -55,6 +55,8 @@ export function ProfilePicture({
                 }
             })
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [email])
 
     if (gravatarUrl) {

@@ -197,6 +197,8 @@ export function PropertiesTable({
         )
     }
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const objectProperties = useMemo(() => {
         if (!properties || !(properties instanceof Object)) {
             return []
@@ -243,6 +245,8 @@ export function PropertiesTable({
             })
         }
         return entries
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [properties, sortProperties, searchTerm, filtered])
 
     if (properties instanceof Object) {

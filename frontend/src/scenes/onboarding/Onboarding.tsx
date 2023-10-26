@@ -31,6 +31,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
     useEffect(() => {
         createAllSteps()
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [children])
 
     useEffect(() => {
@@ -38,6 +40,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             return
         }
         setAllOnboardingSteps(allSteps)
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [allSteps])
 
     if (!product || !children) {
@@ -127,6 +131,8 @@ export function Onboarding(): JSX.Element | null {
         if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
             location.href = urls.ingestion()
         }
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     if (!product) {

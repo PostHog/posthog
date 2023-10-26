@@ -57,6 +57,8 @@ export function RestrictedArea({
             )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
         }
         return null
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentOrganization])
 
     return restrictionReason ? (

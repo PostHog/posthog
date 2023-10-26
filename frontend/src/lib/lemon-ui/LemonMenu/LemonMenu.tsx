@@ -105,6 +105,8 @@ export function LemonMenu({
                 setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
             }
         },
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [onVisibilityChange, activeItemIndex]
     )
 

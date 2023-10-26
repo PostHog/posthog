@@ -17,6 +17,8 @@ export function VisibilitySensor({ id, offset, children }: VisibilityProps): JSX
         const element = ref.current
         document.addEventListener('scroll', () => element && scrolling(element))
         return () => document.removeEventListener('scroll', () => element && scrolling(element))
+        // FIXME
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ref.current])
 
     return <div ref={ref}>{children}</div>

@@ -19,6 +19,8 @@ export function AppsManagementTab(): JSX.Element {
         return <></>
     }
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { checkForUpdates, openAdvancedInstallModal } = useActions(pluginsLogic)
 
     const {
@@ -32,12 +34,18 @@ export function AppsManagementTab(): JSX.Element {
         hasUpdatablePlugins,
         checkingForUpdates,
         updateStatus,
+        // FIXME
+        // eslint-disable-next-line react-hooks/rules-of-hooks
     } = useValues(pluginsLogic)
 
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const officialPlugins = useMemo(
         () => filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'official'),
         [filteredUninstalledPlugins]
     )
+    // FIXME
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const communityPlugins = useMemo(
         () => filteredUninstalledPlugins.filter((plugin) => plugin.maintainer === 'community'),
         [filteredUninstalledPlugins]

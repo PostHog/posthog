@@ -62,6 +62,8 @@ export function EditFeatureFlag(): JSX.Element {
 
 export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
+        // FIXME
+        // eslint-disable-next-line react-hooks/rules-of-hooks
         useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
     }, [])
