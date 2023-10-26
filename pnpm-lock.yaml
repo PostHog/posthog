@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -216,8 +216,8 @@ dependencies:
     specifier: ^5.4.1
     version: 5.4.1
   posthog-js:
-    specifier: 1.87.0
-    version: 1.87.0
+    specifier: 1.87.1
+    version: 1.87.1
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -15376,8 +15376,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.87.0:
-    resolution: {integrity: sha512-9C8PMMrL2D1BkT8UJdBA7ZohtqCDeKxsWLvd0j3y4ALQ166iY/k7ZG7sk5Bx8Cnpo+/ObirL/hlxD9ZqnuCUgQ==}
+  /posthog-js@1.87.1:
+    resolution: {integrity: sha512-Uh5RyPBHPkEdQO35iqivKFiVZgVt1OBayF6FrQMD2SPGTzZ2U8+MxlJVXYHaU081qAeapS0karZrd+1+DV9mjw==}
     dependencies:
       fflate: 0.4.8
     dev: false
