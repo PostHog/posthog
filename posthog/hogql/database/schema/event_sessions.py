@@ -15,8 +15,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 class EventsSessionSubTable(VirtualTable):
     fields: Dict[str, FieldOrTable] = {
-        "$session_id": StringDatabaseField(name="$session_id"),
-        "session_duration": IntegerDatabaseField(name="session_duration"),
+        "id": StringDatabaseField(name="$session_id"),
+        "duration": IntegerDatabaseField(name="session_duration"),
     }
 
     def to_printed_clickhouse(self, context):
@@ -141,9 +141,9 @@ def join_with_events_table_session_duration(
 ):
     select_query = parse_select(
         """
-            select "$session_id", dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+            select "$session_id" as id, dateDiff('second', min(timestamp), max(timestamp)) as duration
             from events
-            group by "$session_id"
+                group by id
         """
     )
 
@@ -157,7 +157,7 @@ def join_with_events_table_session_duration(
             exprs=[
                 *compare_operators,
                 ast.CompareOperation(
-                    left=ast.Field(chain=["$session_id"]),
+                    left=ast.Field(chain=["id"]),
                     op=ast.CompareOperationOp.NotEq,
                     right=ast.Constant(value=""),
                 ),
@@ -171,7 +171,7 @@ def join_with_events_table_session_duration(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "$session_id"]),
-            right=ast.Field(chain=[to_table, "$session_id"]),
+            right=ast.Field(chain=[to_table, "id"]),
         )
     )
 
