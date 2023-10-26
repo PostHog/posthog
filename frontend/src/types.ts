@@ -3276,4 +3276,4 @@ export enum SDKTag {
     OTHER = 'Other',
 }
 
-export type SDKInstructionsMap = Partial<Record<SDKKey, () => JSX.Element>>
+export type SDKInstructionsMap = Partial<Record<SDKKey, () => React.ReactElement>>
