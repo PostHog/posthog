@@ -33,11 +33,20 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("start_at", models.DateTimeField(help_text="The start of the data interval.")),
-                ("end_at", models.DateTimeField(help_text="The end of the data interval.")),
+                (
+                    "start_at",
+                    models.DateTimeField(help_text="The start of the data interval."),
+                ),
+                (
+                    "end_at",
+                    models.DateTimeField(help_text="The end of the data interval."),
+                ),
                 (
                     "status",
                     models.CharField(
@@ -58,7 +67,8 @@ class Migration(migrations.Migration):
                 (
                     "created_at",
                     models.DateTimeField(
-                        auto_now_add=True, help_text="The timestamp at which this BatchExportBackfill was created."
+                        auto_now_add=True,
+                        help_text="The timestamp at which this BatchExportBackfill was created.",
                     ),
                 ),
                 (
@@ -71,7 +81,8 @@ class Migration(migrations.Migration):
                 (
                     "last_updated_at",
                     models.DateTimeField(
-                        auto_now=True, help_text="The timestamp at which this BatchExportBackfill was last updated."
+                        auto_now=True,
+                        help_text="The timestamp at which this BatchExportBackfill was last updated.",
                     ),
                 ),
                 (

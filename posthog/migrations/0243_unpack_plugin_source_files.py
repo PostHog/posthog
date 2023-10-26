@@ -56,7 +56,9 @@ def forwards_func(apps, schema_editor):
             )
         else:
             logger.debug(
-                "Migration 0243 - extracted and saved code of plugin.", plugin=plugin.name, plugin_id=plugin.id
+                "Migration 0243 - extracted and saved code of plugin.",
+                plugin=plugin.name,
+                plugin_id=plugin.id,
             )
 
     logger.info("Migration 0243 - finished")
@@ -70,7 +72,6 @@ def reverse_func(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0242_team_live_events_columns"),
     ]

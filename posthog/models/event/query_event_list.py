@@ -87,7 +87,10 @@ def query_events_list(
         tzinfo=team.timezone_info,
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
+        team_id=team.pk,
+        property_group=filter.property_groups,
+        has_person_id_joined=False,
+        hogql_context=hogql_context,
     )
 
     if action_id:
@@ -106,7 +109,10 @@ def query_events_list(
     if prop_filters != "":
         return insight_query_with_columns(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                conditions=conditions,
+                limit=limit_sql,
+                filters=prop_filters,
+                order=order,
             ),
             {
                 "team_id": team.pk,

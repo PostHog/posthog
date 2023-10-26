@@ -13,7 +13,10 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.models.license import License
-from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
+from posthog.cloud_utils import (
+    TEST_clear_instance_license_cache,
+    get_cached_instance_license,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
@@ -34,9 +37,13 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         current_total_amount_usd="0.00",
         products=None,
         billing_period=BillingPeriod(
-            current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
+            current_period_start="2022-10-07T11:12:48",
+            current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+        usage_summary={
+            "events": {"limit": None, "usage": 0},
+            "recordings": {"limit": None, "usage": 0},
+        },
         free_trial_until=None,
         available_features=[],
     )
@@ -60,8 +67,16 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    {
+                        "unit_amount_usd": "0.00",
+                        "up_to": 1000000,
+                        "current_amount_usd": "0.00",
+                    },
+                    {
+                        "unit_amount_usd": "0.00045",
+                        "up_to": 2000000,
+                        "current_amount_usd": None,
+                    },
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
@@ -75,9 +90,13 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             )
         ],
         billing_period=BillingPeriod(
-            current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
+            current_period_start="2022-10-07T11:12:48",
+            current_period_end="2022-11-07T11:12:48",
         ),
-        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+        usage_summary={
+            "events": {"limit": None, "usage": 0},
+            "recordings": {"limit": None, "usage": 0},
+        },
         free_trial_until=None,
     )
     data.update(kwargs)
@@ -95,8 +114,16 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 image_url="https://posthog.com/static/images/product-os.png",
                 free_allocation=10000,
                 tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                    {
+                        "unit_amount_usd": "0.00",
+                        "up_to": 1000000,
+                        "current_amount_usd": "0.00",
+                    },
+                    {
+                        "unit_amount_usd": "0.00045",
+                        "up_to": 2000000,
+                        "current_amount_usd": None,
+                    },
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
@@ -182,7 +209,11 @@ class TestBillingAPI(APILicensedTest):
         secret = self.license.key.split("::")[1]
 
         decoded_token = jwt.decode(
-            token, secret, algorithms=["HS256"], audience="posthog:license-key", options={"verify_aud": True}
+            token,
+            secret,
+            algorithms=["HS256"],
+            audience="posthog:license-key",
+            options={"verify_aud": True},
         )
 
         assert decoded_token == {
@@ -232,8 +263,16 @@ class TestBillingAPI(APILicensedTest):
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "free_allocation": 10000,
                     "tiers": [
-                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                        {
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                        },
+                        {
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                            "current_amount_usd": None,
+                        },
                     ],
                     "tiered": True,
                     "current_amount_usd": "0.00",
@@ -250,7 +289,10 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+            "usage_summary": {
+                "events": {"limit": None, "usage": 0},
+                "recordings": {"limit": None, "usage": 0},
+            },
             "free_trial_until": None,
         }
 
@@ -290,8 +332,16 @@ class TestBillingAPI(APILicensedTest):
                     "type": "events",
                     "free_allocation": 10000,
                     "tiers": [
-                        {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                        {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
+                        {
+                            "unit_amount_usd": "0.00",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                        },
+                        {
+                            "unit_amount_usd": "0.00045",
+                            "up_to": 2000000,
+                            "current_amount_usd": None,
+                        },
                     ],
                     "current_usage": 0,
                     "percentage_usage": 0.0,
@@ -310,7 +360,10 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
+            "usage_summary": {
+                "events": {"limit": None, "usage": 0},
+                "recordings": {"limit": None, "usage": 0},
+            },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,

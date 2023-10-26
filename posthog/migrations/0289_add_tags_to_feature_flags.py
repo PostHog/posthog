@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0288_add_session_recording_persistence"),
     ]
@@ -29,7 +28,15 @@ class Migration(migrations.Migration):
         migrations.AlterUniqueTogether(
             name="taggeditem",
             unique_together={
-                ("tag", "dashboard", "insight", "event_definition", "property_definition", "action", "feature_flag")
+                (
+                    "tag",
+                    "dashboard",
+                    "insight",
+                    "event_definition",
+                    "property_definition",
+                    "action",
+                    "feature_flag",
+                )
             },
         ),
         migrations.AddConstraint(

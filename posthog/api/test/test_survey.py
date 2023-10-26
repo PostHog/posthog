@@ -30,7 +30,12 @@ class TestSurvey(APIBaseTest):
                 "name": "Notebooks beta release survey",
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What do you think of the new notebooks feature?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think of the new notebooks feature?",
+                    }
+                ],
                 "targeting_flag_filters": None,
             },
             format="json",
@@ -42,7 +47,10 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["questions"] == [
-            {"type": "open", "question": "What do you think of the new notebooks feature?"}
+            {
+                "type": "open",
+                "question": "What do you think of the new notebooks feature?",
+            }
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
@@ -54,7 +62,12 @@ class TestSurvey(APIBaseTest):
             data={
                 "name": "Notebooks power users survey",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
                 "linked_flag_id": notebooks_flag.id,
                 "targeting_flag_filters": {
                     "groups": [
@@ -62,7 +75,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -80,14 +98,24 @@ class TestSurvey(APIBaseTest):
             "groups": [
                 {
                     "variant": None,
-                    "properties": [{"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}],
+                    "properties": [
+                        {
+                            "key": "billing_plan",
+                            "value": ["cloud"],
+                            "operator": "exact",
+                            "type": "person",
+                        }
+                    ],
                     "rollout_percentage": None,
                 }
             ]
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
-            {"type": "open", "question": "What would you want to improve from notebooks?"}
+            {
+                "type": "open",
+                "question": "What would you want to improve from notebooks?",
+            }
         ]
 
     def test_can_create_survey_with_targeting_with_remove_parameter(self):
@@ -96,14 +124,24 @@ class TestSurvey(APIBaseTest):
             data={
                 "name": "Notebooks power users survey",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
                 "targeting_flag_filters": {
                     "groups": [
                         {
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -121,14 +159,24 @@ class TestSurvey(APIBaseTest):
             "groups": [
                 {
                     "variant": None,
-                    "properties": [{"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}],
+                    "properties": [
+                        {
+                            "key": "billing_plan",
+                            "value": ["cloud"],
+                            "operator": "exact",
+                            "type": "person",
+                        }
+                    ],
                     "rollout_percentage": None,
                 }
             ]
         }
         assert response_data["conditions"] == {"url": "https://app.posthog.com/notebooks"}
         assert response_data["questions"] == [
-            {"type": "open", "question": "What would you want to improve from notebooks?"}
+            {
+                "type": "open",
+                "question": "What would you want to improve from notebooks?",
+            }
         ]
 
     def test_used_in_survey_is_populated_correctly_for_feature_flag_list(self) -> None:
@@ -142,7 +190,12 @@ class TestSurvey(APIBaseTest):
             data={
                 "name": "Notebooks power users survey",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
                 "linked_flag_id": notebooks_flag.id,
                 "targeting_flag_filters": {
                     "groups": [
@@ -150,7 +203,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -172,7 +230,12 @@ class TestSurvey(APIBaseTest):
             data={
                 "name": "Notebooks random survey",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
                 "linked_flag_id": notebooks_flag.id,
                 "conditions": {"url": "https://app.posthog.com/notebooks"},
             },
@@ -189,7 +252,11 @@ class TestSurvey(APIBaseTest):
         # add another random feature flag
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5}]}},
+            data={
+                "name": f"flag",
+                "key": f"flag_0",
+                "filters": {"groups": [{"rollout_percentage": 5}]},
+            },
             format="json",
         ).json()
 
@@ -217,7 +284,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -248,7 +320,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "email", "value": ["max@posthog.com"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "email",
+                                    "value": ["max@posthog.com"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -265,7 +342,14 @@ class TestSurvey(APIBaseTest):
             "groups": [
                 {
                     "variant": None,
-                    "properties": [{"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}],
+                    "properties": [
+                        {
+                            "key": "billing_plan",
+                            "value": ["cloud"],
+                            "operator": "exact",
+                            "type": "person",
+                        }
+                    ],
                     "rollout_percentage": None,
                 }
             ]
@@ -293,7 +377,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -332,7 +421,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -371,7 +465,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -407,7 +506,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -571,7 +675,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -595,7 +704,12 @@ class TestSurvey(APIBaseTest):
                 "name": "Notebooks power users survey",
                 "type": "popover",
                 "description": "Make notebooks better",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
             },
         )
 
@@ -612,7 +726,12 @@ class TestSurvey(APIBaseTest):
                     "name": "Notebooks power users survey",
                     "description": "Make notebooks better",
                     "type": "popover",
-                    "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                    "questions": [
+                        {
+                            "type": "open",
+                            "question": "What would you want to improve from notebooks?",
+                        }
+                    ],
                     "appearance": None,
                     "created_at": ANY,
                     "created_by": ANY,
@@ -639,7 +758,12 @@ class TestSurvey(APIBaseTest):
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -777,7 +901,11 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [
-                    {"type": "open", "question": "What up?", "description": "<script>alert(0)</script>check?"},
+                    {
+                        "type": "open",
+                        "question": "What up?",
+                        "description": "<script>alert(0)</script>check?",
+                    },
                     {
                         "type": "link",
                         "link": "bazinga.com",
@@ -828,7 +956,11 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "description": "Get feedback on the new notebooks feature",
                 "type": "popover",
                 "questions": [
-                    {"type": "open", "question": "What up?", "description": "<script>alert(0)</script>check?"},
+                    {
+                        "type": "open",
+                        "question": "What up?",
+                        "description": "<script>alert(0)</script>check?",
+                    },
                     {
                         "type": "link",
                         "link": "bazinga.com",

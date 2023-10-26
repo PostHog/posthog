@@ -6,7 +6,9 @@ from django.conf import settings
 
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
-from posthog.management.commands.backfill_persons_and_groups_on_events import run_backfill
+from posthog.management.commands.backfill_persons_and_groups_on_events import (
+    run_backfill,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -73,7 +75,11 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
 
         events_after = sync_execute("select event, person_id, person_properties from events")
         self.assertEqual(
-            events_after, [("event1", person_id, '{ "foo": "bar" }'), ("event2", person_id, '{ "foo": "bar" }')]
+            events_after,
+            [
+                ("event1", person_id, '{ "foo": "bar" }'),
+                ("event2", person_id, '{ "foo": "bar" }'),
+            ],
         )
 
     def test_groups_backfill(self):
@@ -99,4 +105,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         sleep(10)
 
         events_after = sync_execute("select event, $group_0, group0_properties from events")
-        self.assertEqual(events_after, [("event1", "my_group", group_props), ("event2", "my_group", group_props)])
+        self.assertEqual(
+            events_after,
+            [("event1", "my_group", group_props), ("event2", "my_group", group_props)],
+        )

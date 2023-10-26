@@ -40,23 +40,55 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val3"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val3"},
+            )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])
+            query = EventsQuery(
+                select=[
+                    "properties.key",
+                    "event",
+                    "distinct_id",
+                    "concat(event, ' ', properties.key)",
+                ]
+            )
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 response
                 | {
-                    "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
+                    "columns": [
+                        "properties.key",
+                        "event",
+                        "distinct_id",
+                        "concat(event, ' ', properties.key)",
+                    ],
                     "hasMore": False,
                     "results": [
                         ["test_val1", "sign up", "2", "sign up test_val1"],
@@ -115,18 +147,44 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3"},
+            )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(
-                select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
+                select=[
+                    "event",
+                    "distinct_id",
+                    "properties.key",
+                    "'a%sd'",
+                    "concat(event, ' ', properties.key)",
+                ]
             )
 
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
@@ -154,32 +212,66 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(
-                select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
+                select=[
+                    "event",
+                    "distinct_id",
+                    "properties.key",
+                    "'a%sd'",
+                    "concat(event, ' ', properties.key)",
+                ]
             )
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [
-                EventPropertyFilter(type="event", key="key", value="test_val3", operator=PropertyOperator.exact)
+                EventPropertyFilter(
+                    type="event",
+                    key="key",
+                    value="test_val3",
+                    operator=PropertyOperator.exact,
+                )
             ]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
             query.properties = [
-                EventPropertyFilter(type="event", key="path", value="/", operator=PropertyOperator.icontains)
+                EventPropertyFilter(
+                    type="event",
+                    key="path",
+                    value="/",
+                    operator=PropertyOperator.icontains,
+                )
             ]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
@@ -194,21 +286,50 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3"},
+            )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(
-                select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"],
+                select=[
+                    "event",
+                    "distinct_id",
+                    "properties.key",
+                    "'a%sd'",
+                    "concat(event, ' ', properties.key)",
+                ],
                 properties=[
                     PersonPropertyFilter(
-                        type="person", key="email", value="tom@posthog.com", operator=PropertyOperator.exact
+                        type="person",
+                        key="email",
+                        value="tom@posthog.com",
+                        operator=PropertyOperator.exact,
                     )
                 ],
             )
@@ -293,14 +414,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -322,14 +461,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -359,14 +516,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2021-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2022-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2023-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -393,14 +568,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -426,7 +619,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
-                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=random_uuid,
+                    properties={"key": "test_val1"},
+                )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
@@ -445,7 +643,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
-                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=random_uuid,
+                    properties={"key": "test_val1"},
+                )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
@@ -465,13 +668,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
-                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=random_uuid,
+                    properties={"key": "test_val1"},
+                )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
             response = process_query(
                 team=self.team,
-                query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
+                query_json={
+                    "kind": "EventsQuery",
+                    "select": ["event"],
+                    "where": [f"distinct_id = '{random_uuid}'"],
+                },
             )
 
         self.assertEqual(len(response.get("results", [])), 10)
@@ -482,13 +694,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
-                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=random_uuid,
+                    properties={"key": "test_val1"},
+                )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
             response = process_query(
                 team=self.team,
-                query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
+                query_json={
+                    "kind": "EventsQuery",
+                    "select": ["event"],
+                    "where": [f"distinct_id = '{random_uuid}'"],
+                },
                 in_export_context=True,
             )
 
@@ -505,7 +726,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "select": ["event"],
                     # This used to cause query failure when tried to add an annotation for a node without location
                     # (which properties.$browser is in this case)
-                    "properties": [{"type": "event", "key": "$browser", "operator": "is_not", "value": "Foo"}],
+                    "properties": [
+                        {
+                            "type": "event",
+                            "key": "$browser",
+                            "operator": "is_not",
+                            "value": "Foo",
+                        }
+                    ],
                 },
             )
         self.assertEqual(response.get("columns"), ["event"])
@@ -526,14 +754,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 immediate=True,
             )
-            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="2",
+                properties={"key": "test_val1"},
+            )
         with freeze_time("2020-01-10 12:11:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="2",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(
+                team=self.team,
+                event="sign out",
+                distinct_id="3",
+                properties={"key": "test_val2"},
+            )
         with freeze_time("2020-01-10 12:13:00"):
             _create_event(
-                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+                team=self.team,
+                event="sign out",
+                distinct_id="4",
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -567,7 +813,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         random_uuid = str(UUIDT())
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
-                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=random_uuid,
+                    properties={"key": "test_val1"},
+                )
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):

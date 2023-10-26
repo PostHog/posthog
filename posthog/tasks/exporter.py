@@ -34,14 +34,20 @@ EXPORT_TIMER = Histogram(
 
 
 # export_asset is used in chords/groups and so must not ignore its results
-@app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True, ignore_result=False)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=True,
+    acks_late=True,
+    ignore_result=False,
+)
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
-    exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_related(
+    exported_asset: (ExportedAsset) = ExportedAsset.objects_including_ttl_deleted.select_related(
         "insight", "dashboard"
     ).get(pk=exported_asset_id)
 

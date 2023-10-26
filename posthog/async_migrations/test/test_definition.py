@@ -1,7 +1,10 @@
 import pytest
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperation,
+)
 from posthog.async_migrations.setup import (
     ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH,
     get_async_migration_definition,
@@ -16,7 +19,10 @@ pytestmark = pytest.mark.async_migrations
 
 class TestAsyncMigrationDefinition(BaseTest):
     def test_get_async_migration_definition(self):
-        from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
+        from posthog.async_migrations.examples.example import (
+            example_fn,
+            example_rollback_fn,
+        )
 
         modules = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         example_migration = modules["example"].Migration("example")
@@ -28,7 +34,12 @@ class TestAsyncMigrationDefinition(BaseTest):
         self.assertEqual(example_migration.posthog_max_version, "1.30.0")
         self.assertEqual(example_migration.operations[-1].fn, example_fn)
         self.assertEqual(example_migration.operations[-1].rollback_fn, example_rollback_fn)
-        self.assertTrue(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement))
+        self.assertTrue(
+            isinstance(
+                example_migration.service_version_requirements[0],
+                ServiceVersionRequirement,
+            )
+        )
 
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)
@@ -41,7 +52,8 @@ class TestAsyncMigrationDefinition(BaseTest):
         self.assertEqual(definition.migration_instance(), instance)
 
         self.assertEqual(
-            definition.get_parameter("PERSON_DICT_CACHE_SIZE"), definition.parameters["PERSON_DICT_CACHE_SIZE"][0]
+            definition.get_parameter("PERSON_DICT_CACHE_SIZE"),
+            definition.parameters["PERSON_DICT_CACHE_SIZE"][0],
         )
 
         instance.parameters = {"PERSON_DICT_CACHE_SIZE": 123}

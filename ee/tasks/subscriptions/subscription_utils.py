@@ -26,7 +26,8 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 
 def generate_assets(
-    resource: Union[Subscription, SharingConfiguration], max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    resource: Union[Subscription, SharingConfiguration],
+    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
 ) -> Tuple[List[Insight], List[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
@@ -39,7 +40,12 @@ def generate_assets(
 
         # Create all the assets we need
         assets = [
-            ExportedAsset(team=resource.team, export_format="image/png", insight=insight, dashboard=resource.dashboard)
+            ExportedAsset(
+                team=resource.team,
+                export_format="image/png",
+                insight=insight,
+                dashboard=resource.dashboard,
+            )
             for insight in insights[:max_asset_count]
         ]
         ExportedAsset.objects.bulk_create(assets)
@@ -53,7 +59,8 @@ def generate_assets(
         parallel_job = chain(*tasks).apply_async()
 
         wait_for_parallel_celery_group(
-            parallel_job, max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES)
+            parallel_job,
+            max_timeout=timedelta(minutes=settings.ASSET_GENERATION_MAX_TIMEOUT_MINUTES),
         )
 
         return insights, assets

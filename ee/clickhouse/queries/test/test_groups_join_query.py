@@ -10,7 +10,16 @@ def test_groups_join_query_blank():
 
 def test_groups_join_query_filtering(snapshot):
     filter = Filter(
-        data={"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]}
+        data={
+            "properties": [
+                {
+                    "key": "industry",
+                    "value": "finance",
+                    "type": "group",
+                    "group_type_index": 0,
+                }
+            ]
+        }
     )
 
     assert GroupsJoinQuery(filter, 2).get_join_query() == snapshot
@@ -20,8 +29,18 @@ def test_groups_join_query_filtering_with_custom_key_names(snapshot):
     filter = Filter(
         data={
             "properties": [
-                {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
-                {"key": "company", "value": "crashed", "type": "group", "group_type_index": 2},
+                {
+                    "key": "industry",
+                    "value": "finance",
+                    "type": "group",
+                    "group_type_index": 0,
+                },
+                {
+                    "key": "company",
+                    "value": "crashed",
+                    "type": "group",
+                    "group_type_index": 2,
+                },
             ]
         }
     )

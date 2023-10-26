@@ -6,7 +6,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0160_organization_domain_whitelist"),
     ]
@@ -15,10 +14,18 @@ class Migration(migrations.Migration):
         TrigramExtension(),
         migrations.AddIndex(
             model_name="eventdefinition",
-            index=GinIndex(fields=["name"], name="index_event_definition_name", opclasses=["gin_trgm_ops"]),
+            index=GinIndex(
+                fields=["name"],
+                name="index_event_definition_name",
+                opclasses=["gin_trgm_ops"],
+            ),
         ),
         migrations.AddIndex(
             model_name="propertydefinition",
-            index=GinIndex(fields=["name"], name="index_property_definition_name", opclasses=["gin_trgm_ops"]),
+            index=GinIndex(
+                fields=["name"],
+                name="index_property_definition_name",
+                opclasses=["gin_trgm_ops"],
+            ),
         ),
     ]

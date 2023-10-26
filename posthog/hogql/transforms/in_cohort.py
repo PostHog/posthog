@@ -9,12 +9,20 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 
-def resolve_in_cohorts(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
+def resolve_in_cohorts(
+    node: ast.Expr,
+    stack: Optional[List[ast.SelectQuery]] = None,
+    context: HogQLContext = None,
+):
     InCohortResolver(stack=stack, context=context).visit(node)
 
 
 class InCohortResolver(TraversingVisitor):
-    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
+    def __init__(
+        self,
+        stack: Optional[List[ast.SelectQuery]] = None,
+        context: HogQLContext = None,
+    ):
         super().__init__()
         self.stack: List[ast.SelectQuery] = stack or []
         self.context = context
@@ -80,7 +88,12 @@ class InCohortResolver(TraversingVisitor):
             self.visit(node.right)
 
     def _add_join_for_cohort(
-        self, cohort_id: int, is_static: bool, select: ast.SelectQuery, compare: ast.CompareOperation, negative: bool
+        self,
+        cohort_id: int,
+        is_static: bool,
+        select: ast.SelectQuery,
+        compare: ast.CompareOperation,
+        negative: bool,
     ):
         must_add_join = True
         last_join = select.select_from
@@ -115,9 +128,14 @@ class InCohortResolver(TraversingVisitor):
                     )
                 ),
             )
-            new_join = cast(ast.JoinExpr, resolve_types(new_join, self.context, [self.stack[-1].type]))
+            new_join = cast(
+                ast.JoinExpr,
+                resolve_types(new_join, self.context, [self.stack[-1].type]),
+            )
             new_join.constraint.expr.left = resolve_types(
-                ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]), self.context, [self.stack[-1].type]
+                ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
+                self.context,
+                [self.stack[-1].type],
             )
             new_join.constraint.expr.right = clone_expr(compare.left)
             if last_join:
@@ -127,6 +145,8 @@ class InCohortResolver(TraversingVisitor):
 
         compare.op = ast.CompareOperationOp.NotEq if negative else ast.CompareOperationOp.Eq
         compare.left = resolve_types(
-            ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]), self.context, [self.stack[-1].type]
+            ast.Field(chain=[f"in_cohort__{cohort_id}", "matched"]),
+            self.context,
+            [self.stack[-1].type],
         )
         compare.right = resolve_types(ast.Constant(value=1), self.context, [self.stack[-1].type])

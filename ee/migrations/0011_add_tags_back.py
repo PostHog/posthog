@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("ee", "0010_migrate_definitions_tags"),
     ]
@@ -15,14 +14,22 @@ class Migration(migrations.Migration):
             model_name="enterpriseeventdefinition",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=None, null=True, size=None
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=None,
+                null=True,
+                size=None,
             ),
         ),
         migrations.AddField(
             model_name="enterprisepropertydefinition",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=None, null=True, size=None
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=None,
+                null=True,
+                size=None,
             ),
         ),
     ]
