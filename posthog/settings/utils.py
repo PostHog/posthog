@@ -1,5 +1,5 @@
 import os
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Set
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -26,3 +26,9 @@ def get_list(text: str) -> List[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
+
+
+def get_set(text: str) -> Set[str]:
+    if not text:
+        return set()
+    return {item.strip() for item in text.split(",")}

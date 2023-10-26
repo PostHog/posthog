@@ -8,6 +8,7 @@ from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from revproxy.views import ProxyView
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -34,7 +35,6 @@ from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
-
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
 from .year_in_posthog import year_in_posthog
@@ -176,6 +176,10 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
+
+    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
+    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
+
 
 if settings.TEST:
 
