@@ -137,6 +137,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
                 return [
                     {
                         name: `Data Management`,
+                        path: tabs.events.url,
                     },
                     {
                         name: capitalizeFirstLetter(tab),
