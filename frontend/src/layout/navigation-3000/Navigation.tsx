@@ -12,6 +12,7 @@ import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SidePanel } from './sidepanel/SidePanel'
 
 export function Navigation({
     children,
@@ -47,6 +48,7 @@ export function Navigation({
                     {children}
                 </div>
             </main>
+            <SidePanel />
             <CommandPalette />
         </div>
     )
