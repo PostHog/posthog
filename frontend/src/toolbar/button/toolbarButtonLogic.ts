@@ -1,4 +1,4 @@
-import { windowValues } from 'kea-windowvalues'
+import { windowValues } from 'kea-window-values'
 import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'

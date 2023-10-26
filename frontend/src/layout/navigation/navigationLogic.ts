@@ -1,4 +1,4 @@
-import { windowValues } from 'kea-windowvalues'
+import { windowValues } from 'kea-window-values'
 import { loaders } from 'kea-loaders'
 import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import api from 'lib/api'
