@@ -33,7 +33,6 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
-import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
@@ -121,7 +120,6 @@ export function Editor(): JSX.Element {
             NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
             NotebookNodePersonFeed,
             NotebookNodeMap,
         ],
