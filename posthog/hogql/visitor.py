@@ -244,6 +244,13 @@ class TraversingVisitor(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
 
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        for attribute in node.attributes:
+            self.visit(attribute)
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        self.visit(node.value)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -512,3 +519,9 @@ class CloningVisitor(Visitor):
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return ast.JoinConstraint(expr=self.visit(node.expr))
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))

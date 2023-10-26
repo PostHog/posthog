@@ -151,7 +151,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
+        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
         select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
@@ -381,8 +381,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
-        if ctx.PLACEHOLDER():
-            return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+        if ctx.placeholder():
+            return self.visit(ctx.placeholder())
 
         number_literals = ctx.numberLiteral()
 
@@ -744,6 +744,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
+    def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
+        return self.visit(ctx.hogqlxTagElement())
+
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
         return [self.visit(arg) for arg in ctx.columnArgExpr()]
 
@@ -774,8 +777,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.CTE(name=name, expr=expr, cte_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
-        if ctx.PLACEHOLDER():
-            return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+        if ctx.placeholder():
+            return self.visit(ctx.placeholder())
 
         table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else []
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
@@ -801,7 +804,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprPlaceholder(self, ctx: HogQLParser.TableExprPlaceholderContext):
-        return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+        return self.visit(ctx.placeholder())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias: str = self.visit(ctx.alias() or ctx.identifier())
@@ -815,6 +818,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         return self.visit(ctx.tableFunctionExpr())
+
+    def visitTableExprTag(self, ctx: HogQLParser.TableExprTagContext):
+        return self.visit(ctx.hogqlxTagElement())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
         name = self.visit(ctx.identifier())
@@ -883,3 +889,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             name="ifNull",
             args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
         )
+
+    def visitHogqlxTagElement(self, ctx: HogQLParser.HogqlxTagElementContext):
+        kind = self.visit(ctx.identifier())
+        attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
+        return ast.HogQLXTag(kind=kind, attributes=attributes)
+
+    def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
+        name = self.visit(ctx.identifier())
+        if ctx.columnExpr():
+            return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
+        elif ctx.STRING_LITERAL():
+            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=parse_string_literal(ctx.STRING_LITERAL())))
+        else:
+            return ast.HogQLXAttribute(name=name, value=ast.Constant(value=True))
+
+    def visitPlaceholder(self, ctx: HogQLParser.PlaceholderContext):
+        name = self.visit(ctx.identifier())
+        return ast.Placeholder(field=name)
