@@ -39,6 +39,7 @@ import {
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -136,7 +137,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
         // add new content below. If we are in editing mode, we should select the next line if there is one, otherwise
         insertOrSelectNextLine()
-        // setTextSelection(getPos() + 1)
     }
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
@@ -235,15 +235,26 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         >
                             {getPos && isEditable ? (
                                 <>
-                                    <LemonButton
-                                        size="tiny"
-                                        type="secondary"
-                                        status="primary"
-                                        icon={<IconPlus />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                        }}
-                                    />
+                                    {/* <SlashCommandsPopover mode="add" range={undefined} visible={visible}>
+            <LemonButton
+                size="small"
+                onClick={() => setVisible(true)}
+                icon={<IconPlus />}
+                className="NotebookFloatingButton__plus ml-1"
+            />
+        </SlashCommandsPopover> */}
+                                    <SlashCommandsPopover>
+                                        <LemonButton
+                                            size="tiny"
+                                            type="secondary"
+                                            status="primary"
+                                            icon={<IconPlus />}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                onActionsAreaClick()
+                                            }}
+                                        />
+                                    </SlashCommandsPopover>
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}

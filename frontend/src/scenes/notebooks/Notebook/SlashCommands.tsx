@@ -453,16 +453,20 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
+export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
     props: SlashCommandsProps,
     ref
 ): JSX.Element | null {
+    const [visible, setVisible] = useState<boolean>(false)
+
     return (
         <Popover
             overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
-            visible
+            visible={visible}
             referenceElement={props.decorationNode}
-        />
+        >
+            {props.children}
+        </Popover>
     )
 })
 

@@ -230,6 +230,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 actions.insertAfter({
                     type: 'paragraph',
                 })
+                props.notebookLogic.actions.setSlashCommandsVisible(true)
+                // } else if (values.nextNode && values.nextNode.isEmpty) {
             } else {
                 actions.setTextSelection(props.getPos() + 1)
             }

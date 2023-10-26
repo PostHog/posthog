@@ -106,6 +106,7 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeId?: string
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setSlashCommandsVisible: (visible: boolean) => ({ visible }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
     }),
     reducers(({ props }) => ({
@@ -181,6 +182,12 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setShowHistory: (_, { showHistory }) => showHistory,
+            },
+        ],
+        slashCommandsVisible: [
+            false,
+            {
+                setSlashCommandsVisible: (_, { visible }) => visible,
             },
         ],
     })),
