@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest
 
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -31,7 +30,6 @@ class TestQueryDateRange(APIBaseTest):
         )
 
     def test_parsed_date_hour(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -55,7 +53,6 @@ class TestQueryDateRange(APIBaseTest):
         )  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -80,7 +77,6 @@ class TestQueryDateRange(APIBaseTest):
         )  # ensure last hour is included
 
     def test_parsed_date_week_rounded(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -104,7 +100,6 @@ class TestQueryDateRange(APIBaseTest):
         )
 
     def test_is_hourly(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={

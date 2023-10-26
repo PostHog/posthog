@@ -24,10 +24,18 @@ from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache, TEST_clear_instance_license_cache, is_cloud
+from posthog.cloud_utils import (
+    TEST_clear_cloud_cache,
+    TEST_clear_instance_license_cache,
+    is_cloud,
+)
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_TABLE_SQL,
+    DROP_EVENTS_TABLE_SQL,
+    EVENTS_TABLE_SQL,
+)
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
@@ -68,7 +76,14 @@ def _setup_test_data(klass):
     klass.team = Team.objects.create(
         organization=klass.organization,
         api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[{"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}],
+        test_account_filters=[
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ],
         has_completed_onboarding_for={"product_analytics": True},
     )
     if klass.CONFIG_EMAIL:
@@ -108,12 +123,22 @@ class ErrorResponsesMixin:
     }
 
     def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
-        return {"type": "invalid_request", "code": "not_found", "detail": message, "attr": None}
+        return {
+            "type": "invalid_request",
+            "code": "not_found",
+            "detail": message,
+            "attr": None,
+        }
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action."
     ) -> Dict[str, Optional[str]]:
-        return {"type": "authentication_error", "code": "permission_denied", "detail": message, "attr": None}
+        return {
+            "type": "authentication_error",
+            "code": "permission_denied",
+            "detail": message,
+            "attr": None,
+        }
 
     def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
         return {
@@ -124,14 +149,29 @@ class ErrorResponsesMixin:
         }
 
     def unauthenticated_response(
-        self, message: str = "Authentication credentials were not provided.", code: str = "not_authenticated"
+        self,
+        message: str = "Authentication credentials were not provided.",
+        code: str = "not_authenticated",
     ) -> Dict[str, Optional[str]]:
-        return {"type": "authentication_error", "code": code, "detail": message, "attr": None}
+        return {
+            "type": "authentication_error",
+            "code": code,
+            "detail": message,
+            "attr": None,
+        }
 
     def validation_error_response(
-        self, message: str = "Malformed request", code: str = "invalid_input", attr: Optional[str] = None
+        self,
+        message: str = "Malformed request",
+        code: str = "invalid_input",
+        attr: Optional[str] = None,
     ) -> Dict[str, Optional[str]]:
-        return {"type": "validation_error", "code": code, "detail": message, "attr": attr}
+        return {
+            "type": "validation_error",
+            "code": code,
+            "detail": message,
+            "attr": attr,
+        }
 
 
 class TestMixin:
@@ -313,7 +353,9 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def default_materialised_columns():
     try:
         from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
-        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+        from ee.clickhouse.materialized_columns.test.test_columns import (
+            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+        )
 
     except:
         # EE not available? Skip
@@ -383,7 +425,11 @@ def also_test_with_materialized_columns(
                 materialize("person", prop)
                 materialize("events", prop, table_column="person_properties")
             for group_type_index, prop in group_properties:
-                materialize("events", prop, table_column=f"group{group_type_index}_properties")  # type: ignore
+                materialize(
+                    "events",
+                    prop,
+                    table_column=f"group{group_type_index}_properties",  # type: ignore
+                )
 
             try:
                 with self.capture_select_queries() as sqls:
@@ -461,7 +507,11 @@ class QueryMatchingTest:
             query,
         )
 
-        query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
+        query = re.sub(
+            rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
+            r"""user_id:0 request:_snapshot_""",
+            query,
+        )
 
         # ee license check has varying datetime
         # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
@@ -482,7 +532,11 @@ class QueryMatchingTest:
         query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
         # test_formula has some values that change on every run
-        query = re.sub(r"\SELECT \[\d+, \d+] as breakdown_value", "SELECT [1, 2] as breakdown_value", query)
+        query = re.sub(
+            r"\SELECT \[\d+, \d+] as breakdown_value",
+            "SELECT [1, 2] as breakdown_value",
+            query,
+        )
         query = re.sub(
             r"SELECT distinct_id,[\n\r\s]+\d+ as value",
             "SELECT distinct_id, 1 as value",

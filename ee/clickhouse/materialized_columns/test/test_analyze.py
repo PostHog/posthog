@@ -18,7 +18,10 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                 """,
                 6723,
             ),
-            (f"SELECT JSONExtractString(properties, 'person_prop') FROM person WHERE team_id = {self.team.pk}", 9723),
+            (
+                f"SELECT JSONExtractString(properties, 'person_prop') FROM person WHERE team_id = {self.team.pk}",
+                9723,
+            ),
             (
                 f"""
                 SELECT JSONExtractString(person_properties, 'person_prop')
@@ -56,7 +59,10 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
                     "distinct_id": f"user_id",
                     "team": self.team,
                     "timestamp": "2021-05-01 00:00:00",
-                    "person_properties": {"person_prop": "something", "another_person_prop": "something"},
+                    "person_properties": {
+                        "person_prop": "something",
+                        "another_person_prop": "something",
+                    },
                     "group0_properties": {"group_prop": "something"},
                     "group2_properties": {"group_prop": "something2"},
                 }
@@ -82,10 +88,16 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
 
             self.assertEqual(
                 list(event_query.properties(TeamManager())),
-                [("events", "properties", "event_prop"), ("events", "properties", "another_prop")],
+                [
+                    ("events", "properties", "event_prop"),
+                    ("events", "properties", "another_prop"),
+                ],
             )
 
-            self.assertEqual(list(person_query.properties(TeamManager())), [("person", "properties", "person_prop")])
+            self.assertEqual(
+                list(person_query.properties(TeamManager())),
+                [("person", "properties", "person_prop")],
+            )
             self.assertEqual(
                 list(person_on_events_query.properties(TeamManager())),
                 [
@@ -96,7 +108,10 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
             )
             self.assertEqual(
                 list(group_on_events_query.properties(TeamManager())),
-                [("events", "group0_properties", "group_prop"), ("events", "group2_properties", "group_prop")],
+                [
+                    ("events", "group0_properties", "group_prop"),
+                    ("events", "group2_properties", "group_prop"),
+                ],
             )
 
             self.assertEqual(event_query.cost, 4)
@@ -110,7 +125,8 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(invalid_query.team_id)
 
         query_with_unknown_property = Query(
-            f"SELECT JSONExtractString(properties, '$unknown_prop') FROM events WHERE team_id = {self.team.pk}", 3400
+            f"SELECT JSONExtractString(properties, '$unknown_prop') FROM events WHERE team_id = {self.team.pk}",
+            3400,
         )
         self.assertEqual(list(query_with_unknown_property.properties(TeamManager())), [])
 
@@ -118,6 +134,7 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
 
         # match group missing, should probably never happen, since the query is now wrong.
         query_with_invalid_column = Query(
-            f"SELECT JSONExtractString(, 'prop') FROM events WHERE team_id = {self.team.pk}", 3340
+            f"SELECT JSONExtractString(, 'prop') FROM events WHERE team_id = {self.team.pk}",
+            3340,
         )
         self.assertEqual(list(query_with_invalid_column.properties(TeamManager())), [])

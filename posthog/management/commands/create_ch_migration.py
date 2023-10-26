@@ -10,6 +10,7 @@ from infi.clickhouse_orm import migrations # type: ignore
 operations = []
 """
 
+
 # ex: python manage.py create_ch_migration <name of migration>
 class Command(BaseCommand):
     help = "Create blank clickhouse migration"

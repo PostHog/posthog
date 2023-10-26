@@ -24,7 +24,11 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
+from posthog.utils import (
+    get_ip_address,
+    label_for_team_id_to_track,
+    load_data_from_request,
+)
 from posthog.utils_cors import cors_response
 
 FLAG_EVALUATION_COUNTER = Counter(
@@ -209,7 +213,10 @@ def get_decide(request: HttpRequest):
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
             response["autocaptureExceptions"] = (
-                {"endpoint": "/e/", "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or []}
+                {
+                    "endpoint": "/e/",
+                    "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or [],
+                }
                 if team.autocapture_exceptions_opt_in
                 else False
             )

@@ -3,7 +3,10 @@ from math import ceil
 from typing import Optional, Any, Dict, List
 
 from django.utils.timezone import datetime
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
@@ -16,7 +19,12 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team, Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import LifecycleQuery, ActionsNode, EventsNode, LifecycleQueryResponse
+from posthog.schema import (
+    LifecycleQuery,
+    ActionsNode,
+    EventsNode,
+    LifecycleQueryResponse,
+)
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -139,7 +147,10 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
         )
 
     @cached_property

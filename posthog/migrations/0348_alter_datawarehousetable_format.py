@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0347_add_bigquery_export_type"),
     ]
@@ -14,7 +13,12 @@ class Migration(migrations.Migration):
             model_name="datawarehousetable",
             name="format",
             field=models.CharField(
-                choices=[("CSV", "CSV"), ("Parquet", "Parquet"), ("JSONEachRow", "JSON")], max_length=128
+                choices=[
+                    ("CSV", "CSV"),
+                    ("Parquet", "Parquet"),
+                    ("JSONEachRow", "JSON"),
+                ],
+                max_length=128,
             ),
         ),
     ]

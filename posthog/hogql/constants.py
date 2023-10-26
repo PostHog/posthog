@@ -4,7 +4,16 @@ from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
 ConstantDataType: TypeAlias = Literal[
-    "int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"
+    "int",
+    "float",
+    "str",
+    "bool",
+    "array",
+    "tuple",
+    "date",
+    "datetime",
+    "uuid",
+    "unknown",
 ]
 ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
 ConstantSupportedData: TypeAlias = (

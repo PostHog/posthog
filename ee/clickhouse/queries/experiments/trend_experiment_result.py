@@ -101,7 +101,14 @@ class ClickhouseTrendExperimentResult:
                 "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
+                "properties": [
+                    {
+                        "key": breakdown_key,
+                        "value": variants,
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
@@ -148,7 +155,14 @@ class ClickhouseTrendExperimentResult:
                         "explicit_date": True,
                         "breakdown": breakdown_key,
                         "breakdown_type": "event",
-                        "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
+                        "properties": [
+                            {
+                                "key": breakdown_key,
+                                "value": variants,
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
                     }
                 )
             else:
@@ -171,8 +185,18 @@ class ClickhouseTrendExperimentResult:
                         "breakdown_type": "event",
                         "breakdown": "$feature_flag_response",
                         "properties": [
-                            {"key": "$feature_flag_response", "value": variants, "operator": "exact", "type": "event"},
-                            {"key": "$feature_flag", "value": [feature_flag.key], "operator": "exact", "type": "event"},
+                            {
+                                "key": "$feature_flag_response",
+                                "value": variants,
+                                "operator": "exact",
+                                "type": "event",
+                            },
+                            {
+                                "key": "$feature_flag",
+                                "value": [feature_flag.key],
+                                "operator": "exact",
+                                "type": "event",
+                            },
                         ],
                     }
                 )
@@ -272,16 +296,24 @@ class ClickhouseTrendExperimentResult:
             raise ValidationError("No control variant data found", code="no_data")
 
         if len(test_variants) >= 10:
-            raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for more than 10 variants",
+                code="too_much_data",
+            )
 
         if len(test_variants) < 1:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for less than 2 variants",
+                code="no_data",
+            )
 
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
     def are_results_significant(
-        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+        control_variant: Variant,
+        test_variants: List[Variant],
+        probabilities: List[Probability],
     ) -> Tuple[ExperimentSignificanceCode, Probability]:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
@@ -339,7 +371,10 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     """
 
     if len(variants) > 10:
-        raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+        raise ValidationError(
+            "Can't calculate A/B test results for more than 10 variants",
+            code="too_much_data",
+        )
 
     probabilities = []
     # simulate winning for each test variant
@@ -393,5 +428,8 @@ def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) ->
     best_test_variant = max(test_variants, key=lambda variant: variant.count)
 
     return poisson_p_value(
-        control_variant.count, control_variant.exposure, best_test_variant.count, best_test_variant.exposure
+        control_variant.count,
+        control_variant.exposure,
+        best_test_variant.count,
+        best_test_variant.exposure,
     )

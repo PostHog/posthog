@@ -2,7 +2,10 @@ from typing import List, cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.schema.event_sessions import CleanTableNameFromChain, WhereClauseExtractor
+from posthog.hogql.database.schema.event_sessions import (
+    CleanTableNameFromChain,
+    WhereClauseExtractor,
+)
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
@@ -35,7 +38,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="$pageview")
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value="$pageview"),
         )
 
     def test_with_timestamps(self):
@@ -51,7 +56,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["timestamp"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value="2023-01-01")
+            left=ast.Field(chain=["timestamp"]),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value="2023-01-01"),
         )
 
     def test_with_alias_table(self):
@@ -67,7 +74,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="$pageview")
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value="$pageview"),
         )
 
     def test_with_multiple_clauses(self):
@@ -83,10 +92,14 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 2
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="$pageview")
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value="$pageview"),
         )
         assert compare_operators[1] == ast.CompareOperation(
-            left=ast.Field(chain=["timestamp"]), op=ast.CompareOperationOp.Gt, right=ast.Constant(value="2023-01-01")
+            left=ast.Field(chain=["timestamp"]),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value="2023-01-01"),
         )
 
     def test_with_join(self):
@@ -104,7 +117,9 @@ class TestWhereClauseExtractor(BaseTest):
 
         assert len(compare_operators) == 1
         assert compare_operators[0] == ast.CompareOperation(
-            left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="$pageview")
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value="$pageview"),
         )
 
     def test_with_ignoring_ors(self):

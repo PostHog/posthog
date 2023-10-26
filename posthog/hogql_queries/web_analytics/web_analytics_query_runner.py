@@ -35,7 +35,12 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def query_date_range(self):
-        return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
 
     @cached_property
     def pathname_property_filter(self) -> Optional[EventPropertyFilter]:

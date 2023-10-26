@@ -6,7 +6,6 @@ import posthog.models.user
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0151_plugin_preinstalled"),
     ]

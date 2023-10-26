@@ -10,12 +10,24 @@ from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
-from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    Property,
+    Team,
+    PropertyDefinition,
+)
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
-from posthog.schema import PropertyOperator, PropertyGroupFilter, PropertyGroupFilterValue, FilterLogicalOperator
+from posthog.schema import (
+    PropertyOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    FilterLogicalOperator,
+)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -116,7 +128,14 @@ def property_to_expr(
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team, scope
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=property.operator,
+                            value=v,
+                        ),
+                        team,
+                        scope,
                     )
                     for v in value
                 ]
@@ -133,12 +152,25 @@ def property_to_expr(
         properties_field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=field,
+                right=ast.Constant(value=None),
+            )
         elif operator == PropertyOperator.is_not_set:
             return ast.Or(
                 exprs=[
-                    ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None)),
-                    ast.Not(expr=ast.Call(name="JSONHas", args=[properties_field, ast.Constant(value=property.key)])),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=field,
+                        right=ast.Constant(value=None),
+                    ),
+                    ast.Not(
+                        expr=ast.Call(
+                            name="JSONHas",
+                            args=[properties_field, ast.Constant(value=property.key)],
+                        )
+                    ),
                 ]
             )
         elif operator == PropertyOperator.icontains:
@@ -156,7 +188,10 @@ def property_to_expr(
         elif operator == PropertyOperator.regex:
             return ast.Call(name="match", args=[field, ast.Constant(value=value)])
         elif operator == PropertyOperator.not_regex:
-            return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
+            return ast.Call(
+                name="not",
+                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+            )
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
             op = ast.CompareOperationOp.Eq
         elif operator == PropertyOperator.is_not:
@@ -207,7 +242,14 @@ def property_to_expr(
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team, scope
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=property.operator,
+                            value=v,
+                        ),
+                        team,
+                        scope,
                     )
                     for v in value
                 ]
@@ -287,11 +329,20 @@ def action_to_expr(action: Action) -> ast.Expr:
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:
-                expr = parse_expr("properties.$current_url = {url}", {"url": ast.Constant(value=step.url)})
+                expr = parse_expr(
+                    "properties.$current_url = {url}",
+                    {"url": ast.Constant(value=step.url)},
+                )
             elif step.url_matching == ActionStep.REGEX:
-                expr = parse_expr("properties.$current_url =~ {regex}", {"regex": ast.Constant(value=step.url)})
+                expr = parse_expr(
+                    "properties.$current_url =~ {regex}",
+                    {"regex": ast.Constant(value=step.url)},
+                )
             else:
-                expr = parse_expr("properties.$current_url like {url}", {"url": ast.Constant(value=f"%{step.url}%")})
+                expr = parse_expr(
+                    "properties.$current_url like {url}",
+                    {"url": ast.Constant(value=f"%{step.url}%")},
+                )
             exprs.append(expr)
 
         if step.properties:
