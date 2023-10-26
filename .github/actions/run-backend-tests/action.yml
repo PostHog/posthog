@@ -71,7 +71,6 @@ runs:
           with:
               node-version: 18
               cache: pnpm
-              cache-dependency-path: posthog/pnpm-lock.yaml
 
         - name: Install transpiler
           shell: bash
