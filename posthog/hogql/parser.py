@@ -900,11 +900,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         closing = self.visit(ctx.identifier(1))
         if opening != closing:
             raise SyntaxException(f"Opening and closing HogQLX tags must match. Got {opening} and {closing}")
+
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
-        for a in attributes:
-            if a.name == "source":
-                raise SyntaxException(f"Nested HogQLX tags cannot have a source attribute")
-        attributes.append(ast.HogQLXAttribute(name="source", value=self.visit(ctx.hogqlxTagElement())))
+        if ctx.hogqlxTagElement():
+            source = self.visit(ctx.hogqlxTagElement())
+            for a in attributes:
+                if a.name == "source":
+                    raise SyntaxException(f"Nested HogQLX tags cannot have a source attribute")
+            attributes.append(ast.HogQLXAttribute(name="source", value=source))
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

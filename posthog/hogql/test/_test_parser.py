@@ -1505,6 +1505,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
+            # Empty tag
+            node = self._select("select event from <OuterQuery></OuterQuery>")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
+
             # With attribute
             node = self._select(
                 "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"

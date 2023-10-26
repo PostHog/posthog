@@ -127,7 +127,7 @@ void hogqlparserParserInitialize() {
     }
   );
   static const int32_t serializedATNSegment[] = {
-  	4,1,242,976,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
+  	4,1,242,978,2,0,7,0,2,1,7,1,2,2,7,2,2,3,7,3,2,4,7,4,2,5,7,5,2,6,7,6,2,
   	7,7,7,2,8,7,8,2,9,7,9,2,10,7,10,2,11,7,11,2,12,7,12,2,13,7,13,2,14,7,
   	14,2,15,7,15,2,16,7,16,2,17,7,17,2,18,7,18,2,19,7,19,2,20,7,20,2,21,7,
   	21,2,22,7,22,2,23,7,23,2,24,7,24,2,25,7,25,2,26,7,26,2,27,7,27,2,28,7,
@@ -191,47 +191,47 @@ void hogqlparserParserInitialize() {
   	9,40,1,40,1,40,1,40,1,40,1,40,5,40,793,8,40,10,40,12,40,796,9,40,3,40,
   	798,8,40,1,40,1,40,1,40,1,41,1,41,1,41,5,41,806,8,41,10,41,12,41,809,
   	9,41,1,41,1,41,1,41,1,41,1,41,1,41,5,41,817,8,41,10,41,12,41,820,9,41,
-  	1,41,1,41,1,41,1,41,1,41,1,41,1,41,3,41,829,8,41,1,42,1,42,1,42,1,42,
-  	1,42,1,42,1,42,1,42,1,42,1,42,1,42,3,42,842,8,42,1,43,1,43,1,43,5,43,
-  	847,8,43,10,43,12,43,850,9,43,1,44,1,44,1,44,1,44,1,44,1,44,1,44,1,44,
-  	1,44,1,44,3,44,862,8,44,1,45,1,45,1,45,1,45,3,45,868,8,45,1,45,3,45,871,
-  	8,45,1,46,1,46,1,46,5,46,876,8,46,10,46,12,46,879,9,46,1,47,1,47,1,47,
-  	1,47,1,47,1,47,1,47,1,47,1,47,3,47,890,8,47,1,47,1,47,1,47,1,47,3,47,
-  	896,8,47,5,47,898,8,47,10,47,12,47,901,9,47,1,48,1,48,1,48,3,48,906,8,
-  	48,1,48,1,48,1,49,1,49,1,49,3,49,913,8,49,1,49,1,49,1,50,1,50,1,50,5,
-  	50,920,8,50,10,50,12,50,923,9,50,1,51,1,51,1,52,1,52,1,52,1,52,1,52,1,
-  	52,3,52,933,8,52,3,52,935,8,52,1,53,3,53,938,8,53,1,53,1,53,1,53,1,53,
-  	1,53,1,53,3,53,946,8,53,1,54,1,54,1,54,3,54,951,8,54,1,55,1,55,1,56,1,
-  	56,1,57,1,57,1,58,1,58,3,58,961,8,58,1,59,1,59,1,59,3,59,966,8,59,1,60,
-  	1,60,1,60,1,60,1,61,1,61,1,61,1,61,1,61,0,3,36,74,94,62,0,2,4,6,8,10,
-  	12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,
-  	58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,94,96,98,100,102,
-  	104,106,108,110,112,114,116,118,120,122,0,16,2,0,32,32,141,141,2,0,84,
-  	84,96,96,3,0,4,4,8,8,12,12,4,0,4,4,7,8,12,12,147,147,2,0,96,96,140,140,
-  	2,0,4,4,8,8,2,0,11,11,42,43,2,0,62,62,93,93,2,0,133,133,143,143,3,0,17,
-  	17,95,95,170,170,2,0,79,79,98,98,1,0,197,198,2,0,208,208,228,228,8,0,
-  	37,37,76,76,108,108,110,110,132,132,145,145,185,185,190,190,13,0,2,24,
-  	26,36,38,75,77,81,83,107,109,109,111,112,114,115,117,130,133,144,146,
-  	184,186,189,191,192,4,0,36,36,62,62,77,77,91,91,1102,0,127,1,0,0,0,2,
-  	131,1,0,0,0,4,145,1,0,0,0,6,148,1,0,0,0,8,197,1,0,0,0,10,200,1,0,0,0,
-  	12,206,1,0,0,0,14,210,1,0,0,0,16,216,1,0,0,0,18,234,1,0,0,0,20,237,1,
-  	0,0,0,22,240,1,0,0,0,24,250,1,0,0,0,26,253,1,0,0,0,28,257,1,0,0,0,30,
-  	290,1,0,0,0,32,292,1,0,0,0,34,295,1,0,0,0,36,310,1,0,0,0,38,372,1,0,0,
-  	0,40,377,1,0,0,0,42,388,1,0,0,0,44,390,1,0,0,0,46,396,1,0,0,0,48,404,
-  	1,0,0,0,50,422,1,0,0,0,52,424,1,0,0,0,54,432,1,0,0,0,56,437,1,0,0,0,58,
-  	445,1,0,0,0,60,449,1,0,0,0,62,453,1,0,0,0,64,462,1,0,0,0,66,476,1,0,0,
-  	0,68,478,1,0,0,0,70,528,1,0,0,0,72,530,1,0,0,0,74,668,1,0,0,0,76,766,
-  	1,0,0,0,78,776,1,0,0,0,80,797,1,0,0,0,82,828,1,0,0,0,84,841,1,0,0,0,86,
-  	843,1,0,0,0,88,861,1,0,0,0,90,870,1,0,0,0,92,872,1,0,0,0,94,889,1,0,0,
-  	0,96,902,1,0,0,0,98,912,1,0,0,0,100,916,1,0,0,0,102,924,1,0,0,0,104,934,
-  	1,0,0,0,106,937,1,0,0,0,108,950,1,0,0,0,110,952,1,0,0,0,112,954,1,0,0,
-  	0,114,956,1,0,0,0,116,960,1,0,0,0,118,965,1,0,0,0,120,967,1,0,0,0,122,
-  	971,1,0,0,0,124,128,3,2,1,0,125,128,3,6,3,0,126,128,3,82,41,0,127,124,
-  	1,0,0,0,127,125,1,0,0,0,127,126,1,0,0,0,128,129,1,0,0,0,129,130,5,0,0,
-  	1,130,1,1,0,0,0,131,137,3,4,2,0,132,133,5,176,0,0,133,134,5,4,0,0,134,
-  	136,3,4,2,0,135,132,1,0,0,0,136,139,1,0,0,0,137,135,1,0,0,0,137,138,1,
-  	0,0,0,138,3,1,0,0,0,139,137,1,0,0,0,140,146,3,6,3,0,141,142,5,220,0,0,
-  	142,143,3,2,1,0,143,144,5,236,0,0,144,146,1,0,0,0,145,140,1,0,0,0,145,
+  	1,41,1,41,3,41,824,8,41,1,41,1,41,1,41,1,41,1,41,3,41,831,8,41,1,42,1,
+  	42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,1,42,3,42,844,8,42,1,43,1,
+  	43,1,43,5,43,849,8,43,10,43,12,43,852,9,43,1,44,1,44,1,44,1,44,1,44,1,
+  	44,1,44,1,44,1,44,1,44,3,44,864,8,44,1,45,1,45,1,45,1,45,3,45,870,8,45,
+  	1,45,3,45,873,8,45,1,46,1,46,1,46,5,46,878,8,46,10,46,12,46,881,9,46,
+  	1,47,1,47,1,47,1,47,1,47,1,47,1,47,1,47,1,47,3,47,892,8,47,1,47,1,47,
+  	1,47,1,47,3,47,898,8,47,5,47,900,8,47,10,47,12,47,903,9,47,1,48,1,48,
+  	1,48,3,48,908,8,48,1,48,1,48,1,49,1,49,1,49,3,49,915,8,49,1,49,1,49,1,
+  	50,1,50,1,50,5,50,922,8,50,10,50,12,50,925,9,50,1,51,1,51,1,52,1,52,1,
+  	52,1,52,1,52,1,52,3,52,935,8,52,3,52,937,8,52,1,53,3,53,940,8,53,1,53,
+  	1,53,1,53,1,53,1,53,1,53,3,53,948,8,53,1,54,1,54,1,54,3,54,953,8,54,1,
+  	55,1,55,1,56,1,56,1,57,1,57,1,58,1,58,3,58,963,8,58,1,59,1,59,1,59,3,
+  	59,968,8,59,1,60,1,60,1,60,1,60,1,61,1,61,1,61,1,61,1,61,0,3,36,74,94,
+  	62,0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,
+  	48,50,52,54,56,58,60,62,64,66,68,70,72,74,76,78,80,82,84,86,88,90,92,
+  	94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,0,16,2,0,32,
+  	32,141,141,2,0,84,84,96,96,3,0,4,4,8,8,12,12,4,0,4,4,7,8,12,12,147,147,
+  	2,0,96,96,140,140,2,0,4,4,8,8,2,0,11,11,42,43,2,0,62,62,93,93,2,0,133,
+  	133,143,143,3,0,17,17,95,95,170,170,2,0,79,79,98,98,1,0,197,198,2,0,208,
+  	208,228,228,8,0,37,37,76,76,108,108,110,110,132,132,145,145,185,185,190,
+  	190,13,0,2,24,26,36,38,75,77,81,83,107,109,109,111,112,114,115,117,130,
+  	133,144,146,184,186,189,191,192,4,0,36,36,62,62,77,77,91,91,1105,0,127,
+  	1,0,0,0,2,131,1,0,0,0,4,145,1,0,0,0,6,148,1,0,0,0,8,197,1,0,0,0,10,200,
+  	1,0,0,0,12,206,1,0,0,0,14,210,1,0,0,0,16,216,1,0,0,0,18,234,1,0,0,0,20,
+  	237,1,0,0,0,22,240,1,0,0,0,24,250,1,0,0,0,26,253,1,0,0,0,28,257,1,0,0,
+  	0,30,290,1,0,0,0,32,292,1,0,0,0,34,295,1,0,0,0,36,310,1,0,0,0,38,372,
+  	1,0,0,0,40,377,1,0,0,0,42,388,1,0,0,0,44,390,1,0,0,0,46,396,1,0,0,0,48,
+  	404,1,0,0,0,50,422,1,0,0,0,52,424,1,0,0,0,54,432,1,0,0,0,56,437,1,0,0,
+  	0,58,445,1,0,0,0,60,449,1,0,0,0,62,453,1,0,0,0,64,462,1,0,0,0,66,476,
+  	1,0,0,0,68,478,1,0,0,0,70,528,1,0,0,0,72,530,1,0,0,0,74,668,1,0,0,0,76,
+  	766,1,0,0,0,78,776,1,0,0,0,80,797,1,0,0,0,82,830,1,0,0,0,84,843,1,0,0,
+  	0,86,845,1,0,0,0,88,863,1,0,0,0,90,872,1,0,0,0,92,874,1,0,0,0,94,891,
+  	1,0,0,0,96,904,1,0,0,0,98,914,1,0,0,0,100,918,1,0,0,0,102,926,1,0,0,0,
+  	104,936,1,0,0,0,106,939,1,0,0,0,108,952,1,0,0,0,110,954,1,0,0,0,112,956,
+  	1,0,0,0,114,958,1,0,0,0,116,962,1,0,0,0,118,967,1,0,0,0,120,969,1,0,0,
+  	0,122,973,1,0,0,0,124,128,3,2,1,0,125,128,3,6,3,0,126,128,3,82,41,0,127,
+  	124,1,0,0,0,127,125,1,0,0,0,127,126,1,0,0,0,128,129,1,0,0,0,129,130,5,
+  	0,0,1,130,1,1,0,0,0,131,137,3,4,2,0,132,133,5,176,0,0,133,134,5,4,0,0,
+  	134,136,3,4,2,0,135,132,1,0,0,0,136,139,1,0,0,0,137,135,1,0,0,0,137,138,
+  	1,0,0,0,138,3,1,0,0,0,139,137,1,0,0,0,140,146,3,6,3,0,141,142,5,220,0,
+  	0,142,143,3,2,1,0,143,144,5,236,0,0,144,146,1,0,0,0,145,140,1,0,0,0,145,
   	141,1,0,0,0,146,5,1,0,0,0,147,149,3,8,4,0,148,147,1,0,0,0,148,149,1,0,
   	0,0,149,150,1,0,0,0,150,152,5,146,0,0,151,153,5,49,0,0,152,151,1,0,0,
   	0,152,153,1,0,0,0,153,155,1,0,0,0,154,156,3,10,5,0,155,154,1,0,0,0,155,
@@ -428,61 +428,62 @@ void hogqlparserParserInitialize() {
   	1,0,0,0,799,800,5,201,0,0,800,801,3,74,37,0,801,81,1,0,0,0,802,803,5,
   	222,0,0,803,807,3,118,59,0,804,806,3,84,42,0,805,804,1,0,0,0,806,809,
   	1,0,0,0,807,805,1,0,0,0,807,808,1,0,0,0,808,810,1,0,0,0,809,807,1,0,0,
-  	0,810,811,5,238,0,0,811,812,5,214,0,0,812,829,1,0,0,0,813,814,5,222,0,
+  	0,810,811,5,238,0,0,811,812,5,214,0,0,812,831,1,0,0,0,813,814,5,222,0,
   	0,814,818,3,118,59,0,815,817,3,84,42,0,816,815,1,0,0,0,817,820,1,0,0,
   	0,818,816,1,0,0,0,818,819,1,0,0,0,819,821,1,0,0,0,820,818,1,0,0,0,821,
-  	822,5,214,0,0,822,823,3,82,41,0,823,824,5,222,0,0,824,825,5,238,0,0,825,
-  	826,3,118,59,0,826,827,5,214,0,0,827,829,1,0,0,0,828,802,1,0,0,0,828,
-  	813,1,0,0,0,829,83,1,0,0,0,830,831,3,118,59,0,831,832,5,212,0,0,832,833,
-  	5,200,0,0,833,842,1,0,0,0,834,835,3,118,59,0,835,836,5,212,0,0,836,837,
-  	5,218,0,0,837,838,3,74,37,0,838,839,5,234,0,0,839,842,1,0,0,0,840,842,
-  	3,118,59,0,841,830,1,0,0,0,841,834,1,0,0,0,841,840,1,0,0,0,842,85,1,0,
-  	0,0,843,848,3,88,44,0,844,845,5,206,0,0,845,847,3,88,44,0,846,844,1,0,
-  	0,0,847,850,1,0,0,0,848,846,1,0,0,0,848,849,1,0,0,0,849,87,1,0,0,0,850,
-  	848,1,0,0,0,851,852,3,118,59,0,852,853,5,10,0,0,853,854,5,220,0,0,854,
-  	855,3,2,1,0,855,856,5,236,0,0,856,862,1,0,0,0,857,858,3,74,37,0,858,859,
-  	5,10,0,0,859,860,3,118,59,0,860,862,1,0,0,0,861,851,1,0,0,0,861,857,1,
-  	0,0,0,862,89,1,0,0,0,863,871,3,122,61,0,864,865,3,98,49,0,865,866,5,210,
-  	0,0,866,868,1,0,0,0,867,864,1,0,0,0,867,868,1,0,0,0,868,869,1,0,0,0,869,
-  	871,3,92,46,0,870,863,1,0,0,0,870,867,1,0,0,0,871,91,1,0,0,0,872,877,
-  	3,118,59,0,873,874,5,210,0,0,874,876,3,118,59,0,875,873,1,0,0,0,876,879,
-  	1,0,0,0,877,875,1,0,0,0,877,878,1,0,0,0,878,93,1,0,0,0,879,877,1,0,0,
-  	0,880,881,6,47,-1,0,881,890,3,98,49,0,882,890,3,96,48,0,883,884,5,220,
-  	0,0,884,885,3,2,1,0,885,886,5,236,0,0,886,890,1,0,0,0,887,890,3,82,41,
-  	0,888,890,3,122,61,0,889,880,1,0,0,0,889,882,1,0,0,0,889,883,1,0,0,0,
-  	889,887,1,0,0,0,889,888,1,0,0,0,890,899,1,0,0,0,891,895,10,3,0,0,892,
-  	896,3,116,58,0,893,894,5,10,0,0,894,896,3,118,59,0,895,892,1,0,0,0,895,
-  	893,1,0,0,0,896,898,1,0,0,0,897,891,1,0,0,0,898,901,1,0,0,0,899,897,1,
-  	0,0,0,899,900,1,0,0,0,900,95,1,0,0,0,901,899,1,0,0,0,902,903,3,118,59,
-  	0,903,905,5,220,0,0,904,906,3,100,50,0,905,904,1,0,0,0,905,906,1,0,0,
-  	0,906,907,1,0,0,0,907,908,5,236,0,0,908,97,1,0,0,0,909,910,3,102,51,0,
-  	910,911,5,210,0,0,911,913,1,0,0,0,912,909,1,0,0,0,912,913,1,0,0,0,913,
-  	914,1,0,0,0,914,915,3,118,59,0,915,99,1,0,0,0,916,921,3,74,37,0,917,918,
-  	5,206,0,0,918,920,3,74,37,0,919,917,1,0,0,0,920,923,1,0,0,0,921,919,1,
-  	0,0,0,921,922,1,0,0,0,922,101,1,0,0,0,923,921,1,0,0,0,924,925,3,118,59,
-  	0,925,103,1,0,0,0,926,935,5,196,0,0,927,928,5,210,0,0,928,935,7,11,0,
-  	0,929,930,5,198,0,0,930,932,5,210,0,0,931,933,7,11,0,0,932,931,1,0,0,
-  	0,932,933,1,0,0,0,933,935,1,0,0,0,934,926,1,0,0,0,934,927,1,0,0,0,934,
-  	929,1,0,0,0,935,105,1,0,0,0,936,938,7,12,0,0,937,936,1,0,0,0,937,938,
-  	1,0,0,0,938,945,1,0,0,0,939,946,3,104,52,0,940,946,5,197,0,0,941,946,
-  	5,198,0,0,942,946,5,199,0,0,943,946,5,82,0,0,944,946,5,113,0,0,945,939,
-  	1,0,0,0,945,940,1,0,0,0,945,941,1,0,0,0,945,942,1,0,0,0,945,943,1,0,0,
-  	0,945,944,1,0,0,0,946,107,1,0,0,0,947,951,3,106,53,0,948,951,5,200,0,
-  	0,949,951,5,116,0,0,950,947,1,0,0,0,950,948,1,0,0,0,950,949,1,0,0,0,951,
-  	109,1,0,0,0,952,953,7,13,0,0,953,111,1,0,0,0,954,955,7,14,0,0,955,113,
-  	1,0,0,0,956,957,7,15,0,0,957,115,1,0,0,0,958,961,5,195,0,0,959,961,3,
-  	114,57,0,960,958,1,0,0,0,960,959,1,0,0,0,961,117,1,0,0,0,962,966,5,195,
-  	0,0,963,966,3,110,55,0,964,966,3,112,56,0,965,962,1,0,0,0,965,963,1,0,
-  	0,0,965,964,1,0,0,0,966,119,1,0,0,0,967,968,5,200,0,0,968,969,5,212,0,
-  	0,969,970,3,106,53,0,970,121,1,0,0,0,971,972,5,218,0,0,972,973,3,118,
-  	59,0,973,974,5,234,0,0,974,123,1,0,0,0,119,127,137,145,148,152,155,159,
-  	162,165,168,171,175,179,182,185,188,192,195,204,210,231,248,265,271,277,
-  	288,290,301,304,310,318,324,326,330,335,338,341,345,349,352,354,357,361,
-  	365,368,370,372,377,388,394,401,406,410,414,420,422,429,437,440,443,462,
-  	476,492,504,516,524,528,535,541,550,554,585,602,614,624,627,631,634,647,
-  	664,668,674,681,693,697,700,709,723,750,759,761,763,771,776,784,794,797,
-  	807,818,828,841,848,861,867,870,877,889,895,899,905,912,921,932,934,937,
-  	945,950,960,965
+  	823,5,214,0,0,822,824,3,82,41,0,823,822,1,0,0,0,823,824,1,0,0,0,824,825,
+  	1,0,0,0,825,826,5,222,0,0,826,827,5,238,0,0,827,828,3,118,59,0,828,829,
+  	5,214,0,0,829,831,1,0,0,0,830,802,1,0,0,0,830,813,1,0,0,0,831,83,1,0,
+  	0,0,832,833,3,118,59,0,833,834,5,212,0,0,834,835,5,200,0,0,835,844,1,
+  	0,0,0,836,837,3,118,59,0,837,838,5,212,0,0,838,839,5,218,0,0,839,840,
+  	3,74,37,0,840,841,5,234,0,0,841,844,1,0,0,0,842,844,3,118,59,0,843,832,
+  	1,0,0,0,843,836,1,0,0,0,843,842,1,0,0,0,844,85,1,0,0,0,845,850,3,88,44,
+  	0,846,847,5,206,0,0,847,849,3,88,44,0,848,846,1,0,0,0,849,852,1,0,0,0,
+  	850,848,1,0,0,0,850,851,1,0,0,0,851,87,1,0,0,0,852,850,1,0,0,0,853,854,
+  	3,118,59,0,854,855,5,10,0,0,855,856,5,220,0,0,856,857,3,2,1,0,857,858,
+  	5,236,0,0,858,864,1,0,0,0,859,860,3,74,37,0,860,861,5,10,0,0,861,862,
+  	3,118,59,0,862,864,1,0,0,0,863,853,1,0,0,0,863,859,1,0,0,0,864,89,1,0,
+  	0,0,865,873,3,122,61,0,866,867,3,98,49,0,867,868,5,210,0,0,868,870,1,
+  	0,0,0,869,866,1,0,0,0,869,870,1,0,0,0,870,871,1,0,0,0,871,873,3,92,46,
+  	0,872,865,1,0,0,0,872,869,1,0,0,0,873,91,1,0,0,0,874,879,3,118,59,0,875,
+  	876,5,210,0,0,876,878,3,118,59,0,877,875,1,0,0,0,878,881,1,0,0,0,879,
+  	877,1,0,0,0,879,880,1,0,0,0,880,93,1,0,0,0,881,879,1,0,0,0,882,883,6,
+  	47,-1,0,883,892,3,98,49,0,884,892,3,96,48,0,885,886,5,220,0,0,886,887,
+  	3,2,1,0,887,888,5,236,0,0,888,892,1,0,0,0,889,892,3,82,41,0,890,892,3,
+  	122,61,0,891,882,1,0,0,0,891,884,1,0,0,0,891,885,1,0,0,0,891,889,1,0,
+  	0,0,891,890,1,0,0,0,892,901,1,0,0,0,893,897,10,3,0,0,894,898,3,116,58,
+  	0,895,896,5,10,0,0,896,898,3,118,59,0,897,894,1,0,0,0,897,895,1,0,0,0,
+  	898,900,1,0,0,0,899,893,1,0,0,0,900,903,1,0,0,0,901,899,1,0,0,0,901,902,
+  	1,0,0,0,902,95,1,0,0,0,903,901,1,0,0,0,904,905,3,118,59,0,905,907,5,220,
+  	0,0,906,908,3,100,50,0,907,906,1,0,0,0,907,908,1,0,0,0,908,909,1,0,0,
+  	0,909,910,5,236,0,0,910,97,1,0,0,0,911,912,3,102,51,0,912,913,5,210,0,
+  	0,913,915,1,0,0,0,914,911,1,0,0,0,914,915,1,0,0,0,915,916,1,0,0,0,916,
+  	917,3,118,59,0,917,99,1,0,0,0,918,923,3,74,37,0,919,920,5,206,0,0,920,
+  	922,3,74,37,0,921,919,1,0,0,0,922,925,1,0,0,0,923,921,1,0,0,0,923,924,
+  	1,0,0,0,924,101,1,0,0,0,925,923,1,0,0,0,926,927,3,118,59,0,927,103,1,
+  	0,0,0,928,937,5,196,0,0,929,930,5,210,0,0,930,937,7,11,0,0,931,932,5,
+  	198,0,0,932,934,5,210,0,0,933,935,7,11,0,0,934,933,1,0,0,0,934,935,1,
+  	0,0,0,935,937,1,0,0,0,936,928,1,0,0,0,936,929,1,0,0,0,936,931,1,0,0,0,
+  	937,105,1,0,0,0,938,940,7,12,0,0,939,938,1,0,0,0,939,940,1,0,0,0,940,
+  	947,1,0,0,0,941,948,3,104,52,0,942,948,5,197,0,0,943,948,5,198,0,0,944,
+  	948,5,199,0,0,945,948,5,82,0,0,946,948,5,113,0,0,947,941,1,0,0,0,947,
+  	942,1,0,0,0,947,943,1,0,0,0,947,944,1,0,0,0,947,945,1,0,0,0,947,946,1,
+  	0,0,0,948,107,1,0,0,0,949,953,3,106,53,0,950,953,5,200,0,0,951,953,5,
+  	116,0,0,952,949,1,0,0,0,952,950,1,0,0,0,952,951,1,0,0,0,953,109,1,0,0,
+  	0,954,955,7,13,0,0,955,111,1,0,0,0,956,957,7,14,0,0,957,113,1,0,0,0,958,
+  	959,7,15,0,0,959,115,1,0,0,0,960,963,5,195,0,0,961,963,3,114,57,0,962,
+  	960,1,0,0,0,962,961,1,0,0,0,963,117,1,0,0,0,964,968,5,195,0,0,965,968,
+  	3,110,55,0,966,968,3,112,56,0,967,964,1,0,0,0,967,965,1,0,0,0,967,966,
+  	1,0,0,0,968,119,1,0,0,0,969,970,5,200,0,0,970,971,5,212,0,0,971,972,3,
+  	106,53,0,972,121,1,0,0,0,973,974,5,218,0,0,974,975,3,118,59,0,975,976,
+  	5,234,0,0,976,123,1,0,0,0,120,127,137,145,148,152,155,159,162,165,168,
+  	171,175,179,182,185,188,192,195,204,210,231,248,265,271,277,288,290,301,
+  	304,310,318,324,326,330,335,338,341,345,349,352,354,357,361,365,368,370,
+  	372,377,388,394,401,406,410,414,420,422,429,437,440,443,462,476,492,504,
+  	516,524,528,535,541,550,554,585,602,614,624,627,631,634,647,664,668,674,
+  	681,693,697,700,709,723,750,759,761,763,771,776,784,794,797,807,818,823,
+  	830,843,850,863,869,872,879,891,897,901,907,914,923,934,936,939,947,952,
+  	962,967
   };
   staticData->serializedATN = antlr4::atn::SerializedATNView(serializedATNSegment, sizeof(serializedATNSegment) / sizeof(serializedATNSegment[0]));
 
@@ -6920,10 +6921,6 @@ tree::TerminalNode* HogQLParser::HogqlxTagElementNestedContext::GT(size_t i) {
   return getToken(HogQLParser::GT, i);
 }
 
-HogQLParser::HogqlxTagElementContext* HogQLParser::HogqlxTagElementNestedContext::hogqlxTagElement() {
-  return getRuleContext<HogQLParser::HogqlxTagElementContext>(0);
-}
-
 tree::TerminalNode* HogQLParser::HogqlxTagElementNestedContext::SLASH() {
   return getToken(HogQLParser::SLASH, 0);
 }
@@ -6934,6 +6931,10 @@ std::vector<HogQLParser::HogqlxTagAttributeContext *> HogQLParser::HogqlxTagElem
 
 HogQLParser::HogqlxTagAttributeContext* HogQLParser::HogqlxTagElementNestedContext::hogqlxTagAttribute(size_t i) {
   return getRuleContext<HogQLParser::HogqlxTagAttributeContext>(i);
+}
+
+HogQLParser::HogqlxTagElementContext* HogQLParser::HogqlxTagElementNestedContext::hogqlxTagElement() {
+  return getRuleContext<HogQLParser::HogqlxTagElementContext>(0);
 }
 
 HogQLParser::HogqlxTagElementNestedContext::HogqlxTagElementNestedContext(HogqlxTagElementContext *ctx) { copyFrom(ctx); }
@@ -6958,9 +6959,9 @@ HogQLParser::HogqlxTagElementContext* HogQLParser::hogqlxTagElement() {
     exitRule();
   });
   try {
-    setState(828);
+    setState(830);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 99, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 100, _ctx)) {
     case 1: {
       _localctx = _tracker.createInstance<HogQLParser::HogqlxTagElementClosedContext>(_localctx);
       enterOuterAlt(_localctx, 1);
@@ -7014,15 +7015,26 @@ HogQLParser::HogqlxTagElementContext* HogQLParser::hogqlxTagElement() {
       }
       setState(821);
       match(HogQLParser::GT);
-      setState(822);
-      hogqlxTagElement();
       setState(823);
-      match(HogQLParser::LT);
-      setState(824);
-      match(HogQLParser::SLASH);
+      _errHandler->sync(this);
+
+      switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 99, _ctx)) {
+      case 1: {
+        setState(822);
+        hogqlxTagElement();
+        break;
+      }
+
+      default:
+        break;
+      }
       setState(825);
-      identifier();
+      match(HogQLParser::LT);
       setState(826);
+      match(HogQLParser::SLASH);
+      setState(827);
+      identifier();
+      setState(828);
       match(HogQLParser::GT);
       break;
     }
@@ -7096,38 +7108,38 @@ HogQLParser::HogqlxTagAttributeContext* HogQLParser::hogqlxTagAttribute() {
     exitRule();
   });
   try {
-    setState(841);
+    setState(843);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 100, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 101, _ctx)) {
     case 1: {
       enterOuterAlt(_localctx, 1);
-      setState(830);
-      identifier();
-      setState(831);
-      match(HogQLParser::EQ_SINGLE);
       setState(832);
+      identifier();
+      setState(833);
+      match(HogQLParser::EQ_SINGLE);
+      setState(834);
       match(HogQLParser::STRING_LITERAL);
       break;
     }
 
     case 2: {
       enterOuterAlt(_localctx, 2);
-      setState(834);
-      identifier();
-      setState(835);
-      match(HogQLParser::EQ_SINGLE);
       setState(836);
-      match(HogQLParser::LBRACE);
+      identifier();
       setState(837);
-      columnExpr(0);
+      match(HogQLParser::EQ_SINGLE);
       setState(838);
+      match(HogQLParser::LBRACE);
+      setState(839);
+      columnExpr(0);
+      setState(840);
       match(HogQLParser::RBRACE);
       break;
     }
 
     case 3: {
       enterOuterAlt(_localctx, 3);
-      setState(840);
+      setState(842);
       identifier();
       break;
     }
@@ -7195,17 +7207,17 @@ HogQLParser::WithExprListContext* HogQLParser::withExprList() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(843);
+    setState(845);
     withExpr();
-    setState(848);
+    setState(850);
     _errHandler->sync(this);
     _la = _input->LA(1);
     while (_la == HogQLParser::COMMA) {
-      setState(844);
+      setState(846);
       match(HogQLParser::COMMA);
-      setState(845);
+      setState(847);
       withExpr();
-      setState(850);
+      setState(852);
       _errHandler->sync(this);
       _la = _input->LA(1);
     }
@@ -7301,21 +7313,21 @@ HogQLParser::WithExprContext* HogQLParser::withExpr() {
     exitRule();
   });
   try {
-    setState(861);
+    setState(863);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 102, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 103, _ctx)) {
     case 1: {
       _localctx = _tracker.createInstance<HogQLParser::WithExprSubqueryContext>(_localctx);
       enterOuterAlt(_localctx, 1);
-      setState(851);
-      identifier();
-      setState(852);
-      match(HogQLParser::AS);
       setState(853);
-      match(HogQLParser::LPAREN);
+      identifier();
       setState(854);
-      selectUnionStmt();
+      match(HogQLParser::AS);
       setState(855);
+      match(HogQLParser::LPAREN);
+      setState(856);
+      selectUnionStmt();
+      setState(857);
       match(HogQLParser::RPAREN);
       break;
     }
@@ -7323,11 +7335,11 @@ HogQLParser::WithExprContext* HogQLParser::withExpr() {
     case 2: {
       _localctx = _tracker.createInstance<HogQLParser::WithExprColumnContext>(_localctx);
       enterOuterAlt(_localctx, 2);
-      setState(857);
-      columnExpr(0);
-      setState(858);
-      match(HogQLParser::AS);
       setState(859);
+      columnExpr(0);
+      setState(860);
+      match(HogQLParser::AS);
+      setState(861);
       identifier();
       break;
     }
@@ -7393,12 +7405,12 @@ HogQLParser::ColumnIdentifierContext* HogQLParser::columnIdentifier() {
     exitRule();
   });
   try {
-    setState(870);
+    setState(872);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case HogQLParser::LBRACE: {
         enterOuterAlt(_localctx, 1);
-        setState(863);
+        setState(865);
         placeholder();
         break;
       }
@@ -7591,14 +7603,14 @@ HogQLParser::ColumnIdentifierContext* HogQLParser::columnIdentifier() {
       case HogQLParser::JSON_TRUE:
       case HogQLParser::IDENTIFIER: {
         enterOuterAlt(_localctx, 2);
-        setState(867);
+        setState(869);
         _errHandler->sync(this);
 
-        switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 103, _ctx)) {
+        switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 104, _ctx)) {
         case 1: {
-          setState(864);
+          setState(866);
           tableIdentifier();
-          setState(865);
+          setState(867);
           match(HogQLParser::DOT);
           break;
         }
@@ -7606,7 +7618,7 @@ HogQLParser::ColumnIdentifierContext* HogQLParser::columnIdentifier() {
         default:
           break;
         }
-        setState(869);
+        setState(871);
         nestedIdentifier();
         break;
       }
@@ -7674,21 +7686,21 @@ HogQLParser::NestedIdentifierContext* HogQLParser::nestedIdentifier() {
   try {
     size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(872);
+    setState(874);
     identifier();
-    setState(877);
+    setState(879);
     _errHandler->sync(this);
-    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 105, _ctx);
+    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 106, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
       if (alt == 1) {
-        setState(873);
+        setState(875);
         match(HogQLParser::DOT);
-        setState(874);
+        setState(876);
         identifier(); 
       }
-      setState(879);
+      setState(881);
       _errHandler->sync(this);
-      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 105, _ctx);
+      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 106, _ctx);
     }
    
   }
@@ -7852,15 +7864,15 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
   try {
     size_t alt;
     enterOuterAlt(_localctx, 1);
-    setState(889);
+    setState(891);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 106, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 107, _ctx)) {
     case 1: {
       _localctx = _tracker.createInstance<TableExprIdentifierContext>(_localctx);
       _ctx = _localctx;
       previousContext = _localctx;
 
-      setState(881);
+      setState(883);
       tableIdentifier();
       break;
     }
@@ -7869,7 +7881,7 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       _localctx = _tracker.createInstance<TableExprFunctionContext>(_localctx);
       _ctx = _localctx;
       previousContext = _localctx;
-      setState(882);
+      setState(884);
       tableFunctionExpr();
       break;
     }
@@ -7878,11 +7890,11 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       _localctx = _tracker.createInstance<TableExprSubqueryContext>(_localctx);
       _ctx = _localctx;
       previousContext = _localctx;
-      setState(883);
-      match(HogQLParser::LPAREN);
-      setState(884);
-      selectUnionStmt();
       setState(885);
+      match(HogQLParser::LPAREN);
+      setState(886);
+      selectUnionStmt();
+      setState(887);
       match(HogQLParser::RPAREN);
       break;
     }
@@ -7891,7 +7903,7 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       _localctx = _tracker.createInstance<TableExprTagContext>(_localctx);
       _ctx = _localctx;
       previousContext = _localctx;
-      setState(887);
+      setState(889);
       hogqlxTagElement();
       break;
     }
@@ -7900,7 +7912,7 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       _localctx = _tracker.createInstance<TableExprPlaceholderContext>(_localctx);
       _ctx = _localctx;
       previousContext = _localctx;
-      setState(888);
+      setState(890);
       placeholder();
       break;
     }
@@ -7909,9 +7921,9 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       break;
     }
     _ctx->stop = _input->LT(-1);
-    setState(899);
+    setState(901);
     _errHandler->sync(this);
-    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 108, _ctx);
+    alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 109, _ctx);
     while (alt != 2 && alt != atn::ATN::INVALID_ALT_NUMBER) {
       if (alt == 1) {
         if (!_parseListeners.empty())
@@ -7920,10 +7932,10 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
         auto newContext = _tracker.createInstance<TableExprAliasContext>(_tracker.createInstance<TableExprContext>(parentContext, parentState));
         _localctx = newContext;
         pushNewRecursionContext(newContext, startState, RuleTableExpr);
-        setState(891);
+        setState(893);
 
         if (!(precpred(_ctx, 3))) throw FailedPredicateException(this, "precpred(_ctx, 3)");
-        setState(895);
+        setState(897);
         _errHandler->sync(this);
         switch (_input->LA(1)) {
           case HogQLParser::DATE:
@@ -7931,15 +7943,15 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
           case HogQLParser::ID:
           case HogQLParser::KEY:
           case HogQLParser::IDENTIFIER: {
-            setState(892);
+            setState(894);
             alias();
             break;
           }
 
           case HogQLParser::AS: {
-            setState(893);
+            setState(895);
             match(HogQLParser::AS);
-            setState(894);
+            setState(896);
             identifier();
             break;
           }
@@ -7948,9 +7960,9 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
           throw NoViableAltException(this);
         } 
       }
-      setState(901);
+      setState(903);
       _errHandler->sync(this);
-      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 108, _ctx);
+      alt = getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 109, _ctx);
     }
   }
   catch (RecognitionException &e) {
@@ -8010,11 +8022,11 @@ HogQLParser::TableFunctionExprContext* HogQLParser::tableFunctionExpr() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(902);
+    setState(904);
     identifier();
-    setState(903);
-    match(HogQLParser::LPAREN);
     setState(905);
+    match(HogQLParser::LPAREN);
+    setState(907);
     _errHandler->sync(this);
 
     _la = _input->LA(1);
@@ -8023,10 +8035,10 @@ HogQLParser::TableFunctionExprContext* HogQLParser::tableFunctionExpr() {
       ((1ULL << (_la - 64)) & -1) != 0) || ((((_la - 128) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 128)) & -9) != 0) || ((((_la - 192) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 192)) & 70263309817) != 0)) {
-      setState(904);
+      setState(906);
       tableArgList();
     }
-    setState(907);
+    setState(909);
     match(HogQLParser::RPAREN);
    
   }
@@ -8083,14 +8095,14 @@ HogQLParser::TableIdentifierContext* HogQLParser::tableIdentifier() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(912);
+    setState(914);
     _errHandler->sync(this);
 
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 110, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 111, _ctx)) {
     case 1: {
-      setState(909);
+      setState(911);
       databaseIdentifier();
-      setState(910);
+      setState(912);
       match(HogQLParser::DOT);
       break;
     }
@@ -8098,7 +8110,7 @@ HogQLParser::TableIdentifierContext* HogQLParser::tableIdentifier() {
     default:
       break;
     }
-    setState(914);
+    setState(916);
     identifier();
    
   }
@@ -8160,17 +8172,17 @@ HogQLParser::TableArgListContext* HogQLParser::tableArgList() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(916);
+    setState(918);
     columnExpr(0);
-    setState(921);
+    setState(923);
     _errHandler->sync(this);
     _la = _input->LA(1);
     while (_la == HogQLParser::COMMA) {
-      setState(917);
+      setState(919);
       match(HogQLParser::COMMA);
-      setState(918);
+      setState(920);
       columnExpr(0);
-      setState(923);
+      setState(925);
       _errHandler->sync(this);
       _la = _input->LA(1);
     }
@@ -8221,7 +8233,7 @@ HogQLParser::DatabaseIdentifierContext* HogQLParser::databaseIdentifier() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(924);
+    setState(926);
     identifier();
    
   }
@@ -8286,21 +8298,21 @@ HogQLParser::FloatingLiteralContext* HogQLParser::floatingLiteral() {
     exitRule();
   });
   try {
-    setState(934);
+    setState(936);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case HogQLParser::FLOATING_LITERAL: {
         enterOuterAlt(_localctx, 1);
-        setState(926);
+        setState(928);
         match(HogQLParser::FLOATING_LITERAL);
         break;
       }
 
       case HogQLParser::DOT: {
         enterOuterAlt(_localctx, 2);
-        setState(927);
+        setState(929);
         match(HogQLParser::DOT);
-        setState(928);
+        setState(930);
         _la = _input->LA(1);
         if (!(_la == HogQLParser::OCTAL_LITERAL
 
@@ -8316,16 +8328,16 @@ HogQLParser::FloatingLiteralContext* HogQLParser::floatingLiteral() {
 
       case HogQLParser::DECIMAL_LITERAL: {
         enterOuterAlt(_localctx, 3);
-        setState(929);
+        setState(931);
         match(HogQLParser::DECIMAL_LITERAL);
-        setState(930);
-        match(HogQLParser::DOT);
         setState(932);
+        match(HogQLParser::DOT);
+        setState(934);
         _errHandler->sync(this);
 
-        switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 112, _ctx)) {
+        switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 113, _ctx)) {
         case 1: {
-          setState(931);
+          setState(933);
           _la = _input->LA(1);
           if (!(_la == HogQLParser::OCTAL_LITERAL
 
@@ -8424,14 +8436,14 @@ HogQLParser::NumberLiteralContext* HogQLParser::numberLiteral() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(937);
+    setState(939);
     _errHandler->sync(this);
 
     _la = _input->LA(1);
     if (_la == HogQLParser::DASH
 
     || _la == HogQLParser::PLUS) {
-      setState(936);
+      setState(938);
       _la = _input->LA(1);
       if (!(_la == HogQLParser::DASH
 
@@ -8443,41 +8455,41 @@ HogQLParser::NumberLiteralContext* HogQLParser::numberLiteral() {
         consume();
       }
     }
-    setState(945);
+    setState(947);
     _errHandler->sync(this);
-    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 115, _ctx)) {
+    switch (getInterpreter<atn::ParserATNSimulator>()->adaptivePredict(_input, 116, _ctx)) {
     case 1: {
-      setState(939);
+      setState(941);
       floatingLiteral();
       break;
     }
 
     case 2: {
-      setState(940);
+      setState(942);
       match(HogQLParser::OCTAL_LITERAL);
       break;
     }
 
     case 3: {
-      setState(941);
+      setState(943);
       match(HogQLParser::DECIMAL_LITERAL);
       break;
     }
 
     case 4: {
-      setState(942);
+      setState(944);
       match(HogQLParser::HEXADECIMAL_LITERAL);
       break;
     }
 
     case 5: {
-      setState(943);
+      setState(945);
       match(HogQLParser::INF);
       break;
     }
 
     case 6: {
-      setState(944);
+      setState(946);
       match(HogQLParser::NAN_SQL);
       break;
     }
@@ -8539,7 +8551,7 @@ HogQLParser::LiteralContext* HogQLParser::literal() {
     exitRule();
   });
   try {
-    setState(950);
+    setState(952);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case HogQLParser::INF:
@@ -8552,21 +8564,21 @@ HogQLParser::LiteralContext* HogQLParser::literal() {
       case HogQLParser::DOT:
       case HogQLParser::PLUS: {
         enterOuterAlt(_localctx, 1);
-        setState(947);
+        setState(949);
         numberLiteral();
         break;
       }
 
       case HogQLParser::STRING_LITERAL: {
         enterOuterAlt(_localctx, 2);
-        setState(948);
+        setState(950);
         match(HogQLParser::STRING_LITERAL);
         break;
       }
 
       case HogQLParser::NULL_SQL: {
         enterOuterAlt(_localctx, 3);
-        setState(949);
+        setState(951);
         match(HogQLParser::NULL_SQL);
         break;
       }
@@ -8650,7 +8662,7 @@ HogQLParser::IntervalContext* HogQLParser::interval() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(952);
+    setState(954);
     _la = _input->LA(1);
     if (!(_la == HogQLParser::DAY || ((((_la - 76) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 76)) & 72057615512764417) != 0) || ((((_la - 145) & ~ 0x3fULL) == 0) &&
@@ -9417,7 +9429,7 @@ HogQLParser::KeywordContext* HogQLParser::keyword() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(954);
+    setState(956);
     _la = _input->LA(1);
     if (!(((((_la - 2) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 2)) & -34368126977) != 0) || ((((_la - 66) & ~ 0x3fULL) == 0) &&
@@ -9489,7 +9501,7 @@ HogQLParser::KeywordForAliasContext* HogQLParser::keywordForAlias() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(956);
+    setState(958);
     _la = _input->LA(1);
     if (!(((((_la - 36) & ~ 0x3fULL) == 0) &&
       ((1ULL << (_la - 36)) & 36030996109328385) != 0))) {
@@ -9549,12 +9561,12 @@ HogQLParser::AliasContext* HogQLParser::alias() {
     exitRule();
   });
   try {
-    setState(960);
+    setState(962);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case HogQLParser::IDENTIFIER: {
         enterOuterAlt(_localctx, 1);
-        setState(958);
+        setState(960);
         match(HogQLParser::IDENTIFIER);
         break;
       }
@@ -9564,7 +9576,7 @@ HogQLParser::AliasContext* HogQLParser::alias() {
       case HogQLParser::ID:
       case HogQLParser::KEY: {
         enterOuterAlt(_localctx, 2);
-        setState(959);
+        setState(961);
         keywordForAlias();
         break;
       }
@@ -9626,12 +9638,12 @@ HogQLParser::IdentifierContext* HogQLParser::identifier() {
     exitRule();
   });
   try {
-    setState(965);
+    setState(967);
     _errHandler->sync(this);
     switch (_input->LA(1)) {
       case HogQLParser::IDENTIFIER: {
         enterOuterAlt(_localctx, 1);
-        setState(962);
+        setState(964);
         match(HogQLParser::IDENTIFIER);
         break;
       }
@@ -9645,7 +9657,7 @@ HogQLParser::IdentifierContext* HogQLParser::identifier() {
       case HogQLParser::WEEK:
       case HogQLParser::YEAR: {
         enterOuterAlt(_localctx, 2);
-        setState(963);
+        setState(965);
         interval();
         break;
       }
@@ -9829,7 +9841,7 @@ HogQLParser::IdentifierContext* HogQLParser::identifier() {
       case HogQLParser::JSON_FALSE:
       case HogQLParser::JSON_TRUE: {
         enterOuterAlt(_localctx, 3);
-        setState(964);
+        setState(966);
         keyword();
         break;
       }
@@ -9892,11 +9904,11 @@ HogQLParser::EnumValueContext* HogQLParser::enumValue() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(967);
-    match(HogQLParser::STRING_LITERAL);
-    setState(968);
-    match(HogQLParser::EQ_SINGLE);
     setState(969);
+    match(HogQLParser::STRING_LITERAL);
+    setState(970);
+    match(HogQLParser::EQ_SINGLE);
+    setState(971);
     numberLiteral();
    
   }
@@ -9953,11 +9965,11 @@ HogQLParser::PlaceholderContext* HogQLParser::placeholder() {
   });
   try {
     enterOuterAlt(_localctx, 1);
-    setState(971);
-    match(HogQLParser::LBRACE);
-    setState(972);
-    identifier();
     setState(973);
+    match(HogQLParser::LBRACE);
+    setState(974);
+    identifier();
+    setState(975);
     match(HogQLParser::RBRACE);
    
   }

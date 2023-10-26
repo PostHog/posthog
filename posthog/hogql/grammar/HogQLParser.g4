@@ -172,7 +172,7 @@ columnLambdaExpr:
 
 hogqlxTagElement
     : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement LT SLASH identifier GT      # HogqlxTagElementNested
+    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' STRING_LITERAL

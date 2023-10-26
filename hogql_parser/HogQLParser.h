@@ -1491,10 +1491,10 @@ public:
     IdentifierContext* identifier(size_t i);
     std::vector<antlr4::tree::TerminalNode *> GT();
     antlr4::tree::TerminalNode* GT(size_t i);
-    HogqlxTagElementContext *hogqlxTagElement();
     antlr4::tree::TerminalNode *SLASH();
     std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
     HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
+    HogqlxTagElementContext *hogqlxTagElement();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
