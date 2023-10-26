@@ -95,7 +95,6 @@ const tabs: Record<
             />
         ),
     },
-    // TODO: Only show this if it should be shown
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
         label: 'Ingestion Warnings',
