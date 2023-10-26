@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,16 +12,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import {
-    ChartDisplayType,
-    PropertyFilterType,
-    PropertyOperator,
-    RatingSurveyQuestion,
-    Survey,
-    SurveyQuestion,
-    SurveyQuestionType,
-    SurveyType,
-} from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
@@ -253,10 +244,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyMetricsQueries,
-        surveyRatingQuery,
-        surveyMultipleChoiceQuery,
-        currentQuestionIndexAndType,
         surveyUserStats,
         surveyUserStatsLoading,
         surveyRatingResults,
@@ -269,60 +256,63 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
     } = useValues(surveyLogic)
-    const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    console.log('results', surveyRatingResults)
+
     return (
         <>
-                <>
-                    <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
-                    {survey.questions.map((question, i) => {
-                        if (question.type === SurveyQuestionType.Rating) {
-                            return (
-                                <>
-                                    {question.scale === 10 && <>
+            <>
+                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                {survey.questions.map((question, i) => {
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return (
+                            <>
+                                {question.scale === 10 && (
+                                    <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
                                         <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && <SurveyNPSResults survey={survey as Survey} />}
-                                    </>}
-                                    <RatingQuestionBarChart
-                                        key={`survey-q-${i}`}
-                                        surveyRatingResults={surveyRatingResults}
-                                        surveyRatingResultsReady={surveyRatingResultsReady}
-                                        questionIndex={i}
-                                    />
-                                </>
-                            )
-                        } else if (question.type === SurveyQuestionType.SingleChoice) {
-                            return (
-                                <SingleChoiceQuestionPieChart
+                                        {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                                            <SurveyNPSResults survey={survey as Survey} />
+                                        )}
+                                    </>
+                                )}
+                                <RatingQuestionBarChart
                                     key={`survey-q-${i}`}
-                                    surveySingleChoiceResults={surveySingleChoiceResults}
-                                    surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                    surveyRatingResults={surveyRatingResults}
+                                    surveyRatingResultsReady={surveyRatingResultsReady}
                                     questionIndex={i}
                                 />
-                            )
-                        } else if (question.type === SurveyQuestionType.MultipleChoice) {
-                            return (
-                                <MultipleChoiceQuestionBarChart
-                                    key={`survey-q-${i}`}
-                                    surveyMultipleChoiceResults={surveyMultipleChoiceResults}
-                                    surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
-                                    questionIndex={i}
-                                />
-                            )
-                        } else if (question.type === SurveyQuestionType.Open) {
-                            return (
-                                <OpenTextViz
-                                    key={`survey-q-${i}`}
-                                    surveyOpenTextResults={surveyOpenTextResults}
-                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                    questionIndex={i}
-                                />
-                            )
-                        }
-                    })}
-                </>
+                            </>
+                        )
+                    } else if (question.type === SurveyQuestionType.SingleChoice) {
+                        return (
+                            <SingleChoiceQuestionPieChart
+                                key={`survey-q-${i}`}
+                                surveySingleChoiceResults={surveySingleChoiceResults}
+                                surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                        return (
+                            <MultipleChoiceQuestionBarChart
+                                key={`survey-q-${i}`}
+                                surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                                surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    } else if (question.type === SurveyQuestionType.Open) {
+                        return (
+                            <OpenTextViz
+                                key={`survey-q-${i}`}
+                                surveyOpenTextResults={surveyOpenTextResults}
+                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    }
+                })}
+            </>
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
         </>
     )
@@ -399,6 +389,5 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                 }}
             />
         </>
-
     )
 }
