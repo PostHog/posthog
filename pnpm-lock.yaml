@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -547,7 +547,7 @@ devDependencies:
     specifier: ^3.1.0
     version: 3.1.0
   eslint-plugin-posthog:
-    specifier: link:eslint-rules
+    specifier: link:./eslint-rules
     version: link:eslint-rules
   eslint-plugin-prettier:
     specifier: ^5.0.1
