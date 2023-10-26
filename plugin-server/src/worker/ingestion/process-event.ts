@@ -23,6 +23,7 @@ import {
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -225,12 +226,24 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.produce({
-            topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            key: uuid,
-            value: Buffer.from(JSON.stringify(rawEvent)),
-            waitForAck: true,
-        })
+        const ack = this.kafkaProducer
+            .produce({
+                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                key: uuid,
+                value: Buffer.from(JSON.stringify(rawEvent)),
+                waitForAck: true,
+            })
+            .catch(async (error) => {
+                // Some messages end up significantly larger than the original
+                // after plugin processing, person & group enrichment, etc.
+                if (error instanceof MessageSizeTooLarge) {
+                    await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                        eventUuid: uuid,
+                    })
+                } else {
+                    throw error
+                }
+            })
 
         return [rawEvent, ack]
     }
