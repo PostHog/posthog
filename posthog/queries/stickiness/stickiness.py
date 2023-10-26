@@ -20,7 +20,6 @@ class Stickiness:
     actor_query_class = StickinessActors
 
     def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-
         response = []
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
@@ -44,14 +43,26 @@ class Stickiness:
 
         counts = insight_sync_execute(
             query,
-            {**event_params, **filter.hogql_context.values, "num_intervals": filter.total_intervals},
+            {
+                **event_params,
+                **filter.hogql_context.values,
+                "num_intervals": filter.total_intervals,
+            },
             query_type="stickiness",
             filter=filter,
             team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 
-    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
+    def people(
+        self,
+        target_entity: Entity,
+        filter: StickinessFilter,
+        team: Team,
+        request,
+        *args,
+        **kwargs,
+    ):
         _, serialized_actors, _ = self.actor_query_class(entity=target_entity, filter=filter, team=team).get_actors()
         return serialized_actors
 

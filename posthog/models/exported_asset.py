@@ -96,7 +96,11 @@ class ExportedAsset(models.Model):
         return self.export_format.split("/")[1]
 
     def get_analytics_metadata(self):
-        return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
+        return {
+            "export_format": self.export_format,
+            "dashboard_id": self.dashboard_id,
+            "insight_id": self.insight_id,
+        }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
@@ -112,7 +116,11 @@ class ExportedAsset(models.Model):
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:
         expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
-    return encode_jwt({"id": asset.id}, expiry_delta=expiry_delta, audience=PosthogJwtAudience.EXPORTED_ASSET)
+    return encode_jwt(
+        {"id": asset.id},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
 
 
 def asset_for_token(token: str) -> ExportedAsset:
@@ -153,7 +161,10 @@ def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
     except ObjectStorageError as ose:
         capture_exception(ose)
         logger.error(
-            "exported_asset.object-storage-error", exported_asset_id=exported_asset.id, exception=ose, exc_info=True
+            "exported_asset.object-storage-error",
+            exported_asset_id=exported_asset.id,
+            exception=ose,
+            exc_info=True,
         )
         save_content_to_exported_asset(exported_asset, content)
 

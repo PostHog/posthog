@@ -142,7 +142,11 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
     "toDate": HogQLFunctionMeta(
-        "toDateOrNull", 1, 1, overloads=[((ast.DateTimeType, ast.DateType), "toDate")], tz_aware=True
+        "toDateOrNull",
+        1,
+        1,
+        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
+        tz_aware=True,
     ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
@@ -725,6 +729,17 @@ HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
 
 # TODO: Make the below details part of function meta
 # Functions where we use a -OrNull variant by default
-ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+ADD_OR_NULL_DATETIME_FUNCTIONS = (
+    "toDateTime",
+    "parseDateTime",
+    "parseDateTimeBestEffort",
+)
 # Functions where the first argument needs to be DateTime and not DateTime64
-FIRST_ARG_DATETIME_FUNCTIONS = ("tumble", "tumbleStart", "tumbleEnd", "hop", "hopStart", "hopEnd")
+FIRST_ARG_DATETIME_FUNCTIONS = (
+    "tumble",
+    "tumbleStart",
+    "tumbleEnd",
+    "hop",
+    "hopStart",
+    "hopEnd",
+)

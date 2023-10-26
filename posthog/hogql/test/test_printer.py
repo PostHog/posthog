@@ -23,13 +23,19 @@ class TestPrinter(BaseTest):
 
     # Helper to always translate HogQL with a blank context
     def _expr(
-        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ) -> str:
         return translate_hogql(query, context or HogQLContext(team_id=self.team.pk), dialect)
 
     # Helper to always translate HogQL with a blank context,
     def _select(
-        self, query: str, context: Optional[HogQLContext] = None, placeholders: Optional[Dict[str, ast.Expr]] = None
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        placeholders: Optional[Dict[str, ast.Expr]] = None,
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),
@@ -37,7 +43,12 @@ class TestPrinter(BaseTest):
             "clickhouse",
         )
 
-    def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
+    def _assert_expr_error(
+        self,
+        expr,
+        expected_error,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+    ):
         with self.assertRaises(HogQLException) as context:
             self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
@@ -90,9 +101,13 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("(1,2,[])"), "tuple(1, 2, [])")
 
     def test_lambdas(self):
-        self.assertEqual(self._expr("arrayMap(x -> x*2, [1,2,3])"), "arrayMap(x -> multiply(x, 2), [1, 2, 3])")
         self.assertEqual(
-            self._expr("arrayMap((x, y) -> x*y, [1,2,3])"), "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])"
+            self._expr("arrayMap(x -> x*2, [1,2,3])"),
+            "arrayMap(x -> multiply(x, 2), [1, 2, 3])",
+        )
+        self.assertEqual(
+            self._expr("arrayMap((x, y) -> x*y, [1,2,3])"),
+            "arrayMap((x, y) -> multiply(x, y), [1, 2, 3])",
         )
 
     def test_equals_null(self):
@@ -162,7 +177,11 @@ class TestPrinter(BaseTest):
             "person",
         )
         self.assertEqual(
-            self._expr("person.properties.$browser", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                "person.properties.$browser",
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "person.properties.$browser",
         )
         self.assertEqual(
@@ -170,23 +189,43 @@ class TestPrinter(BaseTest):
             "properties.$browser",
         )
         self.assertEqual(
-            self._expr("properties.`$browser with a space`", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                "properties.`$browser with a space`",
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr('properties."$browser with a space"', HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                'properties."$browser with a space"',
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr("properties['$browser with a space']", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                "properties['$browser with a space']",
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "properties.`$browser with a space`",
         )
         self.assertEqual(
-            self._expr("properties['$browser with a ` tick']", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                "properties['$browser with a ` tick']",
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "properties.`$browser with a \\` tick`",
         )
         self.assertEqual(
-            self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(team_id=self.team.pk), "hogql"),
+            self._expr(
+                "properties['$browser \\\\with a \\n` tick']",
+                HogQLContext(team_id=self.team.pk),
+                "hogql",
+            ),
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
@@ -198,7 +237,11 @@ class TestPrinter(BaseTest):
             self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
             "properties.`1`",
         )
-        self._assert_expr_error("properties.'no strings'", "no viable alternative at input '.'no strings'", "hogql")
+        self._assert_expr_error(
+            "properties.'no strings'",
+            "no viable alternative at input '.'no strings'",
+            "hogql",
+        )
 
     def test_hogql_properties_json(self):
         context = HogQLContext(team_id=self.team.pk)
@@ -206,7 +249,10 @@ class TestPrinter(BaseTest):
             self._expr("properties.nomat.json.yet", context),
             "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s), ''), 'null'), '^\"|\"$', '')",
         )
-        self.assertEqual(context.values, {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"})
+        self.assertEqual(
+            context.values,
+            {"hogql_val_0": "nomat", "hogql_val_1": "json", "hogql_val_2": "yet"},
+        )
 
     def test_hogql_properties_materialized_json_access(self):
         try:
@@ -232,11 +278,15 @@ class TestPrinter(BaseTest):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), "nullIf(nullIf(events.`mat_$browser`, ''), 'null')")
+        self.assertEqual(
+            self._expr("properties['$browser']"),
+            "nullIf(nullIf(events.`mat_$browser`, ''), 'null')",
+        )
 
         materialize("events", "withoutdollar")
         self.assertEqual(
-            self._expr("properties['withoutdollar']"), "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')"
+            self._expr("properties['withoutdollar']"),
+            "nullIf(nullIf(events.mat_withoutdollar, ''), 'null')",
         )
 
         materialize("events", "$browser and string")
@@ -247,13 +297,17 @@ class TestPrinter(BaseTest):
 
         materialize("events", "$browser%%%#@!@")
         self.assertEqual(
-            self._expr("properties['$browser%%%#@!@']"), "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')"
+            self._expr("properties['$browser%%%#@!@']"),
+            "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
         )
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
         self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")
-        self.assertEqual(self._expr("countIf(distinct event, 1 == 2)"), "countIf(DISTINCT events.event, 0)")
+        self.assertEqual(
+            self._expr("countIf(distinct event, 1 == 2)"),
+            "countIf(DISTINCT events.event, 0)",
+        )
         self.assertEqual(self._expr("sumIf(1, 1 == 2)"), "sumIf(1, 0)")
 
     def test_functions(self):
@@ -269,32 +323,49 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
         self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' expects at most 1 argument, found 4")
         self._assert_expr_error("countIf()", "Aggregation 'countIf' expects at least 1 argument, found 0")
-        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' expects at most 2 arguments, found 3")
+        self._assert_expr_error(
+            "countIf(2,3,4)",
+            "Aggregation 'countIf' expects at most 2 arguments, found 3",
+        )
         self._assert_expr_error("uniq()", "Aggregation 'uniq' expects at least 1 argument, found 0")
         self._assert_expr_error(
-            "quantile(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+            "quantile(event)",
+            "Aggregation 'quantile' requires parameters in addition to arguments",
         )
         self._assert_expr_error(
-            "quantile()(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+            "quantile()(event)",
+            "Aggregation 'quantile' requires parameters in addition to arguments",
         )
-        self._assert_expr_error("quantile(0.5, 2)(event)", "Aggregation 'quantile' expects 1 parameter, found 2")
+        self._assert_expr_error(
+            "quantile(0.5, 2)(event)",
+            "Aggregation 'quantile' expects 1 parameter, found 2",
+        )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
-        self._assert_expr_error("noway(event)", "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?")
         self._assert_expr_error(
-            "tostring(event)", "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?"
+            "noway(event)",
+            "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?",
+        )
+        self._assert_expr_error(
+            "tostring(event)",
+            "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
         )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
-            "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
+            "avg(avg(properties.bla))",
+            "Aggregation 'avg' cannot be nested inside another aggregation 'avg'.",
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
-        self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
         self._assert_expr_error(
-            "event as `as%d`", 'The HogQL identifier "as%d" is not permitted as it contains the "%" character'
+            "properties.id.0",
+            "SQL indexes start from one, not from zero. E.g: array[1]",
+        )
+        self._assert_expr_error(
+            "event as `as%d`",
+            'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
         )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
@@ -337,24 +408,55 @@ class TestPrinter(BaseTest):
     def test_comparisons(self):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr("event == 'E'", context), "equals(events.event, %(hogql_val_0)s)")
-        self.assertEqual(self._expr("event != 'E'", context), "notEquals(events.event, %(hogql_val_1)s)")
+        self.assertEqual(
+            self._expr("event != 'E'", context),
+            "notEquals(events.event, %(hogql_val_1)s)",
+        )
         self.assertEqual(self._expr("event > 'E'", context), "greater(events.event, %(hogql_val_2)s)")
-        self.assertEqual(self._expr("event >= 'E'", context), "greaterOrEquals(events.event, %(hogql_val_3)s)")
+        self.assertEqual(
+            self._expr("event >= 'E'", context),
+            "greaterOrEquals(events.event, %(hogql_val_3)s)",
+        )
         self.assertEqual(self._expr("event < 'E'", context), "less(events.event, %(hogql_val_4)s)")
-        self.assertEqual(self._expr("event <= 'E'", context), "lessOrEquals(events.event, %(hogql_val_5)s)")
+        self.assertEqual(
+            self._expr("event <= 'E'", context),
+            "lessOrEquals(events.event, %(hogql_val_5)s)",
+        )
         self.assertEqual(self._expr("event like 'E'", context), "like(events.event, %(hogql_val_6)s)")
-        self.assertEqual(self._expr("event not like 'E'", context), "notLike(events.event, %(hogql_val_7)s)")
-        self.assertEqual(self._expr("event ilike 'E'", context), "ilike(events.event, %(hogql_val_8)s)")
-        self.assertEqual(self._expr("event not ilike 'E'", context), "notILike(events.event, %(hogql_val_9)s)")
+        self.assertEqual(
+            self._expr("event not like 'E'", context),
+            "notLike(events.event, %(hogql_val_7)s)",
+        )
+        self.assertEqual(
+            self._expr("event ilike 'E'", context),
+            "ilike(events.event, %(hogql_val_8)s)",
+        )
+        self.assertEqual(
+            self._expr("event not ilike 'E'", context),
+            "notILike(events.event, %(hogql_val_9)s)",
+        )
         self.assertEqual(self._expr("event in 'E'", context), "in(events.event, %(hogql_val_10)s)")
-        self.assertEqual(self._expr("event not in 'E'", context), "notIn(events.event, %(hogql_val_11)s)")
+        self.assertEqual(
+            self._expr("event not in 'E'", context),
+            "notIn(events.event, %(hogql_val_11)s)",
+        )
         self.assertEqual(self._expr("event ~ 'E'", context), "match(events.event, %(hogql_val_12)s)")
         self.assertEqual(self._expr("event =~ 'E'", context), "match(events.event, %(hogql_val_13)s)")
-        self.assertEqual(self._expr("event !~ 'E'", context), "not(match(events.event, %(hogql_val_14)s))")
-        self.assertEqual(self._expr("event ~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_15)s))")
-        self.assertEqual(self._expr("event =~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_16)s))")
         self.assertEqual(
-            self._expr("event !~* 'E'", context), "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))"
+            self._expr("event !~ 'E'", context),
+            "not(match(events.event, %(hogql_val_14)s))",
+        )
+        self.assertEqual(
+            self._expr("event ~* 'E'", context),
+            "match(events.event, concat('(?i)', %(hogql_val_15)s))",
+        )
+        self.assertEqual(
+            self._expr("event =~* 'E'", context),
+            "match(events.event, concat('(?i)', %(hogql_val_16)s))",
+        )
+        self.assertEqual(
+            self._expr("event !~* 'E'", context),
+            "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))",
         )
 
     def test_comments(self):
@@ -369,31 +471,48 @@ class TestPrinter(BaseTest):
             self._expr("coalesce(4.2, 5, 'lol', 'hoo')", context),
             "coalesce(4.2, 5, %(hogql_val_1)s, %(hogql_val_2)s)",
         )
-        self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
+        self.assertEqual(
+            context.values,
+            {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"},
+        )
 
     def test_alias_keywords(self):
         self._assert_expr_error(
-            "1 as team_id", '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword'
+            "1 as team_id",
+            '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword',
         )
-        self._assert_expr_error("1 as true", '"true" cannot be an alias or identifier, as it\'s a reserved keyword')
+        self._assert_expr_error(
+            "1 as true",
+            '"true" cannot be an alias or identifier, as it\'s a reserved keyword',
+        )
         self._assert_select_error(
-            "select 1 as team_id from events", '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword'
+            "select 1 as team_id from events",
+            '"team_id" cannot be an alias or identifier, as it\'s a reserved keyword',
         )
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
-        self.assertEqual(self._expr("event makes little sense"), "((events.event AS makes) AS little) AS sense")
+        self.assertEqual(
+            self._expr("event makes little sense"),
+            "((events.event AS makes) AS little) AS sense",
+        )
 
     def test_case_when(self):
         self.assertEqual(self._expr("case when 1 then 2 else 3 end"), "if(1, 2, 3)")
 
     def test_case_when_many(self):
-        self.assertEqual(self._expr("case when 1 then 2 when 3 then 4 else 5 end"), "multiIf(1, 2, 3, 4, 5)")
+        self.assertEqual(
+            self._expr("case when 1 then 2 when 3 then 4 else 5 end"),
+            "multiIf(1, 2, 3, 4, 5)",
+        )
 
     def test_case_when_case(self):
-        self.assertEqual(self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"), "transform(0, [1, 3], [2, 4], 5)")
+        self.assertEqual(
+            self._expr("case 0 when 1 then 2 when 3 then 4 else 5 end"),
+            "transform(0, [1, 3], [2, 4], 5)",
+        )
 
     def test_select(self):
         self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 10000")
@@ -421,19 +540,29 @@ class TestPrinter(BaseTest):
 
     def test_select_from_placeholder(self):
         self.assertEqual(
-            self._select("select 1 from {placeholder}", placeholders={"placeholder": ast.Field(chain=["events"])}),
+            self._select(
+                "select 1 from {placeholder}",
+                placeholders={"placeholder": ast.Field(chain=["events"])},
+            ),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         with self.assertRaises(HogQLException) as error_context:
-            self._select(
-                "select 1 from {placeholder}",
-                placeholders={
-                    "placeholder": ast.CompareOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.CompareOperationOp.Eq
-                    )
-                },
-            ),
-        self.assertEqual(str(error_context.exception), "JoinExpr with table of type CompareOperation not supported")
+            (
+                self._select(
+                    "select 1 from {placeholder}",
+                    placeholders={
+                        "placeholder": ast.CompareOperation(
+                            left=ast.Constant(value=1),
+                            right=ast.Constant(value=1),
+                            op=ast.CompareOperationOp.Eq,
+                        )
+                    },
+                ),
+            )
+        self.assertEqual(
+            str(error_context.exception),
+            "JoinExpr with table of type CompareOperation not supported",
+        )
 
     def test_select_cross_join(self):
         self.assertEqual(
@@ -702,13 +831,16 @@ class TestPrinter(BaseTest):
 
     def test_print_timezone(self):
         context = HogQLContext(
-            team_id=self.team.pk, enable_select_queries=True, database=Database(None, WeekStartDay.SUNDAY)
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(None, WeekStartDay.SUNDAY),
         )
         context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
 
         self.assertEqual(
             self._select(
-                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events", context
+                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events",
+                context,
             ),
             f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date, %(hogql_val_3)s), parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
@@ -729,7 +861,10 @@ class TestPrinter(BaseTest):
         self.team.save()
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
+            self._select(
+                "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
+                context,
+            ),
             f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
@@ -749,7 +884,10 @@ class TestPrinter(BaseTest):
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         with self.assertRaises(HogQLException) as error_context:
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context)
+            self._select(
+                "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
+                context,
+            )
         self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
 
     def test_window_functions(self):
@@ -907,7 +1045,11 @@ class TestPrinter(BaseTest):
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        printed = print_ast(query, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
         self.assertEqual(
             printed,
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS optimize_aggregation_in_order=1",

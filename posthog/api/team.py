@@ -4,7 +4,14 @@ from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, request, response, serializers, viewsets
+from rest_framework import (
+    exceptions,
+    permissions,
+    request,
+    response,
+    serializers,
+    viewsets,
+)
 from rest_framework.decorators import action
 from posthog.api.geoip import get_geoip_properties
 
@@ -16,7 +23,10 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import (
+    groups_on_events_querying_enabled,
+    set_team_in_cache,
+)
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -194,7 +204,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id = self.instance.organization_id
             else:
                 organization_id = self.context["view"].organization
-            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
+            org_membership: (OrganizationMembership) = OrganizationMembership.objects.only("level").get(
                 organization_id=organization_id, user=request.user
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:

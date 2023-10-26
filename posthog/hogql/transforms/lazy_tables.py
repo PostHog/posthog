@@ -10,7 +10,11 @@ from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.visitor import TraversingVisitor
 
 
-def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
+def resolve_lazy_tables(
+    node: ast.Expr,
+    stack: Optional[List[ast.SelectQuery]] = None,
+    context: HogQLContext = None,
+):
     LazyTableResolver(stack=stack, context=context).visit(node)
 
 
@@ -29,7 +33,11 @@ class TableToAdd:
 
 
 class LazyTableResolver(TraversingVisitor):
-    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
+    def __init__(
+        self,
+        stack: Optional[List[ast.SelectQuery]] = None,
+        context: HogQLContext = None,
+    ):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldType | ast.PropertyType]] = [[]] if stack else []
         self.context = context
@@ -188,7 +196,11 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
-                join_scope.from_table, join_scope.to_table, join_scope.fields_accessed, self.context, node
+                join_scope.from_table,
+                join_scope.to_table,
+                join_scope.fields_accessed,
+                self.context,
+                node,
             )
             join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
 

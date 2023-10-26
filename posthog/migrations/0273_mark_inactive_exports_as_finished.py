@@ -32,7 +32,12 @@ def mark_inactive_exports_as_finished(apps, _):
         else:
             finished_exports.add(key(entry))
 
-    start_entries = list(filter(lambda entry: should_verify_if_ongoing(entry, finished_exports), start_entries))
+    start_entries = list(
+        filter(
+            lambda entry: should_verify_if_ongoing(entry, finished_exports),
+            start_entries,
+        )
+    )
 
     for entry in start_entries:
         expected_running_job_id = entry.detail["trigger"]["job_id"]

@@ -39,6 +39,7 @@ import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 
 const CustomDocument = ExtensionDocument.extend({
@@ -117,6 +118,7 @@ export function Editor(): JSX.Element {
             NotebookNodeEarlyAccessFeature,
             NotebookNodeSurvey,
             NotebookNodeImage,
+            NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
