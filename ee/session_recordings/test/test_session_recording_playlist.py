@@ -12,9 +12,13 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist import (
+    SessionRecordingPlaylist,
+)
 from posthog.models.user import User
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -53,7 +57,10 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         }
 
     def test_creates_playlist(self):
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "test"},
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
             "id": response.json()["id"],
@@ -77,10 +84,14 @@ class TestSessionRecordingPlaylist(APILicensedTest):
                 limit = int(feature["limit"])
         for _ in range(limit):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"}
+                f"/api/projects/{self.team.id}/session_recording_playlists",
+                data={"name": "test"},
             )
             assert response.status_code == status.HTTP_201_CREATED
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "test"},
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_gets_individual_playlist_by_shortid(self):

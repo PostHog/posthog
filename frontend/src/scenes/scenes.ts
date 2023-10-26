@@ -46,6 +46,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web Analytics',
+        layout: 'app-container',
     },
     [Scene.Cohorts]: {
         projectBased: true,
@@ -326,6 +327,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Notebooks',
     },
+    [Scene.Canvas]: {
+        projectBased: true,
+        name: 'Canvas',
+        layout: 'app-raw',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -497,4 +503,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
+    [urls.canvas()]: Scene.Canvas,
 }

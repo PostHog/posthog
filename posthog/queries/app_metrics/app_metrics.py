@@ -13,7 +13,10 @@ from posthog.models.app_metrics.sql import (
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
+from posthog.queries.app_metrics.serializers import (
+    AppMetricsErrorsRequestSerializer,
+    AppMetricsRequestSerializer,
+)
 from posthog.queries.util import format_ch_timestamp, get_time_in_seconds_for_period
 from posthog.utils import relative_date_parse
 
@@ -27,7 +30,10 @@ class TeamPluginsDeliveryRateQuery:
     def run(self):
         results = sync_execute(
             self.QUERY,
-            {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
+            {
+                "team_id": self.team.pk,
+                "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24)),
+            },
         )
         return dict(results)
 
@@ -80,7 +86,9 @@ class AppMetricsQuery:
     @property
     def date_from(self):
         return relative_date_parse(
-            self.filter.validated_data.get("date_from"), self.team.timezone_info, always_truncate=True
+            self.filter.validated_data.get("date_from"),
+            self.team.timezone_info,
+            always_truncate=True,
         )
 
     @property
@@ -121,7 +129,12 @@ class AppMetricsErrorsQuery(AppMetricsQuery):
 class AppMetricsErrorDetailsQuery:
     QUERY = QUERY_APP_METRICS_ERROR_DETAILS
 
-    def __init__(self, team: Team, plugin_config_id: int, filter: AppMetricsErrorsRequestSerializer):
+    def __init__(
+        self,
+        team: Team,
+        plugin_config_id: int,
+        filter: AppMetricsErrorsRequestSerializer,
+    ):
         self.team = team
         self.plugin_config_id = plugin_config_id
         self.filter = filter

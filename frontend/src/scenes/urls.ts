@@ -186,4 +186,5 @@ export const urls = {
     issues: (): string => '/issues',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
+    canvas: (): string => `/canvas`,
 }

@@ -9,15 +9,17 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
 
-def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
-
+def get_user_blast_radius(
+    team: Team,
+    feature_flag_condition: dict,
+    group_type_index: Optional[GroupTypeIndex] = None,
+):
     from posthog.queries.person_query import PersonQuery
 
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
 
     if group_type_index is not None:
-
         try:
             from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
         except Exception:

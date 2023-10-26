@@ -115,15 +115,18 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
-                            ].map(({ count, label, style }) => (
-                                <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                    <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                    <span className="font-semibold text-muted-alt">{`${label} (${(
-                                        (count / total) *
-                                        100
-                                    ).toFixed(1)}%)`}</span>
-                                </div>
-                            ))}
+                            ].map(
+                                ({ count, label, style }) =>
+                                    count > 0 && (
+                                        <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            <div className="w-3 h-3 rounded-full mr-2" style={style} />
+                                            <span className="font-semibold text-muted-alt">{`${label} (${(
+                                                (count / total) *
+                                                100
+                                            ).toFixed(1)}%)`}</span>
+                                        </div>
+                                    )
+                            )}
                         </div>
                     </div>
                 </div>
@@ -183,7 +186,7 @@ export function RatingQuestionBarChart({
         <div className="mb-4">
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRatingResults[questionIndex].total ? (
+            ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -282,7 +285,7 @@ export function SingleChoiceQuestionPieChart({
         <div className="mb-4">
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveySingleChoiceResults[questionIndex].data.length ? (
+            ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -382,7 +385,7 @@ export function MultipleChoiceQuestionBarChart({
         <div className="mb-4">
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyMultipleChoiceResults[questionIndex].data.length ? (
+            ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -453,25 +456,35 @@ export function OpenTextViz({
         <div className="mb-4">
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyOpenTextResults[questionIndex].events.length ? (
+            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
                 <></>
             ) : (
                 <>
                     <div className="font-semibold text-muted-alt">Open text</div>
-                    <div className="text-xl font-bold mb-4">
-                        {question.question} • <span className="">Latest responses</span>
-                    </div>
+                    <div className="text-xl font-bold mb-4">{question.question}</div>
                     <div className="mt-4 mb-8 masonry-container">
-                        {surveyOpenTextResults[questionIndex].events.map((event, i) => (
-                            <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
-                                    {event.properties[surveyResponseField]}
+                        {surveyOpenTextResults[questionIndex].events.map((event, i) => {
+                            const personProp = {
+                                distinct_id: event.distinct_id,
+                                properties: event.personProperties,
+                            }
+
+                            return (
+                                <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
+                                    <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
+                                        {event.properties[surveyResponseField]}
+                                    </div>
+                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                        <PersonDisplay
+                                            person={personProp}
+                                            withIcon={true}
+                                            noEllipsis={false}
+                                            isCentered
+                                        />
+                                    </div>
                                 </div>
-                                <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
-                                    <PersonDisplay person={event} withIcon={true} noEllipsis={false} isCentered />
-                                </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 </>
             )}

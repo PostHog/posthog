@@ -157,7 +157,10 @@ projects_router.register(
     ["team_id"],
 )
 projects_router.register(
-    r"warehouse_view_links", view_link.ViewLinkViewSet, "project_warehouse_view_links", ["team_id"]
+    r"warehouse_view_links",
+    view_link.ViewLinkViewSet,
+    "project_warehouse_view_links",
+    ["team_id"],
 )
 
 projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "warehouse_api", ["team_id"])

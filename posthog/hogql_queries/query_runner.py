@@ -17,14 +17,16 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
+    SessionsTimelineQuery,
     TrendsQuery,
     LifecycleQuery,
     WebTopClicksQuery,
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     PersonsQuery,
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
+    DashboardFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -70,7 +72,8 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     EventsQuery,
     PersonsQuery,
-    WebOverviewStatsQuery,
+    SessionsTimelineQuery,
+    WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
 ]
@@ -133,10 +136,18 @@ def get_query_runner(
             timings=timings,
             in_export_context=in_export_context,
         )
-    if kind == "WebOverviewStatsQuery":
-        from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
+    if kind == "SessionsTimelineQuery":
+        from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
 
-        return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
+        return SessionsTimelineQueryRunner(
+            query=cast(SessionsTimelineQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+        )
+    if kind == "WebOverviewQuery":
+        from .web_analytics.web_overview import WebOverviewQueryRunner
+
+        return WebOverviewQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
@@ -239,4 +250,7 @@ class QueryRunner(ABC):
 
     @abstractmethod
     def _refresh_frequency(self):
+        raise NotImplementedError()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
         raise NotImplementedError()

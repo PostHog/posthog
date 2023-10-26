@@ -15,7 +15,10 @@ from posthog.queries.app_metrics.app_metrics import (
     AppMetricsQuery,
     TeamPluginsDeliveryRateQuery,
 )
-from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
+from posthog.queries.app_metrics.serializers import (
+    AppMetricsErrorsRequestSerializer,
+    AppMetricsRequestSerializer,
+)
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.utils import cast_timestamp_or_now
 
@@ -100,7 +103,11 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
     @freeze_time("2021-12-05T13:23:00Z")
     def test_ignores_out_of_bound_metrics(self):
         create_app_metric(
-            team_id=-1, category="processEvent", plugin_config_id=3, timestamp="2021-12-05T00:10:00Z", successes=5
+            team_id=-1,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=5,
         )
         create_app_metric(
             team_id=self.team.pk,
@@ -269,7 +276,11 @@ class TestAppMetricsQuery(ClickhouseTestMixin, BaseTest):
         # Negative examples
         # Different team
         create_app_metric(
-            team_id=-1, category="processEvent", plugin_config_id=3, timestamp="2021-12-05T13:10:00Z", failures=1
+            team_id=-1,
+            category="processEvent",
+            plugin_config_id=3,
+            timestamp="2021-12-05T13:10:00Z",
+            failures=1,
         )
         # Different pluginConfigId
         create_app_metric(
@@ -544,7 +555,9 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = make_filter(
-            serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
+            serializer_klass=AppMetricsErrorsRequestSerializer,
+            category="processEvent",
+            error_type="SomeError",
         )
         results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
 
@@ -679,7 +692,9 @@ class TestAppMetricsErrorDetailsQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = make_filter(
-            serializer_klass=AppMetricsErrorsRequestSerializer, category="processEvent", error_type="SomeError"
+            serializer_klass=AppMetricsErrorsRequestSerializer,
+            category="processEvent",
+            error_type="SomeError",
         )
         results = AppMetricsErrorDetailsQuery(self.team, 3, filter).run()
 

@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0089_auto_20201015_1031"),
     ]
@@ -29,14 +28,19 @@ class Migration(migrations.Migration):
             model_name="team",
             name="api_token",
             field=models.CharField(
-                default=posthog.models.utils.generate_random_token, max_length=200, null=True, unique=True
+                default=posthog.models.utils.generate_random_token,
+                max_length=200,
+                null=True,
+                unique=True,
             ),
         ),
         migrations.AlterField(
             model_name="team",
             name="users",
             field=models.ManyToManyField(
-                blank=True, related_name="teams_deprecated_relationship", to=settings.AUTH_USER_MODEL
+                blank=True,
+                related_name="teams_deprecated_relationship",
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AlterField(

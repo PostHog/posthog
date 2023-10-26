@@ -54,19 +54,25 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_hogql_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
 def escape_clickhouse_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT, timezone: Optional[str] = None
+    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
 
 
 class SQLValueEscaper:
-    def __init__(self, timezone: Optional[str] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
+    def __init__(
+        self,
+        timezone: Optional[str] = None,
+        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+    ):
         self._timezone = timezone or "UTC"
         self._dialect = dialect
 

@@ -66,7 +66,10 @@ class Person(models.Model):
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
 
-                from posthog.models.person.util import create_person, create_person_distinct_id
+                from posthog.models.person.util import (
+                    create_person,
+                    create_person_distinct_id,
+                )
 
                 create_person_distinct_id(
                     team_id=self.team_id,
@@ -75,7 +78,11 @@ class Person(models.Model):
                     is_deleted=False,
                     version=pdi.version,
                 )
-                create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
+                create_person(
+                    team_id=self.team_id,
+                    uuid=str(person.uuid),
+                    version=person.version or 0,
+                )
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
@@ -138,7 +145,10 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.UniqueConstraint(
+                fields=["team", "old_person_id"],
+                name="unique override per old_person_id",
+            ),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",

@@ -20,7 +20,10 @@ from ee.settings import (
 from posthog.cache_utils import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person.sql import GET_EVENT_PROPERTIES_COUNT, GET_PERSON_PROPERTIES_COUNT
+from posthog.models.person.sql import (
+    GET_EVENT_PROPERTIES_COUNT,
+    GET_PERSON_PROPERTIES_COUNT,
+)
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
@@ -50,7 +53,8 @@ class TeamManager:
     @instance_memoize
     def group_on_events_properties(self, group_type_index: int, team_id: str) -> Set[str]:
         return self._get_properties(
-            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"), team_id
+            GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"),
+            team_id,
         )
 
     def _get_properties(self, query, team_id) -> Set[str]:
@@ -59,7 +63,12 @@ class TeamManager:
 
 
 class Query:
-    def __init__(self, query_string: str, query_time_ms: float, min_query_time=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME):
+    def __init__(
+        self,
+        query_string: str,
+        query_time_ms: float,
+        min_query_time=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
+    ):
         self.query_string = query_string
         self.query_time_ms = query_time_ms
         self.min_query_time = min_query_time
@@ -187,7 +196,10 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {"events": [], "person": []}
+    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {
+        "events": [],
+        "person": [],
+    }
     for table, table_column, property_name, cost in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 

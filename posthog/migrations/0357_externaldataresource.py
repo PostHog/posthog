@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0354_organization_never_drop_data"),
+        ("posthog", "0356_add_replay_cost_control"),
     ]
 
     operations = [

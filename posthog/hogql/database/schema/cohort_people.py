@@ -15,7 +15,11 @@ COHORT_PEOPLE_FIELDS = {
     "person_id": StringDatabaseField(name="person_id"),
     "cohort_id": IntegerDatabaseField(name="cohort_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
-    "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+    "person": LazyJoin(
+        from_field="person_id",
+        join_table=PersonsTable(),
+        join_function=join_with_persons_table,
+    ),
 }
 
 
@@ -25,7 +29,11 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
     table_name = "raw_cohort_people"
 
     # must always include the person and cohort ids regardless of what other fields are requested
-    requested_fields = {"person_id": ["person_id"], "cohort_id": ["cohort_id"], **requested_fields}
+    requested_fields = {
+        "person_id": ["person_id"],
+        "cohort_id": ["cohort_id"],
+        **requested_fields,
+    }
     fields: List[ast.Expr] = [ast.Field(chain=[table_name] + chain) for name, chain in requested_fields.items()]
 
     return ast.SelectQuery(

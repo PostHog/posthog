@@ -2,14 +2,25 @@ import pytest
 from django.db.utils import IntegrityError
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    log_activity,
+)
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
 
 class TestActivityLogModel(BaseTest):
     def test_can_save_a_model_changed_activity_log(self) -> None:
-        change = Change(type="FeatureFlag", field="active", action="created", before=False, after=True)
+        change = Change(
+            type="FeatureFlag",
+            field="active",
+            action="created",
+            before=False,
+            after=True,
+        )
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -87,7 +98,10 @@ class TestActivityLogModel(BaseTest):
 
             logged_warning = log.records[0].__dict__
             self.assertEqual(logged_warning["levelname"], "WARNING")
-            self.assertEqual(logged_warning["msg"]["event"], "activity_log.failed_to_write_to_activity_log")
+            self.assertEqual(
+                logged_warning["msg"]["event"],
+                "activity_log.failed_to_write_to_activity_log",
+            )
             self.assertEqual(logged_warning["msg"]["scope"], "testing throwing exceptions on create")
             self.assertEqual(logged_warning["msg"]["team"], 1)
             self.assertEqual(logged_warning["msg"]["activity"], "does not explode")

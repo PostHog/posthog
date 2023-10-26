@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0162_organization_is_member_join_email_enabled"),
     ]
@@ -20,7 +19,10 @@ class Migration(migrations.Migration):
             model_name="dashboarditem",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, size=None
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=list,
+                size=None,
             ),
         ),
         migrations.AddField(

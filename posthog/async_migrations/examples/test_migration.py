@@ -26,7 +26,6 @@ class SideEffects:
 
 
 class Migration(AsyncMigrationDefinition):
-
     # For testing only!!
     fail = False
     error_message = "Healthcheck failed"

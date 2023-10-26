@@ -38,13 +38,12 @@ import './SurveyView.scss'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey } =
+    const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const [activePreview, setActivePreview] = useState(0)
 
     useEffect(() => {
         if (survey.start_date) {
@@ -222,17 +221,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </div>
                                             )}
                                             {survey.type !== SurveyType.API ? (
-                                                <div className="mt-6">
+                                                <div className="mt-6" style={{ maxWidth: 320 }}>
                                                     <SurveyFormAppearance
-                                                        activePreview={activePreview}
+                                                        activePreview={selectedQuestion || 0}
                                                         survey={survey}
-                                                        showThankYou={
-                                                            !!(
-                                                                survey.appearance.displayThankYouMessage &&
-                                                                activePreview >= survey.questions.length
-                                                            )
-                                                        }
-                                                        setActivePreview={(preview) => setActivePreview(preview)}
+                                                        setActivePreview={(preview) => setSelectedQuestion(preview)}
                                                     />
                                                 </div>
                                             ) : (

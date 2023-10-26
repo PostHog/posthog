@@ -7,16 +7,16 @@ import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveyType } from '~/ty
 interface SurveyFormAppearanceProps {
     activePreview: number
     survey: NewSurvey | Survey
-    showThankYou: boolean
     setActivePreview: (activePreview: number) => void
 }
 
 export function SurveyFormAppearance({
     activePreview,
     survey,
-    showThankYou,
     setActivePreview,
 }: SurveyFormAppearanceProps): JSX.Element {
+    const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
+
     return (
         <>
             {survey.type !== SurveyType.API ? (

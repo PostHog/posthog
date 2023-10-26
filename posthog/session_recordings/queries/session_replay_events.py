@@ -25,12 +25,19 @@ class SessionReplayEvents:
             AND session_id = %(session_id)s
             AND min_first_timestamp >= now() - INTERVAL %(recording_ttl_days)s DAY
             """,
-            {"team_id": team.pk, "session_id": session_id, "recording_ttl_days": ttl_days(team)},
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "recording_ttl_days": ttl_days(team),
+            },
         )
         return result[0][0] > 0
 
     def get_metadata(
-        self, session_id: str, team: Team, recording_start_time: Optional[datetime] = None
+        self,
+        session_id: str,
+        team: Team,
+        recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = """
             SELECT
@@ -63,7 +70,11 @@ class SessionReplayEvents:
 
         replay_response: List[Tuple] = sync_execute(
             query,
-            {"team_id": team.pk, "session_id": session_id, "recording_start_time": recording_start_time},
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "recording_start_time": recording_start_time,
+            },
         )
 
         if len(replay_response) == 0:

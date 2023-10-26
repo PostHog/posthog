@@ -230,6 +230,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCoffee,
         inMenu: true,
     },
+    [NodeKind.SessionsTimelineQuery]: {
+        name: 'Sessions',
+        description: 'Sessions timeline query',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
     [NodeKind.HogQLQuery]: {
         name: 'HogQL',
         description: 'Direct HogQL query',
@@ -248,7 +254,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
-    [NodeKind.WebOverviewStatsQuery]: {
+    [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website',
         icon: InsightsTrendsIcon,

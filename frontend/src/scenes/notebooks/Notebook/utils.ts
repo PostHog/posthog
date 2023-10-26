@@ -10,7 +10,7 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
@@ -31,6 +31,8 @@ export type NotebookNodeAttributes<T extends CustomNotebookNodeAttributes> = T &
         expanded?: boolean
         showSettings?: boolean
     }
+    // TODO: Type this more specifically to be our supported nodes only
+    children?: NotebookNodeResource[]
 }
 
 // NOTE: Pushes users to use the parsed "attributes" instead
@@ -114,7 +116,6 @@ export const textContent = (node: any): string => {
         'ph-feature-flag': customOrTitleSerializer,
         'ph-feature-flag-code-example': customOrTitleSerializer,
         'ph-image': customOrTitleSerializer,
-        'ph-insight': customOrTitleSerializer,
         'ph-person': customOrTitleSerializer,
         'ph-query': customOrTitleSerializer,
         'ph-recording': customOrTitleSerializer,
@@ -123,6 +124,9 @@ export const textContent = (node: any): string => {
         'ph-survey': customOrTitleSerializer,
         'ph-group': customOrTitleSerializer,
         'ph-cohort': customOrTitleSerializer,
+        'ph-person-feed': customOrTitleSerializer,
+        'ph-properties': customOrTitleSerializer,
+        'ph-map': customOrTitleSerializer,
     }
 
     return getText(node, {

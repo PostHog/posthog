@@ -178,7 +178,13 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                             pg_file.records_since_last_reset,
                             pg_file.bytes_since_last_reset,
                         )
-                        copy_tsv_to_postgres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
+                        copy_tsv_to_postgres(
+                            pg_file,
+                            connection,
+                            inputs.schema,
+                            inputs.table_name,
+                            schema_columns,
+                        )
                         pg_file.reset()
 
                 if pg_file.tell() > 0:
@@ -187,7 +193,13 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )
-                    copy_tsv_to_postgres(pg_file, connection, inputs.schema, inputs.table_name, schema_columns)
+                    copy_tsv_to_postgres(
+                        pg_file,
+                        connection,
+                        inputs.schema,
+                        inputs.table_name,
+                        schema_columns,
+                    )
 
 
 @workflow.defn(name="postgres-export")
@@ -211,7 +223,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Postgres."""
         logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting Postgres export batch %s - %s", data_interval_start, data_interval_end)
+        logger.info(
+            "Starting Postgres export batch %s - %s",
+            data_interval_start,
+            data_interval_end,
+        )
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -288,7 +304,11 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             raise
 
         else:
-            logger.info("Successfully finished Postgres export batch %s - %s", data_interval_start, data_interval_end)
+            logger.info(
+                "Successfully finished Postgres export batch %s - %s",
+                data_interval_start,
+                data_interval_end,
+            )
 
         finally:
             await workflow.execute_activity(

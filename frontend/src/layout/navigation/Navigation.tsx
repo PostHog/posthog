@@ -20,7 +20,13 @@ export function Navigation({
         <div className="h-screen flex flex-col">
             {scene !== Scene.Ingestion && <TopBar />}
             <SideBar>
-                <div className={clsx('main-app-content', sceneConfig?.layout === 'plain' && 'main-app-content--plain')}>
+                <div
+                    className={clsx(
+                        'main-app-content',
+                        sceneConfig?.layout === 'plain' && 'main-app-content--plain',
+                        sceneConfig?.layout === 'app-container' && 'main-app-content--container'
+                    )}
+                >
                     {sceneConfig?.layout !== 'plain' && (
                         <>
                             <BillingAlertsV2 />

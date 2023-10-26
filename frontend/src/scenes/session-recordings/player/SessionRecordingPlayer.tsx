@@ -125,7 +125,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const { size } = useResizeBreakpoints(
         {
-            0: 'small',
+            0: 'tiny',
+            400: 'small',
             1000: 'medium',
         },
         playerRef
@@ -148,9 +149,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 className={clsx('SessionRecordingPlayer', {
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
                     'SessionRecordingPlayer--no-border': noBorder,
-                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                    'SessionRecordingPlayer--widescreen': !isFullScreen && size === 'medium',
                     'SessionRecordingPlayer--inspector-focus': inspectorFocus,
-                    'SessionRecordingPlayer--inspector-hidden': noInspector,
+                    'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
                     'SessionRecordingPlayer--buffering': isBuffering,
                 })}
                 onClick={incrementClickCount}
@@ -160,7 +161,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 ) : (
                     <>
                         <div className="SessionRecordingPlayer__main">
-                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                            {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
                             <div className="SessionRecordingPlayer__body">
                                 <PlayerFrame />
                                 <PlayerFrameOverlay />

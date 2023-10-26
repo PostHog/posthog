@@ -21,7 +21,7 @@ import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     short_id: 'scratchpad',
-    title: 'Scratchpad',
+    title: 'My scratchpad',
     created_at: '',
     created_by: null,
 }
