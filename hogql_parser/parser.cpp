@@ -235,11 +235,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   PyObject* visitAsPyObject(antlr4::tree::ParseTree* tree) {
-    if (PyErr_Occurred()) {
-      // Exit if an error has occurred in a previous visit - can happen in build_ast_node() calls. We return NULL
-      // instead of throwing an exception, because in this case we want Py_BuildValue/Py_VaBuildValue to complete
-      return NULL;
-    }
     PyObject* ret = any_cast<PyObject*>(visit(tree));
     if (!ret) {
       throw ParsingException(
@@ -274,7 +269,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw PyInternalException();
     }
     for (size_t i = 0; i < tree.size(); i++) {
-      PyList_SET_ITEM(ret, i, visitAsPyObject(tree[i]));
+      try {
+        PyList_SET_ITEM(ret, i, visitAsPyObject(tree[i]));
+      } catch (...) {
+        Py_DECREF(ret);
+        throw;
+      }
     }
     return ret;
   }
@@ -321,14 +321,22 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectUnionStmt) {
-    PyObject* flattened_queries = PyList_New(0);
-    if (!flattened_queries) throw PyInternalException();
     // Using a vector of PyObjects atypically here, because this is a precursor of flattened_queries
     vector<PyObject*> select_queries;
     auto select_stmt_with_parens_ctxs = ctx->selectStmtWithParens();
     select_queries.reserve(select_stmt_with_parens_ctxs.size());
     for (auto select_stmt_with_parens_ctx : select_stmt_with_parens_ctxs) {
-      select_queries.push_back(visitAsPyObject(select_stmt_with_parens_ctx));
+      try {
+        select_queries.push_back(visitAsPyObject(select_stmt_with_parens_ctx));
+      } catch (...) {
+        X_Py_DECREF_ALL(select_queries);
+        throw;
+      }
+    }
+    PyObject* flattened_queries = PyList_New(0);
+    if (!flattened_queries) {
+      X_Py_DECREF_ALL(select_queries);
+      throw PyInternalException();
     }
     for (auto query : select_queries) {
       int is_select_query = is_ast_node_instance(query, "SelectQuery");
@@ -371,14 +379,35 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(SelectStmt) {
-    PyObject* select_from = visitAsPyObjectOrNone(ctx->fromClause());  // This is immediately stolen by select_query
+    // These are stolen by select_query
+    PyObject *ctes = NULL, *select = NULL, *select_from = NULL, *where = NULL, *prewhere = NULL, *having = NULL,
+             *group_by = NULL, *order_by = NULL;
+
+    try {
+      ctes = visitAsPyObjectOrNone(ctx->withClause());
+      select = visitAsPyObjectOrEmptyList(ctx->columnExprList());
+      select_from = visitAsPyObjectOrNone(ctx->fromClause());
+      where = visitAsPyObjectOrNone(ctx->whereClause());
+      prewhere = visitAsPyObjectOrNone(ctx->prewhereClause());
+      having = visitAsPyObjectOrNone(ctx->havingClause());
+      group_by = visitAsPyObjectOrNone(ctx->groupByClause());
+      order_by = visitAsPyObjectOrNone(ctx->orderByClause());
+    } catch (...) {
+      Py_XDECREF(ctes);
+      Py_XDECREF(select);
+      Py_XDECREF(select_from);
+      Py_XDECREF(where);
+      Py_XDECREF(prewhere);
+      Py_XDECREF(having);
+      Py_XDECREF(group_by);
+      Py_XDECREF(order_by);
+      throw;
+    }
+
     PyObject* select_query = build_ast_node(
-        "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", visitAsPyObjectOrNone(ctx->withClause()),
-        "select", visitAsPyObjectOrEmptyList(ctx->columnExprList()), "distinct",
-        Py_NewRef(ctx->DISTINCT() ? Py_True : Py_None), "select_from", select_from, "where",
-        visitAsPyObjectOrNone(ctx->whereClause()), "prewhere", visitAsPyObjectOrNone(ctx->prewhereClause()), "having",
-        visitAsPyObjectOrNone(ctx->havingClause()), "group_by", visitAsPyObjectOrNone(ctx->groupByClause()), "order_by",
-        visitAsPyObjectOrNone(ctx->orderByClause())
+        "SelectQuery", "{s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N,s:N}", "ctes", ctes, "select", select, "distinct",
+        Py_NewRef(ctx->DISTINCT() ? Py_True : Py_None), "select_from", select_from, "where", where, "prewhere",
+        prewhere, "having", having, "group_by", group_by, "order_by", order_by
     );
     if (!select_query) {
       throw PyInternalException();
@@ -400,12 +429,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw PyInternalException();
       }
       for (size_t i = 0; i < window_expr_ctxs.size(); i++) {
-        PyObject* window_expr = visitAsPyObject(window_expr_ctxs[i]);
-        err_indicator = PyDict_SetItemString(window_exprs, visitAsString(identifier_ctxs[i]).c_str(), window_expr);
+        string identifier;
+        PyObject* window_expr;
+        try {
+          identifier = visitAsString(identifier_ctxs[i]);
+          window_expr = visitAsPyObject(window_expr_ctxs[i]);
+        } catch (...) {
+          Py_DECREF(window_exprs);
+          Py_DECREF(select_query);
+          throw;
+        }
+        err_indicator = PyDict_SetItemString(window_exprs, identifier.c_str(), window_expr);
         Py_DECREF(window_expr);
         if (err_indicator == -1) {
-          Py_DECREF(select_query);
           Py_DECREF(window_exprs);
+          Py_DECREF(select_query);
           throw PyInternalException();
         }
       }
@@ -419,7 +457,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     auto limit_and_offset_clause_ctx = ctx->limitAndOffsetClause();
     if (limit_and_offset_clause_ctx) {
-      PyObject* limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
+      PyObject* limit;
+      try {
+        limit = visitAsPyObject(limit_and_offset_clause_ctx->columnExpr(0));
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
       err_indicator = PyObject_SetAttrString(select_query, "limit", limit);
       Py_DECREF(limit);
       if (err_indicator == -1) {
@@ -428,7 +472,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
       auto offset_ctx = limit_and_offset_clause_ctx->columnExpr(1);
       if (offset_ctx) {
-        PyObject* offset = visitAsPyObject(offset_ctx);
+        PyObject* offset;
+        try {
+          offset = visitAsPyObject(offset_ctx);
+        } catch (...) {
+          Py_DECREF(select_query);
+          throw;
+        }
         err_indicator = PyObject_SetAttrString(select_query, "offset", offset);
         Py_DECREF(offset);
         if (err_indicator == -1) {
@@ -438,7 +488,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
       auto limit_by_exprs_ctx = limit_and_offset_clause_ctx->columnExprList();
       if (limit_by_exprs_ctx) {
-        PyObject* limit_by_exprs = visitAsPyObject(limit_by_exprs_ctx);
+        PyObject* limit_by_exprs;
+        try {
+          limit_by_exprs = visitAsPyObject(limit_by_exprs_ctx);
+        } catch (...) {
+          Py_DECREF(select_query);
+          throw;
+        }
         err_indicator = PyObject_SetAttrString(select_query, "limit_by", limit_by_exprs);
         Py_DECREF(limit_by_exprs);
         if (err_indicator == -1) {
@@ -456,7 +512,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     } else {
       auto offset_only_clause_ctx = ctx->offsetOnlyClause();
       if (offset_only_clause_ctx) {
-        PyObject* offset_only_clause = visitAsPyObject(offset_only_clause_ctx->columnExpr());
+        PyObject* offset_only_clause;
+        try {
+          offset_only_clause = visitAsPyObject(offset_only_clause_ctx->columnExpr());
+        } catch (...) {
+          Py_DECREF(select_query);
+          throw;
+        }
         err_indicator = PyObject_SetAttrString(select_query, "offset", offset_only_clause);
         Py_DECREF(offset_only_clause);
         if (err_indicator == -1) {
@@ -489,7 +551,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
 
       auto array_join_arrays_ctx = array_join_clause_ctx->columnExprList();
-      PyObject* array_join_list = visitAsPyObject(array_join_arrays_ctx);
+      PyObject* array_join_list;
+      try {
+        array_join_list = visitAsPyObject(array_join_arrays_ctx);
+      } catch (...) {
+        Py_DECREF(select_query);
+        throw;
+      }
       Py_ssize_t array_join_list_size = PyList_Size(array_join_list);
       if (array_join_list_size == -1) {
         Py_DECREF(select_query);
@@ -574,7 +642,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(SettingsClause)
 
-#define CONCAT_JOIN_EXPRS()                                                                                      \
+#define RETURN_CHAINED_JOIN_EXPRS()                                                                              \
   PyObject* last_join = join1;                                                                                   \
   PyObject* next_join =                                                                                          \
       PyObject_GetAttrString(last_join, "next_join"); /* 1500 is Python's recursion limit (C_RECURSION_LIMIT) */ \
@@ -613,7 +681,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto join_op_ctx = ctx->joinOp();
     PyObject* py_join_op;
     if (join_op_ctx) {
-      string join_op = visitAsString(join_op_ctx) + " JOIN";
+      string join_op = visitAsString(join_op_ctx);
+      join_op.append(" JOIN");
       py_join_op = PyUnicode_FromStringAndSize(join_op.data(), join_op.size());
     } else {
       py_join_op = PyUnicode_FromString("JOIN");
@@ -622,14 +691,26 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     int err_indicator = 0;
 
-    PyObject* join2 = visitAsPyObject(ctx->joinExpr(1));
+    PyObject* join2;
+    try {
+      join2 = visitAsPyObject(ctx->joinExpr(1));
+    } catch (...) {
+      Py_DECREF(py_join_op);
+      throw;
+    }
     err_indicator = PyObject_SetAttrString(join2, "join_type", py_join_op);
     Py_DECREF(py_join_op);
     if (err_indicator == -1) {
       Py_DECREF(join2);
       throw PyInternalException();
     }
-    PyObject* constraint = visitAsPyObject(ctx->joinConstraintClause());
+    PyObject* constraint;
+    try {
+      constraint = visitAsPyObject(ctx->joinConstraintClause());
+    } catch (...) {
+      Py_DECREF(join2);
+      throw;
+    }
     err_indicator = PyObject_SetAttrString(join2, "constraint", constraint);
     Py_DECREF(constraint);
     if (err_indicator == -1) {
@@ -637,9 +718,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw PyInternalException();
     }
 
-    PyObject* join1 = visitAsPyObject(ctx->joinExpr(0));
+    PyObject* join1;
+    try {
+      join1 = visitAsPyObject(ctx->joinExpr(0));
+    } catch (...) {
+      Py_DECREF(join2);
+      throw;
+    }
 
-    CONCAT_JOIN_EXPRS()
+    RETURN_CHAINED_JOIN_EXPRS();
   }
 
   VISIT(JoinExprTable) {
@@ -649,8 +736,14 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(table);
       throw PyInternalException();
     }
+    PyObject* sample;
+    try {
+      sample = visitAsPyObjectOrNone(ctx->sampleClause());
+    } catch (...) {
+      Py_DECREF(table);
+      throw;
+    }
     PyObject* table_final = ctx->FINAL() ? Py_True : Py_None;
-    PyObject* sample = visitAsPyObjectOrNone(ctx->sampleClause());
     if (is_table_join_expr) {
       int err_indicator = 0;
       err_indicator = PyObject_SetAttrString(table, "sample", sample);
@@ -687,7 +780,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw PyInternalException();
     }
 
-    PyObject* join2 = visitAsPyObject(ctx->joinExpr(1));
+    PyObject* join2;
+    try {
+      join2 = visitAsPyObject(ctx->joinExpr(1));
+    } catch (...) {
+      Py_DECREF(join_type);
+      throw;
+    }
     int err_indicator = PyObject_SetAttrString(join2, "join_type", join_type);
     if (err_indicator == -1) {
       Py_DECREF(join2);
@@ -695,12 +794,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     Py_DECREF(join_type);
 
-    PyObject* join1 = visitAsPyObject(ctx->joinExpr(0));
+    PyObject* join1;
+    try {
+      join1 = visitAsPyObject(ctx->joinExpr(0));
+    } catch (...) {
+      Py_DECREF(join2);
+      throw;
+    }
 
-    CONCAT_JOIN_EXPRS()
+    RETURN_CHAINED_JOIN_EXPRS();
   }
 
-#undef CONCAT_JOIN_EXPRS
+#undef RETURN_CHAINED_JOIN_EXPRS
 
   VISIT(JoinOpInner) {
     vector<string> tokens;
@@ -786,7 +891,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(SampleClause) {
     PyObject* sample_ratio_expr = visitAsPyObject(ctx->ratioExpr(0));
-    PyObject* offset_ratio_expr = ctx->OFFSET() ? visitAsPyObjectOrNone(ctx->ratioExpr(1)) : Py_NewRef(Py_None);
+    PyObject* offset_ratio_expr;
+    try {
+      offset_ratio_expr = visitAsPyObjectOrNone(ctx->ratioExpr(1));
+    } catch (...) {
+      Py_DECREF(sample_ratio_expr);
+      throw;
+    }
     RETURN_NEW_AST_NODE(
         "SampleExpr", "{s:N,s:N}", "sample_value", sample_ratio_expr, "offset_value", offset_ratio_expr
     );
@@ -818,9 +929,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto left_ctx = number_literal_ctxs[0];
     auto right_ctx = ctx->SLASH() && number_literal_ctxs.size() > 1 ? number_literal_ctxs[1] : NULL;
 
-    RETURN_NEW_AST_NODE(
-        "RatioExpr", "{s:N,s:N}", "left", visitAsPyObject(left_ctx), "right", visitAsPyObjectOrNone(right_ctx)
-    );
+    PyObject* left = visitAsPyObject(left_ctx);
+    PyObject* right;
+    try {
+      right = visitAsPyObjectOrNone(right_ctx);
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+
+    RETURN_NEW_AST_NODE("RatioExpr", "{s:N,s:N}", "left", left, "right", right);
   }
 
   VISIT_UNSUPPORTED(SettingExprList)
@@ -857,8 +975,27 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(frame_end);
       throw PyInternalException();
     }
-    PyObject* partition_by = visitAsPyObjectOrNone(ctx->winPartitionByClause());
-    PyObject* order_by = visitAsPyObjectOrNone(ctx->winOrderByClause());
+    PyObject* partition_by;
+    try {
+      partition_by = visitAsPyObjectOrNone(ctx->winPartitionByClause());
+    } catch (...) {
+      Py_DECREF(frame_start);
+      Py_DECREF(frame_end);
+      Py_DECREF(frame_method);
+      throw;
+    }
+
+    PyObject* order_by;
+    try {
+      order_by = visitAsPyObjectOrNone(ctx->winOrderByClause());
+    } catch (...) {
+      Py_DECREF(frame_start);
+      Py_DECREF(frame_end);
+      Py_DECREF(frame_method);
+      Py_DECREF(partition_by);
+      throw;
+    }
+
     RETURN_NEW_AST_NODE(
         "WindowExpr", "{s:N,s:N,s:N,s:N,s:N}", "partition_by", partition_by, "order_by", order_by, "frame_method",
         frame_method, "frame_start", frame_start, "frame_end", frame_end
@@ -882,7 +1019,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(FrameBetween) {
-    return Py_BuildValue("NN", visitAsPyObject(ctx->winFrameBound(0)), visitAsPyObject(ctx->winFrameBound(1)));
+    PyObject* min = visitAsPyObject(ctx->winFrameBound(0));
+    PyObject* max;
+    try {
+      max = visitAsPyObject(ctx->winFrameBound(1));
+    } catch (...) {
+      Py_DECREF(min);
+      throw;
+    }
+    return Py_BuildValue("NN", min, max);
   }
 
   VISIT(WinFrameBound) {
@@ -924,10 +1069,23 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprTernaryOp) {
-    RETURN_NEW_AST_NODE(
-        "Call", "{s:s, s:[NNN]}", "name", "if", "args", visitAsPyObject(ctx->columnExpr(0)),
-        visitAsPyObject(ctx->columnExpr(1)), visitAsPyObject(ctx->columnExpr(2))
-    );
+    PyObject* arg_1 = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* arg_2;
+    try {
+      arg_2 = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(arg_1);
+      throw;
+    }
+    PyObject* arg_3;
+    try {
+      arg_3 = visitAsPyObject(ctx->columnExpr(2));
+    } catch (...) {
+      Py_DECREF(arg_1);
+      Py_DECREF(arg_2);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("Call", "{s:s, s:[NNN]}", "name", "if", "args", arg_1, arg_2, arg_3);
   }
 
   VISIT(ColumnExprAlias) {
@@ -962,9 +1120,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(left);
       throw PyInternalException();
     }
-    RETURN_NEW_AST_NODE(
-        "ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", visitAsPyObject(ctx->columnExpr()), "op", op
-    );
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(op);
+      Py_DECREF(left);
+      throw;
+    }
+
+    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
   VISIT(ColumnExprSubquery) {
@@ -991,14 +1156,33 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw ParsingException("Unsupported value of rule ColumnExprPrecedence1");
     }
     if (!op) throw PyInternalException();
-    PyObject* left = visitAsPyObject(ctx->left);
-    PyObject* right = visitAsPyObject(ctx->right);
+    PyObject* left;
+    try {
+      left = visitAsPyObject(ctx->columnExpr(0));
+    } catch (...) {
+      Py_DECREF(op);
+      throw;
+    }
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(op);
+      Py_DECREF(left);
+      throw;
+    }
     RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
 
   VISIT(ColumnExprPrecedence2) {
     PyObject* left = visitAsPyObject(ctx->left);
-    PyObject* right = visitAsPyObject(ctx->right);
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
 
     if (ctx->PLUS()) {
       PyObject* op = get_ast_enum_member("ArithmeticOperationOp", "Add");
@@ -1017,38 +1201,38 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       }
       RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
     } else if (ctx->CONCAT()) {
-#define IS_NODE_A_CONCAT_CALL(VAR)                                                               \
-  int is_##VAR##_a_concat_call = false;                                                          \
-  int is_##VAR##_a_call = is_ast_node_instance(VAR, "Call");                                     \
-  if (is_##VAR##_a_call == -1) {                                                                 \
-    Py_DECREF(left);                                                                             \
-    Py_DECREF(right);                                                                            \
-    throw PyInternalException();                                                                 \
-  }                                                                                              \
-  if (is_##VAR##_a_call) {                                                                       \
-    PyObject* VAR##_name = PyObject_GetAttrString(VAR, "name");                                  \
-    if (!VAR##_name) {                                                                           \
-      Py_DECREF(left);                                                                           \
-      Py_DECREF(right);                                                                          \
-      Py_DECREF(concat_as_str);                                                                  \
-      throw PyInternalException();                                                               \
-    }                                                                                            \
-    PyObject* VAR##_name_lower = PyObject_CallMethod(VAR##_name, "lower", NULL);                 \
-    Py_DECREF(VAR##_name);                                                                       \
-    if (!VAR##_name_lower) {                                                                     \
-      Py_DECREF(left);                                                                           \
-      Py_DECREF(right);                                                                          \
-      Py_DECREF(concat_as_str);                                                                  \
-      throw PyInternalException();                                                               \
-    }                                                                                            \
-    is_##VAR##_a_concat_call = PyObject_RichCompareBool(VAR##_name_lower, concat_as_str, Py_EQ); \
-    Py_DECREF(VAR##_name_lower);                                                                 \
-    if (is_##VAR##_a_concat_call == -1) {                                                        \
-      Py_DECREF(left);                                                                           \
-      Py_DECREF(right);                                                                          \
-      Py_DECREF(concat_as_str);                                                                  \
-      throw PyInternalException();                                                               \
-    }                                                                                            \
+#define IS_NODE_A_CONCAT_CALL(VAR) /* This is complex because of all the error handling, hence a macro */ \
+  int is_##VAR##_a_concat_call = false;                                                                   \
+  int is_##VAR##_a_call = is_ast_node_instance(VAR, "Call");                                              \
+  if (is_##VAR##_a_call == -1) {                                                                          \
+    Py_DECREF(left);                                                                                      \
+    Py_DECREF(right);                                                                                     \
+    throw PyInternalException();                                                                          \
+  }                                                                                                       \
+  if (is_##VAR##_a_call) {                                                                                \
+    PyObject* VAR##_name = PyObject_GetAttrString(VAR, "name");                                           \
+    if (!VAR##_name) {                                                                                    \
+      Py_DECREF(left);                                                                                    \
+      Py_DECREF(right);                                                                                   \
+      Py_DECREF(concat_as_str);                                                                           \
+      throw PyInternalException();                                                                        \
+    }                                                                                                     \
+    PyObject* VAR##_name_lower = PyObject_CallMethod(VAR##_name, "lower", NULL);                          \
+    Py_DECREF(VAR##_name);                                                                                \
+    if (!VAR##_name_lower) {                                                                              \
+      Py_DECREF(left);                                                                                    \
+      Py_DECREF(right);                                                                                   \
+      Py_DECREF(concat_as_str);                                                                           \
+      throw PyInternalException();                                                                        \
+    }                                                                                                     \
+    is_##VAR##_a_concat_call = PyObject_RichCompareBool(VAR##_name_lower, concat_as_str, Py_EQ);          \
+    Py_DECREF(VAR##_name_lower);                                                                          \
+    if (is_##VAR##_a_concat_call == -1) {                                                                 \
+      Py_DECREF(left);                                                                                    \
+      Py_DECREF(right);                                                                                   \
+      Py_DECREF(concat_as_str);                                                                           \
+      throw PyInternalException();                                                                        \
+    }                                                                                                     \
   }
 
       PyObject* concat_as_str = PyUnicode_FromString("concat");
@@ -1157,8 +1341,21 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     if (!op) throw PyInternalException();
 
-    PyObject* left = visitAsPyObject(ctx->left);
-    PyObject* right = visitAsPyObject(ctx->right);
+    PyObject* left;
+    try {
+      left = visitAsPyObject(ctx->left);
+    } catch (...) {
+      Py_DECREF(op);
+      throw;
+    }
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(op);
+      Py_DECREF(left);
+      throw;
+    }
 
     RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
   }
@@ -1186,8 +1383,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw ParsingException("Unsupported value of rule ColumnExprInterval");
     }
 
-    PyObject* arg = visitAsPyObject(ctx->columnExpr());
-    RETURN_NEW_AST_NODE("Call", "{s:s,s:[N]}", "name", name, "args", arg);
+    RETURN_NEW_AST_NODE("Call", "{s:s,s:[N]}", "name", name, "args",  visitAsPyObject(ctx->columnExpr()));
   }
 
   VISIT(ColumnExprIsNull) {
@@ -1198,10 +1394,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(null_constant);
       throw PyInternalException();
     }
-    RETURN_NEW_AST_NODE(
-        "CompareOperation", "{s:N,s:N,s:N}", "left", visitAsPyObject(ctx->columnExpr()), "right", null_constant, "op",
-        op
-    );
+    PyObject* left;
+    try {
+      left = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(op);
+      Py_DECREF(null_constant);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", null_constant, "op", op);
   }
 
   VISIT_UNSUPPORTED(ColumnExprTrim)
@@ -1230,20 +1431,24 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
         throw PyInternalException();
       }
       int is_property_zero = PyObject_RichCompareBool(property_value, zero, Py_EQ);
+      Py_DECREF(zero);
+      Py_DECREF(property_value);
       if (is_property_zero == -1) {
-        Py_DECREF(zero);
-        Py_DECREF(property_value);
         Py_DECREF(property);
         throw PyInternalException();
       }
       if (is_property_zero) {
-        Py_DECREF(zero);
-        Py_DECREF(property_value);
         Py_DECREF(property);
         throw SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]");
       }
     }
-    PyObject* object = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr(0));
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
 
@@ -1253,7 +1458,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!property) {
       throw PyInternalException();
     }
-    PyObject* object = visitAsPyObject(ctx->columnExpr());
+    PyObject* object;
+    try {
+      object = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(property);
+      throw;
+    }
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N}", "array", object, "property", property);
   }
 
@@ -1267,7 +1478,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprAnd) {
     PyObject* left = visitAsPyObject(ctx->columnExpr(0));
-    PyObject* right = visitAsPyObject(ctx->columnExpr(1));
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
 
     int is_left_an_and = is_ast_node_instance(left, "And");
     if (is_left_an_and == -1) {
@@ -1304,7 +1521,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprOr) {
     PyObject* left = visitAsPyObject(ctx->columnExpr(0));
-    PyObject* right = visitAsPyObject(ctx->columnExpr(1));
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
 
     int is_left_an_or = is_ast_node_instance(left, "Or");
     if (is_left_an_or == -1) {
@@ -1348,17 +1571,22 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw PyInternalException();
     }
     int is_index_zero = PyObject_RichCompareBool(index, zero, Py_EQ);
-    if (is_index_zero == -1) {
       Py_DECREF(zero);
+    if (is_index_zero == -1) {
       Py_DECREF(index);
       throw PyInternalException();
     }
     if (is_index_zero) {
-      Py_DECREF(zero);
       Py_DECREF(index);
       throw SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]");
     }
-    PyObject* tuple = visitAsPyObject(ctx->columnExpr());
+    PyObject* tuple;
+    try {
+      tuple = visitAsPyObject(ctx->columnExpr());
+    } catch (...) {
+      Py_DECREF(index);
+      throw;
+    }
     RETURN_NEW_AST_NODE("TupleAccess", "{s:N,s:N}", "tuple", tuple, "index", index);
   }
 
@@ -1427,7 +1655,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string identifier = visitAsString(ctx->identifier());
     auto column_expr_list_ctx = ctx->columnExprList();
     PyObject* args = visitAsPyObjectOrEmptyList(column_expr_list_ctx);
-    PyObject* over_expr = visitAsPyObjectOrNone(ctx->windowExpr());
+    PyObject* over_expr;
+    try {
+      over_expr = visitAsPyObjectOrNone(ctx->windowExpr());
+    } catch (...) {
+      Py_DECREF(args);
+      throw;
+    }
     RETURN_NEW_AST_NODE(
         "WindowFunction", "{s:s#,s:N,s:N}", "name", identifier.data(), identifier.size(), "args", args, "over_expr",
         over_expr
@@ -1440,9 +1674,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(ColumnExprFunction) {
     string name = visitAsString(ctx->identifier());
+    PyObject* params = visitAsPyObjectOrNone(ctx->columnExprList());
+PyObject* args;
+try {
+  args =  visitAsPyObjectOrEmptyList(ctx->columnArgList());
+} catch (...) {
+  Py_DECREF(params);
+  throw;
+}
     RETURN_NEW_AST_NODE(
         "Call", "{s:s#,s:N,s:N,s:O}", "name", name.data(), name.size(), "params",
-        visitAsPyObjectOrNone(ctx->columnExprList()), "args", visitAsPyObjectOrEmptyList(ctx->columnArgList()),
+        params, "args",args,
         "distinct", ctx->DISTINCT() ? Py_True : Py_False
     );
   }
@@ -1462,9 +1704,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
   VISIT(ColumnLambdaExpr) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
+    PyObject* args;
+    try {
+      args = X_PyList_FromStrings(visitAsVectorOfStrings(ctx->identifier()));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
     RETURN_NEW_AST_NODE(
-        "Lambda", "{s:N,s:N}", "args", X_PyList_FromStrings(visitAsVectorOfStrings(ctx->identifier())), "expr",
-        visitAsPyObject(ctx->columnExpr())
+        "Lambda", "{s:N,s:N}", "args",args, "expr",
+        expr
     );
   }
 
@@ -1472,7 +1722,13 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyObject* ctes = PyDict_New();
     if (!ctes) throw PyInternalException();
     for (auto with_expr_ctx : ctx->withExpr()) {
-      PyObject* cte = visitAsPyObject(with_expr_ctx);
+      PyObject* cte;
+      try {
+        cte = visitAsPyObject(with_expr_ctx);
+      } catch (...) {
+        Py_DECREF(ctes);
+        throw;
+      }
       PyObject* name = PyObject_GetAttrString(cte, "name");
       if (!name) {
         Py_DECREF(cte);
@@ -1501,8 +1757,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(WithExprColumn) {
-    PyObject* expr = visitAsPyObject(ctx->columnExpr());
     string name = visitAsString(ctx->identifier());
+    PyObject* expr = visitAsPyObject(ctx->columnExpr());
     RETURN_NEW_AST_NODE("CTE", "{s:s#,s:N,s:s}", "name", name.data(), name.size(), "expr", expr, "cte_type", "column");
   }
 
@@ -1559,8 +1815,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw SyntaxException("ALIAS is a reserved keyword");
     }
     PyObject* py_alias = PyUnicode_FromStringAndSize(alias.data(), alias.size());
-    if (!py_alias)  throw PyInternalException();
-    PyObject* table = visitAsPyObject(ctx->tableExpr());
+    if (!py_alias) throw PyInternalException();
+    PyObject* table;
+    try {
+      table = visitAsPyObject(ctx->tableExpr());
+    } catch (...) {
+      Py_DECREF(py_alias);
+      throw;
+    }
+    
     int is_table_a_join_expr = is_ast_node_instance(table, "JoinExpr");
     if (is_table_a_join_expr == -1) {
       Py_DECREF(py_alias);
@@ -1585,18 +1848,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprTag) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(TableFunctionExpr) {
+    string table_name = visitAsString(ctx->identifier());
     auto table_args_ctx = ctx->tableArgList();
     PyObject* table_args = table_args_ctx ? visitAsPyObject(table_args_ctx) : Py_NewRef(Py_None);
-    string table_name = visitAsString(ctx->identifier());
     PyObject* table = build_ast_node("Field", "{s:[s#]}", "chain", table_name.data(), table_name.size());
     if (!table) {
       Py_DECREF(table_args);
       throw PyInternalException();
     }
-    RETURN_NEW_AST_NODE(
-        "JoinExpr", "{s:N,s:N}", "table", table,
-        "table_args", table_args
-    );
+    RETURN_NEW_AST_NODE("JoinExpr", "{s:N,s:N}", "table", table, "table_args", table_args);
   }
 
   VISIT(TableIdentifier) {
@@ -1761,9 +2021,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(EnumValue)
 
   VISIT(ColumnExprNullish) {
+    PyObject* value = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* fallback;
+    try {
+      fallback = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(value);
+      throw;
+    }
     RETURN_NEW_AST_NODE(
-        "Call", "{s:s, s:[NN]}", "name", "ifNull", "args", visitAsPyObject(ctx->columnExpr(0)),
-        visitAsPyObject(ctx->columnExpr(1))
+        "Call", "{s:s, s:[NN]}", "name", "ifNull", "args", value,
+        fallback
     );
   }
 };
@@ -1842,6 +2110,8 @@ parser_state* get_module_state(PyObject* module) {
 METHOD_PARSE_NODE(Expr, expr, expr)
 METHOD_PARSE_NODE(OrderExpr, orderExpr, order_expr)
 METHOD_PARSE_NODE(Select, select, select)
+
+#undef METHOD_PARSE_NODE
 
 static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
   parser_state* state = get_module_state(self);
