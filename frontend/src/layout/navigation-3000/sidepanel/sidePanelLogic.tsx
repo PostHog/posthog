@@ -1,15 +1,16 @@
-import { IconNotebook, IconQuestion } from '@posthog/icons'
+import { IconInfo, IconNotebook, IconQuestion } from '@posthog/icons'
 import { actions, kea, reducers, path, listeners } from 'kea'
 
 import type { sidePanelLogicType } from './sidePanelLogicType'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelDocs } from './panels/SidePanelDocs'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
 export enum SidePanelTab {
     Notebooks = 'notebooks',
     Feedback = 'feedback',
+    Docs = 'docs',
 }
 
 // TODO: Fix any
@@ -24,13 +25,19 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconQuestion,
         Content: SidePanelSupport,
     },
+    [SidePanelTab.Docs]: {
+        label: 'Docs',
+        Icon: IconInfo,
+        Content: SidePanelDocs,
+    },
 }
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     actions({
+        setSidePanelOpen: (open: boolean) => ({ open }),
         openSidePanel: (tab: SidePanelTab) => ({ tab }),
-        closeSidePanel: true,
+        closeSidePanel: (tab?: SidePanelTab) => ({ tab }),
     }),
 
     reducers(() => ({
@@ -45,17 +52,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             false,
             { persist: true },
             {
-                openSidePanel: () => true,
-                closeSidePanel: () => false,
+                setSidePanelOpen: (_, { open }) => open,
             },
         ],
     })),
 
-    listeners(() => ({
-        openSidePanel: ({ tab }) => {
-            // Super temorary
-            if (tab === SidePanelTab.Notebooks) {
-                notebookPopoverLogic.actions.setVisibility('visible')
+    listeners(({ actions, values }) => ({
+        openSidePanel: () => {
+            actions.setSidePanelOpen(true)
+        },
+        closeSidePanel: ({ tab }) => {
+            if (!tab) {
+                // If we aren't specifiying the tab we always close
+                actions.setSidePanelOpen(false)
+            } else if (values.selectedTab === tab) {
+                // Otherwise we only close it if the tab is the currently open one
+                actions.setSidePanelOpen(false)
             }
         },
     })),
