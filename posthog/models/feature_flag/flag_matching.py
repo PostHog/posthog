@@ -198,7 +198,10 @@ class FeatureFlagMatcher:
                     payload=payload,
                 )
 
-            (highest_priority_evaluation_reason, highest_priority_index,) = self.get_highest_priority_match_evaluation(
+            (
+                highest_priority_evaluation_reason,
+                highest_priority_index,
+            ) = self.get_highest_priority_match_evaluation(
                 highest_priority_evaluation_reason,
                 highest_priority_index,
                 evaluation_reason,

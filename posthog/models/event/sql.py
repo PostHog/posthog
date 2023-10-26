@@ -124,7 +124,8 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     indexes="",
 )
 
-EVENTS_TABLE_JSON_MV_SQL = lambda: """
+EVENTS_TABLE_JSON_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -154,9 +155,10 @@ _timestamp,
 _offset
 FROM {database}.kafka_events_json
 """.format(
-    target_table=WRITABLE_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -387,9 +389,7 @@ WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
-""".format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
-)
+""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX)
 
 GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']

@@ -175,7 +175,7 @@ class Team(UUIDClassicModel):
         decimal_places=2,
         validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
     )
-    session_recording_minimum_duration_milliseconds: (models.IntegerField) = models.IntegerField(
+    session_recording_minimum_duration_milliseconds: models.IntegerField = models.IntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(15000)],
