@@ -15,7 +15,7 @@ import { router } from 'kea-router'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
-import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { personActivityDescriber } from 'scenes/persons/utils/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 

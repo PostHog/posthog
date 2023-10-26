@@ -10,7 +10,7 @@ import {
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/groups/GroupActorDisplay'
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
@@ -32,7 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import './PersonsModal.scss'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay } from 'scenes/persons/utils/person-utils'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void

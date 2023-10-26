@@ -21,7 +21,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { asDisplay } from './person-utils'
+import { asDisplay } from './utils/person-utils'
 import { hogqlQuery } from '~/queries/query'
 
 export interface PersonsLogicProps {

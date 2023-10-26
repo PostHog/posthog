@@ -14,7 +14,7 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { teamLogic } from 'scenes/teamLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay } from 'scenes/persons/utils/person-utils'
 
 interface RecordingRowProps {
     recording: SessionRecordingType

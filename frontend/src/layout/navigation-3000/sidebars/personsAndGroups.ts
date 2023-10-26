@@ -10,10 +10,10 @@ import { urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { groupDisplayId } from 'scenes/groups/GroupActorDisplay'
 import { combineUrl } from 'kea-router'
 import { PersonType } from '~/types'
-import { asDisplay, asLink } from 'scenes/persons/person-utils'
+import { asDisplay, asLink } from 'scenes/persons/utils/person-utils'
 
 export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'personsAndGroupsSidebarLogic']),

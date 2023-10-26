@@ -15,7 +15,7 @@ import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConf
 import { DataTableRow, dataTableLogic } from './dataTableLogic'
 import { useValues } from 'kea'
 import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay } from 'scenes/persons/utils/person-utils'
 import { urls } from 'scenes/urls'
 
 const EXPORT_MAX_LIMIT = 10000

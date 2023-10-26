@@ -10,7 +10,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { projectHomepageLogic } from './projectHomepageLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay } from 'scenes/persons/utils/person-utils'
 
 function PersonRow({ person }: { person: PersonType }): JSX.Element {
     const { reportPersonOpenedFromNewlySeenPersonsList } = useActions(eventUsageLogic)

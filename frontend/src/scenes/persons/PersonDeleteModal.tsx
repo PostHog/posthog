@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { PersonType } from '~/types'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { asDisplay } from './person-utils'
+import { asDisplay } from './utils/person-utils'
 
 export function PersonDeleteModal(): JSX.Element | null {
     const { personDeleteModal } = useValues(personDeleteModalLogic)

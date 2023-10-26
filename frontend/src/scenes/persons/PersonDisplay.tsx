@@ -6,7 +6,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonPreview } from './PersonPreview'
 import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
-import { asDisplay, asLink } from './person-utils'
+import { asDisplay, asLink } from './utils/person-utils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeType } from '~/types'
 

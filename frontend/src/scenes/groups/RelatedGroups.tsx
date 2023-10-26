@@ -6,7 +6,7 @@ import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
-import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
+import { GroupActorDisplay } from 'scenes/groups/GroupActorDisplay'
 
 interface Props {
     groupTypeIndex: number | null

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { asDisplay } from './person-utils'
+import { asDisplay } from './utils/person-utils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 export type PersonPreviewProps = {
