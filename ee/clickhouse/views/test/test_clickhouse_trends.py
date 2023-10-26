@@ -735,7 +735,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
                 }
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        created_people = journeys_for(events_by_person, self.team, create_people=False)
 
         # Total Volume
         with freeze_time("2012-01-15T04:01:34.000Z"):
