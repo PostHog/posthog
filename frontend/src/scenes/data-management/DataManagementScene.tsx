@@ -153,7 +153,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
         ],
     },
     actionToUrl: () => ({
-        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || urls.events(),
+        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
     }),
     urlToAction: ({ actions, values }) => {
         return Object.fromEntries(
