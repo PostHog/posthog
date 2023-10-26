@@ -1,4 +1,5 @@
 .SidePanel3000 {
+    position: relative;
     flex-shrink: 0;
     border-left: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
@@ -6,6 +7,7 @@
     width: 3rem;
     display: flex;
     background: var(--accent-3000);
+    max-width: 60%;
 
     .LemonButton {
         min-height: 2.25rem !important; // Reduce minimum height
