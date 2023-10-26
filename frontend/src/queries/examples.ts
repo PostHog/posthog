@@ -27,7 +27,6 @@ import {
     StepOrderValue,
 } from '~/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -250,9 +249,6 @@ const InsightLifecycleQuery: LifecycleQuery = {
         date_from: '-7d',
     },
     series, // TODO: Visualization only supports one event or action
-    lifecycleFilter: {
-        shown_as: ShownAsValue.LIFECYCLE,
-    },
 }
 
 const TimeToSeeDataSessionsTable: DataTableNode = {
@@ -312,6 +308,7 @@ const HogQLRaw: HogQLQuery = {
           person.properties.email
  order by count() desc
     limit 100`,
+    explain: true,
     filters: {
         dateRange: {
             date_from: '-24h',

@@ -67,7 +67,6 @@ describe('query', () => {
                     'timestamp',
                 ],
             },
-            max_limit: 10000,
         })
     })
 

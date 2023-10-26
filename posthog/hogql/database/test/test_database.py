@@ -4,8 +4,11 @@ from typing import Any
 from unittest.mock import patch
 import pytest
 from django.test import override_settings
+from parameterized import parameterized
 
 from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.models import FieldTraverser, StringDatabaseField
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
 from posthog.hogql.query import execute_hogql_query
@@ -26,6 +29,21 @@ class TestDatabase(BaseTest):
             serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
             assert json.dumps(serialized_database, indent=4) == self.snapshot
 
+    @parameterized.expand([False, True])
+    def test_can_select_from_each_table_at_all(self, poe_enabled: bool) -> None:
+        with override_settings(PERSON_ON_EVENTS_OVERRIDE=poe_enabled):
+            serialized_database = serialize_database(create_hogql_database(team_id=self.team.pk))
+            for table, possible_columns in serialized_database.items():
+                if table == "numbers":
+                    execute_hogql_query("SELECT number FROM numbers(10) LIMIT 100", self.team)
+                else:
+                    columns = [
+                        x["key"]
+                        for x in possible_columns
+                        if "table" not in x and "chain" not in x and "fields" not in x
+                    ]
+                    execute_hogql_query(f"SELECT {','.join(columns)} FROM {table}", team=self.team)
+
     @patch("posthog.hogql.query.sync_execute", return_value=(None, None))
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_with_warehouse_tables(self, patch_execute):
@@ -33,7 +51,11 @@ class TestDatabase(BaseTest):
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
         DataWarehouseTable.objects.create(
-            name="whatever", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+            name="whatever",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="",
         )
         create_hogql_database(team_id=self.team.pk)
 
@@ -44,5 +66,17 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            f"SELECT whatever.id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
+
+    def test_database_group_type_mappings(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="test", group_type_index=0)
+        db = create_hogql_database(team_id=self.team.pk)
+
+        assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
+
+    def test_database_group_type_mappings_overwrite(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="event", group_type_index=0)
+        db = create_hogql_database(team_id=self.team.pk)
+
+        assert db.events.fields["event"] == StringDatabaseField(name="event")

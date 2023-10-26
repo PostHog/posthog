@@ -7,7 +7,12 @@ from django.conf import settings
 from posthoganalytics.client import Client
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token
+from posthog.utils import (
+    get_git_branch,
+    get_git_commit,
+    get_machine_id,
+    get_self_capture_api_token,
+)
 
 logger = structlog.get_logger(__name__)
 

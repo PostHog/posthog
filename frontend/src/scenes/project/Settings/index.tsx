@@ -5,7 +5,6 @@ import { SessionRecording } from './SessionRecording'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ToolbarSettings } from './ToolbarSettings'
 import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -36,6 +35,7 @@ import { IngestionInfo } from './IngestionInfo'
 import { ExtraTeamSettings } from './ExtraTeamSettings'
 import { WeekStartConfig } from './WeekStartConfig'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SurveySettings } from './Survey'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -235,16 +235,10 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <IPCapture />
                 <LemonDivider className="my-6" />
-                <h2 className="subtitle">PostHog Toolbar</h2>
-                <p>
-                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
-                    right there on your website!
-                </p>
-                <ToolbarSettings />
-                <LemonDivider className="my-6" />
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                <SurveySettings />
                 <ExtraTeamSettings />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />

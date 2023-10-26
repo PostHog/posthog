@@ -1,4 +1,5 @@
 import datetime as dt
+import itertools
 import json
 import typing
 
@@ -91,7 +92,11 @@ def config(request):
 @pytest.fixture
 def snowflake_plugin_config(snowflake_plugin, team) -> typing.Generator[PluginConfig, None, None]:
     plugin_config = PluginConfig.objects.create(
-        plugin=snowflake_plugin, order=1, team=team, enabled=True, config=test_snowflake_config
+        plugin=snowflake_plugin,
+        order=1,
+        team=team,
+        enabled=True,
+        config=test_snowflake_config,
     )
     yield plugin_config
     plugin_config.delete()
@@ -111,6 +116,20 @@ def plugin_config(request, s3_plugin_config, snowflake_plugin_config) -> PluginC
     if request.param == "S3":
         return s3_plugin_config
     elif request.param == "Snowflake":
+        return snowflake_plugin_config
+    else:
+        raise ValueError(f"Unsupported plugin: {request.param}")
+
+
+@pytest.fixture
+def disabled_plugin_config(request, s3_plugin_config, snowflake_plugin_config) -> PluginConfig:
+    if request.param == "S3":
+        s3_plugin_config.enabled = False
+        s3_plugin_config.save()
+        return s3_plugin_config
+    elif request.param == "Snowflake":
+        snowflake_plugin_config.enabled = False
+        snowflake_plugin_config.save()
         return snowflake_plugin_config
     else:
         raise ValueError(f"Unsupported plugin: {request.param}")
@@ -155,7 +174,6 @@ def test_create_batch_export_from_app_fails_with_mismatched_team_id(plugin_confi
 @pytest.mark.parametrize("plugin_config", ["S3", "Snowflake"], indirect=True)
 def test_create_batch_export_from_app_dry_run(plugin_config):
     """Test a dry_run of the create_batch_export_from_app command."""
-
     output = call_command(
         "create_batch_export_from_app",
         f"--plugin-config-id={plugin_config.id}",
@@ -166,6 +184,7 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
 
     batch_export_data = json.loads(output)
 
+    assert "id" not in batch_export_data
     assert batch_export_data["team_id"] == plugin_config.team.id
     assert batch_export_data["interval"] == "hour"
     assert batch_export_data["name"] == f"{export_type} Export"
@@ -178,19 +197,14 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "interval,plugin_config,disable_plugin_config",
-    [
-        ("hour", "S3", True),
-        ("hour", "S3", False),
-        ("day", "S3", True),
-        ("day", "S3", False),
-        ("hour", "Snowflake", True),
-        ("hour", "Snowflake", False),
-        ("day", "Snowflake", True),
-        ("day", "Snowflake", False),
-    ],
+    itertools.product(["hour", "day"], ["S3", "Snowflake"], [True, False]),
     indirect=["plugin_config"],
 )
-def test_create_batch_export_from_app(interval, plugin_config, disable_plugin_config):
+def test_create_batch_export_from_app(
+    interval,
+    plugin_config,
+    disable_plugin_config,
+):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
         f"--plugin-config-id={plugin_config.id}",
@@ -237,6 +251,69 @@ def test_create_batch_export_from_app(interval, plugin_config, disable_plugin_co
         assert args[key] == expected
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "interval,disabled_plugin_config,migrate_disabled_plugin_config",
+    itertools.product(["hour", "day"], ["S3", "Snowflake"], [True, False]),
+    indirect=["disabled_plugin_config"],
+)
+def test_create_batch_export_from_app_with_disabled_plugin(
+    interval,
+    disabled_plugin_config,
+    migrate_disabled_plugin_config,
+):
+    """Test a live run of the create_batch_export_from_app command."""
+    args = [
+        f"--plugin-config-id={disabled_plugin_config.id}",
+        f"--team-id={disabled_plugin_config.team.id}",
+        f"--interval={interval}",
+    ]
+    if migrate_disabled_plugin_config:
+        args.append("--migrate-disabled-plugin-config")
+
+    output = call_command("create_batch_export_from_app", *args)
+
+    disabled_plugin_config.refresh_from_db()
+    assert disabled_plugin_config.enabled is False
+
+    export_type, config = map_plugin_config_to_destination(disabled_plugin_config)
+
+    batch_export_data = json.loads(output)
+
+    assert batch_export_data["team_id"] == disabled_plugin_config.team.id
+    assert batch_export_data["interval"] == interval
+    assert batch_export_data["name"] == f"{export_type} Export"
+    assert batch_export_data["destination_data"] == {
+        "type": export_type,
+        "config": config,
+    }
+
+    if not migrate_disabled_plugin_config:
+        assert "id" not in batch_export_data
+        return
+
+    assert "id" in batch_export_data
+
+    temporal = sync_connect()
+
+    schedule = describe_schedule(temporal, str(batch_export_data["id"]))
+    expected_interval = dt.timedelta(**{f"{interval}s": 1})
+    assert schedule.schedule.spec.intervals[0].every == expected_interval
+
+    codec = EncryptionCodec(settings=settings)
+    decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+
+    # Common inputs
+    assert args["team_id"] == disabled_plugin_config.team.pk
+    assert args["batch_export_id"] == str(batch_export_data["id"])
+    assert args["interval"] == interval
+
+    # Type specific inputs
+    for key, expected in config.items():
+        assert args[key] == expected
+
+
 @async_to_sync
 async def list_workflows(temporal, schedule_id: str):
     """List Workflows scheduled by given Schedule."""
@@ -248,7 +325,7 @@ async def list_workflows(temporal, schedule_id: str):
     return workflows
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
     "interval,plugin_config",
     [

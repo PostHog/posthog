@@ -23,6 +23,7 @@ import {
     PersonType,
     PluginType,
     PropertyDefinition,
+    NotebookType,
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
@@ -135,6 +136,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        hogQLTable: [() => [(_, props) => props.hogQLTable], (hogQLTable) => hogQLTable ?? 'events'],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
@@ -145,6 +147,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
+                s.hogQLTable,
                 s.excludedProperties,
             ],
             (
@@ -152,9 +155,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
+                hogQLTable,
                 excludedProperties
             ): TaxonomicFilterGroup[] => {
-                return [
+                const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
@@ -209,7 +213,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -237,7 +241,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                       filter_by_event_names: true,
                                   }).url
                                 : undefined,
-                        expandLabel: ({ count, expandedCount }) =>
+                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
                                 eventNames.length,
                                 'has',
@@ -399,6 +403,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getPopoverHeader: () => `Dashboards`,
                     },
                     {
+                        name: 'Notebooks',
+                        searchPlaceholder: 'notebooks',
+                        type: TaxonomicFilterGroupType.Notebooks,
+                        value: 'notebooks',
+                        endpoint: `api/projects/${teamId}/notebooks/`,
+                        getName: (notebook: NotebookType) => notebook.title || `Notebook ${notebook.short_id}`,
+                        getValue: (notebook: NotebookType) => notebook.short_id,
+                        getPopoverHeader: () => 'Notebooks',
+                    },
+                    {
                         name: 'Sessions',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.Sessions,
@@ -408,8 +422,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 value: '$session_duration',
                             },
                         ],
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
+                        getName: (option: any) => option.name,
+                        getValue: (option: any) => option.value,
                         getPopoverHeader: () => 'Session',
                     },
                     {
@@ -418,10 +432,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
+                        componentProps: { hogQLTable },
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
+
+                return groups
             },
         ],
         activeTaxonomicGroup: [

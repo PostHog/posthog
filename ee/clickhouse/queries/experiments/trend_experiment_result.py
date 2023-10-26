@@ -25,7 +25,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, PROPERTY_MATH_FUNCTIONS
+from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
 Probability = float
 
@@ -41,16 +41,18 @@ class Variant:
     absolute_exposure: int
 
 
-def uses_count_per_user_aggregation(filter: Filter):
-    entities = filter.entities
-    count_per_actor_keys = COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
-    return any(entity.math in count_per_actor_keys for entity in entities)
+def uses_math_aggregation_by_user_or_property_value(filter: Filter):
+    # sync with frontend: https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/experiments/experimentLogic.tsx#L662
+    # the selector experimentCountPerUserMath
 
-
-def uses_count_per_property_value_aggregation(filter: Filter):
     entities = filter.entities
-    count_per_prop_value_keys = PROPERTY_MATH_FUNCTIONS.keys()
-    return any(entity.math in count_per_prop_value_keys for entity in entities)
+    math_keys = ALL_SUPPORTED_MATH_FUNCTIONS
+
+    # 'sum' doesn't need special handling, we can have custom exposure for sum filters
+    if "sum" in math_keys:
+        math_keys.remove("sum")
+
+    return any(entity.math in math_keys for entity in entities)
 
 
 class ClickhouseTrendExperimentResult:
@@ -89,25 +91,29 @@ class ClickhouseTrendExperimentResult:
                 experiment_end_date.astimezone(ZoneInfo(team.timezone)) if experiment_end_date else None
             )
 
-        count_per_user_aggregation = uses_count_per_user_aggregation(filter)
-        count_per_property_value_aggregation = uses_count_per_property_value_aggregation(filter)
+        uses_math_aggregation = uses_math_aggregation_by_user_or_property_value(filter)
 
         query_filter = filter.shallow_clone(
             {
-                "display": TRENDS_CUMULATIVE
-                if not (count_per_user_aggregation or count_per_property_value_aggregation)
-                else TRENDS_LINEAR,
+                "display": TRENDS_CUMULATIVE if not uses_math_aggregation else TRENDS_LINEAR,
                 "date_from": start_date_in_project_timezone,
                 "date_to": end_date_in_project_timezone,
                 "explicit_date": True,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
+                "properties": [
+                    {
+                        "key": breakdown_key,
+                        "value": variants,
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
                 # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
 
-        if count_per_user_aggregation or count_per_property_value_aggregation:
+        if uses_math_aggregation:
             # A trend experiment can have only one metric, so take the first one to calculate exposure
             # We copy the entity to avoid mutating the original filter
             entity = query_filter.shallow_clone({}).entities[0]
@@ -149,7 +155,14 @@ class ClickhouseTrendExperimentResult:
                         "explicit_date": True,
                         "breakdown": breakdown_key,
                         "breakdown_type": "event",
-                        "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
+                        "properties": [
+                            {
+                                "key": breakdown_key,
+                                "value": variants,
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
                     }
                 )
             else:
@@ -172,8 +185,18 @@ class ClickhouseTrendExperimentResult:
                         "breakdown_type": "event",
                         "breakdown": "$feature_flag_response",
                         "properties": [
-                            {"key": "$feature_flag_response", "value": variants, "operator": "exact", "type": "event"},
-                            {"key": "$feature_flag", "value": [feature_flag.key], "operator": "exact", "type": "event"},
+                            {
+                                "key": "$feature_flag_response",
+                                "value": variants,
+                                "operator": "exact",
+                                "type": "event",
+                            },
+                            {
+                                "key": "$feature_flag",
+                                "value": [feature_flag.key],
+                                "operator": "exact",
+                                "type": "event",
+                            },
                         ],
                     }
                 )
@@ -213,9 +236,7 @@ class ClickhouseTrendExperimentResult:
         exposure_counts = {}
         exposure_ratios = {}
 
-        if uses_count_per_user_aggregation(self.query_filter) or uses_count_per_property_value_aggregation(
-            self.query_filter
-        ):
+        if uses_math_aggregation_by_user_or_property_value(self.query_filter):
             filtered_exposure_results = [
                 result for result in exposure_results if result["action"]["math"] == UNIQUE_USERS
             ]
@@ -275,16 +296,24 @@ class ClickhouseTrendExperimentResult:
             raise ValidationError("No control variant data found", code="no_data")
 
         if len(test_variants) >= 10:
-            raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for more than 10 variants",
+                code="too_much_data",
+            )
 
         if len(test_variants) < 1:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for less than 2 variants",
+                code="no_data",
+            )
 
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
     def are_results_significant(
-        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+        control_variant: Variant,
+        test_variants: List[Variant],
+        probabilities: List[Probability],
     ) -> Tuple[ExperimentSignificanceCode, Probability]:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
@@ -342,7 +371,10 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     """
 
     if len(variants) > 10:
-        raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+        raise ValidationError(
+            "Can't calculate A/B test results for more than 10 variants",
+            code="too_much_data",
+        )
 
     probabilities = []
     # simulate winning for each test variant
@@ -396,5 +428,8 @@ def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) ->
     best_test_variant = max(test_variants, key=lambda variant: variant.count)
 
     return poisson_p_value(
-        control_variant.count, control_variant.exposure, best_test_variant.count, best_test_variant.exposure
+        control_variant.count,
+        control_variant.exposure,
+        best_test_variant.count,
+        best_test_variant.exposure,
     )

@@ -31,7 +31,11 @@ def send_license_usage():
         )[0][0]
         response = requests.post(
             "https://license.posthog.com/licenses/usage",
-            data={"date": date_from.strftime("%Y-%m-%d"), "key": license.key, "events_count": events_count},
+            data={
+                "date": date_from.strftime("%Y-%m-%d"),
+                "key": license.key,
+                "events_count": events_count,
+            },
         )
 
         if response.status_code == 404 and response.json().get("code") == "not_found":
@@ -56,7 +60,10 @@ def send_license_usage():
                     "events_count": events_count,
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
+                groups={
+                    "organization": str(user.current_organization.id),  # type: ignore
+                    "instance": SITE_URL,
+                },
             )
             response.raise_for_status()
             return
@@ -70,7 +77,10 @@ def send_license_usage():
                     "license_keys": [license.key for license in License.objects.all()],
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
+                groups={
+                    "organization": str(user.current_organization.id),  # type: ignore
+                    "instance": SITE_URL,
+                },
             )
     except Exception as err:
         try:
@@ -82,7 +92,10 @@ def send_license_usage():
                     "date": date_from.strftime("%Y-%m-%d"),
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
-                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
+                groups={
+                    "organization": str(user.current_organization.id),  # type: ignore
+                    "instance": SITE_URL,
+                },
             )
             raise err
         except:

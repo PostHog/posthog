@@ -1,26 +1,17 @@
-from datetime import datetime
 from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, TypeVar, Union, cast
-from zoneinfo import ZoneInfo
 
-import posthoganalytics
 from django.urls import resolve
 from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
+from posthog.caching.utils import is_stale_filter
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.cloud_utils import is_cloud
-from posthog.datetime import start_of_day, start_of_hour, start_of_month, start_of_week
 from posthog.models import User
-from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.team.team import Team
 from posthog.utils import refresh_requested_by_client
 
 from .utils import generate_cache_key, get_safe_cache
@@ -84,7 +75,7 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 route = "unknown"
 
             if cached_result_package and cached_result_package.get("result"):
-                if not is_stale(team, filter, cached_result_package):
+                if not is_stale_filter(team, filter, cached_result_package):
                     cached_result_package["is_cached"] = True
                     statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
                     return cached_result_package
@@ -106,49 +97,3 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
         return fresh_result_package
 
     return wrapper
-
-
-def stale_cache_invalidation_disabled(team: Team) -> bool:
-    """Can be disabled temporarly to help in cases of service degradation."""
-    if is_cloud():  # on PostHog Cloud, use the feature flag
-        return not posthoganalytics.feature_enabled(
-            "stale-cache-invalidation-enabled",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    else:
-        return False
-
-
-def is_stale(team: Team, filter: Filter | RetentionFilter | StickinessFilter | PathFilter, cached_result: Any) -> bool:
-    """Indicates wether a cache item is obviously outdated based on filters,
-    i.e. the next time interval was entered since the last computation. For
-    example an insight with -7d date range that was last computed yesterday.
-    The same insight refreshed today wouldn't be marked as stale.
-    """
-
-    if stale_cache_invalidation_disabled(team):
-        return False
-
-    last_refresh = cached_result.get("last_refresh", None)
-    date_to = min([filter.date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
-    interval = filter.period.lower() if isinstance(filter, RetentionFilter) else filter.interval
-
-    if last_refresh is None:
-        raise Exception("Cached results require a last_refresh")
-
-    if interval == "hour":
-        return start_of_hour(date_to) > start_of_hour(last_refresh)
-    elif interval == "day":
-        return start_of_day(date_to) > start_of_day(last_refresh)
-    elif interval == "week":
-        return start_of_week(date_to) > start_of_week(last_refresh)
-    elif interval == "month":
-        return start_of_month(date_to) > start_of_month(last_refresh)
-    else:
-        return False

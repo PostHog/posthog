@@ -41,7 +41,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             [
                 'query as insightQuery',
-                'response as insightData',
+                'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -145,6 +145,24 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         currentTeam?.test_account_filters_default_checked
                     )
                 }
+            },
+        ],
+
+        insightData: [
+            (s) => [s.insightDataRaw],
+            (insightDataRaw): Record<string, any> => {
+                // :TRICKY: The queries return results as `results`, but insights expect `result`
+                return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+            },
+        ],
+
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
             },
         ],
     }),

@@ -1,4 +1,9 @@
-from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr, DeletedMetaFields
+from posthog.models.utils import (
+    UUIDModel,
+    CreatedMetaFields,
+    sane_repr,
+    DeletedMetaFields,
+)
 from posthog.errors import wrap_query_error
 from django.db import models
 from posthog.models.team import Team
@@ -8,6 +13,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
     DateTimeDatabaseField,
+    DateDatabaseField,
     StringJSONDatabaseField,
     BooleanDatabaseField,
     StringArrayDatabaseField,
@@ -20,6 +26,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "Date": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
@@ -59,7 +66,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     )
 
     columns: models.JSONField = models.JSONField(
-        default=dict, null=True, blank=True, help_text="Dict of all columns with Clickhouse type (including Nullable())"
+        default=dict,
+        null=True,
+        blank=True,
+        help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
     __repr__ = sane_repr("name")

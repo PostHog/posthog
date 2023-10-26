@@ -47,7 +47,6 @@ export function RetentionModal(): JSX.Element | null {
                                 export_format: ExporterFormat.CSV,
                                 export_context: {
                                     path: row?.people_url,
-                                    max_limit: 10000,
                                 },
                             })
                         }
@@ -110,7 +109,9 @@ export function RetentionModal(): JSX.Element | null {
                                                 ) : (
                                                     <LemonButton
                                                         size="small"
-                                                        to={urls.person(personAppearances.person.distinct_ids[0])}
+                                                        to={urls.personByDistinctId(
+                                                            personAppearances.person.distinct_ids[0]
+                                                        )}
                                                         data-attr="retention-person-link"
                                                     >
                                                         {asDisplay(personAppearances.person)}

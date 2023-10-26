@@ -91,7 +91,7 @@ function redirectOnSelectItems(
     } else if (groupType === TaxonomicFilterGroupType.Cohorts) {
         router.actions.push(urls.cohort(value))
     } else if (groupType === TaxonomicFilterGroupType.Persons) {
-        router.actions.push(urls.person(String(value)))
+        router.actions.push(urls.personByDistinctId(String(value)))
     } else if (groupType.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)) {
         router.actions.push(urls.group((item as Group).group_type_index, String(value)))
     } else if (groupType === TaxonomicFilterGroupType.Insights) {
@@ -103,12 +103,13 @@ function redirectOnSelectItems(
     } else if (groupType === TaxonomicFilterGroupType.Plugins) {
         router.actions.push(
             combineUrl(urls.projectApps(), {
-                tab: (item as PluginSelectionType).tab,
                 name: (item as PluginSelectionType).name,
             }).url
         )
     } else if (groupType === TaxonomicFilterGroupType.Dashboards) {
         router.actions.push(urls.dashboard(value))
+    } else if (groupType === TaxonomicFilterGroupType.Notebooks) {
+        router.actions.push(urls.notebook(String(value)))
     }
 }
 

@@ -49,7 +49,7 @@ export function ExperimentPreview({
         isExperimentGoalModalOpen,
         isExperimentExposureModalOpen,
         experimentLoading,
-        experimentCountPerUserMath,
+        experimentMathAggregationForTrends,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
@@ -142,7 +142,10 @@ export function ExperimentPreview({
                                     value={minimumDetectableChange}
                                     onChange={(value) => {
                                         setExperiment({
-                                            parameters: { ...experiment.parameters, minimum_detectable_effect: value },
+                                            parameters: {
+                                                ...experiment.parameters,
+                                                minimum_detectable_effect: value ?? undefined,
+                                            },
                                         })
                                     }}
                                 />
@@ -290,48 +293,51 @@ export function ExperimentPreview({
                                             Change experiment goal
                                         </LemonButton>
                                     </div>
-                                    {experimentInsightType === InsightType.TRENDS && !experimentCountPerUserMath && (
-                                        <>
-                                            <div className="card-secondary mb-2 mt-4">
-                                                Exposure metric
-                                                <Tooltip
-                                                    title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
-                                                >
-                                                    <IconInfo className="ml-1 text-muted text-sm" />
-                                                </Tooltip>
-                                            </div>
-                                            {experiment.parameters?.custom_exposure_filter ? (
-                                                <MetricDisplay filters={experiment.parameters.custom_exposure_filter} />
-                                            ) : (
-                                                <span className="description">
-                                                    Default via $feature_flag_called events
-                                                </span>
-                                            )}
-                                            <div className="mb-2 mt-2">
-                                                <span className="flex">
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        size="small"
-                                                        onClick={openExperimentExposureModal}
-                                                        className="mr-2"
+                                    {experimentInsightType === InsightType.TRENDS &&
+                                        !experimentMathAggregationForTrends && (
+                                            <>
+                                                <div className="card-secondary mb-2 mt-4">
+                                                    Exposure metric
+                                                    <Tooltip
+                                                        title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
                                                     >
-                                                        Change exposure metric
-                                                    </LemonButton>
-                                                    {experiment.parameters?.custom_exposure_filter && (
+                                                        <IconInfo className="ml-1 text-muted text-sm" />
+                                                    </Tooltip>
+                                                </div>
+                                                {experiment.parameters?.custom_exposure_filter ? (
+                                                    <MetricDisplay
+                                                        filters={experiment.parameters.custom_exposure_filter}
+                                                    />
+                                                ) : (
+                                                    <span className="description">
+                                                        Default via $feature_flag_called events
+                                                    </span>
+                                                )}
+                                                <div className="mb-2 mt-2">
+                                                    <span className="flex">
                                                         <LemonButton
                                                             type="secondary"
                                                             size="small"
-                                                            status="danger"
+                                                            onClick={openExperimentExposureModal}
                                                             className="mr-2"
-                                                            onClick={() => updateExperimentExposure(null)}
                                                         >
-                                                            Reset exposure
+                                                            Change exposure metric
                                                         </LemonButton>
-                                                    )}
-                                                </span>
-                                            </div>
-                                        </>
-                                    )}
+                                                        {experiment.parameters?.custom_exposure_filter && (
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                size="small"
+                                                                status="danger"
+                                                                className="mr-2"
+                                                                onClick={() => updateExperimentExposure(null)}
+                                                            >
+                                                                Reset exposure
+                                                            </LemonButton>
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
                                 </>
                             )}
                         </Col>

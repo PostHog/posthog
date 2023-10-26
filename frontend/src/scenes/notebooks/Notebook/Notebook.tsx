@@ -1,9 +1,8 @@
-import { useEffect, useMemo } from 'react'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { useEffect } from 'react'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
-import { sampleOne } from 'lib/utils'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -12,28 +11,48 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { EditorFocusPosition } from './utils'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { NotebookSidebar } from './NotebookSidebar'
+import { EditorFocusPosition, JSONContent } from './utils'
+import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookHistoryWarning } from './NotebookHistory'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { NotebookColumnRight } from './NotebookColumnRight'
 
-export type NotebookProps = {
-    shortId: string
-    editable?: boolean
+export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
+    initialContent?: JSONContent
+    editable?: boolean
 }
 
-const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
-
-export function Notebook({ shortId, editable = false, initialAutofocus = null }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
-    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook, setEditable, onEditorSelectionUpdate } =
-        useActions(logic)
+export function Notebook({
+    shortId,
+    mode,
+    editable = true,
+    initialAutofocus = 'start',
+    initialContent,
+}: NotebookProps): JSX.Element {
+    const logicProps: NotebookLogicProps = { shortId, mode }
+    const logic = notebookLogic(logicProps)
+    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
+        useValues(logic)
+    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
+    useEffect(() => {
+        if (initialContent && mode === 'canvas') {
+            setLocalContent(initialContent)
+        }
+    }, [notebook])
+
+    useWhyDidIRender('Notebook', {
+        notebook,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        shortId,
+        initialAutofocus,
+    })
 
     useEffect(() => {
         if (!notebook && !notebookLoading) {
@@ -44,6 +63,10 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
     useEffect(() => {
         setEditable(editable)
     }, [editable])
+
+    useEffect(() => {
+        editor?.setEditable(isEditable)
+    }, [isEditable, editor])
 
     useEffect(() => {
         if (editor) {
@@ -57,37 +80,38 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
         return <NotebookConflictWarning />
     } else if (!notebook && notebookLoading) {
         return <NotebookLoadingState />
-    } else if (!notebook) {
+    } else if (notebookMissing) {
         return <NotFound object="notebook" />
-    } else if (isEmpty && !editable) {
-        return (
-            <div className="NotebookEditor">
-                <h1>
-                    <i>Untitled</i>
-                </h1>
-            </div>
-        )
     }
 
     return (
-        <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact', editable && 'Notebook--editable')}>
-                {notebook.is_template && (
+        <BindLogic logic={notebookLogic} props={logicProps}>
+            <div
+                className={clsx(
+                    'Notebook',
+                    !isExpanded && 'Notebook--compact',
+                    mode && `Notebook--${mode}`,
+                    isEditable && 'Notebook--editable'
+                )}
+            >
+                {isTemplate && (
                     <LemonBanner
                         type="info"
                         className="my-4"
                         action={{
                             onClick: duplicateNotebook,
-                            children: 'Create notebook',
+                            children: 'Create copy',
                         }}
                     >
                         <b>This is a template.</b> You can create a copy of it to edit and use as your own.
                     </LemonBanner>
                 )}
 
-                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                <NotebookHistoryWarning />
+                {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                     <LemonBanner
                         type="info"
+                        className="my-4"
                         action={{
                             children: 'Convert to Notebook',
                             onClick: duplicateNotebook,
@@ -98,29 +122,12 @@ export function Notebook({ shortId, editable = false, initialAutofocus = null }:
                     </LemonBanner>
                 ) : null}
 
-                <div className="flex flex-1 justify-center space-x-2">
-                    <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOK_SETTINGS_WIDGETS}>
-                        <NotebookSidebar />
-                    </FlaggedFeature>
+                <div className="flex flex-1 justify-center">
+                    <NotebookColumnLeft />
                     <ErrorBoundary>
-                        <Editor
-                            initialContent={content}
-                            onCreate={setEditor}
-                            onUpdate={onEditorUpdate}
-                            onSelectionUpdate={onEditorSelectionUpdate}
-                            placeholder={({ node }: { node: any }) => {
-                                if (node.type.name === 'heading' && node.attrs.level === 1) {
-                                    return `Untitled - maybe.. "${headingPlaceholder}"`
-                                }
-
-                                if (node.type.name === 'heading') {
-                                    return `Heading ${node.attrs.level}`
-                                }
-
-                                return ''
-                            }}
-                        />
+                        <Editor />
                     </ErrorBoundary>
+                    <NotebookColumnRight />
                 </div>
             </div>
         </BindLogic>

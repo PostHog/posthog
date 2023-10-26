@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
@@ -10,6 +10,8 @@ import {
     isTimeToSeeDataSessionsNode,
     isHogQLQuery,
     isInsightVizNode,
+    isQueryWithHogQLSupport,
+    isPersonsQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -27,8 +29,8 @@ import { toParams } from 'lib/utils'
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-
-const EXPORT_MAX_LIMIT = 10000
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -40,10 +42,9 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query)) {
+    } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
             source: query,
-            max_limit: EXPORT_MAX_LIMIT,
         }
     } else if (isHogQLQuery(query)) {
         return { source: query }
@@ -95,19 +96,23 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string
-): Promise<N['response']> {
+): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
     }
 
-    let response: N['response']
+    let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
+
+    const hogQLInsightsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    )
 
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode)) {
+        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode))) {
             const filters = queryNodeToFilter(queryNode)
             const params = {
                 ...filters,
@@ -134,7 +139,7 @@ export async function query<N extends DataNode = DataNode>(
                 methodOptions
             )
         } else {
-            response = await api.query(queryNode, methodOptions, queryId)
+            response = await api.query(queryNode, methodOptions, queryId, refresh)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
@@ -238,4 +243,12 @@ export async function legacyInsightQuery({
         throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
     return [fetchResponse, apiUrl]
+}
+
+export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
+    return await query<HogQLQuery>({
+        kind: NodeKind.HogQLQuery,
+        query: queryString,
+        values,
+    })
 }

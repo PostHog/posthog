@@ -20,7 +20,6 @@ def hash_all_keys(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0259_backfill_team_recording_domains"),
     ]

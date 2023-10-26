@@ -36,7 +36,10 @@ class Command(BaseCommand):
             deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
             for flag in flags.keys():
                 flag_type = flags[flag]
-                if flag in deleted_flags:
+                # do not sync the cloud announcement flag for in-app banners
+                if flag == "cloud-announcement":
+                    continue
+                elif flag in deleted_flags:
                     ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
                     ff.deleted = False
                     ff.save()
@@ -53,14 +56,26 @@ class Command(BaseCommand):
                                 "groups": [{"properties": [], "rollout_percentage": None}],
                                 "multivariate": {
                                     "variants": [
-                                        {"key": "control", "name": "Control", "rollout_percentage": 0},
-                                        {"key": "test", "name": "Test", "rollout_percentage": 100},
+                                        {
+                                            "key": "control",
+                                            "name": "Control",
+                                            "rollout_percentage": 0,
+                                        },
+                                        {
+                                            "key": "test",
+                                            "name": "Test",
+                                            "rollout_percentage": 100,
+                                        },
                                     ]
                                 },
                             },
                         )
                     else:
                         FeatureFlag.objects.create(
-                            team=team, rollout_percentage=100, name=flag, key=flag, created_by=first_user
+                            team=team,
+                            rollout_percentage=100,
+                            name=flag,
+                            key=flag,
+                            created_by=first_user,
                         )
                     print(f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")

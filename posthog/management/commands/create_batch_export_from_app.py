@@ -15,7 +15,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Add arguments to the parser."""
         parser.add_argument(
-            "--plugin-config-id", type=int, help="The ID of the PluginConfig to use as a base for the new BatchExport"
+            "--plugin-config-id",
+            type=int,
+            help="The ID of the PluginConfig to use as a base for the new BatchExport",
         )
         parser.add_argument(
             "--team-id",
@@ -47,6 +49,12 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Backfill the newly created BatchExport with the last period of data.",
+        )
+        parser.add_argument(
+            "--migrate-disabled-plugin-config",
+            action="store_true",
+            default=False,
+            help="Migrate a PluginConfig even if its disabled.",
         )
 
     def handle(self, *args, **options):
@@ -82,8 +90,8 @@ class Command(BaseCommand):
             "destination_data": destination_data,
         }
 
-        if dry_run is True:
-            self.stdout.write("No BatchExport will be created as this is a dry run or confirmation check rejected.")
+        if dry_run is True or (options["migrate_disabled_plugin_config"] is False and plugin_config.enabled is False):
+            self.stdout.write("No BatchExport will be created as this is a dry run or existing plugin is disabled.")
             return json.dumps(batch_export_data, indent=4, default=str)
         else:
             destination = BatchExportDestination(**batch_export_data["destination_data"])
@@ -109,7 +117,13 @@ class Command(BaseCommand):
             client = sync_connect()
             end_at = dt.datetime.utcnow()
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
-            backfill_export(client, batch_export_id=str(batch_export.id), start_at=start_at, end_at=end_at)
+            backfill_export(
+                client,
+                batch_export_id=str(batch_export.id),
+                team_id=team_id,
+                start_at=start_at,
+                end_at=end_at,
+            )
             self.stdout.write(f"Triggered backfill for BatchExport '{name}'.")
 
         self.stdout.write("Done!")

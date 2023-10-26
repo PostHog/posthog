@@ -33,7 +33,12 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         terms = terms.replace("\x00", "")  # strip null characters
         return list(filter(None, terms.split(" ")))
 
-    def filter_queryset(self, request: Request, queryset: Union[QuerySet[_MT], RawQuerySet], view: APIView):
+    def filter_queryset(
+        self,
+        request: Request,
+        queryset: Union[QuerySet[_MT], RawQuerySet],
+        view: APIView,
+    ):
         if isinstance(queryset, RawQuerySet):
             return queryset
 
@@ -54,7 +59,9 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
 
 
 def term_search_filter_sql(
-    search_fields: List[str], search_terms: Optional[str] = "", search_extra: Optional[str] = ""
+    search_fields: List[str],
+    search_terms: Optional[str] = "",
+    search_extra: Optional[str] = "",
 ) -> Tuple[str, dict]:
     if not search_fields or not search_terms:
         return "", {}

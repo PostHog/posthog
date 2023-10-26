@@ -22,20 +22,46 @@ import ActivationSidebarToggle from 'lib/components/ActivationSidebar/Activation
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 
 export function TopBar(): JSX.Element {
-    const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
-        useValues(navigationLogic)
+    const {
+        isSideBarShown,
+        noSidebar,
+        minimalTopBar,
+        mobileLayout,
+        isCreateOrganizationModalShown,
+        isCreateProjectModalShown,
+    } = useValues(navigationLogic)
     const { toggleSideBarBase, toggleSideBarMobile, hideCreateOrganizationModal, hideCreateProjectModal } =
         useActions(navigationLogic)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasNotebooks = !!featureFlags[FEATURE_FLAGS.NOTEBOOKS]
+
+    const groupTypes = [
+        TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.Persons,
+        TaxonomicFilterGroupType.Actions,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Insights,
+        TaxonomicFilterGroupType.FeatureFlags,
+        TaxonomicFilterGroupType.Plugins,
+        TaxonomicFilterGroupType.Experiments,
+        TaxonomicFilterGroupType.Dashboards,
+        ...groupNamesTaxonomicTypes,
+    ]
+
+    if (hasNotebooks) {
+        groupTypes.push(TaxonomicFilterGroupType.Notebooks)
+    }
+
     return (
         <>
             <Announcement />
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
-                    {!bareNav && (
+                    {!noSidebar && (
                         <div
                             className="TopBar__hamburger"
                             onClick={() => (mobileLayout ? toggleSideBarMobile() : toggleSideBarBase())}
@@ -46,29 +72,25 @@ export function TopBar(): JSX.Element {
                     <Link to="/" className="TopBar__logo">
                         <Logo />
                     </Link>
-
-                    <div className="grow">
-                        <UniversalSearchPopover
-                            groupType={TaxonomicFilterGroupType.Events}
-                            groupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Persons,
-                                TaxonomicFilterGroupType.Actions,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.Insights,
-                                TaxonomicFilterGroupType.FeatureFlags,
-                                TaxonomicFilterGroupType.Plugins,
-                                TaxonomicFilterGroupType.Experiments,
-                                TaxonomicFilterGroupType.Dashboards,
-                                ...groupNamesTaxonomicTypes,
-                            ]}
-                        />
-                    </div>
-                    <ActivationSidebarToggle />
+                    {!minimalTopBar && (
+                        <>
+                            <div className="grow">
+                                <UniversalSearchPopover
+                                    groupType={TaxonomicFilterGroupType.Events}
+                                    groupTypes={groupTypes}
+                                />
+                            </div>
+                            <ActivationSidebarToggle />
+                        </>
+                    )}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {!!featureFlags[FEATURE_FLAGS.NOTEBOOKS] && <NotebookButton />}
-                    <NotificationBell />
+                    {!minimalTopBar && (
+                        <>
+                            {hasNotebooks && <NotebookButton />}
+                            <NotificationBell />
+                        </>
+                    )}
                     <HelpButton />
                     <SitePopover />
                 </div>

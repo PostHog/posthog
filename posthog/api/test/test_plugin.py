@@ -61,18 +61,27 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
 
-        for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
+        for level in (
+            Organization.PluginsAccessLevel.NONE,
+            Organization.PluginsAccessLevel.CONFIG,
+        ):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
             self.assertEqual(
-                response.status_code, 403, "Did not reject plugin installation as non-install org properly"
+                response.status_code,
+                403,
+                "Did not reject plugin installation as non-install org properly",
             )
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
         self.organization.save()
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
-        self.assertEqual(response.status_code, 201, "Did not manage to install plugin properly despite install access")
+        self.assertEqual(
+            response.status_code,
+            201,
+            "Did not manage to install plugin properly despite install access",
+        )
 
         self.assert_plugin_activity(
             [
@@ -94,7 +103,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
-        self.assertEqual(response.status_code, 400, "Did not reject already installed plugin properly")
+        self.assertEqual(
+            response.status_code,
+            400,
+            "Did not reject already installed plugin properly",
+        )
 
     def test_create_plugin_auth_globally_managed(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
@@ -106,7 +119,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         ):
             self.organization.plugins_access_level = level
             self.organization.save()
-            response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url, "is_global": True})
+            response = self.client.post(
+                "/api/organizations/@current/plugins/",
+                {"url": repo_url, "is_global": True},
+            )
             self.assertEqual(
                 response.status_code,
                 403,
@@ -117,11 +133,17 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url, "is_global": True})
         self.assertEqual(
-            response.status_code, 201, "Did not manage to install globally managed plugin properly despite root access"
+            response.status_code,
+            201,
+            "Did not manage to install globally managed plugin properly despite root access",
         )
 
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url, "is_global": True})
-        self.assertEqual(response.status_code, 400, "Did not reject already installed plugin properly")
+        self.assertEqual(
+            response.status_code,
+            400,
+            "Did not reject already installed plugin properly",
+        )
 
     def test_globally_managed_visible_to_all_orgs(self, mock_get, mock_reload):
         my_org = self.organization
@@ -132,16 +154,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         repo_url = "https://github.com/PostHog/helloworldplugin"
         install_response = self.client.post(f"/api/organizations/{my_org.id}/plugins/", {"url": repo_url})
-        self.assertEqual(install_response.status_code, 201, "Did not manage to install plugin properly")
+        self.assertEqual(
+            install_response.status_code,
+            201,
+            "Did not manage to install plugin properly",
+        )
         # The plugin is NOT global and should only show up for my org
         list_response_other_org_1 = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
         self.assertDictEqual(
-            list_response_other_org_1.json(), {"count": 0, "next": None, "previous": None, "results": []}
+            list_response_other_org_1.json(),
+            {"count": 0, "next": None, "previous": None, "results": []},
         )
         self.assertEqual(list_response_other_org_1.status_code, 200)
         # Let's make the plugin global
         update_response_my_org = self.client.patch(
-            f"/api/organizations/{my_org.id}/plugins/{install_response.json()['id']}/", {"is_global": True}
+            f"/api/organizations/{my_org.id}/plugins/{install_response.json()['id']}/",
+            {"is_global": True},
         )
         self.assertEqual(update_response_my_org.status_code, 200)
         # Now the plugin is global and should show up for other org
@@ -155,7 +183,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
         )
         no_plugins_org: Organization = Organization.objects.create(
-            name="NoPlugins", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
+            name="NoPlugins",
+            plugins_access_level=Organization.PluginsAccessLevel.CONFIG,
         )
         other_team: Team = Team.objects.create(organization=other_org, name="FooBar2")
         OrganizationMembership.objects.create(user=self.user, organization=other_org)
@@ -181,22 +210,27 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         repo_url = "https://github.com/PostHog/helloworldplugin"
         install_response = self.client.post(
-            f"/api/organizations/{my_org.id}/plugins/", {"url": repo_url, "is_global": True}
+            f"/api/organizations/{my_org.id}/plugins/",
+            {"url": repo_url, "is_global": True},
         )
         self.assertEqual(
-            install_response.status_code, 201, "Did not manage to install globally managed plugin properly"
+            install_response.status_code,
+            201,
+            "Did not manage to install globally managed plugin properly",
         )
 
         # My org
         patch_response_other_org_1 = self.client.patch(
-            f"/api/organizations/{my_org.id}/plugins/{install_response.json()['id']}", {"description": "X"}
+            f"/api/organizations/{my_org.id}/plugins/{install_response.json()['id']}",
+            {"description": "X"},
         )
         self.assertEqual(patch_response_other_org_1.status_code, 200)
         self.assertEqual("X", patch_response_other_org_1.json().get("description"))
 
         # Other org
         patch_response_other_org_2 = self.client.patch(
-            f"/api/organizations/{other_org.id}/plugins/{install_response.json()['id']}", {"description": "Y"}
+            f"/api/organizations/{other_org.id}/plugins/{install_response.json()['id']}",
+            {"description": "Y"},
         )
         self.assertEqual(patch_response_other_org_2.status_code, 403)
         self.assertIn(
@@ -210,51 +244,73 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(install_response.status_code, 201)
 
         for is_global in (True, False):
-            for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
+            for level in (
+                Organization.PluginsAccessLevel.NONE,
+                Organization.PluginsAccessLevel.CONFIG,
+            ):
                 self.organization.plugins_access_level = level
                 self.organization.save()
                 response = self.client.patch(
-                    f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": is_global}
+                    f"/api/organizations/@current/plugins/{install_response.json()['id']}/",
+                    {"is_global": is_global},
                 )
                 self.assertEqual(
-                    response.status_code, 403, "Plugin was not 403 for org despite it having no plugin install access"
+                    response.status_code,
+                    403,
+                    "Plugin was not 403 for org despite it having no plugin install access",
                 )
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
         self.organization.save()
         for is_global in (True, False):
             response = self.client.patch(
-                f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": is_global}
+                f"/api/organizations/@current/plugins/{install_response.json()['id']}/",
+                {"is_global": is_global},
             )
             self.assertEqual(
-                response.status_code, 403, "Did not reject globally managed plugin update as non-root org properly"
+                response.status_code,
+                403,
+                "Did not reject globally managed plugin update as non-root org properly",
             )
 
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
         self.organization.save()
         for is_global in (True, False):
             response = self.client.patch(
-                f"/api/organizations/@current/plugins/{install_response.json()['id']}/", {"is_global": is_global}
+                f"/api/organizations/@current/plugins/{install_response.json()['id']}/",
+                {"is_global": is_global},
             )
             self.assertEqual(
-                response.status_code, 200, "Did not manage to make plugin globally managed properly despite root access"
+                response.status_code,
+                200,
+                "Did not manage to make plugin globally managed properly despite root access",
             )
 
     def test_plugin_private_token_url_unique(self, mock_get, mock_reload):
         repo_url = "https://gitlab.com/mariusandra/helloworldplugin"
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"{repo_url}?private_token=123"},
+        )
         self.assertEqual(response.status_code, 201)
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"{repo_url}?private_token=123"},
+        )
         self.assertEqual(response.status_code, 400)
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 400)
-        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=567"})
+        response = self.client.post(
+            "/api/organizations/@current/plugins/",
+            {"url": f"{repo_url}?private_token=567"},
+        )
         self.assertEqual(response.status_code, 400)
 
         response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}-other"})
         self.assertEqual(response.status_code, 201)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": f"{repo_url}-other?private_token=567"}
+            "/api/organizations/@current/plugins/",
+            {"url": f"{repo_url}-other?private_token=567"},
         )
         self.assertEqual(response.status_code, 400)
 
@@ -280,7 +336,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             plugin.refresh_from_db()
             self.assertEqual(plugin.updated_at, fake_date)
 
-        for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
+        for level in (
+            Organization.PluginsAccessLevel.NONE,
+            Organization.PluginsAccessLevel.CONFIG,
+        ):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.post(api_url, {"url": repo_url})
@@ -297,7 +356,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
 
-        for level in (Organization.PluginsAccessLevel.NONE, Organization.PluginsAccessLevel.CONFIG):
+        for level in (
+            Organization.PluginsAccessLevel.NONE,
+            Organization.PluginsAccessLevel.CONFIG,
+        ):
             self.organization.plugins_access_level = level
             self.organization.save()
             response = self.client.delete(api_url)
@@ -361,7 +423,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     def test_cannot_delete_global_plugin(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
-        response = self.client.post(f"/api/organizations/@current/plugins/", {"url": repo_url, "is_global": True})
+        response = self.client.post(
+            f"/api/organizations/@current/plugins/",
+            {"url": repo_url, "is_global": True},
+        )
 
         self.assertEqual(response.status_code, 201)
 
@@ -370,13 +435,15 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.json().get("detail"), "This plugin is marked as global! Make it local before uninstallation"
+            response.json().get("detail"),
+            "This plugin is marked as global! Make it local before uninstallation",
         )
 
     def test_create_plugin_repo_url(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(
@@ -389,7 +456,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "url": "https://github.com/PostHog/helloworldplugin",
                 "icon": None,
                 "config_schema": {
-                    "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
+                    "bar": {
+                        "name": "What's in the bar?",
+                        "type": "string",
+                        "default": "baz",
+                        "required": False,
+                    }
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
@@ -428,7 +500,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}",
                 "icon": None,
                 "config_schema": {
-                    "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False}
+                    "bar": {
+                        "name": "What's in the bar?",
+                        "type": "string",
+                        "default": "baz",
+                        "required": False,
+                    }
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
                 "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0],
@@ -464,8 +541,17 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "url": f"https://github.com/PostHog/helloworldplugin/commit/{HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0]}",
                 "icon": None,
                 "config_schema": {
-                    "bar": {"name": "What's in the bar?", "type": "string", "default": "baz", "required": False},
-                    "foodb": {"name": "Upload your database", "type": "attachment", "required": False},
+                    "bar": {
+                        "name": "What's in the bar?",
+                        "type": "string",
+                        "default": "baz",
+                        "required": False,
+                    },
+                    "foodb": {
+                        "name": "Upload your database",
+                        "type": "attachment",
+                        "required": False,
+                    },
                 },
                 "tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
                 "latest_tag": HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP[0],
@@ -554,7 +640,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                cast(Dict[str, str], response.json())["detail"], 'Invalid PostHog semantic version requirement "< ..."!'
+                cast(Dict[str, str], response.json())["detail"],
+                'Invalid PostHog semantic version requirement "< ..."!',
             )
 
     def test_create_plugin_version_range_gt_next_major_ignore_on_cloud(self, mock_get, mock_reload):
@@ -571,7 +658,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # Create the plugin
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin_original"}
+            "/api/organizations/@current/plugins/",
+            {"plugin_type": "source", "name": "myplugin_original"},
         )
         plugin_id = response.json()["id"]
         self.assertEqual(mock_reload.call_count, 0)
@@ -587,7 +675,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             data=json.dumps({"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'}),
             content_type="application/json",
         )
-        self.assertEqual(response.json(), {"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'})
+        self.assertEqual(
+            response.json(),
+            {"index.ts": "'hello world'", "plugin.json": '{"name":"my plugin"}'},
+        )
         self.assertEqual(Plugin.objects.get(pk=plugin_id).name, "my plugin")
         self.assertEqual(mock_reload.call_count, 1)
 
@@ -597,7 +688,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             data=json.dumps({"index.ts": "'hello again'"}),
             content_type="application/json",
         )
-        self.assertEqual(response.json(), {"index.ts": "'hello again'", "plugin.json": '{"name":"my plugin"}'})
+        self.assertEqual(
+            response.json(),
+            {"index.ts": "'hello again'", "plugin.json": '{"name":"my plugin"}'},
+        )
         self.assertEqual(mock_reload.call_count, 2)
 
         # Deleting a file by passing `None`
@@ -612,7 +706,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def test_create_plugin_frontend_source(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"plugin_type": "source", "name": "myplugin"}
+            "/api/organizations/@current/plugins/",
+            {"plugin_type": "source", "name": "myplugin"},
         )
         self.assertEqual(response.status_code, 201)
         id = response.json()["id"]
@@ -640,7 +735,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(mock_reload.call_count, 0)
 
         response = self.client.patch(
-            f"/api/organizations/@current/plugins/{id}/update_source", {"frontend.tsx": "export const scene = {}"}
+            f"/api/organizations/@current/plugins/{id}/update_source",
+            {"frontend.tsx": "export const scene = {}"},
         )
 
         self.assertEqual(Plugin.objects.count(), 1)
@@ -653,7 +749,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # no frontend, since no pluginserver transpiles the code
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
+        self.assertEqual(
+            response.content,
+            b'export function getFrontendApp () { return {"transpiling": true} }',
+        )
 
         # mock the plugin server's transpilation
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
@@ -682,7 +781,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # And reply that it's transpiling
         response = self.client.get(f"/api/plugin_config/{plugin_config.id}/frontend")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b'export function getFrontendApp () { return {"transpiling": true} }')
+        self.assertEqual(
+            response.content,
+            b'export function getFrontendApp () { return {"transpiling": true} }',
+        )
 
     def test_plugin_repository(self, mock_get, mock_reload):
         response = self.client.get("/api/organizations/@current/plugins/repository/")
@@ -709,6 +811,20 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             ],
         )
 
+    def test_plugin_unused(self, mock_get, mock_reload):
+        plugin_no_configs = Plugin.objects.create(organization=self.organization)
+        plugin_enabled = Plugin.objects.create(organization=self.organization)
+        plugin_only_disabled = Plugin.objects.create(organization=self.organization)
+        PluginConfig.objects.create(plugin=plugin_only_disabled, team=self.team, enabled=False, order=1)
+        PluginConfig.objects.create(plugin=plugin_enabled, team=self.team, enabled=False, order=1)
+        PluginConfig.objects.create(plugin=plugin_enabled, team=self.team, enabled=True, order=2)
+        response = self.client.get("/api/organizations/@current/plugins/unused/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            [plugin_no_configs.id, plugin_only_disabled.id],
+        )
+
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         my_org = self.organization
         other_org = Organization.objects.create(
@@ -718,7 +834,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         with freeze_time(fake_date.isoformat()):
             response = self.client.post(
-                f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+                f"/api/organizations/{my_org.id}/plugins/",
+                {"url": "https://github.com/PostHog/helloworldplugin"},
             )
             self.assertEqual(response.status_code, 201)
             self.assertEqual(Plugin.objects.count(), 1)
@@ -727,14 +844,16 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.assertEqual(plugin.updated_at, fake_date)
 
         response = self.client.post(
-            f"/api/organizations/{my_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            f"/api/organizations/{my_org.id}/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 1)
 
         # try to save it for another org
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            f"/api/organizations/{other_org.id}/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -742,12 +861,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
 
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            f"/api/organizations/{other_org.id}/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 2)
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            f"/api/organizations/{other_org.id}/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 2)
@@ -786,13 +907,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
         response_with_none = self.client.get(f"/api/organizations/@current/plugins/")
         self.assertEqual(response_with_none.status_code, 200)
-        self.assertEqual(response_with_none.json()["count"], expected_plugins_count, response_with_none.json())
-        self.assertEqual(len(response_with_none.json()["results"]), expected_plugins_count, response_with_none.json())
+        self.assertEqual(
+            response_with_none.json()["count"],
+            expected_plugins_count,
+            response_with_none.json(),
+        )
+        self.assertEqual(
+            len(response_with_none.json()["results"]),
+            expected_plugins_count,
+            response_with_none.json(),
+        )
 
     def test_create_plugin_config(self, mock_get, mock_reload):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -800,7 +930,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         self.assertEqual(response.status_code, 201, response.content)
@@ -828,7 +963,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # If we're trying to create another plugin config for the same plugin, just return the original
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         self.assertEqual(response.json()["id"], plugin_config_id)
@@ -861,7 +1001,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     def test_create_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         plugin_id = response.json()["id"]
 
@@ -869,7 +1010,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.organization.save()
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         self.assertEqual(response.status_code, 400)
@@ -883,19 +1029,30 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.organization.save()
             response = self.client.post(
                 "/api/plugin_config/",
-                {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+                {
+                    "plugin": plugin_id,
+                    "enabled": True,
+                    "order": 0,
+                    "config": json.dumps({"bar": "moop"}),
+                },
                 format="multipart",
             )
             self.assertEqual(response.status_code, 201)
 
     def test_update_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         plugin_config_id = response.json()["id"]
@@ -944,12 +1101,18 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         plugin_config_id = response.json()["id"]
@@ -1022,7 +1185,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.patch(
-            f"/api/plugin_config/{plugin_config_id}", {"add_attachment[foodb]": tmp_file_2}, format="multipart"
+            f"/api/plugin_config/{plugin_config_id}",
+            {"add_attachment[foodb]": tmp_file_2},
+            format="multipart",
         )
         self.assertEqual(PluginAttachment.objects.count(), 1)
 
@@ -1041,7 +1206,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.patch(
-            f"/api/plugin_config/{plugin_config_id}", {"remove_attachment[foodb]": True}, format="multipart"
+            f"/api/plugin_config/{plugin_config_id}",
+            {"remove_attachment[foodb]": True},
+            format="multipart",
         )
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)
@@ -1117,7 +1284,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "very secret value"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "very secret value"}),
+            },
             format="multipart",
         )
         plugin_config_id = response.json()["id"]
@@ -1168,7 +1340,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # Test that secret values are updated but never revealed
         response = self.client.patch(
             f"/api/plugin_config/{plugin_config_id}",
-            {"enabled": False, "order": 1, "config": json.dumps({"bar": "a new very secret value"})},
+            {
+                "enabled": False,
+                "order": 1,
+                "config": json.dumps({"bar": "a new very secret value"}),
+            },
             format="multipart",
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -1241,12 +1417,18 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.plugin.connections")
     def test_job_trigger(self, db_connections, mock_validate_plugin_job_payload, mock_get, mock_reload):
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
             format="multipart",
         )
         plugin_config_id = response.json()["id"]
@@ -1275,7 +1457,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(mock_reload.call_count, 1)
 
@@ -1299,14 +1482,20 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.organization.plugins_access_level = Organization.PluginsAccessLevel.INSTALL
         self.organization.save()
         response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+            "/api/organizations/@current/plugins/",
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
 
         plugin_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/",
-            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "moop"}),
+            },
         )
         plugin_config_id = response.json()["id"]
 

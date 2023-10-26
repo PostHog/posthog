@@ -20,7 +20,6 @@ def reverse_func(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0072_action_step_url_matching_regex"),
     ]

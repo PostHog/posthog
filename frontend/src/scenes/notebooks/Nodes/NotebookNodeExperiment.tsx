@@ -6,7 +6,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeViewProps } from '../Notebook/utils'
+import { NotebookNodeProps } from '../Notebook/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
@@ -17,10 +17,13 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes>): JSX.Element => {
-    const { id } = props.attributes
-    const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic({ experimentId: id }))
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning } = useValues(
+        experimentLogic({ experimentId: id })
+    )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter } = useActions(notebookNodeLogic)
@@ -39,6 +42,10 @@ const Component = (props: NotebookNodeViewProps<NotebookNodeExperimentAttributes
     useEffect(() => {
         loadExperiment()
     }, [id])
+
+    if (experimentMissing) {
+        return <NotFound object="experiment" />
+    }
 
     return (
         <div>
@@ -122,7 +129,7 @@ type NotebookNodeExperimentAttributes = {
 
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
     nodeType: NotebookNodeType.Experiment,
-    title: 'Experiment',
+    titlePlaceholder: 'Experiment',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.experiment(attrs.id),

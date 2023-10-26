@@ -19,7 +19,10 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
-from posthog.tasks.exports.csv_exporter import UnexpectedEmptyJsonResponse, add_query_params
+from posthog.tasks.exports.csv_exporter import (
+    UnexpectedEmptyJsonResponse,
+    add_query_params,
+)
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from posthog.utils import absolute_uri
 
@@ -242,8 +245,7 @@ class TestCSVExporter(APIBaseTest):
         )
 
     @patch("posthog.tasks.exports.csv_exporter.logger")
-    @patch("posthog.tasks.exports.csv_exporter.statsd")
-    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+    def test_failing_export_api_is_reported(self, _mock_logger: MagicMock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             exported_asset = self._create_asset()
             mock_response = MagicMock()
@@ -258,7 +260,10 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(SITE_URL="https://app.posthog.com"):
             modified_url = add_query_params(absolute_uri(regression_11204), {"limit": "3500"})
             actual_bits = self._split_to_dict(modified_url)
-            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            expected_bits = {
+                **self._split_to_dict(regression_11204),
+                **{"limit": "3500"},
+            }
             assert expected_bits == actual_bits
 
     def test_limiting_existing_limit_query_as_expected(self) -> None:
@@ -266,7 +271,10 @@ class TestCSVExporter(APIBaseTest):
             url_with_existing_limit = regression_11204 + "&limit=100000"
             modified_url = add_query_params(absolute_uri(url_with_existing_limit), {"limit": "3500"})
             actual_bits = self._split_to_dict(modified_url)
-            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            expected_bits = {
+                **self._split_to_dict(regression_11204),
+                **{"limit": "3500"},
+            }
             assert expected_bits == actual_bits
 
     @patch("posthog.tasks.exports.csv_exporter.make_api_call")
@@ -281,8 +289,9 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_csv(self._create_asset())
 
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10) -> None:
         random_uuid = str(UUIDT())
         for i in range(15):
             _create_event(
@@ -341,7 +350,11 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={
-                "source": {"kind": "EventsQuery", "select": ["event", "*"], "where": [f"distinct_id = '{random_uuid}'"]}
+                "source": {
+                    "kind": "EventsQuery",
+                    "select": ["event", "*"],
+                    "where": [f"distinct_id = '{random_uuid}'"],
+                }
             },
         )
         exported_asset.save()

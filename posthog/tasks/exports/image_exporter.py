@@ -6,43 +6,30 @@ from typing import Literal, Optional
 
 import structlog
 from django.conf import settings
-from prometheus_client import Counter, Summary
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope, push_scope
-
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
-from posthog.logging.timing import timed
-from posthog.metrics import LABEL_TEAM_ID
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.models.exported_asset import (
+    ExportedAsset,
+    get_public_access_token,
+    save_content,
+)
+from posthog.tasks.exporter import (
+    EXPORT_SUCCEEDED_COUNTER,
+    EXPORT_FAILED_COUNTER,
+    EXPORT_TIMER,
+)
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
-
-IMAGE_EXPORT_SUCCEEDED_COUNTER = Counter(
-    "image_exporter_task_succeeded",
-    "An image export task succeeded",
-    labelnames=[LABEL_TEAM_ID],
-)
-
-IMAGE_EXPORT_FAILED_COUNTER = Counter(
-    "image_exporter_task_failure",
-    "An image export task failed",
-    labelnames=[LABEL_TEAM_ID],
-)
-
-IMAGE_EXPORT_TIMER = Summary(
-    "image_exporter_task_success_time",
-    "Number of seconds it took to export an image",
-    labelnames=[LABEL_TEAM_ID],
-)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
@@ -50,7 +37,7 @@ ScreenWidth = Literal[800, 1920]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
 
 
-# NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
+# NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
@@ -132,7 +119,10 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -144,15 +134,29 @@ def _screenshot_asset(
         try:
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
         except TimeoutException:
-            capture_exception()
+            logger.error(
+                "image_exporter.timeout",
+                url_to_render=url_to_render,
+                wait_for_css_selector=wait_for_css_selector,
+                image_path=image_path,
+            )
+            with push_scope() as scope:
+                scope.set_extra("url_to_render", url_to_render)
+                try:
+                    driver.save_screenshot(image_path)
+                    scope.add_attachment(None, None, image_path)
+                except Exception:
+                    pass
+                capture_exception()
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
-        if driver:
-            # To help with debugging, add a screenshot and any chrome logs
-            with configure_scope() as scope:
-                # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
+        # To help with debugging, add a screenshot and any chrome logs
+        with configure_scope() as scope:
+            scope.set_extra("url_to_render", url_to_render)
+            if driver:
+                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
                     all_logs = [x for x in driver.get_log("browser")]
                     scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
@@ -163,7 +167,7 @@ def _screenshot_asset(
                     scope.add_attachment(None, None, image_path)
                 except Exception:
                     pass
-                capture_exception(e)
+        capture_exception(e)
 
         raise e
     finally:
@@ -171,10 +175,9 @@ def _screenshot_asset(
             driver.quit()
 
 
-@timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
     with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
+        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
         scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
@@ -184,9 +187,9 @@ def export_image(exported_asset: ExportedAsset) -> None:
                 synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
             if exported_asset.export_format == "image/png":
-                with IMAGE_EXPORT_TIMER.labels(team_id=exported_asset.team.id).time():
+                with EXPORT_TIMER.labels(type="image").time():
                     _export_to_png(exported_asset)
-                IMAGE_EXPORT_SUCCEEDED_COUNTER.labels(team_id=exported_asset.team.id).inc()
+                EXPORT_SUCCEEDED_COUNTER.labels(type="image").inc()
             else:
                 raise NotImplementedError(
                     f"Export to format {exported_asset.export_format} is not supported for insights"
@@ -197,8 +200,11 @@ def export_image(exported_asset: ExportedAsset) -> None:
             else:
                 team_id = "unknown"
 
-            capture_exception(e)
+            with push_scope() as scope:
+                scope.set_tag("celery_task", "image_export")
+                scope.set_tag("team_id", team_id)
+                capture_exception(e)
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
-            IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id).inc()
+            EXPORT_FAILED_COUNTER.labels(type="image").inc()
             raise e

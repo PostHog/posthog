@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import structlog
-from sentry_sdk import capture_exception
-from statshog.defaults.django import statsd
+from prometheus_client import Counter
+from sentry_sdk import capture_exception, capture_message
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
@@ -13,11 +13,28 @@ from posthog.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
 
+SUBSCRIPTION_QUEUED = Counter(
+    "subscription_queued",
+    "A subscription was queued for delivery",
+    labelnames=["destination"],
+)
+SUBSCRIPTION_SUCCESS = Counter(
+    "subscription_send_success",
+    "A subscription was sent successfully",
+    labelnames=["destination"],
+)
+SUBSCRIPTION_FAILURE = Counter(
+    "subscription_send_failure",
+    "A subscription failed to send",
+    labelnames=["destination"],
+)
+
 
 def _deliver_subscription_report(
-    subscription_id: int, previous_value: Optional[str] = None, invite_message: Optional[str] = None
+    subscription_id: int,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
 ) -> None:
-
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
         .select_related("created_by", "insight", "dashboard")
@@ -33,8 +50,17 @@ def _deliver_subscription_report(
             # Same value as before so nothing to do
             return
 
+    insights, assets = generate_assets(subscription)
+
+    if not assets:
+        capture_message(
+            "No assets are in this subscription",
+            tags={"subscription_id": subscription.id},
+        )
+        return
+
     if subscription.target_type == "email":
-        insights, assets = generate_assets(subscription)
+        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
 
         # Send emails
         emails = subscription.target_value.split(",")
@@ -51,22 +77,40 @@ def _deliver_subscription_report(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
-                statsd.incr("subscription_email_send_success")
             except Exception as e:
-                logger.error(e)
+                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
+                logger.error(
+                    "sending subscription failed",
+                    subscription_id=subscription.id,
+                    next_delivery_date=subscription.next_delivery_date,
+                    destination=subscription.target_type,
+                    exc_info=True,
+                )
                 capture_exception(e)
-                statsd.incr("subscription_email_send_failure")
+
+        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
 
     elif subscription.target_type == "slack":
-        insights, assets = generate_assets(subscription)
+        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
+
         try:
             send_slack_subscription_report(
-                subscription, assets, total_asset_count=len(insights), is_new_subscription=is_new_subscription_target
+                subscription,
+                assets,
+                total_asset_count=len(insights),
+                is_new_subscription=is_new_subscription_target,
             )
-            statsd.incr("subscription_slack_send_success")
+            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
         except Exception as e:
-            statsd.incr("subscription_slack_send_failure")
-            logger.error(e)
+            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+            logger.error(
+                "sending subscription failed",
+                subscription_id=subscription.id,
+                next_delivery_date=subscription.next_delivery_date,
+                destination=subscription.target_type,
+                exc_info=True,
+            )
+            capture_exception(e)
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
@@ -91,6 +135,12 @@ def schedule_all_subscriptions() -> None:
     )
 
     for subscription in subscriptions:
+        logger.info(
+            "Scheduling subscription",
+            subscription_id=subscription.id,
+            next_delivery_date=subscription.next_delivery_date,
+            destination=subscription.target_type,
+        )
         deliver_subscription_report.delay(subscription.id)
 
 

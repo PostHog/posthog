@@ -13,7 +13,12 @@ class Migration(migrations.Migration):
             model_name="batchexportdestination",
             name="type",
             field=models.CharField(
-                choices=[("S3", "S3"), ("Snowflake", "Snowflake"), ("Postgres", "Postgres"), ("BigQuery", "Bigquery")],
+                choices=[
+                    ("S3", "S3"),
+                    ("Snowflake", "Snowflake"),
+                    ("Postgres", "Postgres"),
+                    ("BigQuery", "Bigquery"),
+                ],
                 help_text="A choice of supported BatchExportDestination types.",
                 max_length=64,
             ),

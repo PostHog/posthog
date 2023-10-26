@@ -4,8 +4,7 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.experiments.trend_experiment_result import (
-    uses_count_per_property_value_aggregation,
-    uses_count_per_user_aggregation,
+    uses_math_aggregation_by_user_or_property_value,
 )
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
@@ -59,7 +58,7 @@ class ClickhouseSecondaryExperimentResult:
 
         self.team = team
         if query_filter.insight == INSIGHT_TRENDS and not (
-            uses_count_per_user_aggregation(query_filter) or uses_count_per_property_value_aggregation(query_filter)
+            uses_math_aggregation_by_user_or_property_value(query_filter)
         ):
             query_filter = query_filter.shallow_clone({"display": TRENDS_CUMULATIVE})
 
@@ -99,9 +98,7 @@ class ClickhouseSecondaryExperimentResult:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
 
-            if uses_count_per_user_aggregation(self.query_filter) or uses_count_per_property_value_aggregation(
-                self.query_filter
-            ):
+            if uses_math_aggregation_by_user_or_property_value(self.query_filter):
                 count = result["count"] / len(result.get("data", [0]))
 
             if breakdown_value in self.variants:

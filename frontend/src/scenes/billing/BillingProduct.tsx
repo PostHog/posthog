@@ -15,7 +15,7 @@ import {
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertLargeNumberToWords, getUpgradeAllProductsLink, summarizeUsage } from './billing-utils'
+import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingLimitInput } from './BillingLimitInput'
@@ -23,7 +23,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
-import { PlanComparisonModal } from './PlanComparisonModal'
+import { PlanComparisonModal } from './PlanComparison'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -344,10 +344,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         Contact support to unsubscribe
                                                     </LemonButton>
                                                 )}
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                                >
+                                                    Learn how to reduce your bill
+                                                </LemonButton>
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
                                                         status="stealth"
+                                                        disabledReason={
+                                                            billing?.discount_percent === 100
+                                                                ? "You can't set a billing limit with a 100% discount"
+                                                                : null
+                                                        }
+                                                        tooltipPlacement="bottom"
                                                         onClick={() => setIsEditingBillingLimit(true)}
                                                     >
                                                         Set billing limit
@@ -621,21 +634,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         Compare plans
                                     </LemonButton>
                                     <LemonButton
-                                        to={
-                                            // if we're in onboarding we want to upgrade them to the product and the addons at once
-                                            isOnboarding
-                                                ? getUpgradeAllProductsLink(
-                                                      product,
-                                                      upgradeToPlanKey || '',
-                                                      redirectPath
-                                                  )
-                                                : // otherwise we just want to upgrade them to the product
-                                                  `/api/billing-v2/activation?products=${
-                                                      product.type
-                                                  }:${upgradeToPlanKey}${
-                                                      redirectPath && `&redirect_path=${redirectPath}`
-                                                  }`
-                                        }
+                                        to={getUpgradeProductLink(
+                                            product,
+                                            upgradeToPlanKey || '',
+                                            redirectPath,
+                                            isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                        )}
                                         type="primary"
                                         icon={<IconPlus />}
                                         disableClientSideRouting

@@ -5,7 +5,9 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -42,17 +44,31 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         secondTeam = Organization.objects.bootstrap(None, team_fields={"api_token": "token456"})[2]
 
         freeze_without_time = ["2019-12-24", "2020-01-01", "2020-01-02"]
-        freeze_with_time = ["2019-12-24 03:45:34", "2020-01-01 00:06:34", "2020-01-02 16:34:34"]
+        freeze_with_time = [
+            "2019-12-24 03:45:34",
+            "2020-01-01 00:06:34",
+            "2020-01-02 16:34:34",
+        ]
 
         freeze_args = freeze_without_time
         if use_time:
             freeze_args = freeze_with_time
 
         with freeze_time(freeze_args[0]):
-            _create_event(team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value"},
+            )
 
         with freeze_time(freeze_args[1]):
-            _create_event(team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "value"})
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "value"},
+            )
             _create_event(team=self.team, event="sign up", distinct_id="anonymous_id")
             _create_event(team=self.team, event="sign up", distinct_id="blabla")
         with freeze_time(freeze_args[2]):
@@ -60,13 +76,19 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign up",
                 distinct_id="blabla",
-                properties={"$some_property": "other_value", "$some_numerical_prop": 80},
+                properties={
+                    "$some_property": "other_value",
+                    "$some_numerical_prop": 80,
+                },
             )
             _create_event(team=self.team, event="no events", distinct_id="blabla")
 
             # second team should have no effect
             _create_event(
-                team=secondTeam, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"}
+                team=secondTeam,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$some_property": "other_value"},
             )
 
         flush_persons_and_events()
@@ -77,21 +99,30 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             for i in range(20):
                 _create_person(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
                 _create_event(
-                    team=self.team, event="sign up", distinct_id=f"blabla_{i}", properties={"$some_property": "value"}
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"blabla_{i}",
+                    properties={"$some_property": "value"},
                 )
 
         with freeze_time("2020-01-05 00:06:34"):
             for i in range(20, 40):
                 _create_person(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
                 _create_event(
-                    team=self.team, event="sign up", distinct_id=f"blabla_{i}", properties={"$some_property": "value"}
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"blabla_{i}",
+                    properties={"$some_property": "value"},
                 )
 
         with freeze_time("2020-01-15 00:06:34"):
             for i in range(40, 80):
                 _create_person(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
                 _create_event(
-                    team=self.team, event="sign up", distinct_id=f"blabla_{i}", properties={"$some_property": "value"}
+                    team=self.team,
+                    event="sign up",
+                    distinct_id=f"blabla_{i}",
+                    properties={"$some_property": "value"},
                 )
 
         event_response = self.client.get(
@@ -128,21 +159,33 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(freeze_without_time[0]):
             for i in range(25):
-                _create_event(team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i})
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$some_property": i},
+                )
 
         flush_persons_and_events()
 
     def test_people_endpoint_paginated(self):
-
         for index in range(0, 150):
             _create_person(team_id=self.team.pk, distinct_ids=["person" + str(index)])
             _create_event(
-                team=self.team, event="sign up", distinct_id="person" + str(index), timestamp="2020-01-04T12:00:00Z"
+                team=self.team,
+                event="sign up",
+                distinct_id="person" + str(index),
+                timestamp="2020-01-04T12:00:00Z",
             )
 
         event_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
-            data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up"},
+            data={
+                "date_from": "2020-01-04",
+                "date_to": "2020-01-04",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "sign up",
+            },
         ).json()
 
         self.assertEqual(len(event_response["results"][0]["people"]), 100)
@@ -159,17 +202,57 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         person7 = _create_person(team_id=self.team.pk, distinct_ids=["person7"])
 
         # solo
-        _create_event(team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T14:10:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2020-01-04T14:10:00Z",
+        )
         # group by hour
-        _create_event(team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T16:30:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person3", timestamp="2020-01-04T16:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            timestamp="2020-01-04T16:30:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person3",
+            timestamp="2020-01-04T16:50:00Z",
+        )
         # group by min
-        _create_event(team=self.team, event="sign up", distinct_id="person4", timestamp="2020-01-04T19:20:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person5", timestamp="2020-01-04T19:20:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person4",
+            timestamp="2020-01-04T19:20:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person5",
+            timestamp="2020-01-04T19:20:00Z",
+        )
         # group by week and month
-        _create_event(team=self.team, event="sign up", distinct_id="person6", timestamp="2019-11-05T16:30:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person7", timestamp="2019-11-07T16:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person6",
+            timestamp="2019-11-05T16:30:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person7",
+            timestamp="2019-11-07T16:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2019-11-27T16:50:00Z",
+        )
 
         flush_persons_and_events()
         return person1, person2, person3, person4, person5, person6, person7
@@ -177,11 +260,29 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
     def test_hour_interval(self):
         sign_up_action, person = self._create_events()
 
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+        (
+            person1,
+            person2,
+            person3,
+            person4,
+            person5,
+            person6,
+            person7,
+        ) = self._create_people_interval_events()
 
         _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T13:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T15:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-04T13:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-04T15:50:00Z",
+        )
         # check solo hour
         action_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -232,18 +333,40 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertListEqual(sorted(all_people_ids), sorted([str(person2.uuid), str(person3.uuid)]))
         self.assertEqual(len(all_people_ids), 2)
         self.assertEntityResponseEqual(
-            hour_grouped_action_response["results"], hour_grouped_grevent_response["results"], remove=[]
+            hour_grouped_action_response["results"],
+            hour_grouped_grevent_response["results"],
+            remove=[],
         )
 
     def test_day_interval(self):
         sign_up_action, person = self._create_events()
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-        _create_event(team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T12:00:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2020-01-04T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            timestamp="2020-01-05T12:00:00Z",
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-03T13:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-03T13:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-05T15:50:00Z",
+        )
 
         # test people
         action_response = self.client.get(
@@ -275,11 +398,31 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         sign_up_action, person = self._create_events()
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-        _create_event(team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-03T12:00:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T20:00:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person1",
+            timestamp="2020-01-03T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="person2",
+            timestamp="2020-01-04T20:00:00Z",
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-02T13:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-01-05T15:50:00Z",
+        )
 
         # test people
         action_response = self.client.get(
@@ -314,11 +457,29 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
     def test_week_interval(self):
         sign_up_action, person = self._create_events()
 
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+        (
+            person1,
+            person2,
+            person3,
+            person4,
+            person5,
+            person6,
+            person7,
+        ) = self._create_people_interval_events()
 
         _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-10-26T13:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-11-11T15:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2019-10-26T13:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-11-11T15:50:00Z",
+        )
         # check grouped week
         week_grouped_action_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -347,17 +508,37 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid)]))
 
         self.assertEntityResponseEqual(
-            week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[]
+            week_grouped_action_response["results"],
+            week_grouped_grevent_response["results"],
+            remove=[],
         )
 
     def test_month_interval(self):
         sign_up_action, person = self._create_events()
 
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+        (
+            person1,
+            person2,
+            person3,
+            person4,
+            person5,
+            person6,
+            person7,
+        ) = self._create_people_interval_events()
 
         _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-12-01T13:50:00Z")
-        _create_event(team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-10-10T15:50:00Z")
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2019-12-01T13:50:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="outside_range",
+            timestamp="2020-10-10T15:50:00Z",
+        )
         # check grouped month
         month_group_action_response = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -382,14 +563,23 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
         self.assertEqual(len(all_people_ids), 3)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]))
+        self.assertListEqual(
+            sorted(all_people_ids),
+            sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]),
+        )
 
         self.assertEntityResponseEqual(
-            month_group_action_response["results"], month_group_grevent_response["results"], remove=[]
+            month_group_action_response["results"],
+            month_group_grevent_response["results"],
+            remove=[],
         )
 
     def _create_multiple_people(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
+        person1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"name": "person1"},
+        )
         _create_event(
             team=self.team,
             event="watched movie",
@@ -398,7 +588,11 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"event_prop": "prop1"},
         )
 
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
+        person2 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"name": "person2"},
+        )
         _create_event(
             team=self.team,
             event="watched movie",
@@ -422,7 +616,11 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"event_prop": "prop1"},
         )
 
-        person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
+        person3 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"name": "person3"},
+        )
         _create_event(
             team=self.team,
             event="watched movie",
@@ -445,7 +643,11 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"event_prop": "prop2"},
         )
 
-        person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"name": "person4"})
+        person4 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person4"],
+            properties={"name": "person4"},
+        )
         _create_event(
             team=self.team,
             event="watched movie",
@@ -508,7 +710,10 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         _create_cohort(
             name="cohort3",
             team=self.team,
-            groups=[{"properties": {"name": "person1"}}, {"properties": {"name": "person2"}}],
+            groups=[
+                {"properties": {"name": "person1"}},
+                {"properties": {"name": "person2"}},
+            ],
         )
         _create_action(name="watched movie", team=self.team)
 
@@ -761,7 +966,11 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z", properties={}
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={},
         )
         _create_event(
             team=self.team,
@@ -804,7 +1013,12 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_includes_recordings(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={})
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T14:00:00Z",
+        )
         _create_event(
             event_uuid="693402ed-590e-4737-ba26-93ebf18121bd",
             team=self.team,
@@ -813,13 +1027,13 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
-        create_session_recording_events(
-            self.team.pk,
-            datetime(2020, 1, 9, 12),
-            "u1",
-            "s1",
-            use_recording_table=False,
-            use_replay_table=True,
+        timestamp = datetime(2020, 1, 9, 12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="u1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
         people = self.client.get(
@@ -854,11 +1068,29 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_people_endpoint_filters_search(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"email": "ben@posthog.com"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z")
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "ben@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T14:00:00Z",
+        )
 
-        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"email": "neil@posthog.com"})
-        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T14:00:00Z")
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"email": "neil@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T14:00:00Z",
+        )
 
         params = {
             "date_from": "2020-01-08",

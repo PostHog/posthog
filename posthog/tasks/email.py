@@ -9,7 +9,15 @@ from django.utils import timezone
 from posthog.celery import app
 from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
+from posthog.models import (
+    Organization,
+    OrganizationInvite,
+    OrganizationMembership,
+    Plugin,
+    PluginConfig,
+    Team,
+    User,
+)
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
@@ -22,7 +30,11 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
     invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by", "organization").get(
@@ -42,7 +54,11 @@ def send_invite(invite_id: str) -> None:
     message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
@@ -61,7 +77,11 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -80,7 +100,11 @@ def send_password_reset(user_id: int, token: str) -> None:
     message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_email_verification(user_id: int, token: str) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
@@ -97,9 +121,16 @@ def send_email_verification(user_id: int, token: str) -> None:
     message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_fatal_plugin_error(
-    plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
+    plugin_config_id: int,
+    plugin_config_updated_at: Optional[str],
+    error: str,
+    is_system_error: bool,
 ) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -111,7 +142,12 @@ def send_fatal_plugin_error(
         campaign_key=campaign_key,
         subject=f"[Alert] {plugin} has been disabled in project {team} due to a fatal error",
         template_name="fatal_plugin_error",
-        template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
+        template_context={
+            "plugin": plugin,
+            "team": team,
+            "error": error,
+            "is_system_error": is_system_error,
+        },
     )
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
@@ -135,7 +171,11 @@ def send_fatal_plugin_error(
         message.send(send_async=False)
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",
@@ -147,19 +187,31 @@ def send_canary_email(user_email: str) -> None:
     message.send()
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
     message_old_address = EmailMessage(
         campaign_key=f"email_change_old_address_{now_iso}",
         subject="This is no longer your PostHog account email",
         template_name="email_change_old_address",
-        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+        template_context={
+            "user_name": user_name,
+            "old_address": old_address,
+            "new_address": new_address,
+        },
     )
     message_new_address = EmailMessage(
         campaign_key=f"email_change_new_address_{now_iso}",
         subject="This is your new PostHog account email",
         template_name="email_change_new_address",
-        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+        template_context={
+            "user_name": user_name,
+            "old_address": old_address,
+            "new_address": new_address,
+        },
     )
     message_old_address.add_recipient(email=old_address)
     message_new_address.add_recipient(email=new_address)
@@ -167,7 +219,11 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     message_new_address.send(send_async=False)
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_async_migration_complete_email(migration_key: str, time: str) -> None:
     message = EmailMessage(
         campaign_key=f"async_migration_complete_{migration_key}",
@@ -181,7 +237,11 @@ def send_async_migration_complete_email(migration_key: str, time: str) -> None:
     send_message_to_all_staff_users(message)
 
 
-@app.task(max_retries=1)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+)
 def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
     message = EmailMessage(
         campaign_key=f"async_migration_error_{migration_key}",

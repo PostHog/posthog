@@ -1,3 +1,6 @@
+import { Message } from 'node-rdkafka'
+
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../../src/config/kafka-topics'
 import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
@@ -16,7 +19,6 @@ export function createIncomingRecordingMessage(
         session_id: 'session_id_1',
         window_id: 'window_id_1',
         events: [{ ...jsonFullSnapshot }],
-        replayIngestionConsumer: 'v2',
         ...partialIncomingMessage,
 
         metadata: {
@@ -30,4 +32,41 @@ export function createIncomingRecordingMessage(
     }
 
     return message
+}
+
+export function createKafkaMessage(
+    token: number | string,
+    messageOverrides: Partial<Message> = {},
+    eventProperties: Record<string, any> = {}
+): Message {
+    const message: Message = {
+        partition: 1,
+        topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+        offset: 0,
+        timestamp: messageOverrides.timestamp ?? Date.now(),
+        size: 1,
+        ...messageOverrides,
+
+        value: Buffer.from(
+            JSON.stringify({
+                distinct_id: 'distinct_id',
+                token: token,
+                data: JSON.stringify({
+                    event: '$snapshot_items',
+                    properties: {
+                        $session_id: 'session_id_1',
+                        $window_id: 'window_id_1',
+                        $snapshot_items: [{ ...jsonFullSnapshot }],
+                        ...eventProperties,
+                    },
+                }),
+            })
+        ),
+    }
+
+    return message
+}
+
+export function createTP(partition: number, topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS) {
+    return { topic, partition }
 }

@@ -8,7 +8,9 @@ from rest_framework import status
 
 from posthog.models.filters.mixins.base import BreakdownType
 from posthog.models.group.util import create_group
-from posthog.queries.properties_timeline.properties_timeline import PropertiesTimelineResult
+from posthog.queries.properties_timeline.properties_timeline import (
+    PropertiesTimelineResult,
+)
 from posthog.settings.dynamic_settings import CONSTANCE_CONFIG
 from posthog.test.base import (
     APIBaseTest,
@@ -34,12 +36,18 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             """Create actor of relevant type and return its UUID (for persons) or key (for groups)."""
             if actor_type == "person":
                 person = _create_person(
-                    team=self.team, distinct_ids=["abcd"], uuid=main_actor_id, properties=properties
+                    team=self.team,
+                    distinct_ids=["abcd"],
+                    uuid=main_actor_id,
+                    properties=properties,
                 )
                 return str(person.uuid)
             else:
                 group = create_group(
-                    team_id=self.team.pk, group_type_index=0, group_key=str(main_actor_id), properties=properties
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=str(main_actor_id),
+                    properties=properties,
                 )
                 return group.group_key
 
@@ -282,7 +290,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             self._create_event(
                 event="$pageview",
-                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                actor_properties={
+                    "foo": "abc",
+                    "bar": 456,
+                },  # Changed bar back to initial value
                 timestamp="2020-01-04T00:00:00Z",
             )
             flush_persons_and_events()
@@ -340,7 +351,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             self._create_event(
                 event="$pageview",
-                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                actor_properties={
+                    "foo": "abc",
+                    "bar": 456,
+                },  # Changed bar back to initial value
                 timestamp="2020-01-02T14:00:00Z",
             )
             flush_persons_and_events()
@@ -402,7 +416,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             self._create_event(
                 event="$pageview",
-                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                actor_properties={
+                    "foo": "abc",
+                    "bar": 456,
+                },  # Changed bar back to initial value
                 timestamp="2020-01-02T00:40:00Z",
             )
             flush_persons_and_events()
@@ -464,7 +481,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             self._create_event(
                 event="$pageview",
-                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                actor_properties={
+                    "foo": "abc",
+                    "bar": 456,
+                },  # Changed bar back to initial value
                 timestamp="2020-01-31T00:40:00Z",
             )
             flush_persons_and_events()
@@ -526,7 +546,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             self._create_event(
                 event="$pageview",
-                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                actor_properties={
+                    "foo": "abc",
+                    "bar": 456,
+                },  # Changed bar back to initial value
                 timestamp="2020-01-06T00:40:00Z",
             )
             flush_persons_and_events()

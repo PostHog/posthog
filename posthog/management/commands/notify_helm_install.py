@@ -25,5 +25,10 @@ class Command(BaseCommand):
             posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
             disabled = posthoganalytics.disabled
             posthoganalytics.disabled = False
-            posthoganalytics.capture(get_machine_id(), "helm_install", report, groups={"instance": settings.SITE_URL})
+            posthoganalytics.capture(
+                get_machine_id(),
+                "helm_install",
+                report,
+                groups={"instance": settings.SITE_URL},
+            )
             posthoganalytics.disabled = disabled

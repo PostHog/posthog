@@ -1,5 +1,5 @@
 import abc
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 
 import structlog
 from boto3 import client
@@ -38,7 +38,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        pass
+
+    @abc.abstractmethod
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         pass
 
     @abc.abstractmethod
@@ -65,7 +69,10 @@ class UnavailableStorage(ObjectStorageClient):
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         pass
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        pass
+
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -104,7 +111,12 @@ class ObjectStorage(ObjectStorageClient):
             else:
                 return None
         except Exception as e:
-            logger.error("object_storage.list_objects_failed", bucket=bucket, prefix=prefix, error=e)
+            logger.error(
+                "object_storage.list_objects_failed",
+                bucket=bucket,
+                prefix=prefix,
+                error=e,
+            )
             capture_exception(e)
             return None
 
@@ -121,16 +133,40 @@ class ObjectStorage(ObjectStorageClient):
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
             return s3_response["Body"].read()
         except Exception as e:
-            logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            logger.error(
+                "object_storage.read_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+                s3_response=s3_response,
+            )
             capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
-    def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+    def tag(self, bucket: str, key: str, tags: Dict[str, str]) -> None:
+        try:
+            self.aws_client.put_object_tagging(
+                Bucket=bucket,
+                Key=key,
+                Tagging={"TagSet": [{"Key": k, "Value": v} for k, v in tags.items()]},
+            )
+        except Exception as e:
+            logger.error("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("tag failed") from e
+
+    def write(self, bucket: str, key: str, content: Union[str, bytes], extras: Dict | None) -> None:
         s3_response = {}
         try:
-            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key)
+            s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
-            logger.error("object_storage.write_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            logger.error(
+                "object_storage.write_failed",
+                bucket=bucket,
+                file_name=key,
+                error=e,
+                s3_response=s3_response,
+            )
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
@@ -146,7 +182,10 @@ class ObjectStorage(ObjectStorageClient):
             return len(source_objects)
         except Exception as e:
             logger.error(
-                "object_storage.copy_objects_failed", source_prefix=source_prefix, target_prefix=target_prefix, error=e
+                "object_storage.copy_objects_failed",
+                source_prefix=source_prefix,
+                target_prefix=target_prefix,
+                error=e,
             )
             capture_exception(e)
             return None
@@ -167,7 +206,11 @@ def object_storage_client() -> ObjectStorageClient:
                 endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
                 aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
+                config=Config(
+                    signature_version="s3v4",
+                    connect_timeout=1,
+                    retries={"max_attempts": 1},
+                ),
                 region_name=settings.OBJECT_STORAGE_REGION,
             )
         )
@@ -175,8 +218,17 @@ def object_storage_client() -> ObjectStorageClient:
     return _client
 
 
-def write(file_name: str, content: Union[str, bytes]) -> None:
-    return object_storage_client().write(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content)
+def write(file_name: str, content: Union[str, bytes], extras: Dict | None = None) -> None:
+    return object_storage_client().write(
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        content=content,
+        extras=extras,
+    )
+
+
+def tag(file_name: str, tags: Dict[str, str]) -> None:
+    return object_storage_client().tag(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name, tags=tags)
 
 
 def read(file_name: str) -> Optional[str]:
@@ -194,7 +246,9 @@ def list_objects(prefix: str) -> Optional[List[str]]:
 def copy_objects(source_prefix: str, target_prefix: str) -> int:
     return (
         object_storage_client().copy_objects(
-            bucket=settings.OBJECT_STORAGE_BUCKET, source_prefix=source_prefix, target_prefix=target_prefix
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            source_prefix=source_prefix,
+            target_prefix=target_prefix,
         )
         or 0
     )

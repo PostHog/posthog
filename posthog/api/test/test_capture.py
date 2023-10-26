@@ -37,7 +37,6 @@ from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
-    KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 )
 from posthog.settings import (
@@ -51,7 +50,10 @@ def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
-parser = ResolvingParser(url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"), strict=True)
+parser = ResolvingParser(
+    url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
+    strict=True,
+)
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
 
@@ -123,7 +125,11 @@ class TestCapture(BaseTest):
         }
 
         self.client.post(
-            "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
+            "/s/",
+            data={
+                "data": json.dumps([event for _ in range(number_of_events)]),
+                "api_key": self.team.api_token,
+            },
         )
 
         return event
@@ -150,7 +156,10 @@ class TestCapture(BaseTest):
                 },
             }
             with self.assertNumQueries(0):  # Capture does not hit PG anymore
-                self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+                self.client.get(
+                    "/e/?data=%s" % quote(self._to_json(data)),
+                    HTTP_ORIGIN="https://localhost",
+                )
 
             kafka_produce.assert_called_with(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None)
 
@@ -175,7 +184,10 @@ class TestCapture(BaseTest):
                 # First time we see this key it's looked up in local config.
                 # The bucket has capacity to serve 1 requests/key, so we are not immediately returning.
                 # Since local config is empty and bucket has capacity, this should not override.
-                with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[], PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True):
+                with self.settings(
+                    EVENT_PARTITION_KEYS_TO_OVERRIDE=[],
+                    PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True,
+                ):
                     assert capture.is_randomly_partitioned(partition_key) is False
                     assert limiter._storage._buckets[partition_key][0] == 0
 
@@ -187,7 +199,10 @@ class TestCapture(BaseTest):
             with freeze_time(start + timedelta(seconds=1)):
                 # Now we have let one second pass so the bucket must have capacity to serve the request.
                 # We once again look at the local configuration, which is empty.
-                with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[], PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True):
+                with self.settings(
+                    EVENT_PARTITION_KEYS_TO_OVERRIDE=[],
+                    PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True,
+                ):
                     assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -198,13 +213,26 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                    {
+                        "tag_name": "a",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "attr__class": "btn btn-sm",
+                    },
+                    {
+                        "tag_name": "div",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "$el_text": "💻",
+                    },
                 ],
             },
         }
         with self.assertNumQueries(0):  # Capture does not hit PG anymore
-            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+            response = self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_ORIGIN="https://localhost",
+            )
 
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
@@ -232,13 +260,26 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                    {
+                        "tag_name": "a",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "attr__class": "btn btn-sm",
+                    },
+                    {
+                        "tag_name": "div",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "$el_text": "💻",
+                    },
                 ],
             },
         }
         with self.assertNumQueries(0):
-            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+            response = self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_ORIGIN="https://localhost",
+            )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
             {
@@ -288,8 +329,18 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                    {
+                        "tag_name": "a",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "attr__class": "btn btn-sm",
+                    },
+                    {
+                        "tag_name": "div",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "$el_text": "💻",
+                    },
                 ],
             },
         }
@@ -299,10 +350,15 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ip(self, kafka_produce):
-        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token}}
+        data = {
+            "event": "some_event",
+            "properties": {"distinct_id": 2, "token": self.team.api_token},
+        }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="1.2.3.4",
+            HTTP_ORIGIN="https://localhost",
         )
         self.assertDictContainsSubset(
             {
@@ -317,7 +373,10 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ipv6(self, kafka_produce):
-        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token}}
+        data = {
+            "event": "some_event",
+            "properties": {"distinct_id": 2, "token": self.team.api_token},
+        }
 
         self.client.get(
             "/e/?data=%s" % quote(self._to_json(data)),
@@ -338,7 +397,10 @@ class TestCapture(BaseTest):
     # Regression test as Azure Gateway forwards ipv4 ips with a port number
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_ip_with_port(self, kafka_produce):
-        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token}}
+        data = {
+            "event": "some_event",
+            "properties": {"distinct_id": 2, "token": self.team.api_token},
+        }
 
         self.client.get(
             "/e/?data=%s" % quote(self._to_json(data)),
@@ -369,13 +431,26 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                    {
+                        "tag_name": "a",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "attr__class": "btn btn-sm",
+                    },
+                    {
+                        "tag_name": "div",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "$el_text": "💻",
+                    },
                 ],
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_ORIGIN="https://localhost",
+            )
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
@@ -390,13 +465,26 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                    {
+                        "tag_name": "a",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "attr__class": "btn btn-sm",
+                    },
+                    {
+                        "tag_name": "div",
+                        "nth_child": 1,
+                        "nth_of_type": 2,
+                        "$el_text": "💻",
+                    },
                 ],
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_ORIGIN="https://localhost",
+            )
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
@@ -407,8 +495,20 @@ class TestCapture(BaseTest):
             data={
                 "data": json.dumps(
                     [
-                        {"event": "beep", "properties": {"distinct_id": "eeee", "token": self.team.api_token}},
-                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                        {
+                            "event": "beep",
+                            "properties": {
+                                "distinct_id": "eeee",
+                                "token": self.team.api_token,
+                            },
+                        },
+                        {
+                            "event": "boop",
+                            "properties": {
+                                "distinct_id": "aaaa",
+                                "token": self.team.api_token,
+                            },
+                        },
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -428,9 +528,18 @@ class TestCapture(BaseTest):
                     [
                         {
                             "event": "$performance_event",
-                            "properties": {"distinct_id": "eeee", "token": self.team.api_token},
+                            "properties": {
+                                "distinct_id": "eeee",
+                                "token": self.team.api_token,
+                            },
                         },
-                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                        {
+                            "event": "boop",
+                            "properties": {
+                                "distinct_id": "aaaa",
+                                "token": self.team.api_token,
+                            },
+                        },
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -536,7 +645,9 @@ class TestCapture(BaseTest):
         self.team.save()
 
         response = self.client.post(
-            "/track?compression=gzip", data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03", content_type="text/plain"
+            "/track?compression=gzip",
+            data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03",
+            content_type="text/plain",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -560,7 +671,8 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                "Malformed request data: Failed to decompress data.", code="invalid_payload"
+                "Malformed request data: Failed to decompress data.",
+                code="invalid_payload",
             ),
         )
         self.assertEqual(kafka_produce.call_count, 0)
@@ -583,7 +695,11 @@ class TestCapture(BaseTest):
         """
 
         # Empty GET
-        response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost")
+        response = self.client.get(
+            "/e/?data=",
+            content_type="application/json",
+            HTTP_ORIGIN="https://localhost",
+        )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(kafka_produce.call_count, 0)
 
@@ -596,7 +712,9 @@ class TestCapture(BaseTest):
     def test_batch(self, kafka_produce):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
         self.client.post(
-            "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json"
+            "/batch/",
+            data={"api_key": self.team.api_token, "batch": [data]},
+            content_type="application/json",
         )
         arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
@@ -623,14 +741,17 @@ class TestCapture(BaseTest):
             {"type": "capture", "event": "event5", "distinct_id": "2"},
         ]
         response = self.client.post(
-            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json"
+            "/batch/",
+            data={"api_key": self.team.api_token, "batch": data},
+            content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload"
+                'Invalid payload: All events must have the event field "distinct_id"!',
+                code="invalid_payload",
             ),
         )
         self.assertEqual(kafka_produce.call_count, 0)
@@ -657,14 +778,17 @@ class TestCapture(BaseTest):
         """
         data = json.dumps([{"event": "$groupidentify", "distinct_id": "2", "properties": {}}])
         response = self.client.post(
-            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json"
+            "/batch/",
+            data={"api_key": self.team.api_token, "batch": data},
+            content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                "Invalid payload: All events must be dictionaries not 'str'!", code="invalid_payload"
+                "Invalid payload: All events must be dictionaries not 'str'!",
+                code="invalid_payload",
             ),
         )
         self.assertEqual(kafka_produce.call_count, 0)
@@ -787,7 +911,13 @@ class TestCapture(BaseTest):
             "/batch/",
             data={
                 "api_key": {"some": "object"},
-                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever"}],
+                "batch": [
+                    {
+                        "type": "capture",
+                        "event": "user signed up",
+                        "distinct_id": "whatever",
+                    }
+                ],
             },
             content_type="application/json",
         )
@@ -804,7 +934,15 @@ class TestCapture(BaseTest):
     def test_batch_token_not_set(self):
         response = self.client.post(
             "/batch/",
-            data={"batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever"}]},
+            data={
+                "batch": [
+                    {
+                        "type": "capture",
+                        "event": "user signed up",
+                        "distinct_id": "whatever",
+                    }
+                ]
+            },
             content_type="application/json",
         )
 
@@ -823,7 +961,10 @@ class TestCapture(BaseTest):
     def test_batch_distinct_id_not_set(self, statsd_incr):
         response = self.client.post(
             "/batch/",
-            data={"api_key": self.team.api_token, "batch": [{"type": "capture", "event": "user signed up"}]},
+            data={
+                "api_key": self.team.api_token,
+                "batch": [{"type": "capture", "event": "user signed up"}],
+            },
             content_type="application/json",
         )
 
@@ -831,7 +972,8 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload"
+                'Invalid payload: All events must have the event field "distinct_id"!',
+                code="invalid_payload",
             ),
         )
 
@@ -894,11 +1036,18 @@ class TestCapture(BaseTest):
     def test_base64_decode_variations(self, kafka_produce):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
-        self.assertDictEqual(dict, {"event": "$pageview", "properties": {"distinct_id": "eeeeeeegϥeeeee"}})
+        self.assertDictEqual(
+            dict,
+            {"event": "$pageview", "properties": {"distinct_id": "eeeeeeegϥeeeee"}},
+        )
 
         # POST with "+" in the base64
         self.client.post(
-            "/track/", data={"data": base64, "api_key": self.team.api_token}  # main difference in this test
+            "/track/",
+            data={
+                "data": base64,
+                "api_key": self.team.api_token,
+            },  # main difference in this test
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["token"], self.team.api_token)
@@ -907,7 +1056,10 @@ class TestCapture(BaseTest):
         # POST with " " in the base64 instead of the "+"
         self.client.post(
             "/track/",
-            data={"data": base64.replace("+", " "), "api_key": self.team.api_token},  # main difference in this test
+            data={
+                "data": base64.replace("+", " "),
+                "api_key": self.team.api_token,
+            },  # main difference in this test
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["token"], self.team.api_token)
@@ -973,7 +1125,11 @@ class TestCapture(BaseTest):
             data={
                 "sent_at": tomorrow_sent_at.isoformat(),
                 "data": self._dict_to_b64(
-                    {"event": "$pageview", "timestamp": tomorrow.isoformat(), "properties": {"distinct_id": "eeee"}}
+                    {
+                        "event": "$pageview",
+                        "timestamp": tomorrow.isoformat(),
+                        "properties": {"distinct_id": "eeee"},
+                    }
                 ),
                 "api_key": self.team.api_token,  # main difference in this test
             },
@@ -988,7 +1144,9 @@ class TestCapture(BaseTest):
 
     def test_incorrect_json(self):
         response = self.client.post(
-            "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
+            "/capture/",
+            '{"event": "incorrect json with trailing comma",}',
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -1015,7 +1173,8 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload"
+                'Invalid payload: Event field "distinct_id" should not be blank!',
+                code="invalid_payload",
             ),
         )
 
@@ -1030,7 +1189,12 @@ class TestCapture(BaseTest):
     def test_distinct_id_set_but_null(self, statsd_incr):
         response = self.client.post(
             "/e/",
-            data={"api_key": self.team.api_token, "type": "capture", "event": "user signed up", "distinct_id": None},
+            data={
+                "api_key": self.team.api_token,
+                "type": "capture",
+                "event": "user signed up",
+                "distinct_id": None,
+            },
             content_type="application/json",
         )
 
@@ -1038,7 +1202,8 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload"
+                'Invalid payload: Event field "distinct_id" should not be blank!',
+                code="invalid_payload",
             ),
         )
 
@@ -1053,7 +1218,12 @@ class TestCapture(BaseTest):
     def test_event_name_missing(self, statsd_incr):
         response = self.client.post(
             "/e/",
-            data={"api_key": self.team.api_token, "type": "capture", "event": "", "distinct_id": "a valid id"},
+            data={
+                "api_key": self.team.api_token,
+                "type": "capture",
+                "event": "",
+                "distinct_id": "a valid id",
+            },
             content_type="application/json",
         )
 
@@ -1073,7 +1243,12 @@ class TestCapture(BaseTest):
         uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
         response = self.client.post(
             "/e/",
-            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": uuid},
+            data={
+                "api_key": self.team.api_token,
+                "event": "some_event",
+                "distinct_id": "1",
+                "uuid": uuid,
+            },
             content_type="application/json",
         )
 
@@ -1086,7 +1261,12 @@ class TestCapture(BaseTest):
     def test_custom_uuid_invalid(self, statsd_incr) -> None:
         response = self.client.post(
             "/e/",
-            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": "invalid_uuid"},
+            data={
+                "api_key": self.team.api_token,
+                "event": "some_event",
+                "distinct_id": "1",
+                "uuid": "invalid_uuid",
+            },
             content_type="application/json",
         )
 
@@ -1094,7 +1274,8 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: Event field "uuid" is not a valid UUID!', code="invalid_payload"
+                'Invalid payload: Event field "uuid" is not a valid UUID!',
+                code="invalid_payload",
             ),
         )
 
@@ -1107,28 +1288,38 @@ class TestCapture(BaseTest):
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(
             "/e/",
-            data={"distinct_id": "abc", "properties": {"cost": 2}, "api_key": self.team.api_token},
+            data={
+                "distinct_id": "abc",
+                "properties": {"cost": 2},
+                "api_key": self.team.api_token,
+            },
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: All events must have the event name field "event"!', code="invalid_payload"
+                'Invalid payload: All events must have the event name field "event"!',
+                code="invalid_payload",
             ),
         )
 
     def test_handle_invalid_snapshot(self):
         response = self.client.post(
             "/e/",
-            data={"event": "$snapshot", "distinct_id": "abc", "api_key": self.team.api_token},
+            data={
+                "event": "$snapshot",
+                "distinct_id": "abc",
+                "api_key": self.team.api_token,
+            },
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload"
+                'Invalid payload: $snapshot events must contain property "$snapshot_data"!',
+                code="invalid_payload",
             ),
         )
 
@@ -1143,10 +1334,7 @@ class TestCapture(BaseTest):
         for headers in [
             (
                 "sentry",
-                [
-                    "traceparent",
-                    "request-id",
-                ],
+                ["traceparent", "request-id", "Sentry-Trace", "Baggage"],
             ),
             (
                 "aws",
@@ -1171,16 +1359,16 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS=presented_headers,
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], expected_headers)
+        assert response.status_code == 200
+        assert response.headers["Access-Control-Allow-Headers"] == expected_headers
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
-        self.assertEqual(kafka_produce.call_count, 2)
+        self.assertEqual(kafka_produce.call_count, 1)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
 
@@ -1205,49 +1393,31 @@ class TestCapture(BaseTest):
             window_id=window_id,
             event_data=event_data,
         )
-        self.assertEqual(kafka_produce.call_count, 2)
-        self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
+        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(
+            kafka_produce.call_args_list[0][1]["topic"],
+            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+        )
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
-        self.assertEqual(
-            data_sent_to_kafka,
-            {
-                "event": "$snapshot",
-                "properties": {
-                    "$snapshot_consumer": "v1",
-                    "$snapshot_data": {
-                        "chunk_count": 1,
-                        "chunk_id": "fake-uuid",
-                        "chunk_index": 0,
-                        "data": "H4sIAIB3mGAC/42NSwqAQAxD31Fk1m4GUUavIi78ggtR/CxEvLoaPweQQJu2SXoeKRuGmZWBWizBw+GrGipyXfJve+smehZGyh/aRtr+mw2FbqP6LryOmZZOOdPj6/T/1VoiQuWGD4sFq8kRyJlxAaIGxIyyAAAA",
-                        "compression": "gzip-base64",
-                        "has_full_snapshot": False,
-                        "events_summary": [
-                            {
-                                "type": snapshot_type,
-                                "data": {"source": snapshot_source},
-                                "timestamp": timestamp,
-                            }
-                        ],
-                    },
-                    "$session_id": session_id,
-                    "$window_id": window_id,
-                    "distinct_id": distinct_id,
-                },
-                "offset": 1993,
+        assert data_sent_to_kafka == {
+            "event": "$snapshot_items",
+            "properties": {
+                "$snapshot_items": [
+                    {
+                        "type": snapshot_type,
+                        "timestamp": timestamp,
+                        "data": {"data": event_data, "source": snapshot_source},
+                    }
+                ],
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
             },
-        )
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_legacy_recording_ingestion_large_is_split_into_multiple_messages(self, kafka_produce) -> None:
-        self._send_session_recording_event(event_data=large_data_array)
-        topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
-
-        assert topic_counter == Counter(
-            {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
-        )
+            "offset": 1993,
+        }
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_to_blob_ingestion_topic_with_usual_size_limit(self, kafka_produce) -> None:
@@ -1257,10 +1427,7 @@ class TestCapture(BaseTest):
             self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
-            # this fake data doesn't split, so we send one huge message to the item events topic
-            assert topic_counter == Counter(
-                {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
-            )
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_to_blob_ingestion_topic(self, kafka_produce) -> None:
@@ -1270,9 +1437,7 @@ class TestCapture(BaseTest):
             self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
-            assert topic_counter == Counter(
-                {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
-            )
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
@@ -1282,7 +1447,10 @@ class TestCapture(BaseTest):
         with self.settings(
             KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
             KAFKA_SECURITY_PROTOCOL="SASL_SSL",
-            SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
             SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL="SSL",
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=1234,
         ):
@@ -1313,7 +1481,10 @@ class TestCapture(BaseTest):
     ) -> None:
         with self.settings(
             KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
-            SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
+            SESSION_RECORDING_KAFKA_HOSTS=[
+                "another-server:9092",
+                "a-fourth.server:9092",
+            ],
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
@@ -1321,20 +1492,15 @@ class TestCapture(BaseTest):
             data = "example"
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
             self._send_session_recording_event(event_data=data, session_id=session_id)
-            default_kafka_producer_mock.assert_called()
+            # session events don't get routed through the default kafka producer
+            default_kafka_producer_mock.assert_not_called()
             session_recording_producer_factory_mock.assert_called()
 
-            assert len(kafka_produce.call_args_list) == 2
+            assert len(kafka_produce.call_args_list) == 1
 
             call_one = kafka_produce.call_args_list[0][1]
             assert call_one["key"] == session_id
-            data_sent_to_default_kafka = json.loads(call_one["data"]["data"])
-            assert data_sent_to_default_kafka["event"] == "$snapshot"
-            assert data_sent_to_default_kafka["properties"]["$snapshot_data"]["chunk_count"] == 1
-
-            call_two = kafka_produce.call_args_list[1][1]
-            assert call_two["key"] == session_id
-            data_sent_to_recording_kafka = json.loads(call_two["data"]["data"])
+            data_sent_to_recording_kafka = json.loads(call_one["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
 
@@ -1388,14 +1554,20 @@ class TestCapture(BaseTest):
     def test_quota_limits_ignored_if_disabled(self, kafka_produce) -> None:
         from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
-        replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
-        replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: timezone.now().timestamp() + 10000},
+        )
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS,
+            {self.team.api_token: timezone.now().timestamp() + 10000},
+        )
         self._send_session_recording_event()
-        self.assertEqual(kafka_produce.call_count, 2)
+        self.assertEqual(kafka_produce.call_count, 1)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
-    def test_quota_limits(self, kafka_produce) -> None:
+    def test_quota_limits(self, kafka_produce: MagicMock) -> None:
         from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
         def _produce_events():
@@ -1406,8 +1578,20 @@ class TestCapture(BaseTest):
                 data={
                     "data": json.dumps(
                         [
-                            {"event": "beep", "properties": {"distinct_id": "eeee", "token": self.team.api_token}},
-                            {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                            {
+                                "event": "beep",
+                                "properties": {
+                                    "distinct_id": "eeee",
+                                    "token": self.team.api_token,
+                                },
+                            },
+                            {
+                                "event": "boop",
+                                "properties": {
+                                    "distinct_id": "aaaa",
+                                    "token": self.team.api_token,
+                                },
+                            },
                         ]
                     ),
                     "api_key": self.team.api_token,
@@ -1416,24 +1600,39 @@ class TestCapture(BaseTest):
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 4)
-
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
-            _produce_events()
-            self.assertEqual(kafka_produce.call_count, 2)  # Only the recording event
+            self.assertEqual(
+                [c[1]["topic"] for c in kafka_produce.call_args_list],
+                [
+                    "session_recording_snapshot_item_events_test",
+                    "events_plugin_ingestion_test",
+                    "events_plugin_ingestion_test",
+                ],
+            )
 
             replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
+                QuotaResource.EVENTS,
+                {self.team.api_token: timezone.now().timestamp() + 10000},
+            )
+            _produce_events()
+            self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
+
+            replace_limited_team_tokens(
+                QuotaResource.RECORDINGS,
+                {self.team.api_token: timezone.now().timestamp() + 10000},
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 0)  # No events
 
             replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() - 10000}
+                QuotaResource.RECORDINGS,
+                {self.team.api_token: timezone.now().timestamp() - 10000},
             )
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
+            replace_limited_team_tokens(
+                QuotaResource.EVENTS,
+                {self.team.api_token: timezone.now().timestamp() - 10000},
+            )
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 4)  # All events as limit-until timestamp is in the past
+            self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_historical_analytics_events(self, kafka_produce) -> None:
@@ -1452,8 +1651,18 @@ class TestCapture(BaseTest):
                                 "distinct_id": 2,
                                 "token": self.team.api_token,
                                 "$elements": [
-                                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
-                                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                                    {
+                                        "tag_name": "a",
+                                        "nth_child": 1,
+                                        "nth_of_type": 2,
+                                        "attr__class": "btn btn-sm",
+                                    },
+                                    {
+                                        "tag_name": "div",
+                                        "nth_child": 1,
+                                        "nth_of_type": 2,
+                                        "$el_text": "💻",
+                                    },
                                 ],
                             },
                         }
@@ -1461,4 +1670,7 @@ class TestCapture(BaseTest):
                 },
             )
             self.assertEqual(kafka_produce.call_count, 1)
-            self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL)
+            self.assertEqual(
+                kafka_produce.call_args_list[0][1]["topic"],
+                KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+            )

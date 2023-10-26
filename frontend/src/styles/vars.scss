@@ -101,7 +101,7 @@ $colors: (
     'border-bold': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
     'transparent': transparent,
-
+    'link': var(--link),
     // Colors of the PostHog logo
     'brand-blue': #1d4aff,
     'brand-red': #f54e00,
@@ -123,7 +123,7 @@ $colors: (
     'border-bold-3000-light': #c1c2b9,
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
-
+    'link-3000-light': var(--primary),
     'text-3000-dark': #fff,
     'muted-3000-dark': rgba(#fff, 0.5),
     'trace-3000-dark': rgba(#fff, 0.25),
@@ -137,6 +137,7 @@ $colors: (
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #1d1f27b3,
     'glass-border-3000-dark': var(--border-3000-dark),
+    'link-3000-dark': rgb(47, 129, 247),
     // The derived colors
     'text-3000': var(--text-3000),
     'muted-3000': var(--muted-3000),
@@ -151,6 +152,7 @@ $colors: (
     'border-bold-3000': var(--border-bold-3000),
     'glass-bg-3000': var(--glass-bg-3000),
     'glass-border-3000': var(--glass-border-3000),
+    'link-3000': var(--link-3000),
     // 'bg-light': var(--accent-3000),
 );
 
@@ -254,15 +256,15 @@ $_lifecycle_dormant: $_danger;
     --z-force-modal-above-popovers: 1850;
     --z-ant-message: 1070;
     --z-ant-select-dropdown: 1065;
-    --z-definition-popover: 1063;
-    --z-popover: 1061;
+    --z-definition-popover: 1064;
+    --z-popover: 1063;
+    --z-graph-tooltip: 1062;
+    --z-annotation-popover: 1061;
     --z-modal: 1060;
-    --z-hedgehog-buddy: 1059;
     --z-ant-modal-wrap: 1060;
+    --z-hedgehog-buddy: 1059;
     --z-ant-modal-mask: 1050;
     --z-plugins-popconfirm: 1001;
-    --z-graph-tooltip: 952;
-    --z-annotation-popover: 951;
     --z-drawer: 950;
     --z-notifications-popover: 949; // below the TZ aware popover but over the main-nav
     --z-main-nav: 948;
@@ -321,5 +323,6 @@ $_lifecycle_dormant: $_danger;
 
     // Notebooks
     --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
-    --notebook-sidebar-width: 27rem;
+    --notebook-column-left-width: 27rem;
+    --notebook-column-right-width: 20rem;
 }

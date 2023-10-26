@@ -18,16 +18,29 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
+from posthog.models.event.util import create_event
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
-from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.tasks.usage_report import capture_event, send_all_org_usage_reports
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
+from posthog.tasks.usage_report import (
+    _get_all_org_reports,
+    _get_all_usage_data_as_team_rows,
+    _get_full_org_usage_report,
+    _get_full_org_usage_report_as_dict,
+    _get_team_report,
+    capture_event,
+    get_instance_metadata,
+    send_all_org_usage_reports,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -37,8 +50,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models.event.util import create_event
-from posthog.utils import get_machine_id
+from posthog.utils import get_machine_id, get_previous_day
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +96,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_1_team_1)
 
+            _create_event(
+                distinct_id=distinct_id,
+                event="survey sent",
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
+
             Dashboard.objects.create(team=self.org_1_team_1, name="Dash one", created_by=self.user)
 
             dashboard = Dashboard.objects.create(
@@ -92,7 +111,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 created_by=self.user,
             )
             SharingConfiguration.objects.create(
-                team=self.org_1_team_1, dashboard=dashboard, access_token="testtoken", enabled=True
+                team=self.org_1_team_1,
+                dashboard=dashboard,
+                access_token="testtoken",
+                enabled=True,
             )
 
             FeatureFlag.objects.create(
@@ -167,7 +189,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="organization", group_type_index=0)
             GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="company", group_type_index=1)
             create_group(
-                team_id=self.org_1_team_1.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
+                team_id=self.org_1_team_1.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
             )
             create_group(
                 team_id=self.org_1_team_1.pk,
@@ -209,49 +234,55 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             # recordings in period  - 5 sessions with 5 snapshots each
             for i in range(1, 6):
                 for _ in range(0, 5):
-                    create_snapshot(
-                        has_full_snapshot=True,
-                        distinct_id=distinct_id,
-                        session_id=i,
-                        timestamp=now() - relativedelta(hours=12),
+                    session_id = str(i)
+                    timestamp = now() - relativedelta(hours=12)
+                    produce_replay_summary(
                         team_id=self.org_1_team_2.id,
+                        session_id=session_id,
+                        distinct_id=distinct_id,
+                        first_timestamp=timestamp,
+                        last_timestamp=timestamp,
                     )
 
             # recordings out of period  - 5 sessions with 5 snapshots each
             for i in range(1, 11):
                 for _ in range(0, 5):
-                    create_snapshot(
-                        has_full_snapshot=True,
-                        distinct_id=distinct_id,
-                        session_id=i + 10,
-                        timestamp=now() - relativedelta(hours=48),
+                    id1 = str(i + 10)
+                    timestamp1 = now() - relativedelta(hours=48)
+                    produce_replay_summary(
                         team_id=self.org_1_team_2.id,
+                        session_id=id1,
+                        distinct_id=distinct_id,
+                        first_timestamp=timestamp1,
+                        last_timestamp=timestamp1,
                     )
 
             # ensure there is a recording that starts before the period and ends during the period
             # report is going to be for "yesterday" relative to the test so...
             start_of_day = datetime.combine(now().date(), datetime.min.time()) - relativedelta(days=1)
             session_that_will_not_match = "session-that-will-not-match-because-it-starts-before-the-period"
-            create_snapshot(
-                has_full_snapshot=True,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day - relativedelta(hours=1),
+            timestamp2 = start_of_day - relativedelta(hours=1)
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=timestamp2,
+                last_timestamp=timestamp2,
             )
-            create_snapshot(
-                has_full_snapshot=False,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day,
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=start_of_day,
+                last_timestamp=start_of_day,
             )
-            create_snapshot(
-                has_full_snapshot=False,
-                distinct_id=distinct_id,
-                session_id=session_that_will_not_match,
-                timestamp=start_of_day + relativedelta(hours=1),
+            timestamp3 = start_of_day + relativedelta(hours=1)
+            produce_replay_summary(
                 team_id=self.org_1_team_2.id,
+                session_id=session_that_will_not_match,
+                distinct_id=distinct_id,
+                first_timestamp=timestamp3,
+                last_timestamp=timestamp3,
             )
             _create_event(
                 distinct_id=distinct_id,
@@ -296,16 +327,23 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             self._create_plugin("Installed but not enabled", False)
             self._create_plugin("Installed and enabled", True)
 
-            all_reports = send_all_org_usage_reports(dry_run=False)
+            period = get_previous_day()
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+            report = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
+            )
 
-            report = all_reports[0]
             assert report["table_sizes"]
             assert report["table_sizes"]["posthog_event"] < 10**7  # <10MB
             assert report["table_sizes"]["posthog_sessionrecordingevent"] < 10**7  # <10MB
 
             assert len(all_reports) == 2
 
-            expectation = [
+            expectations = [
                 {
                     "deployment_infrastructure": "tests",
                     "realm": "hosted-clickhouse",
@@ -316,18 +354,21 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "site_url": "http://test.posthog.com",
                     "product": "open source",
                     "helm": {},
-                    "clickhouse_version": all_reports[0]["clickhouse_version"],
+                    "clickhouse_version": report["clickhouse_version"],
                     "users_who_logged_in": [],
                     "users_who_logged_in_count": 0,
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
-                    "table_sizes": all_reports[0]["table_sizes"],
-                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "table_sizes": report["table_sizes"],
+                    "plugins_installed": {
+                        "Installed and enabled": 1,
+                        "Installed but not enabled": 1,
+                    },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 54,
-                    "event_count_in_period": 22,
-                    "event_count_in_month": 42,
+                    "event_count_lifetime": 55,
+                    "event_count_in_period": 23,
+                    "event_count_in_month": 43,
                     "event_count_with_groups_in_period": 2,
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
@@ -344,6 +385,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_month": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
+                    "survey_responses_count_in_period": 1,
+                    "survey_responses_count_in_month": 1,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -364,9 +407,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 43,
-                            "event_count_in_period": 12,
-                            "event_count_in_month": 32,
+                            "event_count_lifetime": 44,
+                            "event_count_in_period": 13,
+                            "event_count_in_month": 33,
                             "event_count_with_groups_in_period": 2,
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
@@ -383,6 +426,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_responses_count_in_period": 1,
+                            "survey_responses_count_in_month": 1,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -416,6 +461,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_responses_count_in_period": 0,
+                            "survey_responses_count_in_month": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -441,13 +488,16 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "site_url": "http://test.posthog.com",
                     "product": "open source",
                     "helm": {},
-                    "clickhouse_version": all_reports[1]["clickhouse_version"],
+                    "clickhouse_version": report["clickhouse_version"],
                     "users_who_logged_in": [],
                     "users_who_logged_in_count": 0,
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
-                    "table_sizes": all_reports[1]["table_sizes"],
-                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "table_sizes": report["table_sizes"],
+                    "plugins_installed": {
+                        "Installed and enabled": 1,
+                        "Installed but not enabled": 1,
+                    },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_lifetime": 11,
@@ -469,6 +519,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_month": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
+                    "survey_responses_count_in_period": 0,
+                    "survey_responses_count_in_month": 0,
                     "hogql_app_bytes_read": 0,
                     "hogql_app_rows_read": 0,
                     "hogql_app_duration_ms": 0,
@@ -508,6 +560,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_month": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
+                            "survey_responses_count_in_period": 0,
+                            "survey_responses_count_in_month": 0,
                             "hogql_app_bytes_read": 0,
                             "hogql_app_rows_read": 0,
                             "hogql_app_duration_ms": 0,
@@ -525,18 +579,23 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 },
             ]
 
-            for item in expectation:
+            for item in expectations:
                 item.update(**self.expected_properties)
 
             # tricky: list could be in different order
             assert len(all_reports) == 2
-            for report in all_reports:
-                if report["organization_id"] == expectation[0]["organization_id"]:
-                    assert report == expectation[0]
-                elif report["organization_id"] == expectation[1]["organization_id"]:
-                    assert report == expectation[1]
+            full_reports = []
+            for expectation in expectations:
+                report = _get_full_org_usage_report_as_dict(
+                    _get_full_org_usage_report(
+                        all_reports[expectation["organization_id"]],
+                        get_instance_metadata(period),
+                    )
+                )
+                assert report == expectation
+                full_reports.append(report)
 
-            return all_reports
+            return full_reports
 
     @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
@@ -552,6 +611,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mock_client.return_value = mock_posthog
 
         all_reports = self._test_usage_report()
+        with self.settings(SITE_URL="http://test.posthog.com"):
+            send_all_org_usage_reports()
 
         # Check calls to other services
         mock_post.assert_not_called()
@@ -591,26 +652,29 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
 
-        from posthog.models.event.events_query import run_events_query
-
-        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        execute_hogql_query(
+            query="select * from events limit 200",
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+        EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
         sync_execute("SYSTEM FLUSH LOGS")
 
-        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
-        assert len(all_reports) == 1
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
 
-        report = all_reports[0]["teams"][str(self.team.pk)]
+        report = _get_team_report(all_reports, self.team)
 
         # We selected 200 or 50 rows, but still read 100 rows to return the query
-        assert report["hogql_app_rows_read"] == 100
-        assert report["hogql_app_bytes_read"] > 0
-        assert report["event_explorer_app_rows_read"] == 100
-        assert report["event_explorer_app_bytes_read"] > 0
+        assert report.hogql_app_rows_read == 100
+        assert report.hogql_app_bytes_read > 0
+        assert report.event_explorer_app_rows_read == 100
+        assert report.event_explorer_app_bytes_read > 0
 
         # Nothing was read via the API
-        assert report["hogql_api_rows_read"] == 0
-        assert report["event_explorer_api_rows_read"] == 0
+        assert report.hogql_api_rows_read == 0
+        assert report.event_explorer_api_rows_read == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -680,21 +744,19 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         flush_persons_and_events()
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
-            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
 
         assert len(all_reports) == 3
 
-        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
-
-        assert [all_reports["organization_name"] for all_reports in all_reports] == [
-            "Org 1",
-            "Org 2",
-            "PostHog",
-        ]
-
-        org_1_report = all_reports[0]
-        org_2_report = all_reports[1]
-        analytics_report = all_reports[2]
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert org_1_report["organization_name"] == "Org 1"
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["decide_requests_count_in_period"] == 11
@@ -720,26 +782,6 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["decide_requests_count_in_month"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_month"] == 0
-
-        # billing service calls are made only for org1, which has decide requests, and analytics org - which has decide usage events.
-        calls = [
-            call(
-                org_1_report["organization_id"],
-                ANY,
-            ),
-            call(
-                analytics_report["organization_id"],
-                ANY,
-            ),
-        ]
-        assert billing_task_mock.delay.call_count == 2
-        billing_task_mock.delay.assert_has_calls(
-            calls,
-            any_order=True,
-        )
-
-        # capture usage report calls are made for all orgs
-        assert posthog_capture_mock.return_value.capture.call_count == 3
 
     @patch("posthog.tasks.usage_report.Client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
@@ -792,21 +834,19 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         flush_persons_and_events()
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
-            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+            period = get_previous_day(at=now() + relativedelta(days=1))
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
 
         assert len(all_reports) == 3
 
-        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
-
-        assert [all_reports["organization_name"] for all_reports in all_reports] == [
-            "Org 1",
-            "Org 2",
-            "PostHog",
-        ]
-
-        org_1_report = all_reports[0]
-        org_2_report = all_reports[1]
-        analytics_report = all_reports[2]
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert org_1_report["organization_name"] == "Org 1"
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["local_evaluation_requests_count_in_period"] == 11
@@ -837,25 +877,107 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_month"] == 0
 
-        # billing service calls are made only for org1, which has decide requests, and analytics org - which has local evaluation usage events.
-        calls = [
-            call(
-                org_1_report["organization_id"],
-                ANY,
-            ),
-            call(
-                analytics_report["organization_id"],
-                ANY,
-            ),
-        ]
-        assert billing_task_mock.delay.call_count == 2
-        billing_task_mock.delay.assert_has_calls(
-            calls,
-            any_order=True,
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_usage_report_survey_responses(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="survey sent",
+                properties={
+                    "$survey_id": "seeeep-o12-as124",
+                    "$survey_response": "correct",
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="survey sent",
+                properties={
+                    "$survey_id": "see22eep-o12-as124",
+                    "$survey_response": "correct",
+                },
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id="4",
+                event="survey sent",
+                properties={"count": 100, "token": "wrong"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_2,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="survey sent",
+                properties={"count": 100},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_2_team_3,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="survey sent",
+            properties={"count": 20000, "token": "correct"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        flush_persons_and_events()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert org_1_report["organization_name"] == "Org 1"
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
         )
 
-        # capture usage report calls are made for all orgs
-        assert posthog_capture_mock.return_value.capture.call_count == 3
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["survey_responses_count_in_period"] == 2
+        assert org_1_report["survey_responses_count_in_month"] == 10
+        assert org_1_report["teams"]["3"]["survey_responses_count_in_period"] == 1
+        assert org_1_report["teams"]["3"]["survey_responses_count_in_month"] == 5
+        assert org_1_report["teams"]["4"]["survey_responses_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["survey_responses_count_in_month"] == 5
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["decide_requests_count_in_period"] == 0
+        assert org_2_report["decide_requests_count_in_month"] == 0
+        assert org_2_report["survey_responses_count_in_period"] == 1
+        assert org_2_report["survey_responses_count_in_month"] == 7
+        assert org_2_report["teams"]["5"]["survey_responses_count_in_period"] == 1
+        assert org_2_report["teams"]["5"]["survey_responses_count_in_month"] == 7
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -864,17 +986,42 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         self.team2 = Team.objects.create(organization=self.organization)
 
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-08T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T12:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
         _create_event(
             event="$$internal_metrics_shouldnt_be_billed",
             team=self.team,
             distinct_id=1,
             timestamp="2021-10-09T13:01:01Z",
         )
-        _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team2,
+            distinct_id=1,
+            timestamp="2021-10-09T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-10T14:01:01Z",
+        )
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
 
@@ -907,18 +1054,26 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
-        all_reports = send_all_org_usage_reports(dry_run=False)
+        period = get_previous_day()
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+        full_report_as_dict = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
+        )
+        send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
         token = build_billing_token(license, self.organization)
         mock_post.assert_called_once_with(
-            f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+            f"{BILLING_SERVICE_URL}/api/usage",
+            json=full_report_as_dict,
+            headers={"Authorization": f"Bearer {token}"},
         )
 
         mock_posthog.capture.assert_any_call(
             get_machine_id(),
             "organization usage report",
-            {**all_reports[0], "scope": "machine"},
+            {**full_report_as_dict, "scope": "machine"},
             groups={"instance": ANY},
             timestamp=None,
         )
@@ -935,19 +1090,33 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mock_posthog = MagicMock()
             mock_client.return_value = mock_posthog
 
-            all_reports = send_all_org_usage_reports(dry_run=False)
+            period = get_previous_day()
+            period_start, period_end = period
+            all_reports = _get_all_org_reports(period_start, period_end)
+            full_report_as_dict = _get_full_org_usage_report_as_dict(
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
+            )
+            send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
             token = build_billing_token(license, self.organization)
             mock_post.assert_called_once_with(
-                f"{BILLING_SERVICE_URL}/api/usage", json=all_reports[0], headers={"Authorization": f"Bearer {token}"}
+                f"{BILLING_SERVICE_URL}/api/usage",
+                json=full_report_as_dict,
+                headers={"Authorization": f"Bearer {token}"},
             )
 
             mock_posthog.capture.assert_any_call(
                 self.user.distinct_id,
                 "organization usage report",
-                {**all_reports[0], "scope": "user"},
-                groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+                {**full_report_as_dict, "scope": "user"},
+                groups={
+                    "instance": "http://localhost:8000",
+                    "organization": str(self.organization.id),
+                },
                 timestamp=None,
             )
 
@@ -1024,7 +1193,13 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         organization = Organization.objects.create()
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
-        capture_event(mock_client, "test event", organization.id, {"prop1": "val1"}, "2021-10-10T23:01:00.00Z")
+        capture_event(
+            mock_client,
+            "test event",
+            organization.id,
+            {"prop1": "val1"},
+            "2021-10-10T23:01:00.00Z",
+        )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
 
@@ -1048,11 +1223,36 @@ class SendUsageNoLicenseTest(APIBaseTest):
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         TEST_clear_instance_license_cache()
         # Same test, we just don't include the LicensedTestMixin so no license
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-08T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T12:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-10T14:01:01Z",
+        )
 
         flush_persons_and_events()
 

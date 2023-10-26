@@ -12,7 +12,9 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.queries.trends.trends_actors import TrendsActors
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -39,7 +41,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp=timezone.now(),
             properties={"$session_id": "s2", "$window_id": "w2"},
         )  # No associated recording, so not included
-        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="u1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         _create_event(
             event="pageview",
@@ -96,7 +105,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
         filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-21T23:59:59Z", "events": [event]}
+            data={
+                "date_from": "2021-01-21T00:00:00Z",
+                "date_to": "2021-01-21T23:59:59Z",
+                "events": [event],
+            }
         )
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
@@ -108,10 +121,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})
-        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+        timestamp = timezone.now()
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="u1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         _create_event(
-            event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now(), properties={"$group_0": "bla"}
+            event="pageview",
+            distinct_id="u1",
+            team=self.team,
+            timestamp=timezone.now(),
+            properties={"$group_0": "bla"},
         )
         _create_event(
             event="pageview",
@@ -190,7 +214,10 @@ class TestPersonIntegration(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         self.assertEqual(data.get("results")[0].get("count"), 2)
-        self.assertEqual([item["name"] for item in data.get("results")[0].get("people")], ["u_17", "u_16"])
+        self.assertEqual(
+            [item["name"] for item in data.get("results")[0].get("people")],
+            ["u_17", "u_16"],
+        )
 
     def test_weekly_active_users_grouped_by_week(self):
         for d in range(10, 18):  # create a person and event for each day 10. Sep - 17. Sep
@@ -257,7 +284,10 @@ class TestPersonIntegration(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         self.assertEqual(data.get("results")[0].get("count"), 2)
-        self.assertEqual([item["name"] for item in data.get("results")[0].get("people")], ["u_11", "u_10"])
+        self.assertEqual(
+            [item["name"] for item in data.get("results")[0].get("people")],
+            ["u_11", "u_10"],
+        )
 
     @skip("see PR 17356")
     def test_weekly_active_users_breakdown(self):
@@ -299,4 +329,7 @@ class TestPersonIntegration(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         # self.assertEqual(data.get("results")[0].get("count"), 2)
-        self.assertEqual([item["name"] for item in data.get("results")[0].get("people")], ["a_17", "a_16"])
+        self.assertEqual(
+            [item["name"] for item in data.get("results")[0].get("people")],
+            ["a_17", "a_16"],
+        )

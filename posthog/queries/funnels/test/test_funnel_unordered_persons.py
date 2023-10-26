@@ -6,8 +6,12 @@ from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
-from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.queries.funnels.funnel_unordered_persons import (
+    ClickhouseFunnelUnorderedActors,
+)
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -160,7 +164,14 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event_uuid="11111111-1111-1111-1111-111111111111",
         )
 
-        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_1", "s1")
+        timestamp = timezone.now() + timedelta(days=1)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="user_1",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+        )
 
         filter = Filter(
             data={

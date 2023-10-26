@@ -1,17 +1,29 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FeatureFlagType, NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
+import { NotebookNodeType } from '~/types'
+import { useActions, useValues } from 'kea'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagCodeExample } from 'scenes/feature-flags/FeatureFlagCodeExample'
 import { urls } from 'scenes/urls'
-import { JSONContent, NotebookNodeViewProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import api from 'lib/api'
+import { useEffect } from 'react'
+import { NotFound } from 'lib/components/NotFound'
 
-const Component = (props: NotebookNodeViewProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
-    const { id } = props.attributes
-    const { featureFlag } = useValues(featureFlagLogic({ id }))
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExampleAttributes>): JSX.Element => {
+    const { id } = attributes
+    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(
+            featureFlag.key ? `Feature flag code example: ${featureFlag.key}` : 'Feature flag code example'
+        )
+    }, [featureFlag?.key])
+
+    if (!featureFlagMissing) {
+        return <NotFound object="feature flag" />
+    }
 
     return <div className="p-2">{expanded && <FeatureFlagCodeExample featureFlag={featureFlag} />}</div>
 }
@@ -22,19 +34,7 @@ type NotebookNodeFlagCodeExampleAttributes = {
 
 export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeFlagCodeExampleAttributes>({
     nodeType: NotebookNodeType.FeatureFlagCodeExample,
-    title: async (attributes) => {
-        const mountedFlagLogic = featureFlagLogic.findMounted({ id: attributes.id })
-        let title = mountedFlagLogic?.values.featureFlag.key || null
-
-        if (title === null) {
-            const retrievedFlag: FeatureFlagType = await api.featureFlags.get(Number(attributes.id))
-            if (retrievedFlag) {
-                title = retrievedFlag.key
-            }
-        }
-
-        return title ? `Feature flag code example: ${title}` : 'Feature flag code example'
-    },
+    titlePlaceholder: 'Feature flag code example',
     Component,
     heightEstimate: '3rem',
     startExpanded: true,

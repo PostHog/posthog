@@ -32,7 +32,11 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url, validate_plugin_job_payload
+from posthog.models.plugin import (
+    PluginSourceFile,
+    update_validated_data_from_url,
+    validate_plugin_job_payload,
+)
 from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import (
     OrganizationMemberPermissions,
@@ -66,7 +70,10 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
     for i, change in enumerate(config_changes):
         if change.field in secret_fields:
             config_changes[i] = Change(
-                type="PluginConfig", action=change.action, before=SECRET_FIELD_VALUE, after=SECRET_FIELD_VALUE
+                type="PluginConfig",
+                action=change.action,
+                before=SECRET_FIELD_VALUE,
+                after=SECRET_FIELD_VALUE,
             )
 
     return config_changes
@@ -87,10 +94,16 @@ def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bo
 
 
 def log_config_update_activity(
-    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: User
+    new_plugin_config: PluginConfig,
+    old_config: Dict[str, Any],
+    secret_fields: Set[str],
+    old_enabled: bool,
+    user: User,
 ):
     config_changes = get_plugin_config_changes(
-        old_config=old_config, new_config=new_plugin_config.config, secret_fields=secret_fields
+        old_config=old_config,
+        new_config=new_plugin_config.config,
+        secret_fields=secret_fields,
     )
 
     if len(config_changes) > 0:
@@ -113,7 +126,12 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
             activity = "attachment_updated"
-            change = Change(type="PluginConfig", action="changed", before=plugin_attachment.file_name, after=file.name)
+            change = Change(
+                type="PluginConfig",
+                action="changed",
+                before=plugin_attachment.file_name,
+                after=file.name,
+            )
 
             plugin_attachment.content_type = file.content_type
             plugin_attachment.file_name = file.name
@@ -124,7 +142,12 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
             plugin_attachment.delete()
 
             activity = "attachment_deleted"
-            change = Change(type="PluginConfig", action="deleted", before=plugin_attachment.file_name, after=None)
+            change = Change(
+                type="PluginConfig",
+                action="deleted",
+                before=plugin_attachment.file_name,
+                after=None,
+            )
     except ObjectDoesNotExist:
         if file:
             PluginAttachment.objects.create(
@@ -298,6 +321,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
+    @action(methods=["GET"], detail=False)
+    def unused(self, request: request.Request, **kwargs):
+        ids = Plugin.objects.exclude(
+            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
+        ).values_list("id", flat=True)
+        return Response(ids)
+
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="installation")
@@ -305,7 +335,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # use update to not trigger the post_save signal and avoid telling the plugin server to reload vms
         Plugin.objects.filter(id=plugin.id).update(
-            latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
+            latest_tag=latest_url.get("tag", latest_url.get("version", None)),
+            latest_tag_checked_at=now(),
         )
         plugin.refresh_from_db()
 
@@ -372,7 +403,10 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def upgrade(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="upgrading")
         serializer = PluginSerializer(plugin, context=self.get_serializer_context())
-        if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
+        if plugin.plugin_type not in (
+            Plugin.PluginType.SOURCE,
+            Plugin.PluginType.LOCAL,
+        ):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             with transaction.atomic():
@@ -423,7 +457,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        activity_page = load_all_activity(scope_list=["Plugin", "PluginConfig"], team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
+        activity_page = load_all_activity(
+            scope_list=["Plugin", "PluginConfig"],
+            team_id=request.user.team.id,  # type: ignore
+            limit=limit,
+            page=page,
+        )
 
         return activity_page_response(activity_page, limit, page, request)
 
@@ -465,7 +504,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "delivery_rate_24h",
             "created_at",
         ]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h", "created_at"]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "plugin_info",
+            "delivery_rate_24h",
+            "created_at",
+        ]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -540,7 +585,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
 
-    def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
+    def update(  # type: ignore
+        self,
+        plugin_config: PluginConfig,
+        validated_data: Dict,
+        *args: Any,
+        **kwargs: Any,
+    ) -> PluginConfig:
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
 
@@ -624,7 +675,15 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     activity="order_changed",
                     detail=Detail(
                         name=plugin_config.plugin.name,
-                        changes=[Change(type="Plugin", before=old_order, after=order, action="changed", field="order")],
+                        changes=[
+                            Change(
+                                type="Plugin",
+                                before=old_order,
+                                after=order,
+                                action="changed",
+                                field="order",
+                            )
+                        ],
                     ),
                 )
 

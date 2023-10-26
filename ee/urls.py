@@ -21,9 +21,9 @@ from .api import (
     organization_resource_access,
     role,
     sentry_stats,
-    session_recording_playlist,
     subscription,
 )
+from .session_recordings import session_recording_playlist
 
 
 def extend_api_router(
@@ -65,7 +65,10 @@ def extend_api_router(
     )
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
-        r"explicit_members", explicit_team_member.ExplicitTeamMemberViewSet, "project_explicit_members", ["team_id"]
+        r"explicit_members",
+        explicit_team_member.ExplicitTeamMemberViewSet,
+        "project_explicit_members",
+        ["team_id"],
     )
     project_dashboards_router.register(
         r"collaborators",

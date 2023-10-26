@@ -35,7 +35,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
+        image: ghcr.io/posthog/kafka-container:v2.8.2
         restart: on-failure
         depends_on:
             - zookeeper
@@ -88,6 +88,18 @@ services:
         <<: *worker
         command: ./bin/start-backend & ./bin/start-frontend
         restart: on-failure
+
+    capture:
+        image: ghcr.io/posthog/capture:main
+        restart: on-failure
+        environment:
+            ADDRESS: '0.0.0.0:3000'
+            KAFKA_TOPIC: 'events_plugin_ingestion'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+        depends_on:
+            - redis
+            - kafka
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop

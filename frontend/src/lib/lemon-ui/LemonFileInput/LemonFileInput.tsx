@@ -136,13 +136,15 @@ export const LemonFileInput = ({
                     <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
                     {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                 </label>
-                <div className={'flex flex-row gap-2'}>
-                    {files.map((x, i) => (
-                        <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
-                            {x.name}
-                        </LemonTag>
-                    ))}
-                </div>
+                {files.length > 0 && (
+                    <div className={'flex flex-row gap-2'}>
+                        {files.map((x, i) => (
+                            <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
+                                {x.name}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )}
             </div>
         </>
     )

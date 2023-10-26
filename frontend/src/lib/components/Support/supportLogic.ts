@@ -23,7 +23,7 @@ function getSessionReplayLink(): string {
 
 function getDjangoAdminLink(
     user: UserType | null,
-    cloudRegion: Region | undefined,
+    cloudRegion: Region | null | undefined,
     currentTeamId: TeamType['id'] | null
 ): string {
     if (!user || !cloudRegion) {
@@ -33,7 +33,7 @@ function getDjangoAdminLink(
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
-function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
+function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
     if (!user || !cloudRegion) {
         return ''
     }
@@ -55,7 +55,9 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
+    toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
+    web_analytics: 'Web Analytics',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -81,9 +83,10 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     persons: 'data_integrity',
     groups: 'data_integrity',
     app: 'apps',
-    toolbar: 'analytics',
+    toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
+    web: 'web_analytics',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -208,6 +211,7 @@ export const supportLogic = kea<supportLogicType>([
                 zendesk_ticket_uuid +
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
