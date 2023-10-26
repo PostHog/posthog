@@ -130,6 +130,15 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                 <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
                     New notebook
                 </LemonButton>
+                <LemonButton
+                    fullWidth
+                    onClick={() => {
+                        setShowPopover(false)
+                        openAndAddToNotebook('scratchpad', false)
+                    }}
+                >
+                    My scratchpad
+                </LemonButton>
             </div>
             <LemonDivider />
             <div className="overflow-y-auto flex-1">
