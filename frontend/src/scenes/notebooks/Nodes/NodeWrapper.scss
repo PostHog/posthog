@@ -43,14 +43,12 @@
         align-items: center;
     }
 
-    &--has-actions {
-        &:hover,
-        &--selected {
-            .NotebookNode__gap {
-                opacity: 1;
-                height: 2rem;
-                transition: all 150ms linear;
-            }
+    &--has-actions&--selected,
+    &--has-actions:hover {
+        .NotebookNode__gap {
+            opacity: 1;
+            height: 2rem;
+            transition: all 150ms linear;
         }
     }
 

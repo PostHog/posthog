@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
 
 import { ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import {
     IconBold,
     IconCohort,
@@ -37,6 +37,12 @@ type SlashCommandsProps = {
     query?: string
     range?: EditorRange
     decorationNode?: any
+}
+
+type SlashCommandsPopoverProps = SlashCommandsProps & {
+    visible: boolean
+    children?: JSX.Element
+    onClickOutside?: () => void
 }
 
 type SlashCommandsRef = {
@@ -453,22 +459,36 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
-    props: SlashCommandsProps,
+const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(function SlashCommandsPopover(
+    { mode, decorationNode, range, query, ...props }: SlashCommandsPopoverProps,
     ref
 ): JSX.Element | null {
+    return (
+        <Popover
+            placement="right-start"
+            fallbackPlacements={['left-start']}
+            overlay={<SlashCommands ref={ref} mode={mode} range={range} query={query} />}
+            referenceElement={decorationNode}
+            {...props}
+        />
+    )
+})
+
+export const SlashCommandsButtonPopover = (props: LemonButtonProps): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
 
     return (
-        <Popover
-            overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
-            visible={visible}
-            referenceElement={props.decorationNode}
-        >
-            {props.children}
-        </Popover>
+        <SlashCommandsPopover mode="add" visible={visible} onClickOutside={() => setVisible(false)}>
+            <LemonButton
+                {...props}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setVisible(true)
+                }}
+            />
+        </SlashCommandsPopover>
     )
-})
+}
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
@@ -485,7 +505,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props,
+                                props: { ...props, visible: true, mode: 'slash' },
                                 editor: props.editor,
                             })
                         },

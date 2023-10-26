@@ -39,7 +39,7 @@ import {
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import { SlashCommandsButtonPopover } from '../Notebook/SlashCommands'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -235,26 +235,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         >
                             {getPos && isEditable ? (
                                 <>
-                                    {/* <SlashCommandsPopover mode="add" range={undefined} visible={visible}>
-            <LemonButton
-                size="small"
-                onClick={() => setVisible(true)}
-                icon={<IconPlus />}
-                className="NotebookFloatingButton__plus ml-1"
-            />
-        </SlashCommandsPopover> */}
-                                    <SlashCommandsPopover>
-                                        <LemonButton
-                                            size="tiny"
-                                            type="secondary"
-                                            status="primary"
-                                            icon={<IconPlus />}
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                onActionsAreaClick()
-                                            }}
-                                        />
-                                    </SlashCommandsPopover>
+                                    <SlashCommandsButtonPopover
+                                        size="tiny"
+                                        type="secondary"
+                                        status="primary"
+                                        icon={<IconPlus />}
+                                    />
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}
@@ -301,7 +287,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 ): Node {
     const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
 
-    KNOWN_NODES[wrapperProps.nodeType] = options
+    // KNOWN_NODES[wrapperProps.nodeType] = options
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
