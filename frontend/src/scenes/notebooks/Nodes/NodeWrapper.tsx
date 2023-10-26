@@ -154,7 +154,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                            'NotebookNode--has-actions': getPos && isEditable,
+                            'NotebookNode--is-editable': getPos && isEditable,
                         })}
                     >
                         <div className="NotebookNode__box">
@@ -287,7 +287,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 ): Node {
     const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
 
-    // KNOWN_NODES[wrapperProps.nodeType] = options
+    KNOWN_NODES[wrapperProps.nodeType] = options
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {

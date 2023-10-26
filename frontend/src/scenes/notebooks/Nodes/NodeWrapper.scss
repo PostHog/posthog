@@ -43,8 +43,8 @@
         align-items: center;
     }
 
-    &--has-actions&--selected,
-    &--has-actions:hover {
+    &--is-editable:hover,
+    &--selected {
         .NotebookNode__gap {
             opacity: 1;
             height: 2rem;
