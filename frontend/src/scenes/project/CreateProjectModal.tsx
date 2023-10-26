@@ -16,6 +16,7 @@ export function CreateProjectModal({
     inline?: boolean
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
+    const { loadCurrentOrganization } = useActions(organizationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
@@ -31,6 +32,7 @@ export function CreateProjectModal({
     const handleSubmit = (): void => {
         createTeam({ name, is_demo: false })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
+        loadCurrentOrganization()
         closeModal()
     }
 
