@@ -224,7 +224,7 @@ describe('ingester', () => {
                     offset: 1,
                     partition: 1,
                 } satisfies Message,
-                () => Promise.resolve(1)
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toEqual({
                 distinct_id: '12345',
@@ -234,6 +234,7 @@ describe('ingester', () => {
                     partition: 1,
                     timestamp: 1,
                     topic: 'the_topic',
+                    consoleLogIngestionEnabled: false,
                 },
                 session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
                 team_id: 1,
@@ -244,7 +245,7 @@ describe('ingester', () => {
         it('filters out invalid rrweb events', async () => {
             const numeric_id = 12345
 
-            const createMessage = ($snapshot_items) => {
+            const createMessage = ($snapshot_items: unknown[]) => {
                 return {
                     value: Buffer.from(
                         JSON.stringify({
@@ -281,7 +282,7 @@ describe('ingester', () => {
                         timestamp: null,
                     },
                 ]),
-                () => Promise.resolve(1)
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
             )
             expect(parsedMessage).toEqual(undefined)
 
@@ -298,7 +299,7 @@ describe('ingester', () => {
                         timestamp: 123,
                     },
                 ]),
-                () => Promise.resolve(1)
+                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: true })
             )
             expect(parsedMessage2).toMatchObject({
                 events: [
@@ -310,7 +311,9 @@ describe('ingester', () => {
                 ],
             })
 
-            const parsedMessage3 = await ingester.parseKafkaMessage(createMessage([null]), () => Promise.resolve(1))
+            const parsedMessage3 = await ingester.parseKafkaMessage(createMessage([null]), () =>
+                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            )
             expect(parsedMessage3).toEqual(undefined)
         })
     })
