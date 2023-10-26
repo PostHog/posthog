@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -173,7 +174,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         },
     })),
     urlToAction(({ values, actions, cache }) => ({
-        '/annotations/:id': ({ id }) => {
+        [urls.annotation(':id')]: ({ id }) => {
             cache.annotationToShowId = parseInt(id as string)
             const annotation = values.annotations.find((a) => a.id === cache.annotationToShowId)
             if (!annotation) {
@@ -182,7 +183,4 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             actions.openModalToEditAnnotation(annotation)
         },
     })),
-    // actionToUrl(() => ({
-    //     closeModal: () => (sceneLogic.values.scene === Scene.Annotations ? urls.annotations() : undefined),
-    // })),
 ])
