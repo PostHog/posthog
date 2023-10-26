@@ -158,13 +158,13 @@ export function EditSubscription({
                                     . <br />
                                     If this value is not configured correctly PostHog may be unable to correctly send
                                     Subscriptions.{' '}
-                                    <a
+                                    <Link
+                                        to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                         target="_blank"
                                         rel="noopener"
-                                        href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                     >
                                         Learn more <IconOpenInNew />
-                                    </a>
+                                    </Link>
                                 </>
                             </LemonBanner>
                         )}
@@ -184,14 +184,14 @@ export function EditSubscription({
                                         <>
                                             Email subscriptions are not currently possible as this PostHog instance
                                             isn't{' '}
-                                            <a
-                                                href="https://posthog.com/docs/self-host/configure/email"
+                                            <Link
+                                                to="https://posthog.com/docs/self-host/configure/email"
                                                 target="_blank"
                                                 rel="noopener"
                                             >
                                                 configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
                                                 <IconOpenInNew />
-                                            </a>
+                                            </Link>
                                             .
                                         </>
                                     </LemonBanner>
@@ -233,8 +233,8 @@ export function EditSubscription({
                                                         Slack is not yet configured for this project. Add PostHog to
                                                         your Slack workspace to continue.
                                                     </span>
-                                                    <a
-                                                        href={
+                                                    <Link
+                                                        to={
                                                             addToSlackButtonUrl(
                                                                 window.location.pathname + '?target_type=slack'
                                                             ) || ''
@@ -247,7 +247,7 @@ export function EditSubscription({
                                                             src="https://platform.slack-edge.com/img/add_to_slack.png"
                                                             srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
                                                         />
-                                                    </a>
+                                                    </Link>
                                                 </div>
                                             </LemonBanner>
                                         ) : (
@@ -272,13 +272,13 @@ export function EditSubscription({
                                             help={
                                                 <>
                                                     Private channels are only shown if you have{' '}
-                                                    <a
-                                                        href="https://posthog.com/docs/integrate/third-party/slack"
+                                                    <Link
+                                                        to="https://posthog.com/docs/integrate/third-party/slack"
                                                         target="_blank"
                                                         rel="noopener"
                                                     >
                                                         added the PostHog Slack App
-                                                    </a>{' '}
+                                                    </Link>{' '}
                                                     to them
                                                 </>
                                             }
@@ -304,13 +304,13 @@ export function EditSubscription({
                                                             The PostHog Slack App is not in this channel. Please add it
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
-                                                            <a
-                                                                href="https://posthog.com/docs/integrate/third-party/slack"
+                                                            <Link
+                                                                to="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
                                                                 rel="noopener"
                                                             >
                                                                 See the Docs for more information
-                                                            </a>
+                                                            </Link>
                                                         </span>
                                                         <LemonButton
                                                             type="secondary"

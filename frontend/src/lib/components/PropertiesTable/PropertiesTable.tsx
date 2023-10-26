@@ -12,7 +12,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyDefinitionType } from '~/types'
 
@@ -93,10 +93,10 @@ function ValueDisplay({
             {!isURL(value) ? (
                 valueString
             ) : (
-                <a href={value} target="_blank" rel="noopener noreferrer" className="value-link">
+                <Link to={value} target="_blank" className="value-link">
                     <span>{valueString}</span>
                     <IconOpenInNew />
-                </a>
+                </Link>
             )}
         </span>
     )

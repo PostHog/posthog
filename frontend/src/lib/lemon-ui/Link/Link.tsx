@@ -9,7 +9,10 @@ import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNoteb
 
 type RoutePart = string | Record<string, any>
 
-export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'className' | 'children' | 'title'> & {
+export type LinkProps = Pick<
+    React.HTMLProps<HTMLAnchorElement>,
+    'target' | 'rel' | 'className' | 'children' | 'title'
+> & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
@@ -54,6 +57,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         {
             to,
             target,
+            rel,
             disableClientSideRouting,
             preventClick = false,
             onClick: onClickRaw,
@@ -96,13 +100,14 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         }
 
         return to ? (
+            // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
                 className={clsx('Link', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? to : '#'}
                 target={target}
-                rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+                rel={rel ?? target === '_blank' ? 'noopener noreferrer' : undefined}
                 {...props}
                 {...draggableProps}
             >
