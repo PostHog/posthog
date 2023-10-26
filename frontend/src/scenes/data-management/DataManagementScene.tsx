@@ -37,13 +37,13 @@ export enum DataManagementTab {
 
 const tabs: Record<
     DataManagementTab,
-    { url: string; label: LemonTab<any>['label']; children: React.ReactNode; buttons?: React.ReactNode }
+    { url: string; label: LemonTab<any>['label']; content: JSX.Element; buttons?: React.ReactNode }
 > = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
         buttons: <NewActionButton />,
-        children: <EventDefinitionsTable />,
+        content: <EventDefinitionsTable />,
     },
     [DataManagementTab.Actions]: {
         url: urls.actions(),
@@ -59,7 +59,7 @@ const tabs: Record<
                 Actions
             </TitleWithIcon>
         ),
-        children: <ActionsTable />,
+        content: <ActionsTable />,
     },
     [DataManagementTab.PropertyDefinitions]: {
         url: urls.propertyDefinitions(),
@@ -75,18 +75,18 @@ const tabs: Record<
                 Properties
             </TitleWithIcon>
         ),
-        children: <PropertyDefinitionsTable />,
+        content: <PropertyDefinitionsTable />,
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
-        children: <Annotations />,
+        content: <Annotations />,
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
     },
     [DataManagementTab.History]: {
         url: urls.dataManagementHistory(),
         label: 'History',
-        children: (
+        content: (
             <ActivityLog
                 scope={ActivityScope.DATA_MANAGEMENT}
                 caption={
@@ -99,7 +99,7 @@ const tabs: Record<
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
         label: 'Ingestion Warnings',
-        children: <IngestionWarningsView />,
+        content: <IngestionWarningsView />,
     },
     [DataManagementTab.Database]: {
         url: urls.database(),
@@ -111,7 +111,7 @@ const tabs: Record<
                 </LemonTag>
             </>
         ),
-        children: <DatabaseTableList />,
+        content: <DatabaseTableList />,
     },
 }
 
@@ -188,6 +188,7 @@ export function DataManagementScene(): JSX.Element {
     const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
         key: key as DataManagementTab,
         label: <span data-attr={`data-management-${key}-tab`}>{tabs[key].label}</span>,
+        content: tabs[key].content,
     }))
 
     return (
@@ -200,8 +201,6 @@ export function DataManagementScene(): JSX.Element {
             />
 
             <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
-
-            {tabs[tab].children}
         </>
     )
 }
