@@ -17,6 +17,11 @@
         // TODO: This should be the default, but controllable in the UI
         width: 50rem;
     }
+
+    &--resizing {
+        // Stop the content from stealing focus whilst resizing
+        pointer-events: none;
+    }
 }
 
 .SidePanel3000__bar {

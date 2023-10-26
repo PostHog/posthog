@@ -26,11 +26,15 @@ export function SidePanel(): JSX.Element {
         },
     }
 
-    const { desiredWidth } = useValues(resizerLogic(resizerLogicProps))
+    const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
 
     return (
         <div
-            className={clsx('SidePanel3000', sidePanelOpen && 'SidePanel3000--open')}
+            className={clsx(
+                'SidePanel3000',
+                sidePanelOpen && 'SidePanel3000--open',
+                isResizeInProgress && 'SidePanel3000--resizing'
+            )}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
