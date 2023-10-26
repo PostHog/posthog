@@ -54,7 +54,7 @@
         "typegen:check": "kea-typegen check",
         "typegen:watch": "kea-typegen watch --delete --show-ts-errors",
         "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
-        "format:python": "ruff .",
+        "format:python": "ruff --exclude posthog/hogql/grammar .",
         "format:js": "pnpm prettier && pnpm eslint --fix",
         "format": "pnpm format:python && pnpm format:js",
         "storybook": "storybook dev -p 6006",
