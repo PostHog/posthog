@@ -48,7 +48,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(() => ({
         openSidePanel: ({ tab }) => {
             // Super temorary
             if (tab === SidePanelTab.Notebooks) {
