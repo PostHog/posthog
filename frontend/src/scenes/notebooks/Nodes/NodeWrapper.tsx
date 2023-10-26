@@ -15,6 +15,7 @@ import {
     IconDragHandle,
     IconFilter,
     IconLink,
+    IconPlus,
     IconPlusMini,
     IconUnfoldLess,
     IconUnfoldMore,
@@ -153,7 +154,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                            'NotebookNode--has-actions': getPos && isEditable && actions.length,
+                            'NotebookNode--has-actions': getPos && isEditable,
                         })}
                     >
                         <div className="NotebookNode__box">
@@ -232,14 +233,23 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             // UX improvement so that the actions don't get in the way of the cursor
                             onClick={() => onActionsAreaClick()}
                         >
-                            {getPos && isEditable && actions.length ? (
+                            {getPos && isEditable ? (
                                 <>
+                                    <LemonButton
+                                        size="tiny"
+                                        type="secondary"
+                                        status="primary"
+                                        icon={<IconPlus />}
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                        }}
+                                    />
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}
+                                            size="tiny"
                                             type="secondary"
                                             status="primary"
-                                            size="small"
                                             icon={x.icon ?? <IconPlusMini />}
                                             onClick={(e) => {
                                                 e.stopPropagation()
