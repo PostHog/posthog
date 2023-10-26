@@ -17,7 +17,6 @@ import {
     IconDatabase,
     IconApps,
     IconPerson,
-    IconQuestion,
     IconPeople,
     IconTestTube,
     IconToggle,
@@ -27,7 +26,6 @@ import {
     IconLive,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
-import { annotationsSidebarLogic } from './sidebars/annotations'
 import { cohortsSidebarLogic } from './sidebars/cohorts'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
@@ -307,13 +305,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconPeople />,
                             logic: isUsingSidebar ? cohortsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.cohorts(),
-                        },
-                        {
-                            identifier: Scene.Annotations,
-                            label: 'Annotations',
-                            icon: <IconQuestion />,
-                            logic: isUsingSidebar ? annotationsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.annotations(),
                         },
                     ],
                     [

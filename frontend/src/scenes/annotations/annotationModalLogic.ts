@@ -9,10 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { actionToUrl, urlToAction } from 'kea-router'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from '@posthog/apps-common'
-import { Scene } from 'scenes/sceneTypes'
+import { urlToAction } from 'kea-router'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -185,7 +182,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             actions.openModalToEditAnnotation(annotation)
         },
     })),
-    actionToUrl(() => ({
-        closeModal: () => (sceneLogic.values.scene === Scene.Annotations ? urls.annotations() : undefined),
-    })),
+    // actionToUrl(() => ({
+    //     closeModal: () => (sceneLogic.values.scene === Scene.Annotations ? urls.annotations() : undefined),
+    // })),
 ])

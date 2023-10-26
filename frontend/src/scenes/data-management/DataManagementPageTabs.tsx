@@ -13,6 +13,7 @@ export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
+    Annotations = 'annotations',
     History = 'history',
     IngestionWarnings = 'warnings',
     Database = 'database',
@@ -25,6 +26,7 @@ const tabUrls = {
     [DataManagementTab.History]: urls.dataManagementHistory(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
     [DataManagementTab.Database]: urls.database(),
+    [DataManagementTab.Annotations]: urls.annotations(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({

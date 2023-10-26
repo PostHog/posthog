@@ -7,7 +7,6 @@ import {
     IconApps,
     IconBarChart,
     IconCohort,
-    IconComment,
     IconDatabase,
     IconExperiment,
     IconFlag,
@@ -236,7 +235,6 @@ function Pages(): JSX.Element {
                         />
                     </FlaggedFeature>
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                    <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>

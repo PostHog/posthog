@@ -2,7 +2,6 @@ import './PropertyDefinitionsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { PropertyDefinition } from '~/types'
-import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
@@ -10,17 +9,9 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     propertyDefinitionsTableLogic,
 } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
-
-export const scene: SceneExport = {
-    component: PropertyDefinitionsTable,
-    logic: propertyDefinitionsTableLogic,
-    paramsToProps: () => ({ syncWithUrl: true }),
-}
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
@@ -73,12 +64,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-            <DataManagementPageTabs tab={DataManagementTab.PropertyDefinitions} />
             <LemonBanner className="mb-4" type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link

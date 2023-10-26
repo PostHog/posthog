@@ -7,7 +7,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
-const scenes: any = { [Scene.Annotations]: blankScene, [Scene.Dashboards]: blankScene }
+const scenes: any = { [Scene.SavedInsights]: blankScene, [Scene.Dashboards]: blankScene }
 
 describe('breadcrumbsLogic', () => {
     let logic: ReturnType<typeof breadcrumbsLogic.build>
@@ -24,9 +24,9 @@ describe('breadcrumbsLogic', () => {
         logic.mount()
 
         // test with .delay because subscriptions happen async
-        router.actions.push(urls.annotations())
-        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Annotations • PostHog' })
-        expect(global.document.title).toEqual('Annotations • PostHog')
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Insights • PostHog' })
+        expect(global.document.title).toEqual('Insights • PostHog')
 
         router.actions.push(urls.dashboards())
         await expectLogic(logic).delay(1).toMatchValues({ documentTitle: 'Dashboards • PostHog' })

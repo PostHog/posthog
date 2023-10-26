@@ -76,35 +76,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.Actions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.EventDefinitions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
     [Scene.EventDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.PropertyDefinitions]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
     [Scene.PropertyDefinition]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.DataManagementHistory]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.IngestionWarnings]: {
-        projectBased: true,
-        name: 'Data Management',
-    },
-    [Scene.Database]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -192,10 +168,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.EarlyAccessFeature]: {
         projectBased: true,
-    },
-    [Scene.Annotations]: {
-        projectBased: true,
-        name: 'Annotations',
     },
     [Scene.Apps]: {
         projectBased: true,
@@ -349,12 +321,12 @@ export const redirects: Record<
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
     '/project/plugins': urls.projectApps(),
-    '/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
+    '/actions': urls.actions(),
     '/organization/members': urls.organizationSettings(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
-    '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
+    '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/:id/*': ({ id, _ }) => {
@@ -400,7 +372,7 @@ export const routes: Record<string, Scene> = {
     [urls.createAction()]: Scene.Action,
     [urls.copyAction(null)]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
-    [urls.ingestionWarnings()]: Scene.IngestionWarnings,
+    [urls.ingestionWarnings()]: Scene.DataManagement,
     [urls.insightNew()]: Scene.Insight,
     [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
@@ -409,17 +381,17 @@ export const routes: Record<string, Scene> = {
     [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
     [urls.savedInsights()]: Scene.SavedInsights,
     [urls.webAnalytics()]: Scene.WebAnalytics,
-    [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
-    [urls.eventDefinitions()]: Scene.EventDefinitions,
+    [urls.actions()]: Scene.DataManagement,
+    [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.batchExports()]: Scene.BatchExports,
     [urls.batchExportNew()]: Scene.BatchExportEdit,
     [urls.batchExport(':id')]: Scene.BatchExport,
     [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
-    [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
+    [urls.propertyDefinitions()]: Scene.DataManagement,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
-    [urls.dataManagementHistory()]: Scene.DataManagementHistory,
-    [urls.database()]: Scene.Database,
+    [urls.dataManagementHistory()]: Scene.DataManagement,
+    [urls.database()]: Scene.DataManagement,
     [urls.events()]: Scene.Events,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
@@ -451,8 +423,8 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
-    [urls.annotations()]: Scene.Annotations,
-    [urls.annotation(':id')]: Scene.Annotations,
+    [urls.annotations()]: Scene.DataManagement,
+    [urls.annotation(':id')]: Scene.DataManagement,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Apps,

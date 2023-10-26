@@ -9,6 +9,15 @@ import { IconWarning } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+export function NewAnnotationButton(): JSX.Element {
+    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    return (
+        <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
+            New annotation
+        </LemonButton>
+    )
+}
+
 export function AnnotationModal({
     overlayRef,
     contentRef,

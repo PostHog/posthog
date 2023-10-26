@@ -4,7 +4,7 @@ import { DataWarehouseSceneRow } from './types'
 import { DataWarehouseViewLink } from '~/types'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { viewLinkLogicType } from './viewLinkLogicType'
@@ -26,8 +26,8 @@ export interface KeySelectOption {
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect({
-        values: [dataWarehouseSavedQueriesLogic, ['savedQueries'], databaseSceneLogic, ['tableOptions']],
-        actions: [databaseSceneLogic, ['loadDatabase']],
+        values: [dataWarehouseSavedQueriesLogic, ['savedQueries'], databaseTableListLogic, ['tableOptions']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     }),
     actions({
         selectView: (selectedView) => ({ selectedView }),

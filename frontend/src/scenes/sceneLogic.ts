@@ -19,12 +19,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Action]: Scene.DataManagement,
-    [Scene.Actions]: Scene.DataManagement,
-    [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
     [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.IngestionWarnings]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
     [Scene.Groups]: Scene.Persons,
