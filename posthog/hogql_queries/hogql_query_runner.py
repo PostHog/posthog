@@ -10,7 +10,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team
-from posthog.schema import HogQLQuery, HogQLQueryResponse, DashboardFilter, HogQLFilters, DateRange
+from posthog.schema import (
+    HogQLQuery,
+    HogQLQueryResponse,
+    DashboardFilter,
+    HogQLFilters,
+    DateRange,
+)
 
 
 class HogQLQueryRunner(QueryRunner):

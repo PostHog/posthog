@@ -49,7 +49,9 @@ def join_with_group_n_table(group_index: int):
 
         select_query = select_from_groups_table(requested_fields)
         select_query.where = ast.CompareOperation(
-            left=ast.Field(chain=["index"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=group_index)
+            left=ast.Field(chain=["index"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=group_index),
         )
 
         join_expr = ast.JoinExpr(table=select_query)

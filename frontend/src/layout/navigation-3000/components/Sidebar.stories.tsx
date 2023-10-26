@@ -7,8 +7,8 @@ import { navigation3000Logic } from '../navigationLogic'
 import { Sidebar } from './Sidebar'
 import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
-import { with3000 } from 'storybook/decorators/with3000'
 import { SidebarNavbarItem } from '../types'
+import { setFeatureFlags } from '~/mocks/browser'
 
 const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
@@ -17,7 +17,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
     },
-    decorators: [with3000],
 }
 export default meta
 /** featureFlagsJson * 6 to fill the sidebar up more. */
@@ -33,6 +32,7 @@ const multipliedFeatureFlagsJson = {
 }
 
 export function Dashboards(): JSX.Element {
+    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/dashboards/': dashboardsJson,
@@ -52,6 +52,7 @@ export function Dashboards(): JSX.Element {
 }
 
 export function FeatureFlags(): JSX.Element {
+    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/feature_flags/': multipliedFeatureFlagsJson,

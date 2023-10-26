@@ -13,11 +13,13 @@ class TestModifiers(BaseTest):
         modifiers = create_default_modifiers_for_team(self.team)
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled  # NB! not a None
         modifiers = create_default_modifiers_for_team(
-            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled)
+            self.team,
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled),
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v1_enabled
         modifiers = create_default_modifiers_for_team(
-            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v2_enabled)
+            self.team,
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v2_enabled),
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.v2_enabled
 
@@ -26,13 +28,17 @@ class TestModifiers(BaseTest):
 
         # Control
         response = execute_hogql_query(
-            query, team=self.team, modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled)
+            query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
         )
         assert " JOIN " in response.clickhouse
 
         # Test
         response = execute_hogql_query(
-            query, team=self.team, modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled)
+            query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.v1_enabled),
         )
         assert " JOIN " not in response.clickhouse
 
@@ -70,9 +76,11 @@ class TestModifiers(BaseTest):
             ),
         ]
 
-        for (mode, *expected) in test_cases:
+        for mode, *expected in test_cases:
             response = execute_hogql_query(
-                query, team=self.team, modifiers=HogQLQueryModifiers(personsOnEventsMode=mode)
+                query,
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
             )
             assert f"SELECT {', '.join(expected)} FROM" in response.clickhouse, f"PoE mode: {mode}"
 
@@ -80,11 +88,19 @@ class TestModifiers(BaseTest):
         query = "SELECT * FROM persons"
 
         # Control (v1)
-        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(personsArgMaxVersion="v1"))
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v1"),
+        )
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
         # Test (v2)
-        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"))
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion="v2"),
+        )
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
     def test_modifiers_persons_argmax_version_auto(self):

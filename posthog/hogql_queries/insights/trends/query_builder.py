@@ -3,7 +3,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.insights.trends.aggregation_operations import (
+    AggregationOperations,
+)
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import series_event_name
@@ -157,7 +159,8 @@ class TrendsQueryBuilder:
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(), sample_value=self._sample_value()
+                events_where_clause=self._events_filter(),
+                sample_value=self._sample_value(),
             ).build()
 
         return default_query
@@ -222,7 +225,8 @@ class TrendsQueryBuilder:
         if series_event_name(self.series) is not None:
             filters.append(
                 parse_expr(
-                    "event = {event}", placeholders={"event": ast.Constant(value=series_event_name(self.series))}
+                    "event = {event}",
+                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
                 )
             )
 

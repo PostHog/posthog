@@ -20,7 +20,11 @@ PERSON_DISTINCT_IDS_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "person_id": StringDatabaseField(name="person_id"),
-    "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+    "person": LazyJoin(
+        from_field="person_id",
+        join_table=PersonsTable(),
+        join_function=join_with_persons_table,
+    ),
 }
 
 

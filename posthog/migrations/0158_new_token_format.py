@@ -7,7 +7,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0157_plugin_metrics"),
     ]
@@ -17,7 +16,10 @@ class Migration(migrations.Migration):
             model_name="personalapikey",
             name="value",
             field=models.CharField(
-                default=posthog.models.utils.generate_random_token_personal, editable=False, max_length=50, unique=True
+                default=posthog.models.utils.generate_random_token_personal,
+                editable=False,
+                max_length=50,
+                unique=True,
             ),
         ),
         migrations.AlterField(

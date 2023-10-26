@@ -6,7 +6,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TagsTestCase(TestMigrations):
-
     migrate_from = "0219_migrate_tags_v2"
     migrate_to = "0220_backfill_primary_dashboards"
     assert_snapshots = True
@@ -63,16 +62,25 @@ class TagsTestCase(TestMigrations):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:
-        self.assertEqual(Team.objects.get(name="t1").primary_dashboard.id, Dashboard.objects.get(name="d2").id)
+        self.assertEqual(
+            Team.objects.get(name="t1").primary_dashboard.id,
+            Dashboard.objects.get(name="d2").id,
+        )
 
         # CASE 2:
         self.assertEqual(Team.objects.get(name="t2").primary_dashboard, None)
 
         # CASE 3:
-        self.assertEqual(Team.objects.get(name="t3").primary_dashboard.id, Dashboard.objects.get(name="d4").id)
+        self.assertEqual(
+            Team.objects.get(name="t3").primary_dashboard.id,
+            Dashboard.objects.get(name="d4").id,
+        )
 
         # CASE 4:
-        self.assertEqual(Team.objects.get(name="t4").primary_dashboard.id, Dashboard.objects.get(name="d6").id)
+        self.assertEqual(
+            Team.objects.get(name="t4").primary_dashboard.id,
+            Dashboard.objects.get(name="d6").id,
+        )
 
         # BATCH CASE
         teams = Team.objects.filter(name__startswith="batch_team-")
