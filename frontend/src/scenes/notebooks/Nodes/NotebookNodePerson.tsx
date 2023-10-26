@@ -158,6 +158,7 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     Component,
     heightEstimate: 300,
     minHeight: '5rem',
+    startExpanded: false,
     href: (attrs) => urls.personByDistinctId(attrs.id),
     resizeable: true,
     attributes: {
