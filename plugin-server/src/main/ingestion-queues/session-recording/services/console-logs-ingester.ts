@@ -43,6 +43,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
     enabled: boolean
+
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly persistentHighWaterMarker: OffsetHighWaterMarker
@@ -83,9 +84,9 @@ export class ConsoleLogsIngester {
                 status.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
 
                 if (error?.isRetriable) {
-                    // We assume the if the error is retriable, then we
+                    // We assume that if the error is retriable, then we
                     // are probably in a state where e.g. Kafka is down
-                    // temporarily and we would rather simply throw and
+                    // temporarily, and we would rather simply throw and
                     // have the process restarted.
                     throw error
                 }
@@ -145,16 +146,24 @@ export class ConsoleLogsIngester {
                 gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
             )
 
-            consoleLogEventsCounter.inc(consoleLogEvents.length)
+            if (consoleLogEvents.length === 0) {
+                return
+            }
 
-            return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-                produce({
-                    producer,
-                    topic: KAFKA_LOG_ENTRIES,
-                    value: Buffer.from(JSON.stringify(cle)),
-                    key: event.session_id,
-                })
-            )
+            if (event.metadata.consoleLogIngestionEnabled) {
+                consoleLogEventsCounter.inc(consoleLogEvents.length)
+
+                return consoleLogEvents.map((cle: ConsoleLogEntry) =>
+                    produce({
+                        producer,
+                        topic: KAFKA_LOG_ENTRIES,
+                        value: Buffer.from(JSON.stringify(cle)),
+                        key: event.session_id,
+                    })
+                )
+            } else {
+                return drop('console_log_ingestion_disabled')
+            }
         } catch (error) {
             status.error('⚠️', '[console-log-events-ingester] processing_error', {
                 error: error,
