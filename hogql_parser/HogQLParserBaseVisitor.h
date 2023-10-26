@@ -351,11 +351,11 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitTagElement(HogQLParser::TagElementContext *ctx) override {
+  virtual std::any visitHogqlxTagElement(HogQLParser::HogqlxTagElementContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitTagAttribute(HogQLParser::TagAttributeContext *ctx) override {
+  virtual std::any visitHogqlxTagAttribute(HogQLParser::HogqlxTagAttributeContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -530,8 +530,8 @@ columnExpr
 columnArgList
 columnArgExpr
 columnLambdaExpr
-tagElement
-tagAttribute
+hogqlxTagElement
+hogqlxTagAttribute
 withExprList
 withExpr
 columnIdentifier

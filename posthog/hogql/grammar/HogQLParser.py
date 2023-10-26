@@ -545,8 +545,8 @@ class HogQLParser ( Parser ):
     RULE_columnArgList = 38
     RULE_columnArgExpr = 39
     RULE_columnLambdaExpr = 40
-    RULE_tagElement = 41
-    RULE_tagAttribute = 42
+    RULE_hogqlxTagElement = 41
+    RULE_hogqlxTagAttribute = 42
     RULE_withExprList = 43
     RULE_withExpr = 44
     RULE_columnIdentifier = 45
@@ -579,8 +579,8 @@ class HogQLParser ( Parser ):
                    "winFrameClause", "winFrameExtend", "winFrameBound", 
                    "expr", "columnTypeExpr", "columnExprList", "columnExpr", 
                    "columnArgList", "columnArgExpr", "columnLambdaExpr", 
-                   "tagElement", "tagAttribute", "withExprList", "withExpr", 
-                   "columnIdentifier", "nestedIdentifier", "tableExpr", 
+                   "hogqlxTagElement", "hogqlxTagAttribute", "withExprList", 
+                   "withExpr", "columnIdentifier", "nestedIdentifier", "tableExpr", 
                    "tableFunctionExpr", "tableIdentifier", "tableArgList", 
                    "databaseIdentifier", "floatingLiteral", "numberLiteral", 
                    "literal", "interval", "keyword", "keywordForAlias", 
@@ -857,8 +857,8 @@ class HogQLParser ( Parser ):
             return self.getTypedRuleContext(HogQLParser.SelectStmtContext,0)
 
 
-        def tagElement(self):
-            return self.getTypedRuleContext(HogQLParser.TagElementContext,0)
+        def hogqlxTagElement(self):
+            return self.getTypedRuleContext(HogQLParser.HogqlxTagElementContext,0)
 
 
         def getRuleIndex(self):
@@ -894,7 +894,7 @@ class HogQLParser ( Parser ):
 
             elif la_ == 3:
                 self.state = 126
-                self.tagElement()
+                self.hogqlxTagElement()
                 pass
 
 
@@ -4550,8 +4550,8 @@ class HogQLParser ( Parser ):
             super().__init__(parser)
             self.copyFrom(ctx)
 
-        def tagElement(self):
-            return self.getTypedRuleContext(HogQLParser.TagElementContext,0)
+        def hogqlxTagElement(self):
+            return self.getTypedRuleContext(HogQLParser.HogqlxTagElementContext,0)
 
 
         def accept(self, visitor:ParseTreeVisitor):
@@ -5230,7 +5230,7 @@ class HogQLParser ( Parser ):
                 self._ctx = localctx
                 _prevctx = localctx
                 self.state = 638
-                self.tagElement()
+                self.hogqlxTagElement()
                 pass
 
             elif la_ == 13:
@@ -5949,7 +5949,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class TagElementContext(ParserRuleContext):
+    class HogqlxTagElementContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -5969,29 +5969,29 @@ class HogQLParser ( Parser ):
         def GT(self):
             return self.getToken(HogQLParser.GT, 0)
 
-        def tagAttribute(self, i:int=None):
+        def hogqlxTagAttribute(self, i:int=None):
             if i is None:
-                return self.getTypedRuleContexts(HogQLParser.TagAttributeContext)
+                return self.getTypedRuleContexts(HogQLParser.HogqlxTagAttributeContext)
             else:
-                return self.getTypedRuleContext(HogQLParser.TagAttributeContext,i)
+                return self.getTypedRuleContext(HogQLParser.HogqlxTagAttributeContext,i)
 
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_tagElement
+            return HogQLParser.RULE_hogqlxTagElement
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitTagElement" ):
-                return visitor.visitTagElement(self)
+            if hasattr( visitor, "visitHogqlxTagElement" ):
+                return visitor.visitHogqlxTagElement(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def tagElement(self):
+    def hogqlxTagElement(self):
 
-        localctx = HogQLParser.TagElementContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 82, self.RULE_tagElement)
+        localctx = HogQLParser.HogqlxTagElementContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 82, self.RULE_hogqlxTagElement)
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
@@ -6004,7 +6004,7 @@ class HogQLParser ( Parser ):
             _la = self._input.LA(1)
             while (((_la) & ~0x3f) == 0 and ((1 << _la) & -33554436) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & -5066549581053953) != 0) or ((((_la - 128)) & ~0x3f) == 0 and ((1 << (_la - 128)) & -9) != 0) or _la==192 or _la==195:
                 self.state = 804
-                self.tagAttribute()
+                self.hogqlxTagAttribute()
                 self.state = 809
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
@@ -6022,7 +6022,7 @@ class HogQLParser ( Parser ):
         return localctx
 
 
-    class TagAttributeContext(ParserRuleContext):
+    class HogqlxTagAttributeContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -6050,21 +6050,21 @@ class HogQLParser ( Parser ):
             return self.getToken(HogQLParser.RBRACE, 0)
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_tagAttribute
+            return HogQLParser.RULE_hogqlxTagAttribute
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitTagAttribute" ):
-                return visitor.visitTagAttribute(self)
+            if hasattr( visitor, "visitHogqlxTagAttribute" ):
+                return visitor.visitHogqlxTagAttribute(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def tagAttribute(self):
+    def hogqlxTagAttribute(self):
 
-        localctx = HogQLParser.TagAttributeContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 84, self.RULE_tagAttribute)
+        localctx = HogQLParser.HogqlxTagAttributeContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 84, self.RULE_hogqlxTagAttribute)
         try:
             self.state = 824
             self._errHandler.sync(self)
@@ -6439,8 +6439,8 @@ class HogQLParser ( Parser ):
             super().__init__(parser)
             self.copyFrom(ctx)
 
-        def tagElement(self):
-            return self.getTypedRuleContext(HogQLParser.TagElementContext,0)
+        def hogqlxTagElement(self):
+            return self.getTypedRuleContext(HogQLParser.HogqlxTagElementContext,0)
 
 
         def accept(self, visitor:ParseTreeVisitor):
@@ -6594,7 +6594,7 @@ class HogQLParser ( Parser ):
                 self._ctx = localctx
                 _prevctx = localctx
                 self.state = 870
-                self.tagElement()
+                self.hogqlxTagElement()
                 pass
 
             elif la_ == 5:

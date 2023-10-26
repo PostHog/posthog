@@ -429,13 +429,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#tagElement.
-    def visitTagElement(self, ctx:HogQLParser.TagElementContext):
+    # Visit a parse tree produced by HogQLParser#hogqlxTagElement.
+    def visitHogqlxTagElement(self, ctx:HogQLParser.HogqlxTagElementContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#tagAttribute.
-    def visitTagAttribute(self, ctx:HogQLParser.TagAttributeContext):
+    # Visit a parse tree produced by HogQLParser#hogqlxTagAttribute.
+    def visitHogqlxTagAttribute(self, ctx:HogQLParser.HogqlxTagAttributeContext):
         return self.visitChildren(ctx)
 
 

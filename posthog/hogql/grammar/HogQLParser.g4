@@ -6,7 +6,7 @@ options {
 
 
 // SELECT statement
-select: (selectUnionStmt | selectStmt | tagElement) EOF;
+select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
@@ -110,7 +110,7 @@ columnExpr
     | identifier (LPAREN columnExprList? RPAREN) OVER LPAREN windowExpr RPAREN            # ColumnExprWinFunction
     | identifier (LPAREN columnExprList? RPAREN) OVER identifier                          # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
-    | tagElement                                                                          # ColumnExprTagElement
+    | hogqlxTagElement                                                                    # ColumnExprTagElement
     | literal                                                                             # ColumnExprLiteral
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
@@ -170,12 +170,12 @@ columnLambdaExpr:
     ;
 
 
-tagElement     :   LT identifier tagAttribute* SLASH GT;
-
-tagAttribute   :   identifier '=' STRING_LITERAL
-               |   identifier '=' LBRACE columnExpr RBRACE
-               |   identifier
-               ;
+hogqlxTagElement: LT identifier hogqlxTagAttribute* SLASH GT;
+hogqlxTagAttribute
+    :   identifier '=' STRING_LITERAL
+    |   identifier '=' LBRACE columnExpr RBRACE
+    |   identifier
+    ;
 
 withExprList: withExpr (COMMA withExpr)*;
 withExpr
@@ -196,7 +196,7 @@ tableExpr
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
-    | tagElement                         # TableExprTag
+    | hogqlxTagElement                         # TableExprTag
     | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;

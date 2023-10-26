@@ -243,12 +243,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(select_stmt_ctx);
     }
 
-    auto tag_element_ctx = ctx->tagElement();
+    auto tag_element_ctx = ctx->hogqlxTagElement();
     if (tag_element_ctx) {
       return visit(tag_element_ctx);
     }
 
-    throw HogQLParsingException("Unexpected Select node. Must have either selectUnionStmt, selectStmt, or tagElement set.");
+    throw HogQLParsingException("Unexpected Select node. Must have either selectUnionStmt, selectStmt, or hogqlxTagElement set.");
   }
 
   VISIT(SelectStmtWithParens) {
@@ -1027,7 +1027,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return build_ast_node("Field", "{s:[s]}", "chain", "*");
   }
 
-  VISIT(ColumnExprTagElement) { return visit(ctx->tagElement()); }
+  VISIT(ColumnExprTagElement) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(ColumnArgList) { return visitPyListOfObjects(ctx->columnArgExpr()); }
 
@@ -1126,7 +1126,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprFunction) { return visit(ctx->tableFunctionExpr()); }
 
-  VISIT(TableExprTag) { return visit(ctx->tagElement()); }
+  VISIT(TableExprTag) { return visit(ctx->hogqlxTagElement()); }
 
   VISIT(TableFunctionExpr) {
     string name = visitAsString(ctx->identifier());
@@ -1219,7 +1219,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return text;
   }
 
-  VISIT(TagAttribute) {
+  VISIT(HogqlxTagAttribute) {
     string name = visitAsString(ctx->identifier());
 
     auto column_expr_ctx = ctx->columnExpr();
@@ -1244,12 +1244,12 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     );
   }
 
-  VISIT(TagElement) {
+  VISIT(HogqlxTagElement) {
     string kind = visitAsString(ctx->identifier());
     PyObject* tag_element = build_ast_node(
         "HogQLXTag", "{s:s#,s:N}",
         "kind", kind.data(), kind.size(),
-        "attributes", visitPyListOfObjects(ctx->tagAttribute())
+        "attributes", visitPyListOfObjects(ctx->hogqlxTagAttribute())
     );
     return tag_element;
   }

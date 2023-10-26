@@ -61,7 +61,7 @@ void hogqlparserParserInitialize() {
       "ratioExpr", "settingExprList", "settingExpr", "windowExpr", "winPartitionByClause", 
       "winOrderByClause", "winFrameClause", "winFrameExtend", "winFrameBound", 
       "expr", "columnTypeExpr", "columnExprList", "columnExpr", "columnArgList", 
-      "columnArgExpr", "columnLambdaExpr", "tagElement", "tagAttribute", 
+      "columnArgExpr", "columnLambdaExpr", "hogqlxTagElement", "hogqlxTagAttribute", 
       "withExprList", "withExpr", "columnIdentifier", "nestedIdentifier", 
       "tableExpr", "tableFunctionExpr", "tableIdentifier", "tableArgList", 
       "databaseIdentifier", "floatingLiteral", "numberLiteral", "literal", 
@@ -543,8 +543,8 @@ HogQLParser::SelectStmtContext* HogQLParser::SelectContext::selectStmt() {
   return getRuleContext<HogQLParser::SelectStmtContext>(0);
 }
 
-HogQLParser::TagElementContext* HogQLParser::SelectContext::tagElement() {
-  return getRuleContext<HogQLParser::TagElementContext>(0);
+HogQLParser::HogqlxTagElementContext* HogQLParser::SelectContext::hogqlxTagElement() {
+  return getRuleContext<HogQLParser::HogqlxTagElementContext>(0);
 }
 
 
@@ -590,7 +590,7 @@ HogQLParser::SelectContext* HogQLParser::select() {
 
     case 3: {
       setState(126);
-      tagElement();
+      hogqlxTagElement();
       break;
     }
 
@@ -5033,8 +5033,8 @@ std::any HogQLParser::ColumnExprTrimContext::accept(tree::ParseTreeVisitor *visi
 }
 //----------------- ColumnExprTagElementContext ------------------------------------------------------------------
 
-HogQLParser::TagElementContext* HogQLParser::ColumnExprTagElementContext::tagElement() {
-  return getRuleContext<HogQLParser::TagElementContext>(0);
+HogQLParser::HogqlxTagElementContext* HogQLParser::ColumnExprTagElementContext::hogqlxTagElement() {
+  return getRuleContext<HogQLParser::HogqlxTagElementContext>(0);
 }
 
 HogQLParser::ColumnExprTagElementContext::ColumnExprTagElementContext(ColumnExprContext *ctx) { copyFrom(ctx); }
@@ -5814,7 +5814,7 @@ HogQLParser::ColumnExprContext* HogQLParser::columnExpr(int precedence) {
       _ctx = _localctx;
       previousContext = _localctx;
       setState(638);
-      tagElement();
+      hogqlxTagElement();
       break;
     }
 
@@ -6838,52 +6838,52 @@ HogQLParser::ColumnLambdaExprContext* HogQLParser::columnLambdaExpr() {
   return _localctx;
 }
 
-//----------------- TagElementContext ------------------------------------------------------------------
+//----------------- HogqlxTagElementContext ------------------------------------------------------------------
 
-HogQLParser::TagElementContext::TagElementContext(ParserRuleContext *parent, size_t invokingState)
+HogQLParser::HogqlxTagElementContext::HogqlxTagElementContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-tree::TerminalNode* HogQLParser::TagElementContext::LT() {
+tree::TerminalNode* HogQLParser::HogqlxTagElementContext::LT() {
   return getToken(HogQLParser::LT, 0);
 }
 
-HogQLParser::IdentifierContext* HogQLParser::TagElementContext::identifier() {
+HogQLParser::IdentifierContext* HogQLParser::HogqlxTagElementContext::identifier() {
   return getRuleContext<HogQLParser::IdentifierContext>(0);
 }
 
-tree::TerminalNode* HogQLParser::TagElementContext::SLASH() {
+tree::TerminalNode* HogQLParser::HogqlxTagElementContext::SLASH() {
   return getToken(HogQLParser::SLASH, 0);
 }
 
-tree::TerminalNode* HogQLParser::TagElementContext::GT() {
+tree::TerminalNode* HogQLParser::HogqlxTagElementContext::GT() {
   return getToken(HogQLParser::GT, 0);
 }
 
-std::vector<HogQLParser::TagAttributeContext *> HogQLParser::TagElementContext::tagAttribute() {
-  return getRuleContexts<HogQLParser::TagAttributeContext>();
+std::vector<HogQLParser::HogqlxTagAttributeContext *> HogQLParser::HogqlxTagElementContext::hogqlxTagAttribute() {
+  return getRuleContexts<HogQLParser::HogqlxTagAttributeContext>();
 }
 
-HogQLParser::TagAttributeContext* HogQLParser::TagElementContext::tagAttribute(size_t i) {
-  return getRuleContext<HogQLParser::TagAttributeContext>(i);
-}
-
-
-size_t HogQLParser::TagElementContext::getRuleIndex() const {
-  return HogQLParser::RuleTagElement;
+HogQLParser::HogqlxTagAttributeContext* HogQLParser::HogqlxTagElementContext::hogqlxTagAttribute(size_t i) {
+  return getRuleContext<HogQLParser::HogqlxTagAttributeContext>(i);
 }
 
 
-std::any HogQLParser::TagElementContext::accept(tree::ParseTreeVisitor *visitor) {
+size_t HogQLParser::HogqlxTagElementContext::getRuleIndex() const {
+  return HogQLParser::RuleHogqlxTagElement;
+}
+
+
+std::any HogQLParser::HogqlxTagElementContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitTagElement(this);
+    return parserVisitor->visitHogqlxTagElement(this);
   else
     return visitor->visitChildren(this);
 }
 
-HogQLParser::TagElementContext* HogQLParser::tagElement() {
-  TagElementContext *_localctx = _tracker.createInstance<TagElementContext>(_ctx, getState());
-  enterRule(_localctx, 82, HogQLParser::RuleTagElement);
+HogQLParser::HogqlxTagElementContext* HogQLParser::hogqlxTagElement() {
+  HogqlxTagElementContext *_localctx = _tracker.createInstance<HogqlxTagElementContext>(_ctx, getState());
+  enterRule(_localctx, 82, HogQLParser::RuleHogqlxTagElement);
   size_t _la = 0;
 
 #if __cplusplus > 201703L
@@ -6909,7 +6909,7 @@ HogQLParser::TagElementContext* HogQLParser::tagElement() {
 
     || _la == HogQLParser::IDENTIFIER) {
       setState(804);
-      tagAttribute();
+      hogqlxTagAttribute();
       setState(809);
       _errHandler->sync(this);
       _la = _input->LA(1);
@@ -6929,52 +6929,52 @@ HogQLParser::TagElementContext* HogQLParser::tagElement() {
   return _localctx;
 }
 
-//----------------- TagAttributeContext ------------------------------------------------------------------
+//----------------- HogqlxTagAttributeContext ------------------------------------------------------------------
 
-HogQLParser::TagAttributeContext::TagAttributeContext(ParserRuleContext *parent, size_t invokingState)
+HogQLParser::HogqlxTagAttributeContext::HogqlxTagAttributeContext(ParserRuleContext *parent, size_t invokingState)
   : ParserRuleContext(parent, invokingState) {
 }
 
-HogQLParser::IdentifierContext* HogQLParser::TagAttributeContext::identifier() {
+HogQLParser::IdentifierContext* HogQLParser::HogqlxTagAttributeContext::identifier() {
   return getRuleContext<HogQLParser::IdentifierContext>(0);
 }
 
-tree::TerminalNode* HogQLParser::TagAttributeContext::EQ_SINGLE() {
+tree::TerminalNode* HogQLParser::HogqlxTagAttributeContext::EQ_SINGLE() {
   return getToken(HogQLParser::EQ_SINGLE, 0);
 }
 
-tree::TerminalNode* HogQLParser::TagAttributeContext::STRING_LITERAL() {
+tree::TerminalNode* HogQLParser::HogqlxTagAttributeContext::STRING_LITERAL() {
   return getToken(HogQLParser::STRING_LITERAL, 0);
 }
 
-tree::TerminalNode* HogQLParser::TagAttributeContext::LBRACE() {
+tree::TerminalNode* HogQLParser::HogqlxTagAttributeContext::LBRACE() {
   return getToken(HogQLParser::LBRACE, 0);
 }
 
-HogQLParser::ColumnExprContext* HogQLParser::TagAttributeContext::columnExpr() {
+HogQLParser::ColumnExprContext* HogQLParser::HogqlxTagAttributeContext::columnExpr() {
   return getRuleContext<HogQLParser::ColumnExprContext>(0);
 }
 
-tree::TerminalNode* HogQLParser::TagAttributeContext::RBRACE() {
+tree::TerminalNode* HogQLParser::HogqlxTagAttributeContext::RBRACE() {
   return getToken(HogQLParser::RBRACE, 0);
 }
 
 
-size_t HogQLParser::TagAttributeContext::getRuleIndex() const {
-  return HogQLParser::RuleTagAttribute;
+size_t HogQLParser::HogqlxTagAttributeContext::getRuleIndex() const {
+  return HogQLParser::RuleHogqlxTagAttribute;
 }
 
 
-std::any HogQLParser::TagAttributeContext::accept(tree::ParseTreeVisitor *visitor) {
+std::any HogQLParser::HogqlxTagAttributeContext::accept(tree::ParseTreeVisitor *visitor) {
   if (auto parserVisitor = dynamic_cast<HogQLParserVisitor*>(visitor))
-    return parserVisitor->visitTagAttribute(this);
+    return parserVisitor->visitHogqlxTagAttribute(this);
   else
     return visitor->visitChildren(this);
 }
 
-HogQLParser::TagAttributeContext* HogQLParser::tagAttribute() {
-  TagAttributeContext *_localctx = _tracker.createInstance<TagAttributeContext>(_ctx, getState());
-  enterRule(_localctx, 84, HogQLParser::RuleTagAttribute);
+HogQLParser::HogqlxTagAttributeContext* HogQLParser::hogqlxTagAttribute() {
+  HogqlxTagAttributeContext *_localctx = _tracker.createInstance<HogqlxTagAttributeContext>(_ctx, getState());
+  enterRule(_localctx, 84, HogQLParser::RuleHogqlxTagAttribute);
 
 #if __cplusplus > 201703L
   auto onExit = finally([=, this] {
@@ -7606,8 +7606,8 @@ void HogQLParser::TableExprContext::copyFrom(TableExprContext *ctx) {
 
 //----------------- TableExprTagContext ------------------------------------------------------------------
 
-HogQLParser::TagElementContext* HogQLParser::TableExprTagContext::tagElement() {
-  return getRuleContext<HogQLParser::TagElementContext>(0);
+HogQLParser::HogqlxTagElementContext* HogQLParser::TableExprTagContext::hogqlxTagElement() {
+  return getRuleContext<HogQLParser::HogqlxTagElementContext>(0);
 }
 
 HogQLParser::TableExprTagContext::TableExprTagContext(TableExprContext *ctx) { copyFrom(ctx); }
@@ -7780,7 +7780,7 @@ HogQLParser::TableExprContext* HogQLParser::tableExpr(int precedence) {
       _ctx = _localctx;
       previousContext = _localctx;
       setState(870);
-      tagElement();
+      hogqlxTagElement();
       break;
     }
 

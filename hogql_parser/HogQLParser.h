@@ -73,13 +73,13 @@ public:
     RuleWinPartitionByClause = 29, RuleWinOrderByClause = 30, RuleWinFrameClause = 31, 
     RuleWinFrameExtend = 32, RuleWinFrameBound = 33, RuleExpr = 34, RuleColumnTypeExpr = 35, 
     RuleColumnExprList = 36, RuleColumnExpr = 37, RuleColumnArgList = 38, 
-    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleTagElement = 41, 
-    RuleTagAttribute = 42, RuleWithExprList = 43, RuleWithExpr = 44, RuleColumnIdentifier = 45, 
-    RuleNestedIdentifier = 46, RuleTableExpr = 47, RuleTableFunctionExpr = 48, 
-    RuleTableIdentifier = 49, RuleTableArgList = 50, RuleDatabaseIdentifier = 51, 
-    RuleFloatingLiteral = 52, RuleNumberLiteral = 53, RuleLiteral = 54, 
-    RuleInterval = 55, RuleKeyword = 56, RuleKeywordForAlias = 57, RuleAlias = 58, 
-    RuleIdentifier = 59, RuleEnumValue = 60, RulePlaceholder = 61
+    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleHogqlxTagElement = 41, 
+    RuleHogqlxTagAttribute = 42, RuleWithExprList = 43, RuleWithExpr = 44, 
+    RuleColumnIdentifier = 45, RuleNestedIdentifier = 46, RuleTableExpr = 47, 
+    RuleTableFunctionExpr = 48, RuleTableIdentifier = 49, RuleTableArgList = 50, 
+    RuleDatabaseIdentifier = 51, RuleFloatingLiteral = 52, RuleNumberLiteral = 53, 
+    RuleLiteral = 54, RuleInterval = 55, RuleKeyword = 56, RuleKeywordForAlias = 57, 
+    RuleAlias = 58, RuleIdentifier = 59, RuleEnumValue = 60, RulePlaceholder = 61
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -140,8 +140,8 @@ public:
   class ColumnArgListContext;
   class ColumnArgExprContext;
   class ColumnLambdaExprContext;
-  class TagElementContext;
-  class TagAttributeContext;
+  class HogqlxTagElementContext;
+  class HogqlxTagAttributeContext;
   class WithExprListContext;
   class WithExprContext;
   class ColumnIdentifierContext;
@@ -169,7 +169,7 @@ public:
     antlr4::tree::TerminalNode *EOF();
     SelectUnionStmtContext *selectUnionStmt();
     SelectStmtContext *selectStmt();
-    TagElementContext *tagElement();
+    HogqlxTagElementContext *hogqlxTagElement();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -1203,7 +1203,7 @@ public:
   public:
     ColumnExprTagElementContext(ColumnExprContext *ctx);
 
-    TagElementContext *tagElement();
+    HogqlxTagElementContext *hogqlxTagElement();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1454,27 +1454,27 @@ public:
 
   ColumnLambdaExprContext* columnLambdaExpr();
 
-  class  TagElementContext : public antlr4::ParserRuleContext {
+  class  HogqlxTagElementContext : public antlr4::ParserRuleContext {
   public:
-    TagElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    HogqlxTagElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *LT();
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *SLASH();
     antlr4::tree::TerminalNode *GT();
-    std::vector<TagAttributeContext *> tagAttribute();
-    TagAttributeContext* tagAttribute(size_t i);
+    std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
+    HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
    
   };
 
-  TagElementContext* tagElement();
+  HogqlxTagElementContext* hogqlxTagElement();
 
-  class  TagAttributeContext : public antlr4::ParserRuleContext {
+  class  HogqlxTagAttributeContext : public antlr4::ParserRuleContext {
   public:
-    TagAttributeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    HogqlxTagAttributeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *EQ_SINGLE();
@@ -1488,7 +1488,7 @@ public:
    
   };
 
-  TagAttributeContext* tagAttribute();
+  HogqlxTagAttributeContext* hogqlxTagAttribute();
 
   class  WithExprListContext : public antlr4::ParserRuleContext {
   public:
@@ -1594,7 +1594,7 @@ public:
   public:
     TableExprTagContext(TableExprContext *ctx);
 
-    TagElementContext *tagElement();
+    HogqlxTagElementContext *hogqlxTagElement();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };

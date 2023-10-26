@@ -151,7 +151,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
-        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.tagElement())
+        return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
         select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
@@ -745,7 +745,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Field(chain=["*"])
 
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
-        return self.visit(ctx.tagElement())
+        return self.visit(ctx.hogqlxTagElement())
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
         return [self.visit(arg) for arg in ctx.columnArgExpr()]
@@ -820,7 +820,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.tableFunctionExpr())
 
     def visitTableExprTag(self, ctx: HogQLParser.TableExprTagContext):
-        return self.visit(ctx.tagElement())
+        return self.visit(ctx.hogqlxTagElement())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
         name = self.visit(ctx.identifier())
@@ -890,12 +890,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
         )
 
-    def visitTagElement(self, ctx: HogQLParser.TagElementContext):
+    def visitHogqlxTagElement(self, ctx: HogQLParser.HogqlxTagElementContext):
         kind = self.visit(ctx.identifier())
-        attributes = [self.visit(a) for a in ctx.tagAttribute()] if ctx.tagAttribute() else []
+        attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
         return ast.HogQLXTag(kind=kind, attributes=attributes)
 
-    def visitTagAttribute(self, ctx: HogQLParser.TagAttributeContext):
+    def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
         name = self.visit(ctx.identifier())
         if ctx.columnExpr():
             return ast.HogQLXAttribute(name=name, value=self.visit(ctx.columnExpr()))
