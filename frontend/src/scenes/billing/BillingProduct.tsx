@@ -24,6 +24,9 @@ import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparison'
+import posthog, { Survey } from 'posthog-js'
+import { useCallback, useState } from 'react'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -158,6 +161,19 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+
+    const [survey, setSurvey] = useState<Survey | null>()
+    const submitSurvey = useCallback(
+        (textAreaValue: string) => {
+            posthog.capture('survey sent', {
+                $survey_id: survey.id,
+                $survey_name: survey.name,
+                $survey_response: textAreaValue,
+            })
+            deactivateProduct(product.type)
+        },
+        [survey]
+    )
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
@@ -331,7 +347,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <LemonButton
                                                         status="stealth"
                                                         fullWidth
-                                                        onClick={() => deactivateProduct(product.type)}
+                                                        onClick={() => {
+                                                            posthog.getActiveMatchingSurveys((surveys: Survey[]) => {
+                                                                const matchingSurvey = surveys.filter(
+                                                                    (survey) => survey.name === 'Open feedback'
+                                                                )[0]
+                                                                if (matchingSurvey) {
+                                                                    setSurvey(matchingSurvey)
+                                                                    posthog.capture('survey shown', {
+                                                                        $survey_id: matchingSurvey.id,
+                                                                        $survey_name: matchingSurvey.name,
+                                                                    })
+                                                                }
+                                                            }, true)
+                                                        }}
                                                     >
                                                         Unsubscribe
                                                     </LemonButton>
@@ -344,6 +373,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         Contact support to unsubscribe
                                                     </LemonButton>
                                                 )}
+
                                                 <LemonButton
                                                     fullWidth
                                                     status="stealth"
@@ -371,6 +401,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 )
                             )}
+                            {survey && <UnsubscribeSurveyModal setSurvey={setSurvey} submitSurvey={submitSurvey} />}
                         </div>
                     </div>
                 </div>
