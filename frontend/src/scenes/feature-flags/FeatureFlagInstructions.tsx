@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import './FeatureFlagInstructions.scss'
 import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, GroupTypeIndex } from '~/types'
 import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
@@ -66,7 +66,7 @@ export function CodeInstructions({
     const { groupTypes } = useValues(groupsModel)
     const groupType =
         featureFlag?.filters?.aggregation_group_type_index != null
-            ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
+            ? groupTypes.get(featureFlag.filters.aggregation_group_type_index as GroupTypeIndex)
             : undefined
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)

@@ -42,7 +42,7 @@ export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>({
     listeners: ({ values, actions }) => ({
         save: async () => {
             const { groupTypes, singularChanges, pluralChanges } = values
-            const payload = groupTypes.map((groupType) => {
+            const payload = Array.from(groupTypes.values()).map((groupType) => {
                 const result = { ...groupType }
                 if (singularChanges[groupType.group_type_index]) {
                     result.name_singular = singularChanges[groupType.group_type_index]
