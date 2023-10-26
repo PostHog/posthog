@@ -9,7 +9,7 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { ConsoleLogEntry, gatherConsoleLogEvents } from '../../../../worker/ingestion/process-event'
+import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -141,29 +141,36 @@ export class ConsoleLogsIngester {
             return drop('high_water_mark')
         }
 
+        // cheapest possible check for any console logs to avoid parsing the events because...
+        const hasAnyConsoleLogs = event.events.some(
+            (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/console@1'
+        )
+
+        if (!hasAnyConsoleLogs) {
+            return
+        }
+
+        // ... we don't want to mark events with no console logs as dropped
+        // this keeps the signal here clean and makes it easier to debug
+        // when we disable a team's console log ingestion
+        if (!event.metadata.consoleLogIngestionEnabled) {
+            return drop('console_log_ingestion_disabled')
+        }
+
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
                 gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
             )
+            consoleLogEventsCounter.inc(consoleLogEvents.length)
 
-            if (consoleLogEvents.length === 0) {
-                return
-            }
-
-            if (event.metadata.consoleLogIngestionEnabled) {
-                consoleLogEventsCounter.inc(consoleLogEvents.length)
-
-                return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-                    produce({
-                        producer,
-                        topic: KAFKA_LOG_ENTRIES,
-                        value: Buffer.from(JSON.stringify(cle)),
-                        key: event.session_id,
-                    })
-                )
-            } else {
-                return drop('console_log_ingestion_disabled')
-            }
+            return consoleLogEvents.map((cle: ConsoleLogEntry) =>
+                produce({
+                    producer,
+                    topic: KAFKA_LOG_ENTRIES,
+                    value: Buffer.from(JSON.stringify(cle)),
+                    key: event.session_id,
+                })
+            )
         } catch (error) {
             status.error('⚠️', '[console-log-events-ingester] processing_error', {
                 error: error,
