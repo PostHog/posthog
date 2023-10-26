@@ -1,10 +1,12 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { pipelineLogic } from './pipelineLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function Pipeline(): JSX.Element {
     return (
-        // TODO: consolidate on a recommended naming convention
-        <div className="pipeline-scene">WIP: Pipeline Scene!</div>
+        <div className="pipeline-scene">
+            <PageHeader title="Pipeline" />
+        </div>
     )
 }
 
