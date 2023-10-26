@@ -1,24 +1,27 @@
 .SidePanel3000 {
-    flex: 0 0 3rem;
+    flex-shrink: 0;
     border-left: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
     z-index: var(--z-main-nav);
+    width: 3rem;
+    display: flex;
+    background: var(--accent-3000);
 
     .LemonButton {
         min-height: 2.25rem !important; // Reduce minimum height
     }
+
+    &--open {
+        width: 20rem;
+    }
 }
 
 .SidePanel3000__content {
-    position: fixed;
-    top: 0;
-    right: 0;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     height: 100vh;
     width: 3rem;
     border-left-width: 1px;
-    background: var(--accent-3000);
     overflow-y: auto;
 }
