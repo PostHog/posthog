@@ -4,11 +4,12 @@ import { actions, kea, reducers, path, listeners } from 'kea'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelNotebook } from './panels/SidePanelNotebook'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
 export enum SidePanelTab {
-    Notebooks = 'notebooks',
+    Notebooks = 'notebook',
     Feedback = 'feedback',
     Docs = 'docs',
 }
@@ -16,9 +17,9 @@ export enum SidePanelTab {
 // TODO: Fix any
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
-        label: 'Notebooks',
+        label: 'Notebook',
         Icon: IconNotebook,
-        Content: () => <p>TODO</p>,
+        Content: SidePanelNotebook,
     },
     [SidePanelTab.Feedback]: {
         label: 'Feedback',
