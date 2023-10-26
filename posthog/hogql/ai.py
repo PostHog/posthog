@@ -85,7 +85,11 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     ]
     if current_query:
         messages.insert(
-            -1, {"role": "user", "content": CURRENT_QUERY_MESSAGE.format(current_query_input=current_query)}
+            -1,
+            {
+                "role": "user",
+                "content": CURRENT_QUERY_MESSAGE.format(current_query_input=current_query),
+            },
         )
 
     candidate_sql: Optional[str] = None
@@ -116,7 +120,12 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
         except HogQLException as e:
             messages.append({"role": "assistant", "content": candidate_sql})
-            messages.append({"role": "user", "content": f"That query has this problem: {e}. Return fixed query."})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"That query has this problem: {e}. Return fixed query.",
+                }
+            )
         else:
             generated_valid_hogql = True
             break

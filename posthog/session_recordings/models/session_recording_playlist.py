@@ -5,7 +5,6 @@ from posthog.utils import generate_short_id
 
 
 class SessionRecordingPlaylist(models.Model):
-
     short_id: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -18,7 +17,11 @@ class SessionRecordingPlaylist(models.Model):
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_modified_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_playlists"
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_playlists",
     )
 
     # DEPRECATED

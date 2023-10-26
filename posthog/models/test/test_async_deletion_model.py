@@ -35,7 +35,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_queries
     def test_mark_team_deletions_done(self):
         deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().mark_deletions_done()
@@ -48,7 +51,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
 
         deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().mark_deletions_done()
@@ -58,11 +64,26 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person(self):
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", person_id=uuid2)
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1", person_id=uuid)
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid2,
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            person_id=uuid,
+        )
 
         deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().mark_deletions_done()
@@ -72,10 +93,19 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_person_when_not_done(self):
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", person_id=uuid)
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid,
+        )
 
         deletion = AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().mark_deletions_done()
@@ -86,13 +116,25 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_groups(self):
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_1": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_1": "foo"},
         )
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_0": "bar"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "bar"},
         )
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1", properties={"$group_0": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
         )
 
         deletion = AsyncDeletion.objects.create(
@@ -111,7 +153,11 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_queries
     def test_mark_deletions_done_groups_when_not_done(self):
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_0": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
         )
 
         deletion = AsyncDeletion.objects.create(
@@ -132,7 +178,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().run()
@@ -144,7 +193,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1")
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().run()
@@ -153,10 +205,19 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person(self):
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", person_id=uuid)
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid,
+        )
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().run()
@@ -165,11 +226,26 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
 
     @snapshot_clickhouse_alter_queries
     def test_delete_person_unrelated(self):
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", person_id=uuid2)
-        _create_event(event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1", person_id=uuid)
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            person_id=uuid2,
+        )
+        _create_event(
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            person_id=uuid,
+        )
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
+            deletion_type=DeletionType.Person,
+            team_id=self.teams[0].pk,
+            key=str(uuid),
+            created_by=self.user,
         )
 
         AsyncEventDeletion().run()
@@ -179,7 +255,11 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_alter_queries
     def test_delete_group(self):
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_0": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
         )
 
         AsyncDeletion.objects.create(
@@ -197,13 +277,25 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     @snapshot_clickhouse_alter_queries
     def test_delete_group_unrelated(self):
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_1": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_1": "foo"},
         )
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1", properties={"$group_0": "bar"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[0],
+            distinct_id="1",
+            properties={"$group_0": "bar"},
         )
         _create_event(
-            event_uuid=uuid4(), event="event1", team=self.teams[1], distinct_id="1", properties={"$group_0": "foo"}
+            event_uuid=uuid4(),
+            event="event1",
+            team=self.teams[1],
+            distinct_id="1",
+            properties={"$group_0": "foo"},
         )
 
         AsyncDeletion.objects.create(
@@ -222,7 +314,12 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     def test_delete_auxilary_models_via_team(self):
         create_person(team_id=self.teams[0].pk, properties={"x": 0}, version=0, uuid=uuid)
         create_person_distinct_id(self.teams[0].pk, "0", uuid)
-        create_group(team_id=self.teams[0].pk, group_type_index=0, group_key="org:5", properties={})
+        create_group(
+            team_id=self.teams[0].pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={},
+        )
         insert_static_cohort([uuid4()], 0, self.teams[0])
         self._insert_cohortpeople_row(self.teams[0], uuid4(), 3)
         create_plugin_log_entry(
@@ -236,7 +333,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         )
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
         AsyncEventDeletion().run()
 
@@ -252,7 +352,12 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
     def test_delete_auxilary_models_via_team_unrelated(self):
         create_person(team_id=self.teams[1].pk, properties={"x": 0}, version=0, uuid=uuid)
         create_person_distinct_id(self.teams[1].pk, "0", uuid)
-        create_group(team_id=self.teams[1].pk, group_type_index=0, group_key="org:5", properties={})
+        create_group(
+            team_id=self.teams[1].pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={},
+        )
         insert_static_cohort([uuid4()], 0, self.teams[1])
         self._insert_cohortpeople_row(self.teams[1], uuid4(), 3)
         create_plugin_log_entry(
@@ -266,7 +371,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         )
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
+            deletion_type=DeletionType.Team,
+            team_id=self.teams[0].pk,
+            key=str(self.teams[0].pk),
+            created_by=self.user,
         )
         AsyncEventDeletion().run()
 
@@ -284,7 +392,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self._insert_cohortpeople_row(team, uuid4(), cohort_id)
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Cohort_full, team_id=team.pk, key=str(cohort_id) + "_0", created_by=self.user
+            deletion_type=DeletionType.Cohort_full,
+            team_id=team.pk,
+            key=str(cohort_id) + "_0",
+            created_by=self.user,
         )
         AsyncCohortDeletion().run()
 
@@ -298,7 +409,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self._insert_cohortpeople_row(team, uuid4(), cohort_id, 3)
 
         AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key=str(cohort_id) + "_3", created_by=self.user
+            deletion_type=DeletionType.Cohort_stale,
+            team_id=team.pk,
+            key=str(cohort_id) + "_3",
+            created_by=self.user,
         )
         AsyncCohortDeletion().run()
 
@@ -314,5 +428,10 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             INSERT INTO cohortpeople (person_id, cohort_id, team_id, sign, version)
             VALUES (%(person_id)s, %(cohort_id)s, %(team_id)s, 1, %(version)s)
             """,
-            {"person_id": str(person_id), "cohort_id": cohort_id, "team_id": team.pk, "version": version},
+            {
+                "person_id": str(person_id),
+                "cohort_id": cohort_id,
+                "team_id": team.pk,
+                "version": version,
+            },
         )

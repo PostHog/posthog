@@ -17,7 +17,10 @@ class TestTable(APIBaseTest):
             {
                 "name": "whatever",
                 "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
-                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
                 "format": "Parquet",
             },
         )
@@ -42,7 +45,10 @@ class TestTable(APIBaseTest):
             {
                 "name": "whatever",
                 "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
-                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
                 "format": "Parquet",
             },
         )

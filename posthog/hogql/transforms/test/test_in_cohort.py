@@ -8,7 +8,12 @@ from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
 from posthog.schema import HogQLQueryModifiers
-from posthog.test.base import BaseTest, _create_person, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    _create_person,
+    _create_event,
+    flush_persons_and_events,
+)
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
@@ -33,7 +38,8 @@ class TestInCohort(BaseTest):
     def test_in_cohort_dynamic(self):
         random_uuid = self._create_random_events()
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         recalculate_cohortpeople(cohort, pending_version=0)
         response = execute_hogql_query(
@@ -100,5 +106,8 @@ class TestInCohort(BaseTest):
         self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
 
         with self.assertRaises(HogQLException) as e:
-            execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'", self.team)
+            execute_hogql_query(
+                f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'",
+                self.team,
+            )
         self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")

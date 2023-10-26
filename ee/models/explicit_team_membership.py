@@ -36,7 +36,10 @@ class ExplicitTeamMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "parent_membership"], name="unique_explicit_team_membership")
+            models.UniqueConstraint(
+                fields=["team", "parent_membership"],
+                name="unique_explicit_team_membership",
+            )
         ]
 
     def __str__(self):

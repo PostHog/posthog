@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0266_add_is_system_field_to_activity_log"),
     ]
@@ -16,9 +15,20 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Text",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("body", models.CharField(blank=True, max_length=4000, null=True)),
-                ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
+                (
+                    "last_modified_at",
+                    models.DateTimeField(default=django.utils.timezone.now),
+                ),
             ],
         ),
         # allow null and add related name to the field
@@ -36,7 +46,10 @@ class Migration(migrations.Migration):
             model_name="text",
             name="created_by",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to=settings.AUTH_USER_MODEL,
             ),
         ),
         migrations.AddField(
@@ -78,7 +91,9 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="dashboardtile",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("text__isnull", False)), fields=("dashboard", "text"), name="unique_dashboard_text"
+                condition=models.Q(("text__isnull", False)),
+                fields=("dashboard", "text"),
+                name="unique_dashboard_text",
             ),
         ),
         # can't have both insight and text on a tile

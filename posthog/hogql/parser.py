@@ -7,7 +7,11 @@ from django.conf import settings
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
-from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
+from posthog.hogql.errors import (
+    NotImplementedException,
+    HogQLException,
+    SyntaxException,
+)
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
@@ -211,7 +215,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             select_query.array_join_list = self.visit(array_join_clause.columnExprList())
             for expr in select_query.array_join_list:
                 if not isinstance(expr, ast.Alias):
-                    raise SyntaxException("ARRAY JOIN arrays must have an alias", start=expr.start, end=expr.end)
+                    raise SyntaxException(
+                        "ARRAY JOIN arrays must have an alias",
+                        start=expr.start,
+                        end=expr.end,
+                    )
 
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
@@ -382,7 +390,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         right = number_literals[1] if ctx.SLASH() and len(number_literals) > 1 else None
 
         return ast.RatioExpr(
-            left=self.visitNumberLiteral(left), right=self.visitNumberLiteral(right) if right else None
+            left=self.visitNumberLiteral(left),
+            right=self.visitNumberLiteral(right) if right else None,
         )
 
     def visitSettingExprList(self, ctx: HogQLParser.SettingExprListContext):
@@ -455,7 +464,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(
             name="if",
-            args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1)), self.visit(ctx.columnExpr(2))],
+            args=[
+                self.visit(ctx.columnExpr(0)),
+                self.visit(ctx.columnExpr(1)),
+                self.visit(ctx.columnExpr(2)),
+            ],
         )
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
@@ -480,7 +493,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
         return ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Constant(value=0),
+            right=self.visit(ctx.columnExpr()),
         )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
@@ -740,7 +755,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         return ast.Lambda(
-            args=[self.visit(identifier) for identifier in ctx.identifier()], expr=self.visit(ctx.columnExpr())
+            args=[self.visit(identifier) for identifier in ctx.identifier()],
+            expr=self.visit(ctx.columnExpr()),
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
@@ -869,7 +885,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: EnumValue")
 
     def visitColumnExprNullish(self, ctx: HogQLParser.ColumnExprNullishContext):
-        return ast.Call(name="ifNull", args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))])
+        return ast.Call(
+            name="ifNull",
+            args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
+        )
 
     def visitTagElement(self, ctx: HogQLParser.TagElementContext):
         kind = self.visit(ctx.identifier())

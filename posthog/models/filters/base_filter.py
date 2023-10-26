@@ -40,7 +40,12 @@ class BaseFilter(BaseParamMixin):
             elif request.data and request.data.get(PROPERTIES):
                 properties = request.data[PROPERTIES]
 
-            data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
+            data = {
+                **request.GET.dict(),
+                **request.data,
+                **(data if data else {}),
+                **({PROPERTIES: properties}),
+            }
         elif data is None:
             raise ValueError("You need to define either a data dict or a request")
 
@@ -50,7 +55,8 @@ class BaseFilter(BaseParamMixin):
 
         # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
-            "hogql_context", HogQLContext(within_non_hogql_query=True, team_id=self.team.pk if self.team else None)
+            "hogql_context",
+            HogQLContext(within_non_hogql_query=True, team_id=self.team.pk if self.team else None),
         )
         if self.team:
             self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
@@ -77,7 +83,8 @@ class BaseFilter(BaseParamMixin):
     def shallow_clone(self, overrides: Dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
         return type(self)(
-            data={**self._data, **overrides}, **{**self.kwargs, "team": self.team, "hogql_context": self.hogql_context}
+            data={**self._data, **overrides},
+            **{**self.kwargs, "team": self.team, "hogql_context": self.hogql_context},
         )
 
     def query_tags(self) -> Dict[str, Any]:

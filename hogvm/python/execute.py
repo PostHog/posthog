@@ -57,9 +57,9 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 case Operation.NOT:
                     stack.append(not stack.pop())
                 case Operation.AND:
-                    stack.append(all([stack.pop() for _ in range(next(iterator))]))
+                    stack.append(all([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
                 case Operation.OR:
-                    stack.append(any([stack.pop() for _ in range(next(iterator))]))
+                    stack.append(any([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
                 case Operation.PLUS:
                     stack.append(stack.pop() + stack.pop())
                 case Operation.MINUS:

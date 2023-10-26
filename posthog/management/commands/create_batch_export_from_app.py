@@ -15,7 +15,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Add arguments to the parser."""
         parser.add_argument(
-            "--plugin-config-id", type=int, help="The ID of the PluginConfig to use as a base for the new BatchExport"
+            "--plugin-config-id",
+            type=int,
+            help="The ID of the PluginConfig to use as a base for the new BatchExport",
         )
         parser.add_argument(
             "--team-id",
@@ -116,7 +118,11 @@ class Command(BaseCommand):
             end_at = dt.datetime.utcnow()
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
             backfill_export(
-                client, batch_export_id=str(batch_export.id), team_id=team_id, start_at=start_at, end_at=end_at
+                client,
+                batch_export_id=str(batch_export.id),
+                team_id=team_id,
+                start_at=start_at,
+                end_at=end_at,
             )
             self.stdout.write(f"Triggered backfill for BatchExport '{name}'.")
 

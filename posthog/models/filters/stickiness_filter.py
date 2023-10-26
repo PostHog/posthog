@@ -1,6 +1,11 @@
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
-from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
+from django.db.models.functions.datetime import (
+    TruncDay,
+    TruncHour,
+    TruncMonth,
+    TruncWeek,
+)
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
@@ -55,7 +60,12 @@ class StickinessFilter(
     get_earliest_timestamp: Optional[Callable]
     team: "Team"
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
+    def __init__(
+        self,
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[Request] = None,
+        **kwargs,
+    ) -> None:
         if data:
             data["insight"] = INSIGHT_STICKINESS
         else:

@@ -144,6 +144,7 @@ django==3.2.19
     #   django-phonenumber-field
     #   django-picklefield
     #   django-redis
+    #   django-revproxy
     #   django-structlog
     #   django-two-factor-auth
     #   djangorestframework
@@ -178,6 +179,8 @@ django-picklefield==3.0.1
 django-prometheus==2.2.0
     # via -r requirements.in
 django-redis==5.2.0
+    # via -r requirements.in
+django-revproxy==0.12.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
@@ -534,6 +537,7 @@ uritemplate==4.1.1
 urllib3[secure,socks]==1.26.13
     # via
     #   botocore
+    #   django-revproxy
     #   geoip2
     #   google-auth
     #   requests

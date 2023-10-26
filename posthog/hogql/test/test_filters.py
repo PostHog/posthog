@@ -6,7 +6,12 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.visitor import clear_locations
-from posthog.schema import HogQLFilters, EventPropertyFilter, PersonPropertyFilter, DateRange
+from posthog.schema import (
+    HogQLFilters,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    DateRange,
+)
 from posthog.test.base import BaseTest
 
 
@@ -20,14 +25,20 @@ class TestFilters(BaseTest):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):
-        return print_ast(node, dialect="hogql", context=HogQLContext(team_id=self.team.pk, enable_select_queries=True))
+        return print_ast(
+            node,
+            dialect="hogql",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+        )
 
     def test_replace_filters(self):
         select = replace_filters(self._parse_select("SELECT event FROM events"), HogQLFilters(), self.team)
         self.assertEqual(self._print_ast(select), "SELECT event FROM events LIMIT 10000")
 
         select = replace_filters(
-            self._parse_select("SELECT event FROM events where {filters}"), HogQLFilters(), self.team
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(),
+            self.team,
         )
         self.assertEqual(self._print_ast(select), "SELECT event FROM events WHERE true LIMIT 10000")
 
@@ -59,7 +70,8 @@ class TestFilters(BaseTest):
             self.team,
         )
         self.assertEqual(
-            self._print_ast(select), "SELECT event FROM events WHERE equals(properties.random_uuid, '123') LIMIT 10000"
+            self._print_ast(select),
+            "SELECT event FROM events WHERE equals(properties.random_uuid, '123') LIMIT 10000",
         )
 
         select = replace_filters(

@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import (
+    Distributed,
+    MergeTreeEngine,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
 INGESTION_WARNINGS_TABLE_BASE_SQL = """

@@ -30,10 +30,16 @@ class TestPropertyTypes(BaseTest):
             defaults={"property_type": "Numeric"},
         )
         PropertyDefinition.objects.get_or_create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="bool", defaults={"property_type": "Boolean"}
+            team=self.team,
+            type=PropertyDefinition.Type.EVENT,
+            name="bool",
+            defaults={"property_type": "Boolean"},
         )
         PropertyDefinition.objects.get_or_create(
-            team=self.team, type=PropertyDefinition.Type.PERSON, name="tickets", defaults={"property_type": "Numeric"}
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="tickets",
+            defaults={"property_type": "Numeric"},
         )
         PropertyDefinition.objects.get_or_create(
             team=self.team,
@@ -89,5 +95,9 @@ class TestPropertyTypes(BaseTest):
 
     def _print_select(self, select: str):
         expr = parse_select(select)
-        query = print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse")
+        query = print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
         return pretty_print_in_tests(query, self.team.pk)

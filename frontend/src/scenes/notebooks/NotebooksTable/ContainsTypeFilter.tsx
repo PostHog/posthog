@@ -2,7 +2,10 @@ import { NotebookNodeType } from '~/types'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 
-export const fromNodeTypeToLabel: Omit<Record<NotebookNodeType, string>, NotebookNodeType.Backlink> = {
+export const fromNodeTypeToLabel: Omit<
+    Record<NotebookNodeType, string>,
+    NotebookNodeType.Backlink | NotebookNodeType.PersonFeed | NotebookNodeType.Properties | NotebookNodeType.Map
+> = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',
     [NotebookNodeType.Experiment]: 'Experiments',

@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0328_add_starter_feature_flag_template"),
     ]
@@ -21,18 +20,33 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("access_key", encrypted_fields.fields.EncryptedTextField(max_length=500)),
-                ("access_secret", encrypted_fields.fields.EncryptedTextField(max_length=500)),
+                (
+                    "access_key",
+                    encrypted_fields.fields.EncryptedTextField(max_length=500),
+                ),
+                (
+                    "access_secret",
+                    encrypted_fields.fields.EncryptedTextField(max_length=500),
+                ),
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
             options={
                 "abstract": False,
@@ -46,11 +60,17 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("name", models.CharField(max_length=128)),
-                ("format", models.CharField(choices=[("CSV", "CSV"), ("Parquet", "Parquet")], max_length=128)),
+                (
+                    "format",
+                    models.CharField(choices=[("CSV", "CSV"), ("Parquet", "Parquet")], max_length=128),
+                ),
                 ("url_pattern", models.CharField(max_length=500)),
                 (
                     "columns",
@@ -64,7 +84,10 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -76,7 +99,10 @@ class Migration(migrations.Migration):
                         to="posthog.datawarehousecredential",
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
             options={
                 "abstract": False,

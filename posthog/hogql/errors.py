@@ -11,7 +11,12 @@ class HogQLException(Exception):
     end: Optional[int]
 
     def __init__(
-        self, message: str, *, start: Optional[int] = None, end: Optional[int] = None, node: Optional["Expr"] = None
+        self,
+        message: str,
+        *,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        node: Optional["Expr"] = None,
     ):
         super().__init__(message)
         if node is not None and node.start is not None and node.end is not None:
