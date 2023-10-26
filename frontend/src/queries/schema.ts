@@ -660,7 +660,8 @@ export interface InsightPersonsQuery {
     source: InsightQueryNode
     day?: string
     status?: string
-    // TODO: breakdowns
+    // TODO: add breakdowns
+    // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse
 }
 

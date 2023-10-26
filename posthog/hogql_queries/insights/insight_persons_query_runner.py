@@ -29,14 +29,15 @@ class InsightPersonsQueryRunner(QueryRunner):
             self.query = InsightPersonsQuery.model_validate(query)
 
     @cached_property
-    def source_runner(self):
+    def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source, self.team, self.timings, self.in_export_context)
 
     def to_query(self) -> ast.SelectQuery:
         if isinstance(self.source_runner, LifecycleQueryRunner):
+            lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             day = self.query.day
             status = self.query.status
-            return cast(LifecycleQueryRunner, self.source_runner).to_persons_query(day=day, status=status)
+            return lifecycle_runner.to_persons_query(day=day, status=status)
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 
