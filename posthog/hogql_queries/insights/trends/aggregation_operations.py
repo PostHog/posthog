@@ -95,7 +95,11 @@ class AggregationOperations:
         return self.series.math == "weekly_active" or self.series.math == "monthly_active"
 
     def _math_func(self, method: str) -> ast.Call:
-        return ast.Call(name=method, args=[ast.Field(chain=["properties", self.series.math_property])])
+        if self.series.math_property == "$session_duration":
+            chain = ["session", "session_duration"]
+        else:
+            chain = ["properties", self.series.math_property]
+        return ast.Call(name=method, args=[ast.Field(chain=chain)])
 
     def _math_quantile(self, percentile: float) -> ast.Call:
         return ast.Call(
