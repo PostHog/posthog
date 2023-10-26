@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 
 from unittest.mock import ANY
+import pytest
 
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from posthog.api.survey import nh3_clean_with_whitelist
 
 from posthog.models.feedback.survey import Survey
 from posthog.test.base import (
@@ -1069,3 +1071,33 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         self.assertEqual(data, {})
+
+
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        (
+            """
+        <div style="display: flex; justify-content: center;">
+                <div style="flex: 1;">
+                    <img src="https://www.gardenhealth.com/wp-content/uploads/2019/09/hedgehog_octobergardeningjobs-768x768.webp" alt="Your Image" style="max-width: 100%; height: auto;   opacity: 1;">
+                </div>
+                <div style="flex: 3; padding:10px;">
+                    <p>Help us stay sharp.</p>
+        </div>
+      """,
+            """
+        <div style="display: flex; justify-content: center;">
+                <div style="flex: 1;">
+                    <img src="https://www.gardenhealth.com/wp-content/uploads/2019/09/hedgehog_octobergardeningjobs-768x768.webp" alt="Your Image" style="max-width: 100%; height: auto;   opacity: 1;">
+                </div>
+                <div style="flex: 3; padding:10px;">
+                    <p>Help us stay sharp.</p>
+                </div>
+        </div>""",
+        ),
+        (""" """, """ """),
+    ],
+)
+def test_nh3_clean_configuration(test_input, expected):
+    assert nh3_clean_with_whitelist(test_input).replace(" ", "") == expected.replace(" ", "")
