@@ -43,10 +43,7 @@ describe('console log ingester', () => {
         )
 
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        consoleLogIngester = new ConsoleLogsIngester(
-            { ...defaultConfig, SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true } as PluginsServerConfig,
-            mockedHighWaterMarker
-        )
+        consoleLogIngester = new ConsoleLogsIngester({ ...defaultConfig } as PluginsServerConfig, mockedHighWaterMarker)
         await consoleLogIngester.start()
     })
     describe('when enabled on team', () => {
