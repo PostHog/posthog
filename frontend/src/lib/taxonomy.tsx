@@ -805,8 +805,8 @@ export function getKeyMapping(
                 description: `Whether the user responded to survey with ID: "${surveyId}".`,
             }
         }
-    } else if (value.startsWith('$survey_dismiss/')) {
-        const surveyId = value.replace(/^\$survey_dismiss\//, '')
+    } else if (value.startsWith('$survey_dismissed/')) {
+        const surveyId = value.replace(/^\$survey_dismissed\//, '')
         if (surveyId) {
             return {
                 label: `Survey Dismissed: ${surveyId}`,
