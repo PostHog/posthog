@@ -64,6 +64,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        setSlashCommandsPopoverVisible: (visible: boolean) => ({ visible }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -108,11 +109,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setMessageListeners: (_, { listeners }) => listeners,
             },
         ],
-
         titlePlaceholder: [
             props.titlePlaceholder,
             {
                 setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
+        slashCommandsPopoverVisible: [
+            false,
+            {
+                setSlashCommandsPopoverVisible: (_, { visible }) => visible,
             },
         ],
     })),

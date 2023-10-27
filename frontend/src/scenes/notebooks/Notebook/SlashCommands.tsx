@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
 
 import { ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonButtonProps, LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import {
     IconBold,
     IconCohort,
@@ -459,36 +459,22 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(function SlashCommandsPopover(
-    { mode, decorationNode, range, query, ...props }: SlashCommandsPopoverProps,
-    ref
-): JSX.Element | null {
-    return (
-        <Popover
-            placement="right-start"
-            fallbackPlacements={['left-start']}
-            overlay={<SlashCommands ref={ref} mode={mode} range={range} query={query} />}
-            referenceElement={decorationNode}
-            {...props}
-        />
-    )
-})
-
-export const SlashCommandsButtonPopover = (props: LemonButtonProps): JSX.Element => {
-    const [visible, setVisible] = useState<boolean>(false)
-
-    return (
-        <SlashCommandsPopover mode="add" visible={visible} onClickOutside={() => setVisible(false)}>
-            <LemonButton
+export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
+    function SlashCommandsPopover(
+        { mode, decorationNode, range, query, ...props }: SlashCommandsPopoverProps,
+        ref
+    ): JSX.Element | null {
+        return (
+            <Popover
+                placement="right-start"
+                fallbackPlacements={['left-start', 'right-end']}
+                overlay={<SlashCommands ref={ref} mode={mode} range={range} query={query} />}
+                referenceElement={decorationNode}
                 {...props}
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setVisible(true)
-                }}
             />
-        </SlashCommandsPopover>
-    )
-}
+        )
+    }
+)
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',

@@ -3,8 +3,6 @@ import {
     NodeViewWrapper,
     mergeAttributes,
     ReactNodeViewRenderer,
-    ExtendedRegExpMatchArray,
-    Attribute,
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
@@ -31,34 +29,16 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
-    NotebookNodeAttributes,
+    KNOWN_NODES,
     NotebookNodeProps,
     CustomNotebookNodeAttributes,
-    NotebookNodeSettings,
+    CreatePostHogWidgetNodeOptions,
+    NodeWrapperProps,
 } from '../Notebook/utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { SlashCommandsButtonPopover } from '../Notebook/SlashCommands'
-
-// TODO: fix the typing of string to NotebookNodeType
-const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
-
-type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
-    NotebookNodeProps<T> & {
-        Component: (props: NotebookNodeProps<T>) => JSX.Element | null
-
-        // View only props
-        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
-        expandable?: boolean
-        selected?: boolean
-        heightEstimate?: number | string
-        minHeight?: number | string
-        /** If true the metadata area will only show when hovered if in editing mode */
-        autoHideMetadata?: boolean
-        /** Expand the node if the component is clicked */
-        expandOnClick?: boolean
-    }
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -90,8 +70,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+    const { resizeable, expanded, actions, nodeId, slashCommandsPopoverVisible } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine, setSlashCommandsPopoverVisible } =
+        useActions(nodeLogic)
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
@@ -136,7 +117,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const onActionsAreaClick = (): void => {
         // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
         // add new content below. If we are in editing mode, we should select the next line if there is one, otherwise
-        insertOrSelectNextLine()
+        if (!slashCommandsPopoverVisible) {
+            insertOrSelectNextLine()
+        }
     }
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
@@ -152,9 +135,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                     <div
                         ref={ref}
                         className={clsx(nodeType, 'NotebookNode', {
-                            'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
-                            'NotebookNode--is-editable': getPos && isEditable,
+                            'NotebookNode--editable': getPos && isEditable,
+                            'NotebookNode--selected': isEditable && selected,
+                            'NotebookNode--active': slashCommandsPopoverVisible,
                         })}
                     >
                         <div className="NotebookNode__box">
@@ -235,12 +219,22 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                         >
                             {getPos && isEditable ? (
                                 <>
-                                    <SlashCommandsButtonPopover
-                                        size="tiny"
-                                        type="secondary"
-                                        status="primary"
-                                        icon={<IconPlus />}
-                                    />
+                                    <SlashCommandsPopover
+                                        mode="add"
+                                        visible={slashCommandsPopoverVisible}
+                                        onClickOutside={() => setSlashCommandsPopoverVisible(false)}
+                                    >
+                                        <LemonButton
+                                            size="tiny"
+                                            type="secondary"
+                                            status="primary"
+                                            icon={<IconPlus />}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setSlashCommandsPopoverVisible(true)
+                                            }}
+                                        />
+                                    </SlashCommandsPopover>
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}
@@ -267,20 +261,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 }
 
 export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
-
-export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
-    NodeWrapperProps<T>,
-    'updateAttributes'
-> & {
-    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
-    pasteOptions?: {
-        find: string
-        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
-    }
-    attributes: Record<keyof T, Partial<Attribute>>
-    settings?: NotebookNodeSettings
-    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
-}
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
