@@ -21,6 +21,7 @@ export function SidePanel(): JSX.Element {
         containerRef: ref,
         persistentKey: '',
         closeThreshold: 450,
+        placement: 'left',
         onToggleClosed: (shouldBeClosed) => {
             shouldBeClosed ? closeSidePanel() : selectedTab ? openSidePanel(selectedTab) : undefined
         },

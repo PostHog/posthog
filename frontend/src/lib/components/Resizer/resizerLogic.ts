@@ -13,6 +13,8 @@ export type ResizerEvent = {
 export type ResizerLogicProps = {
     /** Specifying a persistence key, will store the desired resize values in localstorage */
     persistentKey?: string
+    /** Where the resizer is placed - the width increases as the mouse moves {placement}   */
+    placement: 'left' | 'right'
     containerRef: React.RefObject<HTMLDivElement>
     onResize?: (event: ResizerEvent) => void
     /** At what width, should this rather be considered a "close" event */
@@ -80,7 +82,6 @@ export const resizerLogic = kea<resizerLogicType>([
 
             let isClosed = props.closeThreshold ? originContainerBounds.width < props.closeThreshold : false
 
-            const direction = startX < originContainerBounds.left + originContainerBounds.width * 0.5 ? 'left' : 'right'
             removeAllListeners(cache)
             cache.originX = startX
 
@@ -89,7 +90,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 // The resizer could be on the left or the right, so we need to account for this
 
                 const desiredWidth =
-                    direction === 'left'
+                    props.placement === 'left'
                         ? originContainerBounds.width - (e.pageX - cache.originX)
                         : originContainerBounds.width + (e.pageX - cache.originX)
 
