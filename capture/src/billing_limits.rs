@@ -114,6 +114,10 @@ impl BillingLimiter {
         //
         // This update will block readers! Keep it fast.
         if since_update > self.interval {
+            // open the update lock to change the update, and prevent anyone else from doing so
+            let mut updated = self.updated.write().await;
+            *updated = OffsetDateTime::now_utc();
+
             let span = tracing::debug_span!("updating billing cache from redis");
             let _span = span.enter();
 
