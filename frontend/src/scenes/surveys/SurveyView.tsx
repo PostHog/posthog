@@ -12,7 +12,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import { ChartDisplayType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
@@ -271,6 +271,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
                                         <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                                            // TODO: rework this to show nps scores over time
                                             <SurveyNPSResults survey={survey as Survey} />
                                         )}
                                     </>
@@ -383,7 +384,6 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                         ],
                         trendsFilter: {
                             formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
-                            display: ChartDisplayType.ActionsLineGraphCumulative,
                         },
                     },
                 }}

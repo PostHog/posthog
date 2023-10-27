@@ -653,7 +653,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         const passives = questionResults.slice(7, 9).reduce((a, b) => a + b, 0)
                         const detractors = questionResults.slice(0, 7).reduce((a, b) => a + b, 0)
                         const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
-                        return npsScore
+                        return npsScore.toFixed(1)
                     }
                 }
             },
