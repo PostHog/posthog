@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, selectors } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { mathsLogicType } from './mathsLogicType'
 import { BaseMathType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
@@ -274,17 +274,17 @@ export function apiValueToMathType(math: string | undefined, groupTypeIndex: num
     return assembledMath
 }
 
-export const mathsLogic = kea<mathsLogicType>({
-    path: ['scenes', 'trends', 'mathsLogic'],
-    connect: {
+export const mathsLogic = kea<mathsLogicType>([
+    path(['scenes', 'trends', 'mathsLogic']),
+    connect({
         values: [
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
             groupsAccessLogic,
             ['needsUpgradeForGroups', 'canStartUsingGroups'],
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         mathDefinitions: [
             (s) => [s.groupsMathDefinitions],
             (groupsMathDefinitions): Record<string, MathDefinition> => {
@@ -347,5 +347,5 @@ export const mathsLogic = kea<mathsLogicType>({
                     ])
                 ),
         ],
-    },
-})
+    }),
+])

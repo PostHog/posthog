@@ -1,27 +1,24 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, selectors, listeners } from 'kea'
 import type { chartFilterLogicType } from './chartFilterLogicType'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export const chartFilterLogic = kea<chartFilterLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const chartFilterLogic = kea<chartFilterLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key]),
+    connect((props: InsightLogicProps) => ({
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateBreakdown']],
         values: [insightVizDataLogic(props), ['isTrends', 'isStickiness', 'display', 'series']],
-    }),
-
-    actions: () => ({
+    })),
+    actions(() => ({
         setChartFilter: (chartFilter: ChartDisplayType) => ({ chartFilter }),
-    }),
-
-    selectors: {
+    })),
+    selectors({
         chartFilter: [(s) => [s.display], (display): ChartDisplayType | null | undefined => display],
-    },
-
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         setChartFilter: ({ chartFilter }) => {
             const { isTrends, isStickiness, display, series } = values
             const newDisplay = chartFilter as ChartDisplayType
@@ -42,5 +39,5 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 }
             }
         },
-    }),
-})
+    })),
+])
