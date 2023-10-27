@@ -197,7 +197,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             posthog.getActiveMatchingSurveys((surveys) => {
                 const matchingSurvey = surveys.filter((survey) => survey.id === surveyID)[0]
                 if (!matchingSurvey) {
-                    deactivateProduct(productType)
+                    actions.deactivateProduct(productType)
                     throw new Error(`Survey with ID ${surveyID} not found.`)
                 }
                 posthog.capture('survey shown', {
