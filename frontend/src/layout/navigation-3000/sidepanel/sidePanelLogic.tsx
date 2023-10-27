@@ -2,8 +2,6 @@ import { actions, kea, reducers, path, listeners } from 'kea'
 
 import type { sidePanelLogicType } from './sidePanelLogicType'
 
-export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
-
 export enum SidePanelTab {
     Notebooks = 'notebook',
     Feedback = 'feedback',

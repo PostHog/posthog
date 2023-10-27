@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
+    SIDE_PANEL_DOCS: 'side-panel-docs', // owner: #noteforce-3000
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

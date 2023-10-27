@@ -10,6 +10,7 @@ import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelNotebook } from './panels/SidePanelNotebook'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -32,6 +33,12 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
 export function SidePanel(): JSX.Element {
     const { selectedTab, sidePanelOpen } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelLogic)
+
+    const docsEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
+
+    const enabledTabs = docsEnabled
+        ? Object.keys(SidePanelTabs)
+        : Object.keys(SidePanelTabs).filter((tab) => tab !== SidePanelTab.Docs)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -67,17 +74,21 @@ export function SidePanel(): JSX.Element {
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
                 <div className="rotate-90 flex items-center gap-2 px-2">
-                    {Object.entries(SidePanelTabs).map(([tab, { label, Icon }]) => (
-                        <LemonButton
-                            key={tab}
-                            icon={<Icon className="rotate-270 w-6" />}
-                            onClick={() => (activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab))}
-                            data-attr={`sidepanel-tab-${tab}`}
-                            active={activeTab === tab}
-                        >
-                            {label}
-                        </LemonButton>
-                    ))}
+                    {Object.entries(SidePanelTabs)
+                        .filter(([tab]) => enabledTabs.includes(tab))
+                        .map(([tab, { label, Icon }]) => (
+                            <LemonButton
+                                key={tab}
+                                icon={<Icon className="rotate-270 w-6" />}
+                                onClick={() =>
+                                    activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
+                                }
+                                data-attr={`sidepanel-tab-${tab}`}
+                                active={activeTab === tab}
+                            >
+                                {label}
+                            </LemonButton>
+                        ))}
                 </div>
             </div>
 

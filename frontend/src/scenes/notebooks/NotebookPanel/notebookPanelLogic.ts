@@ -10,8 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { notebookPopoverLogic } from './notebookPopoverLogic'
 
-export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
-
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
     connect({
@@ -30,7 +28,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
         startDropMode: true,
         endDropMode: true,
-        setDropDistance: (distance: number) => ({ distance }),
         setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
         toggleVisibility: true,
     }),
@@ -75,14 +72,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                 endDropMode: () => false,
             },
         ],
-        dropDistance: [
-            0,
-            {
-                startDropMode: () => -1,
-                endDropMode: () => -1,
-                setDropDistance: (_, { distance }) => distance,
-            },
-        ],
         droppedResource: [
             null as NotebookNodeResource | string | null,
             {
@@ -108,12 +97,8 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         ],
 
         dropProperties: [
-            (s) => [s.dropMode, s.dropDistance, s.sidePanelOpen],
-            (
-                dropMode,
-                dropDistance,
-                sidePanelOpen
-            ): Pick<HTMLProps<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'style'> => {
+            (s) => [s.dropMode],
+            (dropMode): Pick<HTMLProps<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'style'> => {
                 return dropMode
                     ? {
                           onDragEnter: () => {
@@ -128,7 +113,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
 
                               if (cache.dragEntercount <= 0) {
                                   cache.dragEntercount = 0
-                                  actions.openSidePanel(SidePanelTab.Notebooks)
                               }
                           },
                       }
@@ -166,7 +150,11 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             }
             cache.dragEntercount = 0
             cache.dragStart = null
-            actions.openSidePanel(SidePanelTab.Notebooks)
+
+            cache.initialPanelState = {
+                sidePanelOpen: values.sidePanelOpen,
+                selectedTab: values.selectedTab,
+            }
 
             cache.dragListener = (event: MouseEvent) => {
                 if (!cache.dragStart) {
@@ -174,8 +162,17 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
                 }
 
                 // The drop distance is the percentage between where the drag started and where it now is
-                const dropDistance = (event.pageX - cache.dragStart) / window.innerWidth
-                actions.setDropDistance(dropDistance)
+                const distanceFromRightEdge = window.innerWidth - event.pageX
+                const distanceFromDragStart = event.pageX - cache.dragStart
+
+                // If we have dragged a little bit to the right, or we are dragging close to the side panel
+                const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
+
+                if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Notebooks)) {
+                    actions.openSidePanel(SidePanelTab.Notebooks)
+                } else if (!cache.initialPanelState.sidePanelOpen && !shouldBeOpen) {
+                    actions.closeSidePanel()
+                }
             }
             window.addEventListener('drag', cache.dragListener)
         },
@@ -183,6 +180,15 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             if (!values.is3000) {
                 notebookPopoverLogic.actions.endDropMode()
                 return
+            }
+
+            // If we are in the notebook panel then we leave it open, otherwise we revert to the original state
+            if (cache.dragEntercount <= 0) {
+                if (!cache.initialPanelState.sidePanelOpen) {
+                    actions.closeSidePanel()
+                } else {
+                    actions.openSidePanel(cache.initialPanelState.selectedTab)
+                }
             }
             window.removeEventListener('drag', cache.dragListener)
         },

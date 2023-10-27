@@ -9,8 +9,6 @@ import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
 import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'
 
-export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
-
 export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPopoverLogic']),
     actions({
