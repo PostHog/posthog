@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import './NotebookPanel.scss'
 import { Notebook } from '../Notebook/Notebook'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconShare } from 'lib/lemon-ui/icons'
+import { IconFullScreen, IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebooksModel } from '~/models/notebooksModel'
@@ -12,11 +12,12 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { openNotebookShareDialog } from '../Notebook/NotebookShare'
 import { notebookPanelLogic } from './notebookPanelLogic'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
+import { urls } from 'scenes/urls'
 
 export function NotebookPanel(): JSX.Element | null {
     const { fullScreen, selectedNotebook, initialAutofocus, droppedResource, dropProperties } =
         useValues(notebookPanelLogic)
-    const { setFullScreen, selectNotebook } = useActions(notebookPanelLogic)
+    const { setFullScreen, selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const editable = !notebook?.is_template
@@ -47,6 +48,16 @@ export function NotebookPanel(): JSX.Element | null {
 
                             <LemonButton
                                 size="small"
+                                to={urls.notebook(selectedNotebook)}
+                                onClick={() => closeSidePanel()}
+                                status="primary-alt"
+                                icon={<IconOpenInNew />}
+                                tooltip="View notebook outside of popover"
+                                tooltipPlacement="left"
+                            />
+
+                            <LemonButton
+                                size="small"
                                 onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
                                 status="primary-alt"
                                 icon={<IconShare />}
@@ -56,7 +67,7 @@ export function NotebookPanel(): JSX.Element | null {
 
                             {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
 
-                            <LemonButton
+                            {/* <LemonButton
                                 size="small"
                                 onClick={() => setFullScreen(!fullScreen)}
                                 status="primary-alt"
@@ -64,7 +75,7 @@ export function NotebookPanel(): JSX.Element | null {
                                 icon={<IconFullScreen />}
                                 tooltip="Toggle full screen"
                                 tooltipPlacement="left"
-                            />
+                            /> */}
                         </span>
                     </header>
 
