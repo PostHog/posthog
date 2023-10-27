@@ -170,7 +170,10 @@ columnLambdaExpr:
     ;
 
 
-hogqlxTagElement: LT identifier hogqlxTagAttribute* SLASH GT;
+hogqlxTagElement
+    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxTagElement? LT SLASH identifier GT     # HogqlxTagElementNested
+    ;
 hogqlxTagAttribute
     :   identifier '=' STRING_LITERAL
     |   identifier '=' LBRACE columnExpr RBRACE
@@ -196,7 +199,7 @@ tableExpr
     | tableFunctionExpr                  # TableExprFunction
     | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
-    | hogqlxTagElement                         # TableExprTag
+    | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
