@@ -8,15 +8,15 @@ import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelNotebook } from './panels/SidePanelNotebook'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
         label: 'Notebook',
         Icon: IconNotebook,
-        Content: SidePanelNotebook,
+        Content: NotebookPanel,
     },
     [SidePanelTab.Feedback]: {
         label: 'Feedback',
