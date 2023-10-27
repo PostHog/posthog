@@ -71,10 +71,12 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                                 label: 'Persons',
                             },
                             ...Object.fromEntries(
-                                groupTypes.map((type) => [
-                                    `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
-                                    { label: aggregationLabel(type.group_type_index).plural },
-                                ])
+                                Array.from(groupTypes.values())
+                                    .map((type) => [
+                                        `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
+                                        { label: aggregationLabel(type.group_type_index).plural },
+                                    ])
+                                    .filter(Boolean)
                             ),
                         },
                     },

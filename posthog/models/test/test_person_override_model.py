@@ -416,7 +416,13 @@ def create_connection(alias=DEFAULT_DB_ALIAS):
 
 
 def _merge_people(
-    team, cursor, old_person_uuid, override_person_uuid, oldest_event, can_lock_event=None, done_event=None
+    team,
+    cursor,
+    old_person_uuid,
+    override_person_uuid,
+    oldest_event,
+    can_lock_event=None,
+    done_event=None,
 ):
     """
     Merge two people together, using the override_person_id as the canonical
@@ -592,7 +598,13 @@ def test_person_override_allow_consecutive_merges(people, team, oldest_event):
 
     with create_connection() as second_cursor:
         second_cursor.execute("BEGIN")
-        _merge_people(team, second_cursor, override_person.uuid, new_override_person.uuid, oldest_event)
+        _merge_people(
+            team,
+            second_cursor,
+            override_person.uuid,
+            new_override_person.uuid,
+            oldest_event,
+        )
         second_cursor.execute("COMMIT")
 
     assert [_[0] for _ in PersonOverrideMapping.objects.all().values_list("uuid")] == [
@@ -648,12 +660,24 @@ def test_person_override_disallows_concurrent_merge(people, team, oldest_event):
         done_t2_event = Event()
         t1 = Thread(
             target=_merge_people,
-            args=(team, first_cursor, old_person.uuid, override_person.uuid, oldest_event),
+            args=(
+                team,
+                first_cursor,
+                old_person.uuid,
+                override_person.uuid,
+                oldest_event,
+            ),
             kwargs={"can_lock_event": can_lock_event, "done_event": done_t1_event},
         )
         t2 = Thread(
             target=_merge_people,
-            args=(team, second_cursor, override_person.uuid, new_override_person.uuid, oldest_event),
+            args=(
+                team,
+                second_cursor,
+                override_person.uuid,
+                new_override_person.uuid,
+                oldest_event,
+            ),
             kwargs={"done_event": done_t2_event},
         )
         t1.start()
@@ -708,12 +732,24 @@ def test_person_override_disallows_concurrent_merge_different_order(people, team
         done_t2_event = Event()
         t1 = Thread(
             target=_merge_people,
-            args=(team, first_cursor, old_person.uuid, override_person.uuid, oldest_event),
+            args=(
+                team,
+                first_cursor,
+                old_person.uuid,
+                override_person.uuid,
+                oldest_event,
+            ),
             kwargs={"done_event": done_t1_event},
         )
         t2 = Thread(
             target=_merge_people,
-            args=(team, second_cursor, override_person.uuid, new_override_person.uuid, oldest_event),
+            args=(
+                team,
+                second_cursor,
+                override_person.uuid,
+                new_override_person.uuid,
+                oldest_event,
+            ),
             kwargs={"can_lock_event": can_lock_event, "done_event": done_t2_event},
         )
         t1.start()

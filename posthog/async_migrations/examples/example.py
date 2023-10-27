@@ -28,7 +28,6 @@ def example_rollback_fn(uuid: str):
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = "An example async migration."
 
     posthog_min_version = "1.29.0"

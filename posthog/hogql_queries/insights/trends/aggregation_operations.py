@@ -121,7 +121,10 @@ class AggregationOperations:
                     timestamp,
                     actor_id
             """,
-            placeholders={"events_where_clause": events_where_clause, "sample": sample_value},
+            placeholders={
+                "events_where_clause": events_where_clause,
+                "sample": sample_value,
+            },
         )
 
     def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: str):

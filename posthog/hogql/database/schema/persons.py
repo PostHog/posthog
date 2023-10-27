@@ -83,7 +83,11 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers:
 
 
 def join_with_persons_table(
-    from_table: str, to_table: str, requested_fields: Dict[str, List[str]], context: HogQLContext, node: SelectQuery
+    from_table: str,
+    to_table: str,
+    requested_fields: Dict[str, List[str]],
+    context: HogQLContext,
+    node: SelectQuery,
 ):
     from posthog.hogql import ast
 

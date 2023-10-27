@@ -147,6 +147,8 @@ public:
 
     virtual std::any visitColumnExprTrim(HogQLParser::ColumnExprTrimContext *context) = 0;
 
+    virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *context) = 0;
+
     virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *context) = 0;
 
     virtual std::any visitColumnExprArrayAccess(HogQLParser::ColumnExprArrayAccessContext *context) = 0;
@@ -185,6 +187,12 @@ public:
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
 
+    virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *context) = 0;
+
+    virtual std::any visitHogqlxTagElementNested(HogQLParser::HogqlxTagElementNestedContext *context) = 0;
+
+    virtual std::any visitHogqlxTagAttribute(HogQLParser::HogqlxTagAttributeContext *context) = 0;
+
     virtual std::any visitWithExprList(HogQLParser::WithExprListContext *context) = 0;
 
     virtual std::any visitWithExprSubquery(HogQLParser::WithExprSubqueryContext *context) = 0;
@@ -194,6 +202,8 @@ public:
     virtual std::any visitColumnIdentifier(HogQLParser::ColumnIdentifierContext *context) = 0;
 
     virtual std::any visitNestedIdentifier(HogQLParser::NestedIdentifierContext *context) = 0;
+
+    virtual std::any visitTableExprTag(HogQLParser::TableExprTagContext *context) = 0;
 
     virtual std::any visitTableExprIdentifier(HogQLParser::TableExprIdentifierContext *context) = 0;
 
@@ -230,6 +240,8 @@ public:
     virtual std::any visitIdentifier(HogQLParser::IdentifierContext *context) = 0;
 
     virtual std::any visitEnumValue(HogQLParser::EnumValueContext *context) = 0;
+
+    virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *context) = 0;
 
 
 };

@@ -10,8 +10,16 @@ from posthog.models.filters import AnyFilter
 from posthog.models.filters.mixins.interval import IntervalMixin
 
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+from posthog.queries.util import (
+    TIME_IN_SECONDS,
+    get_earliest_timestamp,
+    get_start_of_interval_sql,
+)
+from posthog.utils import (
+    DEFAULT_DATE_FROM_DAYS,
+    relative_date_parse,
+    relative_date_parse_with_delta_mapping,
+)
 
 
 class QueryDateRange:
@@ -28,7 +36,13 @@ class QueryDateRange:
     _table: str
     _should_round: Optional[bool]
 
-    def __init__(self, filter: AnyFilter, team: Team, should_round: Optional[bool] = None, table="") -> None:
+    def __init__(
+        self,
+        filter: AnyFilter,
+        team: Team,
+        should_round: Optional[bool] = None,
+        table="",
+    ) -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
         self._team = team
@@ -97,7 +111,10 @@ class QueryDateRange:
         date_to_query = self.date_to_clause
         date_to = self.date_to_param
 
-        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
+        date_to_param = {
+            "date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": self._team.timezone,
+        }
 
         return date_to_query, date_to_param
 
@@ -106,7 +123,10 @@ class QueryDateRange:
         date_from_query = self.date_from_clause
         date_from = self.date_from_param
 
-        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
+        date_from_param = {
+            "date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": self._team.timezone,
+        }
 
         return date_from_query, date_from_param
 

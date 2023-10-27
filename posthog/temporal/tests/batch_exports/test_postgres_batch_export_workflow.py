@@ -110,7 +110,10 @@ def setup_test_db(postgres_config):
     connection.set_session(autocommit=True)
 
     with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"), (postgres_config["database"],))
+        cursor.execute(
+            sql.SQL("SELECT 1 FROM pg_database WHERE datname = %s"),
+            (postgres_config["database"],),
+        )
 
         if cursor.fetchone() is None:
             cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(postgres_config["database"])))
@@ -322,7 +325,10 @@ async def test_postgres_export_workflow(
 ):
     """Test Postgres Export Workflow end-to-end by using a local PG database."""
     table_name = "test_workflow_table"
-    destination_data = {"type": "Postgres", "config": {**postgres_config, "table_name": table_name}}
+    destination_data = {
+        "type": "Postgres",
+        "config": {**postgres_config, "table_name": table_name},
+    }
     batch_export_data = {
         "name": "my-production-postgres-export",
         "destination": destination_data,
@@ -430,7 +436,11 @@ async def test_postgres_export_workflow(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
-            activities=[create_export_run, insert_into_postgres_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_postgres_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
@@ -469,7 +479,10 @@ async def team(organization):
 @pytest_asyncio.fixture
 async def batch_export(team, postgres_config):
     table_name = "test_workflow_table"
-    destination_data = {"type": "Postgres", "config": {**postgres_config, "table_name": table_name}}
+    destination_data = {
+        "type": "Postgres",
+        "config": {**postgres_config, "table_name": table_name},
+    }
     batch_export_data = {
         "name": "my-production-postgres-export",
         "destination": destination_data,
@@ -517,7 +530,11 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(team, bat
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
-            activities=[create_export_run, insert_into_postgres_activity_mocked, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_postgres_activity_mocked,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
@@ -560,7 +577,11 @@ async def test_postgres_export_workflow_handles_cancellation(team, batch_export)
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
-            activities=[create_export_run, never_finish_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                never_finish_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await activity_environment.client.start_workflow(

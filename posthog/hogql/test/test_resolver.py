@@ -18,7 +18,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.test.base import BaseTest
 
@@ -27,11 +27,18 @@ class TestResolver(BaseTest):
     maxDiff = None
 
     def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
-        return cast(ast.SelectQuery, clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True))
+        return cast(
+            ast.SelectQuery,
+            clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
+        )
 
     def _print_hogql(self, select: str):
         expr = self._select(select)
-        return print_ast(expr, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
+        return print_ast(
+            expr,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "hogql",
+        )
 
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
@@ -80,7 +87,8 @@ class TestResolver(BaseTest):
         with self.assertRaises(ResolverException) as context:
             expr = resolve_types(expr, self.context)
         self.assertEqual(
-            str(context.exception), "Type already resolved for SelectQuery (SelectQueryType). Can't run again."
+            str(context.exception),
+            "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
         )
 
     def test_resolve_events_table_alias(self):
@@ -134,11 +142,17 @@ class TestResolver(BaseTest):
         select_query_type = ast.SelectQueryType(
             aliases={
                 "ee": ast.FieldAliasType(alias="ee", type=event_field_type),
-                "e": ast.FieldAliasType(alias="e", type=ast.FieldAliasType(alias="ee", type=event_field_type)),
+                "e": ast.FieldAliasType(
+                    alias="e",
+                    type=ast.FieldAliasType(alias="ee", type=event_field_type),
+                ),
             },
             columns={
                 "ee": ast.FieldAliasType(alias="ee", type=event_field_type),
-                "e": ast.FieldAliasType(alias="e", type=ast.FieldAliasType(alias="ee", type=event_field_type)),
+                "e": ast.FieldAliasType(
+                    alias="e",
+                    type=ast.FieldAliasType(alias="ee", type=event_field_type),
+                ),
                 "timestamp": timestamp_field_type,
             },
             tables={"e": events_table_alias_type},
@@ -184,7 +198,8 @@ class TestResolver(BaseTest):
         expr = resolve_types(expr, self.context)
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
-            alias="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
+            alias="b",
+            type=ast.FieldType(name="event", table_type=inner_events_table_type),
         )
         timestamp_field_type = ast.FieldType(name="timestamp", table_type=inner_events_table_type)
         timstamp_alias_type = ast.FieldAliasType(alias="c", type=timestamp_field_type)
@@ -288,13 +303,25 @@ class TestResolver(BaseTest):
                     ast.Constant(value=1.1232, type=ast.FloatType()),
                     ast.Constant(value=None, type=ast.UnknownType()),
                     ast.Constant(value=date(2020, 1, 10), type=ast.DateType()),
-                    ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType()),
-                    ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType()),
+                    ast.Constant(
+                        value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc),
+                        type=ast.DateTimeType(),
+                    ),
+                    ast.Constant(
+                        value=UUID("00000000-0000-4000-8000-000000000000"),
+                        type=ast.UUIDType(),
+                    ),
                     ast.Constant(value=[], type=ast.ArrayType(item_type=ast.UnknownType())),
                     ast.Constant(value=[1, 2], type=ast.ArrayType(item_type=ast.IntegerType())),
                     ast.Constant(
                         value=(1, 2, 3),
-                        type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType(), ast.IntegerType()]),
+                        type=ast.TupleType(
+                            item_types=[
+                                ast.IntegerType(),
+                                ast.IntegerType(),
+                                ast.IntegerType(),
+                            ]
+                        ),
                     ),
                 ],
                 type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
@@ -634,7 +661,9 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(
                         name="id",
                         table_type=ast.VirtualTableType(
-                            table_type=events_table_type, field="poe", virtual_table=self.database.events.fields["poe"]
+                            table_type=events_table_type,
+                            field="poe",
+                            virtual_table=self.database.events.fields["poe"],
                         ),
                     ),
                 ),
@@ -674,15 +703,27 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select_queries[0].select,
             [
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
+                ast.Field(
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=events_table_type),
+                ),
             ],
         )
         self.assertEqual(
             node.select_queries[1].select,
             [
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
+                ast.Field(
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=events_table_type),
+                ),
             ],
         )
 
@@ -693,11 +734,18 @@ class TestResolver(BaseTest):
             ast.Call(
                 name="max",
                 # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
-                type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
+                type=ast.CallType(
+                    name="max",
+                    arg_types=[ast.DateTimeType()],
+                    return_type=ast.UnknownType(),
+                ),
                 args=[
                     ast.Field(
                         chain=["timestamp"],
-                        type=ast.FieldType(name="timestamp", table_type=ast.TableType(table=self.database.events)),
+                        type=ast.FieldType(
+                            name="timestamp",
+                            table_type=ast.TableType(table=self.database.events),
+                        ),
                     )
                 ],
             ),
@@ -776,21 +824,58 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=events_table_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=events_table_type)),
                 ast.Field(
-                    chain=["elements_chain"], type=ast.FieldType(name="elements_chain", table_type=events_table_type)
+                    chain=["uuid"],
+                    type=ast.FieldType(name="uuid", table_type=events_table_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_type)),
-                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=events_table_type)),
-                ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=events_table_type)),
-                ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=events_table_type)),
-                ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=events_table_type)),
-                ast.Field(chain=["$group_3"], type=ast.FieldType(name="$group_3", table_type=events_table_type)),
-                ast.Field(chain=["$group_4"], type=ast.FieldType(name="$group_4", table_type=events_table_type)),
+                ast.Field(
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["properties"],
+                    type=ast.FieldType(name="properties", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["distinct_id"],
+                    type=ast.FieldType(name="distinct_id", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["elements_chain"],
+                    type=ast.FieldType(name="elements_chain", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["created_at"],
+                    type=ast.FieldType(name="created_at", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$session_id"],
+                    type=ast.FieldType(name="$session_id", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$group_0"],
+                    type=ast.FieldType(name="$group_0", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$group_1"],
+                    type=ast.FieldType(name="$group_1", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$group_2"],
+                    type=ast.FieldType(name="$group_2", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$group_3"],
+                    type=ast.FieldType(name="$group_3", table_type=events_table_type),
+                ),
+                ast.Field(
+                    chain=["$group_4"],
+                    type=ast.FieldType(name="$group_4", table_type=events_table_type),
+                ),
             ],
         )
 
@@ -805,32 +890,58 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_alias_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_alias_type)),
                 ast.Field(
-                    chain=["properties"], type=ast.FieldType(name="properties", table_type=events_table_alias_type)
+                    chain=["uuid"],
+                    type=ast.FieldType(name="uuid", table_type=events_table_alias_type),
                 ),
                 ast.Field(
-                    chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=events_table_alias_type)
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=events_table_alias_type),
                 ),
                 ast.Field(
-                    chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=events_table_alias_type)
+                    chain=["properties"],
+                    type=ast.FieldType(name="properties", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["distinct_id"],
+                    type=ast.FieldType(name="distinct_id", table_type=events_table_alias_type),
                 ),
                 ast.Field(
                     chain=["elements_chain"],
                     type=ast.FieldType(name="elements_chain", table_type=events_table_alias_type),
                 ),
                 ast.Field(
-                    chain=["created_at"], type=ast.FieldType(name="created_at", table_type=events_table_alias_type)
+                    chain=["created_at"],
+                    type=ast.FieldType(name="created_at", table_type=events_table_alias_type),
                 ),
                 ast.Field(
-                    chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=events_table_alias_type)
+                    chain=["$session_id"],
+                    type=ast.FieldType(name="$session_id", table_type=events_table_alias_type),
                 ),
-                ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=events_table_alias_type)),
-                ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=events_table_alias_type)),
-                ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=events_table_alias_type)),
-                ast.Field(chain=["$group_3"], type=ast.FieldType(name="$group_3", table_type=events_table_alias_type)),
-                ast.Field(chain=["$group_4"], type=ast.FieldType(name="$group_4", table_type=events_table_alias_type)),
+                ast.Field(
+                    chain=["$group_0"],
+                    type=ast.FieldType(name="$group_0", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["$group_1"],
+                    type=ast.FieldType(name="$group_1", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["$group_2"],
+                    type=ast.FieldType(name="$group_2", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["$group_3"],
+                    type=ast.FieldType(name="$group_3", table_type=events_table_alias_type),
+                ),
+                ast.Field(
+                    chain=["$group_4"],
+                    type=ast.FieldType(name="$group_4", table_type=events_table_alias_type),
+                ),
             ],
         )
 
@@ -852,8 +963,14 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
-                ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
+                ast.Field(
+                    chain=["a"],
+                    type=ast.FieldType(name="a", table_type=select_subquery_type),
+                ),
+                ast.Field(
+                    chain=["b"],
+                    type=ast.FieldType(name="b", table_type=select_subquery_type),
+                ),
             ],
         )
 
@@ -878,8 +995,14 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
-                ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
+                ast.Field(
+                    chain=["a"],
+                    type=ast.FieldType(name="a", table_type=select_subquery_type),
+                ),
+                ast.Field(
+                    chain=["b"],
+                    type=ast.FieldType(name="b", table_type=select_subquery_type),
+                ),
             ],
         )
 
@@ -914,22 +1037,58 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=inner_select_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=inner_select_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=inner_select_type)),
+                ast.Field(
+                    chain=["uuid"],
+                    type=ast.FieldType(name="uuid", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["properties"],
+                    type=ast.FieldType(name="properties", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["distinct_id"],
+                    type=ast.FieldType(name="distinct_id", table_type=inner_select_type),
+                ),
                 ast.Field(
                     chain=["elements_chain"],
                     type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
-                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=inner_select_type)),
-                ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=inner_select_type)),
-                ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=inner_select_type)),
-                ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=inner_select_type)),
-                ast.Field(chain=["$group_3"], type=ast.FieldType(name="$group_3", table_type=inner_select_type)),
-                ast.Field(chain=["$group_4"], type=ast.FieldType(name="$group_4", table_type=inner_select_type)),
+                ast.Field(
+                    chain=["created_at"],
+                    type=ast.FieldType(name="created_at", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$session_id"],
+                    type=ast.FieldType(name="$session_id", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_0"],
+                    type=ast.FieldType(name="$group_0", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_1"],
+                    type=ast.FieldType(name="$group_1", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_2"],
+                    type=ast.FieldType(name="$group_2", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_3"],
+                    type=ast.FieldType(name="$group_3", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_4"],
+                    type=ast.FieldType(name="$group_4", table_type=inner_select_type),
+                ),
             ],
         )
 
@@ -938,7 +1097,8 @@ class TestResolver(BaseTest):
         with self.assertRaises(ResolverException) as e:
             resolve_types(node, self.context)
         self.assertEqual(
-            str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
+            str(e.exception),
+            "Cannot use '*' without table name when there are multiple tables in the query",
         )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -977,22 +1137,58 @@ class TestResolver(BaseTest):
         self.assertEqual(
             node.select,
             [
-                ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
-                ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
-                ast.Field(chain=["properties"], type=ast.FieldType(name="properties", table_type=inner_select_type)),
-                ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=inner_select_type)),
-                ast.Field(chain=["distinct_id"], type=ast.FieldType(name="distinct_id", table_type=inner_select_type)),
+                ast.Field(
+                    chain=["uuid"],
+                    type=ast.FieldType(name="uuid", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["event"],
+                    type=ast.FieldType(name="event", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["properties"],
+                    type=ast.FieldType(name="properties", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["timestamp"],
+                    type=ast.FieldType(name="timestamp", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["distinct_id"],
+                    type=ast.FieldType(name="distinct_id", table_type=inner_select_type),
+                ),
                 ast.Field(
                     chain=["elements_chain"],
                     type=ast.FieldType(name="elements_chain", table_type=inner_select_type),
                 ),
-                ast.Field(chain=["created_at"], type=ast.FieldType(name="created_at", table_type=inner_select_type)),
-                ast.Field(chain=["$session_id"], type=ast.FieldType(name="$session_id", table_type=inner_select_type)),
-                ast.Field(chain=["$group_0"], type=ast.FieldType(name="$group_0", table_type=inner_select_type)),
-                ast.Field(chain=["$group_1"], type=ast.FieldType(name="$group_1", table_type=inner_select_type)),
-                ast.Field(chain=["$group_2"], type=ast.FieldType(name="$group_2", table_type=inner_select_type)),
-                ast.Field(chain=["$group_3"], type=ast.FieldType(name="$group_3", table_type=inner_select_type)),
-                ast.Field(chain=["$group_4"], type=ast.FieldType(name="$group_4", table_type=inner_select_type)),
+                ast.Field(
+                    chain=["created_at"],
+                    type=ast.FieldType(name="created_at", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$session_id"],
+                    type=ast.FieldType(name="$session_id", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_0"],
+                    type=ast.FieldType(name="$group_0", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_1"],
+                    type=ast.FieldType(name="$group_1", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_2"],
+                    type=ast.FieldType(name="$group_2", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_3"],
+                    type=ast.FieldType(name="$group_3", table_type=inner_select_type),
+                ),
+                ast.Field(
+                    chain=["$group_4"],
+                    type=ast.FieldType(name="$group_4", table_type=inner_select_type),
+                ),
             ],
         )
 
@@ -1032,3 +1228,39 @@ class TestResolver(BaseTest):
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field() == DateTimeDatabaseField(
             name="created_at", array=None, nullable=None
         )
+
+    def test_visit_hogqlx_tag(self):
+        node = self._select("select event from <HogQLQuery query='select event from events' />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        table_node = cast(ast.SelectQuery, node).select_from.table
+        expected = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+        )
+        assert clone_expr(table_node, clear_types=True) == expected
+
+    def test_visit_hogqlx_tag_alias(self):
+        node = self._select("select event from <HogQLQuery query='select event from events' /> a")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        assert cast(ast.SelectQuery, node).select_from.alias == "a"
+
+    def test_visit_hogqlx_tag_source(self):
+        query = """
+            select id, email from (
+                <PersonsQuery
+                    select={['id', 'properties.email as email']}
+                    source={
+                        <HogQLQuery query='select distinct person_id from events' />
+                    }
+                />
+            )
+        """
+        node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context))
+        hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
+        expected = (
+            f"SELECT id, email FROM "
+            f"(SELECT id, properties.email AS email FROM persons WHERE in(id, "
+            f"(SELECT DISTINCT person_id FROM events)"
+            f") ORDER BY id ASC LIMIT 101 OFFSET 0) "
+            f"LIMIT 10000"
+        )
+        assert hogql == expected

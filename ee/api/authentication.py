@@ -24,7 +24,6 @@ from posthog.models.organization_domain import OrganizationDomain
 
 @api_view(["GET"])
 def saml_metadata_view(request, *args, **kwargs):
-
     if (
         not request.user.organization_memberships.get(organization=request.user.organization).level
         >= OrganizationMembership.Level.ADMIN
@@ -46,7 +45,6 @@ class MultitenantSAMLAuth(SAMLAuth):
     """
 
     def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str]):
-
         try:
             organization_domain = (
                 organization_domain_or_id
@@ -57,7 +55,10 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthFailed("saml", "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
-            raise AuthFailed("saml", "Your organization does not have the required license to use SAML.")
+            raise AuthFailed(
+                "saml",
+                "Your organization does not have the required license to use SAML.",
+            )
 
         return SAMLIdentityProvider(
             str(organization_domain.id),
@@ -88,7 +89,12 @@ class MultitenantSAMLAuth(SAMLAuth):
         # name, since we multiple IdPs share the same auth_complete URL.
         return auth.login(return_to=str(instance.id))
 
-    def _get_attr(self, response_attributes: Dict[str, Any], attribute_names: List[str], optional: bool = False) -> str:
+    def _get_attr(
+        self,
+        response_attributes: Dict[str, Any],
+        attribute_names: List[str],
+        optional: bool = False,
+    ) -> str:
         """
         Fetches a specific attribute from the SAML response, attempting with multiple different attribute names.
         We attempt multiple attribute names to make it easier for admins to configure SAML (less configuration to set).
@@ -114,7 +120,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         attributes = response["attributes"]
         return {
             "fullname": self._get_attr(
-                attributes, ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME], optional=True
+                attributes,
+                ["full_name", "FULL_NAME", "fullName", OID_COMMON_NAME],
+                optional=True,
             ),
             "first_name": self._get_attr(
                 attributes,
@@ -140,7 +148,12 @@ class MultitenantSAMLAuth(SAMLAuth):
             ),
             "email": self._get_attr(
                 attributes,
-                ["email", "EMAIL", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress", OID_MAIL],
+                [
+                    "email",
+                    "EMAIL",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                    OID_MAIL,
+                ],
             ),
         }
 

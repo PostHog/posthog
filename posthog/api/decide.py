@@ -1,31 +1,34 @@
-from random import random
 import re
+from random import random
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.metrics import LABEL_TEAM_ID
-from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
-from prometheus_client import Counter
-
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
+from posthog.utils import (
+    get_ip_address,
+    label_for_team_id_to_track,
+    load_data_from_request,
+)
 from posthog.utils_cors import cors_response
 
 FLAG_EVALUATION_COUNTER = Counter(
@@ -210,10 +213,17 @@ def get_decide(request: HttpRequest):
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
             response["autocaptureExceptions"] = (
-                {"endpoint": "/e/", "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or []}
+                {
+                    "endpoint": "/e/",
+                    "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or [],
+                }
                 if team.autocapture_exceptions_opt_in
                 else False
             )
+
+            if settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS and str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS:
+                if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
+                    response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains

@@ -28,7 +28,9 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.tasks.usage_report import (
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,
@@ -109,7 +111,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 created_by=self.user,
             )
             SharingConfiguration.objects.create(
-                team=self.org_1_team_1, dashboard=dashboard, access_token="testtoken", enabled=True
+                team=self.org_1_team_1,
+                dashboard=dashboard,
+                access_token="testtoken",
+                enabled=True,
             )
 
             FeatureFlag.objects.create(
@@ -184,7 +189,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="organization", group_type_index=0)
             GroupTypeMapping.objects.create(team=self.org_1_team_1, group_type="company", group_type_index=1)
             create_group(
-                team_id=self.org_1_team_1.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
+                team_id=self.org_1_team_1.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
             )
             create_group(
                 team_id=self.org_1_team_1.pk,
@@ -323,7 +331,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             period_start, period_end = period
             all_reports = _get_all_org_reports(period_start, period_end)
             report = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
             )
 
             assert report["table_sizes"]
@@ -349,7 +360,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": report["table_sizes"],
-                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "plugins_installed": {
+                        "Installed and enabled": 1,
+                        "Installed but not enabled": 1,
+                    },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_lifetime": 55,
@@ -480,7 +494,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "users_who_signed_up": [],
                     "users_who_signed_up_count": 0,
                     "table_sizes": report["table_sizes"],
-                    "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
+                    "plugins_installed": {
+                        "Installed and enabled": 1,
+                        "Installed but not enabled": 1,
+                    },
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
                     "event_count_lifetime": 11,
@@ -571,7 +588,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             for expectation in expectations:
                 report = _get_full_org_usage_report_as_dict(
                     _get_full_org_usage_report(
-                        all_reports[expectation["organization_id"]], get_instance_metadata(period)
+                        all_reports[expectation["organization_id"]],
+                        get_instance_metadata(period),
                     )
                 )
                 assert report == expectation
@@ -634,7 +652,11 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
 
-        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
+        execute_hogql_query(
+            query="select * from events limit 200",
+            team=self.team,
+            query_type="HogQLQuery",
+        )
         EventsQueryRunner(query=EventsQuery(select=["event"], limit=50), team=self.team).calculate()
         sync_execute("SYSTEM FLUSH LOGS")
 
@@ -881,7 +903,10 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
             _create_event(
                 distinct_id="3",
                 event="survey sent",
-                properties={"$survey_id": "seeeep-o12-as124", "$survey_response": "correct"},
+                properties={
+                    "$survey_id": "seeeep-o12-as124",
+                    "$survey_response": "correct",
+                },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
             )
@@ -890,7 +915,10 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
             _create_event(
                 distinct_id="4",
                 event="survey sent",
-                properties={"$survey_id": "see22eep-o12-as124", "$survey_response": "correct"},
+                properties={
+                    "$survey_id": "see22eep-o12-as124",
+                    "$survey_response": "correct",
+                },
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_1_team_1,
             )
@@ -958,17 +986,42 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
         self.team2 = Team.objects.create(organization=self.organization)
 
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-08T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T12:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
         _create_event(
             event="$$internal_metrics_shouldnt_be_billed",
             team=self.team,
             distinct_id=1,
             timestamp="2021-10-09T13:01:01Z",
         )
-        _create_event(event="$pageview", team=self.team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team2,
+            distinct_id=1,
+            timestamp="2021-10-09T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-10T14:01:01Z",
+        )
         flush_persons_and_events()
         TEST_clear_instance_license_cache()
 
@@ -1041,7 +1094,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             period_start, period_end = period
             all_reports = _get_all_org_reports(period_start, period_end)
             full_report_as_dict = _get_full_org_usage_report_as_dict(
-                _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
+                _get_full_org_usage_report(
+                    all_reports[str(self.organization.id)],
+                    get_instance_metadata(period),
+                )
             )
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
@@ -1057,7 +1113,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 self.user.distinct_id,
                 "organization usage report",
                 {**full_report_as_dict, "scope": "user"},
-                groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
+                groups={
+                    "instance": "http://localhost:8000",
+                    "organization": str(self.organization.id),
+                },
                 timestamp=None,
             )
 
@@ -1134,7 +1193,13 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         organization = Organization.objects.create()
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
-        capture_event(mock_client, "test event", organization.id, {"prop1": "val1"}, "2021-10-10T23:01:00.00Z")
+        capture_event(
+            mock_client,
+            "test event",
+            organization.id,
+            {"prop1": "val1"},
+            "2021-10-10T23:01:00.00Z",
+        )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
 
 
@@ -1158,11 +1223,36 @@ class SendUsageNoLicenseTest(APIBaseTest):
     def test_no_license(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
         TEST_clear_instance_license_cache()
         # Same test, we just don't include the LicensedTestMixin so no license
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
-        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-08T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T12:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T14:01:01Z",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-10T14:01:01Z",
+        )
 
         flush_persons_and_events()
 

@@ -57,7 +57,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     name="if",
                     args=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Constant(value=1),
+                            right=ast.Constant(value=2),
                         ),
                         ast.Constant(value=1),
                         ast.Constant(value=2),
@@ -69,11 +71,15 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(self._expr("[]"), ast.Array(exprs=[]))
             self.assertEqual(self._expr("[1]"), ast.Array(exprs=[ast.Constant(value=1)]))
             self.assertEqual(
-                self._expr("[1, avg()]"), ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+                self._expr("[1, avg()]"),
+                ast.Array(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
             self.assertEqual(
                 self._expr("properties['value']"),
-                ast.ArrayAccess(array=ast.Field(chain=["properties"]), property=ast.Constant(value="value")),
+                ast.ArrayAccess(
+                    array=ast.Field(chain=["properties"]),
+                    property=ast.Constant(value="value"),
+                ),
             )
             self.assertEqual(
                 self._expr("properties[(select 'value')]"),
@@ -98,7 +104,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_tuples(self):
             self.assertEqual(
-                self._expr("(1, avg())"), ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])])
+                self._expr("(1, avg())"),
+                ast.Tuple(exprs=[ast.Constant(value=1), ast.Call(name="avg", args=[])]),
             )
             # needs at least two values to be a tuple
             self.assertEqual(self._expr("(1)"), ast.Constant(value=1))
@@ -165,44 +172,58 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("1 + 2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.ArithmeticOperationOp.Add,
                 ),
             )
             self.assertEqual(
                 self._expr("1 + -2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.ArithmeticOperationOp.Add
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=-2),
+                    op=ast.ArithmeticOperationOp.Add,
                 ),
             )
             self.assertEqual(
                 self._expr("1 - 2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Sub
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.ArithmeticOperationOp.Sub,
                 ),
             )
             self.assertEqual(
                 self._expr("1 * 2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.ArithmeticOperationOp.Mult,
                 ),
             )
             self.assertEqual(
                 self._expr("1 / 2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Div
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.ArithmeticOperationOp.Div,
                 ),
             )
             self.assertEqual(
                 self._expr("1 % 2"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mod
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.ArithmeticOperationOp.Mod,
                 ),
             )
             self.assertEqual(
                 self._expr("1 + 2 + 2"),
                 ast.ArithmeticOperation(
                     left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                        op=ast.ArithmeticOperationOp.Add,
                     ),
                     right=ast.Constant(value=2),
                     op=ast.ArithmeticOperationOp.Add,
@@ -212,7 +233,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("1 * 1 * 2"),
                 ast.ArithmeticOperation(
                     left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                        op=ast.ArithmeticOperationOp.Mult,
                     ),
                     right=ast.Constant(value=2),
                     op=ast.ArithmeticOperationOp.Mult,
@@ -223,7 +246,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.ArithmeticOperation(
                     left=ast.Constant(value=1),
                     right=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
+                        op=ast.ArithmeticOperationOp.Mult,
                     ),
                     op=ast.ArithmeticOperationOp.Add,
                 ),
@@ -232,7 +257,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._expr("1 * 1 + 2"),
                 ast.ArithmeticOperation(
                     left=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                        op=ast.ArithmeticOperationOp.Mult,
                     ),
                     right=ast.Constant(value=2),
                     op=ast.ArithmeticOperationOp.Add,
@@ -243,43 +270,57 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("1 = 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.Eq,
                 ),
             )
             self.assertEqual(
                 self._expr("1 == 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.Eq,
                 ),
             )
             self.assertEqual(
                 self._expr("1 != 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.NotEq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.NotEq,
                 ),
             )
             self.assertEqual(
                 self._expr("1 < 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Lt
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.Lt,
                 ),
             )
             self.assertEqual(
                 self._expr("1 <= 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtEq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             )
             self.assertEqual(
                 self._expr("1 > 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.Gt,
                 ),
             )
             self.assertEqual(
                 self._expr("1 >= 2"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtEq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    op=ast.CompareOperationOp.GtEq,
                 ),
             )
 
@@ -287,13 +328,17 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("1 is null"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.Eq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=None),
+                    op=ast.CompareOperationOp.Eq,
                 ),
             )
             self.assertEqual(
                 self._expr("1 is not null"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=None),
+                    op=ast.CompareOperationOp.NotEq,
                 ),
             )
 
@@ -301,25 +346,33 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("1 like 'a%sd'"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.Like
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value="a%sd"),
+                    op=ast.CompareOperationOp.Like,
                 ),
             )
             self.assertEqual(
                 self._expr("1 not like 'a%sd'"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotLike
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value="a%sd"),
+                    op=ast.CompareOperationOp.NotLike,
                 ),
             )
             self.assertEqual(
                 self._expr("1 ilike 'a%sd'"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.ILike
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value="a%sd"),
+                    op=ast.CompareOperationOp.ILike,
                 ),
             )
             self.assertEqual(
                 self._expr("1 not ilike 'a%sd'"),
                 ast.CompareOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotILike
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value="a%sd"),
+                    op=ast.CompareOperationOp.NotILike,
                 ),
             )
 
@@ -335,7 +388,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("true and not false"),
                 ast.And(
-                    exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
+                    exprs=[
+                        ast.Constant(value=True),
+                        ast.Not(expr=ast.Constant(value=False)),
+                    ],
                 ),
             )
             self.assertEqual(
@@ -355,7 +411,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     exprs=[
                         ast.Constant(value=True),
                         ast.And(
-                            exprs=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
+                            exprs=[
+                                ast.Constant(value=False),
+                                ast.Not(expr=ast.Constant(value=True)),
+                            ],
                         ),
                         ast.Constant(value=2),
                     ],
@@ -376,7 +435,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("(1 + 1)"),
                 ast.ArithmeticOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=1),
+                    op=ast.ArithmeticOperationOp.Add,
                 ),
             )
             self.assertEqual(
@@ -384,7 +445,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.ArithmeticOperation(
                     left=ast.Constant(value=1),
                     right=ast.ArithmeticOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                        op=ast.ArithmeticOperationOp.Add,
                     ),
                     op=ast.ArithmeticOperationOp.Add,
                 ),
@@ -398,7 +461,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._expr("event like '$%'"),
                 ast.CompareOperation(
-                    left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationOp.Like
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value="$%"),
+                    op=ast.CompareOperationOp.Like,
                 ),
             )
 
@@ -435,13 +500,24 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
             self.assertEqual(
                 self._expr("avg(1,2,3)"),
-                ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                ast.Call(
+                    name="avg",
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ],
+                ),
             )
 
         def test_calls_with_params(self):
             self.assertEqual(
                 self._expr("quantile(0.95)(foo)"),
-                ast.Call(name="quantile", args=[ast.Field(chain=["foo"])], params=[ast.Constant(value=0.95)]),
+                ast.Call(
+                    name="quantile",
+                    args=[ast.Field(chain=["foo"])],
+                    params=[ast.Constant(value=0.95)],
+                ),
             )
 
         def test_alias(self):
@@ -493,6 +569,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     right=ast.Constant(value=123),
                 ),
             )
+            self.assertEqual(
+                self._expr("timestamp={timestamp}", {"timestamp": ast.Constant(value=123)}),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=123),
+                ),
+            )
 
         def test_intervals(self):
             self.assertEqual(
@@ -513,15 +597,25 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
         def test_select_columns(self):
-            self.assertEqual(self._select("select 1"), ast.SelectQuery(select=[ast.Constant(value=1)]))
+            self.assertEqual(
+                self._select("select 1"),
+                ast.SelectQuery(select=[ast.Constant(value=1)]),
+            )
             self.assertEqual(
                 self._select("select 1, 4, 'string'"),
-                ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=4), ast.Constant(value="string")]),
+                ast.SelectQuery(
+                    select=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=4),
+                        ast.Constant(value="string"),
+                    ]
+                ),
             )
 
         def test_select_columns_distinct(self):
             self.assertEqual(
-                self._select("select distinct 1"), ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True)
+                self._select("select distinct 1"),
+                ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True),
             )
 
         def test_select_where(self):
@@ -534,7 +628,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
                     ),
                 ),
             )
@@ -549,7 +645,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     prewhere=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
                     ),
                 ),
             )
@@ -564,7 +662,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     having=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
                     ),
                 ),
             )
@@ -575,10 +675,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     where=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=2),
                     ),
                     prewhere=ast.CompareOperation(
-                        op=ast.CompareOperationOp.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                        op=ast.CompareOperationOp.NotEq,
+                        left=ast.Constant(value=2),
+                        right=ast.Constant(value=3),
                     ),
                     having=ast.CompareOperation(
                         op=ast.CompareOperationOp.Like,
@@ -592,7 +696,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._select("select 1 from events"),
                 ast.SelectQuery(
-                    select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 ),
             )
             self.assertEqual(
@@ -636,7 +741,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(
                         table=ast.SelectQuery(
-                            select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                            select=[ast.Constant(value=1)],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         )
                     ),
                 ),
@@ -647,7 +753,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(
                         table=ast.SelectQuery(
-                            select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                            select=[ast.Constant(value=1)],
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
                         alias="sq",
                     ),
@@ -663,7 +770,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 from {placeholder}", {"placeholder": ast.Field(chain=["events"])}),
+                self._select(
+                    "select 1 from {placeholder}",
+                    {"placeholder": ast.Field(chain=["events"])},
+                ),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -830,7 +940,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     array_join_op="ARRAY JOIN",
                     array_join_list=[
                         ast.Alias(
-                            expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                            expr=ast.Array(
+                                exprs=[
+                                    ast.Constant(value=1),
+                                    ast.Constant(value=2),
+                                    ast.Constant(value=3),
+                                ]
+                            ),
                             alias="a",
                         )
                     ],
@@ -844,7 +960,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     array_join_op="INNER ARRAY JOIN",
                     array_join_list=[
                         ast.Alias(
-                            expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                            expr=ast.Array(
+                                exprs=[
+                                    ast.Constant(value=1),
+                                    ast.Constant(value=2),
+                                    ast.Constant(value=3),
+                                ]
+                            ),
                             alias="a",
                         )
                     ],
@@ -858,11 +980,23 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     array_join_op="LEFT ARRAY JOIN",
                     array_join_list=[
                         ast.Alias(
-                            expr=ast.Array(exprs=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                            expr=ast.Array(
+                                exprs=[
+                                    ast.Constant(value=1),
+                                    ast.Constant(value=2),
+                                    ast.Constant(value=3),
+                                ]
+                            ),
                             alias="a",
                         ),
                         ast.Alias(
-                            expr=ast.Array(exprs=[ast.Constant(value=4), ast.Constant(value=5), ast.Constant(value=6)]),
+                            expr=ast.Array(
+                                exprs=[
+                                    ast.Constant(value=4),
+                                    ast.Constant(value=5),
+                                    ast.Constant(value=6),
+                                ]
+                            ),
                             alias="b",
                         ),
                     ],
@@ -878,7 +1012,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
             with self.assertRaises(HogQLException) as e:
                 self._select("select a ARRAY JOIN [1,2,3]")
-            self.assertEqual(str(e.exception), "Using ARRAY JOIN without a FROM clause is not permitted")
+            self.assertEqual(
+                str(e.exception),
+                "Using ARRAY JOIN without a FROM clause is not permitted",
+            )
             self.assertEqual(e.exception.start, 0)
             self.assertEqual(e.exception.end, 27)
 
@@ -895,15 +1032,30 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_order_by(self):
             self.assertEqual(
                 parse_order_expr("1 ASC"),
-                ast.OrderExpr(expr=ast.Constant(value=1, start=0, end=1), order="ASC", start=0, end=5),
+                ast.OrderExpr(
+                    expr=ast.Constant(value=1, start=0, end=1),
+                    order="ASC",
+                    start=0,
+                    end=5,
+                ),
             )
             self.assertEqual(
                 parse_order_expr("event"),
-                ast.OrderExpr(expr=ast.Field(chain=["event"], start=0, end=5), order="ASC", start=0, end=5),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["event"], start=0, end=5),
+                    order="ASC",
+                    start=0,
+                    end=5,
+                ),
             )
             self.assertEqual(
                 parse_order_expr("timestamp DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["timestamp"], start=0, end=9), order="DESC", start=0, end=14),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
+                    order="DESC",
+                    start=0,
+                    end=14,
+                ),
             )
 
         def test_select_order_by(self):
@@ -993,7 +1145,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 where 1 == {hogql_val_1}", {"hogql_val_1": ast.Constant(value="bar")}),
+                self._select(
+                    "select 1 where 1 == {hogql_val_1}",
+                    {"hogql_val_1": ast.Constant(value="bar")},
+                ),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     where=ast.CompareOperation(
@@ -1082,7 +1237,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._select("with event as boo select boo from events"),
                 ast.SelectQuery(
-                    ctes={"boo": ast.CTE(name="boo", expr=ast.Field(chain=["event"]), cte_type="column")},
+                    ctes={
+                        "boo": ast.CTE(
+                            name="boo",
+                            expr=ast.Field(chain=["event"]),
+                            cte_type="column",
+                        )
+                    },
                     select=[ast.Field(chain=["boo"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 ),
@@ -1090,7 +1251,13 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(
                 self._select("with count() as kokku select kokku from events"),
                 ast.SelectQuery(
-                    ctes={"kokku": ast.CTE(name="kokku", expr=ast.Call(name="count", args=[]), cte_type="column")},
+                    ctes={
+                        "kokku": ast.CTE(
+                            name="kokku",
+                            expr=ast.Call(name="count", args=[]),
+                            cte_type="column",
+                        )
+                    },
                     select=[ast.Field(chain=["kokku"])],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 ),
@@ -1169,7 +1336,14 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_case_when(self):
             self.assertEqual(
                 self._expr("case when 1 then 2 else 3 end"),
-                ast.Call(name="if", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+                ast.Call(
+                    name="if",
+                    args=[
+                        ast.Constant(value=1),
+                        ast.Constant(value=2),
+                        ast.Constant(value=3),
+                    ],
+                ),
             )
 
         def test_case_when_many(self):
@@ -1214,7 +1388,12 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                             args=[ast.Field(chain=["timestamp"])],
                             over_expr=ast.WindowExpr(
                                 partition_by=[ast.Field(chain=["person", "id"])],
-                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                                order_by=[
+                                    ast.OrderExpr(
+                                        expr=ast.Field(chain=["timestamp"]),
+                                        order="DESC",
+                                    )
+                                ],
                                 frame_method="ROWS",
                                 frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
                                 frame_end=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=1),
@@ -1257,7 +1436,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_arrays_zero_index_error(self):
             query = f"SELECT properties.something[0] FROM events"
             with self.assertRaisesMessage(
-                SyntaxException, "SQL indexes start from one, not from zero. E.g: array[1]"
+                SyntaxException,
+                "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 7)
@@ -1266,7 +1446,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_property_access_with_tuples_zero_index_error(self):
             query = f"SELECT properties.something.0 FROM events"
             with self.assertRaisesMessage(
-                SyntaxException, "SQL indexes start from one, not from zero. E.g: array[1]"
+                SyntaxException,
+                "SQL indexes start from one, not from zero. E.g: array[1]",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 7)
@@ -1275,7 +1456,8 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_reserved_keyword_alias_error(self):
             query = f"SELECT 0 AS trUE FROM events"
             with self.assertRaisesMessage(
-                SyntaxException, '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword'
+                SyntaxException,
+                '"trUE" cannot be an alias or identifier, as it\'s a reserved keyword',
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 7)
@@ -1284,10 +1466,132 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_malformed_sql(self):
             query = "SELEC 2"
             with self.assertRaisesMessage(
-                SyntaxException, "mismatched input 'SELEC' expecting {SELECT, WITH, '('}"
+                SyntaxException,
+                "mismatched input 'SELEC' expecting {SELECT, WITH, '(', '<'}",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 0)
             self.assertEqual(e.exception.end, 7)
+
+        def test_visit_hogqlx_tag(self):
+            node = self._select("select event from <HogQLQuery query='select event from events' />")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="HogQLQuery",
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+            )
+
+            node2 = self._select("select event from (<HogQLQuery query='select event from events' />)")
+            assert node2 == node
+
+        def test_visit_hogqlx_tag_nested(self):
+            # Basic case
+            node = self._select(
+                "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
+            )
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="OuterQuery",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
+                            ],
+                        ),
+                    )
+                ],
+            )
+
+            # Empty tag
+            node = self._select("select event from <OuterQuery></OuterQuery>")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
+
+            # With attribute
+            node = self._select(
+                "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+            )
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="OuterQuery",
+                attributes=[
+                    ast.HogQLXAttribute(name="q", value=ast.Constant(value="b")),
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
+                            ],
+                        ),
+                    ),
+                ],
+            )
+
+            # With mismatched closing tag
+            with self.assertRaises(HogQLException) as e:
+                self._select(
+                    "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
+                )
+            assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
+
+            # With mismatched closing tag
+            with self.assertRaises(HogQLException) as e:
+                self._select(
+                    "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+                )
+            assert str(e.exception) == "Nested HogQLX tags cannot have a source attribute"
+
+        def test_visit_hogqlx_tag_alias(self):
+            node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            alias = cast(ast.SelectQuery, node).select_from.alias
+            assert table_node == ast.HogQLXTag(
+                kind="HogQLQuery",
+                attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
+            )
+            assert alias == "a"
+
+            node2 = self._select("select event from <HogQLQuery query='select event from events' /> a")
+            assert node2 == node
+
+        def test_visit_hogqlx_tag_source(self):
+            query = """
+                select id, email from (
+                    <PersonsQuery
+                        select={['id', 'properties.email as email']}
+                        source={
+                            <HogQLQuery query='select distinct person_id from events' />
+                        }
+                    />
+                )
+            """
+            node = self._select(query)
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="PersonsQuery",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="select",
+                        value=ast.Array(
+                            exprs=[ast.Constant(value="id"), ast.Constant(value="properties.email as email")]
+                        ),
+                    ),
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(
+                                    name="query", value=ast.Constant(value="select distinct person_id from events")
+                                )
+                            ],
+                        ),
+                    ),
+                ],
+            )
 
     return TestParser

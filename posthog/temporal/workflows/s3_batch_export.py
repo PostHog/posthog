@@ -178,7 +178,10 @@ class S3MultiPartUpload:
 
         async with self.s3_client() as s3_client:
             response = await s3_client.complete_multipart_upload(
-                Bucket=self.bucket_name, Key=self.key, UploadId=self.upload_id, MultipartUpload={"Parts": self.parts}
+                Bucket=self.bucket_name,
+                Key=self.key,
+                UploadId=self.upload_id,
+                MultipartUpload={"Parts": self.parts},
             )
 
         self.upload_id = None
@@ -538,7 +541,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             raise
 
         else:
-            logger.info("Successfully finished S3 export batch %s - %s", data_interval_start, data_interval_end)
+            logger.info(
+                "Successfully finished S3 export batch %s - %s",
+                data_interval_start,
+                data_interval_end,
+            )
 
         finally:
             await workflow.execute_activity(

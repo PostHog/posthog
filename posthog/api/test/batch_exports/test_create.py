@@ -56,7 +56,8 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
 
     with start_test_worker(temporal):
         with mock.patch(
-            "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
+            "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+            return_value=True,
         ) as feature_enabled:
             response = create_batch_export(
                 client,
@@ -70,7 +71,10 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
                 str(team.uuid),
                 groups={"organization": str(team.organization.id)},
                 group_properties={
-                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
                 },
                 send_feature_flag_events=False,
             )
@@ -179,7 +183,8 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(cli
     with start_test_worker(temporal):
         client.force_login(user)
         with mock.patch(
-            "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=False
+            "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+            return_value=False,
         ) as feature_enabled:
             response = create_batch_export(
                 client,
@@ -192,7 +197,10 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(cli
                 str(team.uuid),
                 groups={"organization": str(team.organization.id)},
                 group_properties={
-                    "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
                 },
                 send_feature_flag_events=False,
             )

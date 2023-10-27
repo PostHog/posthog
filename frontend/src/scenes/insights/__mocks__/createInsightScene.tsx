@@ -1,5 +1,5 @@
 import { InsightModel } from '~/types'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
@@ -27,7 +27,7 @@ export function createInsightStory(
                 ],
             },
         })
-        useFeatureFlags([FEATURE_FLAGS.RETENTION_BREAKDOWN])
+        setFeatureFlags([FEATURE_FLAGS.RETENTION_BREAKDOWN])
 
         useEffect(() => {
             router.actions.push(`/insights/${insight.short_id}${count}${mode === 'edit' ? '/edit' : ''}`)

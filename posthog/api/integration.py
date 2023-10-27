@@ -12,7 +12,10 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
@@ -60,7 +63,11 @@ class IntegrationViewSet(
         SessionAuthentication,
         BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     @action(methods=["GET"], detail=True, url_path="channels")
     def content(self, request: Request, *args: Any, **kwargs: Any) -> Response:
