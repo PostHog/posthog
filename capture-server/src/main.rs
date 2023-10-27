@@ -16,6 +16,8 @@ struct Config {
 
     kafka_hosts: String,
     kafka_topic: String,
+    #[envconfig(default = "false")]
+    kafka_tls: bool,
 }
 
 async fn shutdown() {
@@ -55,7 +57,8 @@ async fn main() {
             true,
         )
     } else {
-        let sink = sink::KafkaSink::new(config.kafka_topic, config.kafka_hosts).unwrap();
+        let sink =
+            sink::KafkaSink::new(config.kafka_topic, config.kafka_hosts, config.kafka_tls).unwrap();
 
         router::router(
             capture::time::SystemTime {},

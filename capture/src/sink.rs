@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 
 use crate::api::CaptureError;
-use rdkafka::config::ClientConfig;
+use rdkafka::config::{ClientConfig, FromClientConfigAndContext};
 use rdkafka::error::RDKafkaErrorCode;
 use rdkafka::producer::future_producer::{FutureProducer, FutureRecord};
 use rdkafka::producer::Producer;
@@ -105,12 +105,20 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(topic: String, brokers: String) -> anyhow::Result<KafkaSink> {
+    pub fn new(topic: String, brokers: String, tls: bool) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", brokers);
-        let producer: FutureProducer<KafkaContext> = ClientConfig::new()
+        let mut config = ClientConfig::new();
+        config
             .set("bootstrap.servers", &brokers)
-            .set("statistics.interval.ms", "10000")
-            .create_with_context(KafkaContext)?;
+            .set("statistics.interval.ms", "10000");
+
+        if tls {
+            config
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        };
+
+        let producer = FutureProducer::from_config_and_context(&config, KafkaContext)?;
 
         // Ping the cluster to make sure we can reach brokers
         _ = producer.client().fetch_metadata(
@@ -180,9 +188,8 @@ impl EventSink for KafkaSink {
             set.spawn(Self::kafka_send(producer, topic, event));
         }
 
-        while let Some(res) = set.join_next().await {
-            println!("{:?}", res);
-        }
+        // Await on all the produce promises
+        while (set.join_next().await).is_some() {}
 
         Ok(())
     }
