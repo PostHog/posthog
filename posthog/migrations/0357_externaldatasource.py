@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="ExternalDataResource",
+            name="ExternalDataSource",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

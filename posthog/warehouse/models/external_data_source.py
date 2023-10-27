@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.team import Team
 
 
-class ExternalDataResource(CreatedMetaFields, UUIDModel):
+class ExternalDataSource(CreatedMetaFields, UUIDModel):
     class Type(models.TextChoices):
         STRIPE = "Stripe", "Stripe"
 

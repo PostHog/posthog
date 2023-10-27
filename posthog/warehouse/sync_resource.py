@@ -1,6 +1,6 @@
-from posthog.warehouse.models.external_data_resource import ExternalDataResource
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
-from posthog.warehouse.external_data_resource.connection import retrieve_sync
+from posthog.warehouse.external_data_source.connection import retrieve_sync
 from posthog.celery import app
 
 from django.conf import settings
@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 
 
 def sync_resources():
-    resources = ExternalDataResource.objects.filter(are_tables_created=False, status="running")
+    resources = ExternalDataSource.objects.filter(are_tables_created=False, status="running")
 
     for resource in resources:
         _sync_resource.delay(resource.pk)
@@ -18,12 +18,12 @@ def sync_resources():
 
 @app.task(ignore_result=True)
 def _sync_resource(resource_id):
-    resource = ExternalDataResource.objects.get(pk=resource_id)
+    resource = ExternalDataSource.objects.get(pk=resource_id)
     job = retrieve_sync(resource.connection_id)
 
     if job["status"] == "succeeded":
 
-        resource = ExternalDataResource.objects.get(pk=resource_id)
+        resource = ExternalDataSource.objects.get(pk=resource_id)
         credential, _ = DataWarehouseCredential.objects.get_or_create(
             team_id=resource.team.pk,
             access_key=settings.AIRBYTE_BUCKET_KEY,

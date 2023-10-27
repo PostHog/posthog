@@ -50,8 +50,8 @@ import {
     BatchExportRun,
     UserBasicType,
     NotebookNodeResource,
-    ExternalDataStripeResourceCreatePayload,
-    ExternalDataStripeResource,
+    ExternalDataStripeSourceCreatePayload,
+    ExternalDataStripeSource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -568,9 +568,9 @@ class ApiRequest {
         return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
-    // External Data Resource
-    public externalDataResources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_resources')
+    // External Data Source
+    public externalDataSources(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     // Request finalization
@@ -1578,14 +1578,14 @@ const api = {
         },
     },
 
-    externalDataResources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeResource>> {
-            return await new ApiRequest().externalDataResources().get()
+    externalDataSources: {
+        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get()
         },
         async create(
-            data: Partial<ExternalDataStripeResourceCreatePayload>
-        ): Promise<ExternalDataStripeResourceCreatePayload> {
-            return await new ApiRequest().externalDataResources().create({ data })
+            data: Partial<ExternalDataStripeSourceCreatePayload>
+        ): Promise<ExternalDataStripeSourceCreatePayload> {
+            return await new ApiRequest().externalDataSources().create({ data })
         },
     },
 

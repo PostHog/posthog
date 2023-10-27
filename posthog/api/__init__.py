@@ -3,7 +3,7 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import external_data_resource, saved_query, table, view_link
+from posthog.warehouse.api import external_data_source, saved_query, table, view_link
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -212,9 +212,9 @@ projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_i
 
 # External data resources
 projects_router.register(
-    r"external_data_resources",
-    external_data_resource.ExternalDataReourceViewSet,
-    "project_external_data_resources",
+    r"external_data_sources",
+    external_data_source.ExternalDataSourceViewSet,
+    "project_external_data_sources",
     ["team_id"],
 )
 

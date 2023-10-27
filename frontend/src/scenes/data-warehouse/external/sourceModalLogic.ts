@@ -2,7 +2,7 @@ import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea
 
 import type { sourceModalLogicType } from './sourceModalLogicType'
 import { forms } from 'kea-forms'
-import { ExternalDataStripeResourceCreatePayload } from '~/types'
+import { ExternalDataStripeSourceCreatePayload } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
 import { dataWarehouseTableLogic } from '../dataWarehouseTableLogic'
@@ -78,29 +78,29 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
     }),
     forms(() => ({
-        externalDataResource: {
-            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeResourceCreatePayload,
+        externalDataSource: {
+            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeSourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
                     client_secret: !client_secret && 'Please enter a client secret.',
                 }
             },
-            submit: async (payload: ExternalDataStripeResourceCreatePayload) => {
-                const newResource = await api.externalDataResources.create(payload)
+            submit: async (payload: ExternalDataStripeSourceCreatePayload) => {
+                const newResource = await api.externalDataSources.create(payload)
                 return newResource
             },
         },
     })),
     listeners(({ actions }) => ({
-        submitExternalDataResourceSuccess: () => {
+        submitExternalDataSourceSuccess: () => {
             lemonToast.success('New Data Resource Created')
             actions.toggleSourceModal()
-            actions.resetExternalDataResource()
+            actions.resetExternalDataSource()
             actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
-        submitExternalDataResourceFailure: () => {
+        submitExternalDataSourceFailure: () => {
             lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
         },
     })),
