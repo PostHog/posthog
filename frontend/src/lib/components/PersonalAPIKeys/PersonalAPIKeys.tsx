@@ -8,7 +8,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { ColumnsType } from 'antd/lib/table'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus } from 'lib/lemon-ui/icons'
 
