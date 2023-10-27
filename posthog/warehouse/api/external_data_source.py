@@ -61,7 +61,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         ExternalDataSource.objects.create(
             source_id=new_source.source_id,
             connection_id=new_connection.connection_id,
-            team=self.request.user.current_team,
+            team=self.team,
             status="running",
             source_type="Stripe",
         )
