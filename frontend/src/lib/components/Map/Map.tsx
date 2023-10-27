@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Map as RawMap, Marker, StyleSpecification } from 'maplibre-gl'
+import { Map as RawMap, Marker } from 'maplibre-gl'
 import layers from 'protomaps-themes-base'
 import useResizeObserver from 'use-resize-observer'
 import { useValues } from 'kea'
@@ -22,10 +22,7 @@ export interface MapProps {
     className?: string
 }
 
-export function Map({ center, markers, className }: MapProps): JSX.Element {
-    const mapContainer = useRef<HTMLDivElement>(null)
-    const map = useRef<RawMap | null>(null)
-    const { isDarkModeOn } = useValues(themeLogic)
+export function Map({ className, ...rest }: MapProps): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
 
     if (!isCloudOrDev) {
@@ -36,6 +33,15 @@ export function Map({ center, markers, className }: MapProps): JSX.Element {
             </div>
         )
     }
+
+    return <MapComponent className={className} {...rest} />
+}
+
+export function MapComponent({ center, markers, className }: MapProps): JSX.Element {
+    const mapContainer = useRef<HTMLDivElement>(null)
+    const map = useRef<RawMap | null>(null)
+
+    const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
         map.current = new RawMap({
