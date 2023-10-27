@@ -1,11 +1,15 @@
 use async_trait::async_trait;
-use metrics::{counter, histogram};
+use metrics::{absolute_counter, counter, gauge, histogram};
+use std::time::Duration;
 use tokio::task::JoinSet;
 
 use crate::api::CaptureError;
 use rdkafka::config::ClientConfig;
 use rdkafka::error::RDKafkaErrorCode;
 use rdkafka::producer::future_producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::Producer;
+use rdkafka::util::Timeout;
+use tracing::info;
 
 use crate::event::ProcessedEvent;
 
@@ -39,17 +43,81 @@ impl EventSink for PrintSink {
     }
 }
 
+struct KafkaContext;
+
+impl rdkafka::ClientContext for KafkaContext {
+    fn stats(&self, stats: rdkafka::Statistics) {
+        gauge!("capture_kafka_callback_queue_depth", stats.replyq as f64);
+        gauge!("capture_kafka_producer_queue_depth", stats.msg_cnt as f64);
+        gauge!(
+            "capture_kafka_producer_queue_depth_limit",
+            stats.msg_max as f64
+        );
+        gauge!("capture_kafka_producer_queue_bytes", stats.msg_max as f64);
+        gauge!(
+            "capture_kafka_producer_queue_bytes_limit",
+            stats.msg_size_max as f64
+        );
+
+        for (topic, stats) in stats.topics {
+            gauge!(
+                "capture_kafka_produce_avg_batch_size_bytes",
+                stats.batchsize.avg as f64,
+                "topic" => topic.clone()
+            );
+            gauge!(
+                "capture_kafka_produce_avg_batch_size_events",
+                stats.batchcnt.avg as f64,
+                "topic" => topic
+            );
+        }
+
+        for (_, stats) in stats.brokers {
+            let id_string = format!("{}", stats.nodeid);
+            gauge!(
+                "capture_kafka_broker_requests_pending",
+                stats.outbuf_cnt as f64,
+                "broker" => id_string.clone()
+            );
+            gauge!(
+                "capture_kafka_broker_responses_awaiting",
+                stats.waitresp_cnt as f64,
+                "broker" => id_string.clone()
+            );
+            absolute_counter!(
+                "capture_kafka_broker_tx_errors_total",
+                stats.txerrs,
+                "broker" => id_string.clone()
+            );
+            absolute_counter!(
+                "capture_kafka_broker_rx_errors_total",
+                stats.rxerrs,
+                "broker" => id_string
+            );
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct KafkaSink {
-    producer: FutureProducer,
+    producer: FutureProducer<KafkaContext>,
     topic: String,
 }
 
 impl KafkaSink {
     pub fn new(topic: String, brokers: String) -> anyhow::Result<KafkaSink> {
-        let producer: FutureProducer = ClientConfig::new()
+        info!("connecting to Kafka brokers at {}...", brokers);
+        let producer: FutureProducer<KafkaContext> = ClientConfig::new()
             .set("bootstrap.servers", &brokers)
-            .create()?;
+            .set("statistics.interval.ms", "10000")
+            .create_with_context(KafkaContext)?;
+
+        // Ping the cluster to make sure we can reach brokers
+        _ = producer.client().fetch_metadata(
+            Some("__consumer_offsets"),
+            Timeout::After(Duration::new(10, 0)),
+        )?;
+        info!("connected to Kafka brokers");
 
         Ok(KafkaSink { producer, topic })
     }
@@ -57,7 +125,7 @@ impl KafkaSink {
 
 impl KafkaSink {
     async fn kafka_send(
-        producer: FutureProducer,
+        producer: FutureProducer<KafkaContext>,
         topic: String,
         event: ProcessedEvent,
     ) -> Result<(), CaptureError> {

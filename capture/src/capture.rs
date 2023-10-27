@@ -31,8 +31,6 @@ pub async fn event(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    tracing::debug!(len = body.len(), "new event request");
-
     let events = match headers
         .get("content-type")
         .map_or("", |v| v.to_str().unwrap_or(""))
@@ -46,8 +44,6 @@ pub async fn event(
         }
         _ => RawEvent::from_bytes(&meta, body),
     }?;
-
-    tracing::debug!("got events {:?}", &events);
 
     if events.is_empty() {
         return Err(CaptureError::EmptyBatch);
@@ -98,7 +94,7 @@ pub async fn event(
         }));
     }
 
-    tracing::debug!("got context {:?}", &context);
+    tracing::debug!(context=?context, events=?events, "decoded request");
 
     process_events(state.sink.clone(), &events, &context).await?;
 
@@ -169,7 +165,7 @@ pub async fn process_events<'a>(
         .map(|e| process_single_event(e, context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
-    println!("Processed events: {:?}", events);
+    tracing::debug!(events=?events, "processed {} events", events.len());
 
     if events.len() == 1 {
         sink.send(events[0].clone()).await?;
