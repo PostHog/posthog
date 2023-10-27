@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react'
-import { Map as RawMap, Marker } from 'maplibre-gl'
+import { useValues } from 'kea'
+import maplibregl, { Map as RawMap, Marker } from 'maplibre-gl'
+import { Protocol } from 'pmtiles'
 import layers from 'protomaps-themes-base'
 import useResizeObserver from 'use-resize-observer'
-import { useValues } from 'kea'
 
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+const protocol = new Protocol()
+maplibregl.addProtocol('pmtiles', protocol.tile)
 
 const BASE_URL = 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
 // :TRICKY: The URL absolutely needs to be prefixed with `pmtiles://` to work!
