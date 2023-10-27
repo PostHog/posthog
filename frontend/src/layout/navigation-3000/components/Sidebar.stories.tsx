@@ -31,7 +31,7 @@ const multipliedFeatureFlagsJson = {
     count: featureFlagsJson.results.length * 6,
 }
 
-export function Dashboards(): JSX.Element {
+export function Dashboards(): JSX.Element | null {
     setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
@@ -44,6 +44,10 @@ export function Dashboards(): JSX.Element {
         showSidebar(Scene.Dashboards) // Active this sidebar
     }, [])
 
+    if (!activeNavbarItem) {
+        return null
+    }
+
     return (
         <div className="flex">
             <Sidebar navbarItem={activeNavbarItem as SidebarNavbarItem} />
@@ -51,7 +55,7 @@ export function Dashboards(): JSX.Element {
     )
 }
 
-export function FeatureFlags(): JSX.Element {
+export function FeatureFlags(): JSX.Element | null {
     setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
@@ -63,6 +67,10 @@ export function FeatureFlags(): JSX.Element {
     useEffect(() => {
         showSidebar(Scene.FeatureFlags) // Activate this sidebar
     }, [])
+
+    if (!activeNavbarItem) {
+        return null
+    }
 
     return (
         <div className="flex">
