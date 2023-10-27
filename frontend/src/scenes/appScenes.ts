@@ -28,6 +28,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Persons]: () => import('./persons/PersonsScene'),
+    [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),

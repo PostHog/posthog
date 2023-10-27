@@ -27,6 +27,7 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     Person = 'Person',
     Persons = 'Persons',
+    Pipeline = 'Pipeline',
     Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',

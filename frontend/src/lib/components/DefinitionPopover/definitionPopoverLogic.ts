@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -33,35 +34,20 @@ export interface DefinitionPopoverLogicProps {
     openDetailInNewTab?: boolean
 }
 
-export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
-    props: {} as DefinitionPopoverLogicProps,
-    connect: {
+export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
+    props({} as DefinitionPopoverLogicProps),
+    path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
+    connect({
         values: [userLogic, ['hasAvailableFeature']],
-    },
-    path: ['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic'],
-    actions: {
+    }),
+    actions({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
         recordHoverActivity: true,
-    },
-    reducers: {
-        state: [
-            DefinitionPopoverState.View as DefinitionPopoverState,
-            {
-                setPopoverState: (_, { state }) => state,
-            },
-        ],
-        localDefinition: [
-            {} as Partial<TaxonomicDefinitionTypes>,
-            {
-                setDefinition: (_, { item }) => item,
-                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
-            },
-        ],
-    },
-    loaders: ({ values, props, cache }) => ({
+    }),
+    loaders(({ values, props, cache }) => ({
         definition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
@@ -121,8 +107,23 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 },
             },
         ],
+    })),
+    reducers({
+        state: [
+            DefinitionPopoverState.View as DefinitionPopoverState,
+            {
+                setPopoverState: (_, { state }) => state,
+            },
+        ],
+        localDefinition: [
+            {} as Partial<TaxonomicDefinitionTypes>,
+            {
+                setDefinition: (_, { item }) => item,
+                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+            },
+        ],
     }),
-    selectors: {
+    selectors({
         type: [() => [(_, props) => props.type], (type) => type],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
         hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
@@ -198,8 +199,8 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 return undefined
             },
         ],
-    },
-    listeners: ({ actions, selectors, values, props, cache }) => ({
+    }),
+    listeners(({ actions, selectors, values, props, cache }) => ({
         setDefinition: (_, __, ___, previousState) => {
             // Reset definition popover to view mode if context is switched
             if (
@@ -247,10 +248,10 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionHovered(values.type)
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.recordHoverActivity()
         },
-    }),
-})
+    })),
+])

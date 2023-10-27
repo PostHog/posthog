@@ -17,10 +17,16 @@
 EXCEPTION_CLASS_DEFINITION(HogQLException, std::runtime_error)
 
 // The input does not conform to HogQL syntax.
-EXCEPTION_CLASS_DEFINITION(HogQLSyntaxException, HogQLException)
+EXCEPTION_CLASS_DEFINITION(SyntaxException, HogQLException)
 
 // This feature isn't implemented in HogQL (yet).
-EXCEPTION_CLASS_DEFINITION(HogQLNotImplementedException, HogQLException)
+EXCEPTION_CLASS_DEFINITION(NotImplementedException, HogQLException)
 
 // An internal problem in the parser layer.
-EXCEPTION_CLASS_DEFINITION(HogQLParsingException, HogQLException)
+EXCEPTION_CLASS_DEFINITION(ParsingException, HogQLException)
+
+// Python runtime errored out somewhere - this means we must use the error it's already raised.
+class PyInternalException : public std::exception {
+ public:
+  PyInternalException();
+};

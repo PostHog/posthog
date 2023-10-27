@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 
 import type { sdksLogicType } from './sdksLogicType'
 import { SDK, SDKInstructionsMap } from '~/types'
@@ -27,12 +27,12 @@ const getSourceOptions = (availableSDKInstructionsMap: SDKInstructionsMap): Lemo
     return selectOptions
 }
 
-export const sdksLogic = kea<sdksLogicType>({
-    path: ['scenes', 'onboarding', 'sdks', 'sdksLogic'],
-    connect: {
+export const sdksLogic = kea<sdksLogicType>([
+    path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
+    connect({
         values: [onboardingLogic, ['productKey']],
-    },
-    actions: {
+    }),
+    actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
@@ -40,9 +40,8 @@ export const sdksLogic = kea<sdksLogicType>({
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
-    },
-
-    reducers: {
+    }),
+    reducers({
         sourceFilter: [
             null as string | null,
             {
@@ -73,8 +72,8 @@ export const sdksLogic = kea<sdksLogicType>({
                 setAvailableSDKInstructionsMap: (_, { sdkInstructionMap }) => sdkInstructionMap,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         showSourceOptionsSelect: [
             (selectors) => [selectors.sourceOptions, selectors.availableSDKInstructionsMap],
             (sourceOptions: LemonSelectOptions<string>, availableSDKInstructionsMap: SDKInstructionsMap): boolean => {
@@ -83,8 +82,8 @@ export const sdksLogic = kea<sdksLogicType>({
                 return Object.keys(availableSDKInstructionsMap).length > 5 && sourceOptions.length > 2
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         filterSDKs: () => {
             const filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
@@ -119,10 +118,10 @@ export const sdksLogic = kea<sdksLogicType>({
             actions.setSourceFilter(null)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.filterSDKs()
         },
-    }),
-})
+    })),
+])

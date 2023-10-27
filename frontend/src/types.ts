@@ -2473,9 +2473,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2483,7 +2485,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
