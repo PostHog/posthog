@@ -1457,7 +1457,20 @@ public:
   class  HogqlxTagElementContext : public antlr4::ParserRuleContext {
   public:
     HogqlxTagElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+   
+    HogqlxTagElementContext() = default;
+    void copyFrom(HogqlxTagElementContext *context);
+    using antlr4::ParserRuleContext::copyFrom;
+
     virtual size_t getRuleIndex() const override;
+
+   
+  };
+
+  class  HogqlxTagElementClosedContext : public HogqlxTagElementContext {
+  public:
+    HogqlxTagElementClosedContext(HogqlxTagElementContext *ctx);
+
     antlr4::tree::TerminalNode *LT();
     IdentifierContext *identifier();
     antlr4::tree::TerminalNode *SLASH();
@@ -1465,9 +1478,25 @@ public:
     std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
     HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
 
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  HogqlxTagElementNestedContext : public HogqlxTagElementContext {
+  public:
+    HogqlxTagElementNestedContext(HogqlxTagElementContext *ctx);
+
+    std::vector<antlr4::tree::TerminalNode *> LT();
+    antlr4::tree::TerminalNode* LT(size_t i);
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> GT();
+    antlr4::tree::TerminalNode* GT(size_t i);
+    antlr4::tree::TerminalNode *SLASH();
+    std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
+    HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
+    HogqlxTagElementContext *hogqlxTagElement();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
-   
   };
 
   HogqlxTagElementContext* hogqlxTagElement();

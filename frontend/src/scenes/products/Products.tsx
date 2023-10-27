@@ -104,7 +104,6 @@ export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
@@ -131,23 +130,6 @@ export function Products(): JSX.Element {
                             .map((product) => (
                                 <ProductCard product={product} key={product.type} />
                             ))}
-                    </div>
-                    <div className="mt-20">
-                        <LemonButton
-                            status="muted"
-                            onClick={() => {
-                                updateCurrentTeam({
-                                    has_completed_onboarding_for: {
-                                        ...currentTeam?.has_completed_onboarding_for,
-                                        skipped_onboarding: true,
-                                    },
-                                })
-                                router.actions.replace(urls.default())
-                            }}
-                            size="small"
-                        >
-                            None of these
-                        </LemonButton>
                     </div>
                 </>
             ) : (

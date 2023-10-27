@@ -890,10 +890,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))],
         )
 
-    def visitHogqlxTagElement(self, ctx: HogQLParser.HogqlxTagElementContext):
+    def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
         return ast.HogQLXTag(kind=kind, attributes=attributes)
+
+    def visitHogqlxTagElementNested(self, ctx: HogQLParser.HogqlxTagElementNestedContext):
+        opening = self.visit(ctx.identifier(0))
+        closing = self.visit(ctx.identifier(1))
+        if opening != closing:
+            raise SyntaxException(f"Opening and closing HogQLX tags must match. Got {opening} and {closing}")
+
+        attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
+        if ctx.hogqlxTagElement():
+            source = self.visit(ctx.hogqlxTagElement())
+            for a in attributes:
+                if a.name == "source":
+                    raise SyntaxException(f"Nested HogQLX tags cannot have a source attribute")
+            attributes.append(ast.HogQLXAttribute(name="source", value=source))
+        return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):
         name = self.visit(ctx.identifier())
