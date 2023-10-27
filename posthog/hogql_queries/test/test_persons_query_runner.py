@@ -153,6 +153,13 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
 
+    def test_persons_query_order_by_with_aliases(self):
+        # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(PersonsQuery(select=["properties.email as email"]))
+        results = runner.calculate().results
+        self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(

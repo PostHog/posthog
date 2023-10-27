@@ -91,7 +91,7 @@ def get_query_runner(
     if isinstance(query, dict):
         kind = query.get("kind", None)
     elif hasattr(query, "kind"):
-        kind = cast(RunnableQueryNode, query).kind
+        kind = query.kind  # type: ignore
     else:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
