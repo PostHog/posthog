@@ -24,9 +24,9 @@ import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { PlanComparisonModal } from './PlanComparison'
-import posthog, { Survey } from 'posthog-js'
-import { useCallback, useState } from 'react'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -145,7 +145,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -153,27 +152,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isPricingModalOpen,
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
+        surveyID,
     } = useValues(billingProductLogic({ product }))
     const {
         setIsEditingBillingLimit,
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
+        reportSurveyShown,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-
-    const [survey, setSurvey] = useState<Survey | null>()
-    const submitSurvey = useCallback(
-        (textAreaValue: string) => {
-            posthog.capture('survey sent', {
-                $survey_id: survey.id,
-                $survey_name: survey.name,
-                $survey_response: textAreaValue,
-            })
-            deactivateProduct(product.type)
-        },
-        [survey]
-    )
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
@@ -348,18 +336,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         status="stealth"
                                                         fullWidth
                                                         onClick={() => {
-                                                            posthog.getActiveMatchingSurveys((surveys: Survey[]) => {
-                                                                const matchingSurvey = surveys.filter(
-                                                                    (survey) => survey.name === 'Open feedback'
-                                                                )[0]
-                                                                if (matchingSurvey) {
-                                                                    setSurvey(matchingSurvey)
-                                                                    posthog.capture('survey shown', {
-                                                                        $survey_id: matchingSurvey.id,
-                                                                        $survey_name: matchingSurvey.name,
-                                                                    })
-                                                                }
-                                                            }, true)
+                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                                         }}
                                                     >
                                                         Unsubscribe
@@ -401,7 +378,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     />
                                 )
                             )}
-                            {survey && <UnsubscribeSurveyModal setSurvey={setSurvey} submitSurvey={submitSurvey} />}
+                            {surveyID && <UnsubscribeSurveyModal product={product} />}
                         </div>
                     </div>
                 </div>
@@ -648,7 +625,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
                                             {product.unit}s free
                                         </b>
-                                        , then ${upgradePlan?.tiers?.[1].unit_amount_usd}/{product.unit} with volume
+                                        , then ${upgradePlan?.tiers?.[1]?.unit_amount_usd}/{product.unit} with volume
                                         discounts.
                                     </p>
                                 )}
