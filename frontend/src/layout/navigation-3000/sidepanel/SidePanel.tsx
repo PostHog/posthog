@@ -1,11 +1,33 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
-import { SidePanelTab, SidePanelTabs, sidePanelLogic } from './sidePanelLogic'
+import { SidePanelTab, sidePanelLogic } from './sidePanelLogic'
 import clsx from 'clsx'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useRef } from 'react'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
+import { SidePanelDocs } from './panels/SidePanelDocs'
+import { SidePanelNotebook } from './panels/SidePanelNotebook'
+import { SidePanelSupport } from './panels/SidePanelSupport'
+
+export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
+    [SidePanelTab.Notebooks]: {
+        label: 'Notebook',
+        Icon: IconNotebook,
+        Content: SidePanelNotebook,
+    },
+    [SidePanelTab.Feedback]: {
+        label: 'Feedback',
+        Icon: IconQuestion,
+        Content: SidePanelSupport,
+    },
+    [SidePanelTab.Docs]: {
+        label: 'Docs',
+        Icon: IconInfo,
+        Content: SidePanelDocs,
+    },
+}
 
 export function SidePanel(): JSX.Element {
     const { selectedTab, sidePanelOpen } = useValues(sidePanelLogic)

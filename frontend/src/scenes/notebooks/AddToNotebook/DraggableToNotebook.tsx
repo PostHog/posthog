@@ -25,6 +25,7 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'draggable' | 'onDragStart' | 'onDragEnd'>
 } {
     const { startDropMode, endDropMode } = useActions(notebookPopoverLogic)
+
     const [isDragging, setIsDragging] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
