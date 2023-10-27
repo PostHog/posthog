@@ -94,7 +94,7 @@ function RowActionsCreator(
                     deleteKey(personalAPIKey)
                 }}
             >
-                <Link className="text-danger">Danger</Link>
+                <span className="text-danger">Danger</span>
             </Popconfirm>
         )
     }
