@@ -37,7 +37,7 @@
     err_indicator = PyObject_SetAttrString(py_err, "end", py_end);                                      \
     if (err_indicator == -1) goto exit##TYPE;                                                           \
     PyErr_SetObject(error_type, py_err);                                                                \
-    exit##TYPE:;                                                                                        \
+    exit##TYPE :;                                                                                       \
     Py_XDECREF(py_end);                                                                                 \
     Py_XDECREF(py_start);                                                                               \
     Py_XDECREF(py_err);                                                                                 \
@@ -2096,7 +2096,8 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = method_unquote_string,
      .ml_flags = METH_VARARGS,
      .ml_doc = "Unquote the string (an identifier or a string literal))"},
-    {NULL, NULL, 0, NULL}};
+    {NULL, NULL, 0, NULL}
+};
 
 static int parser_modexec(PyObject* module) {
   parser_state* state = get_module_state(module);
@@ -2118,7 +2119,8 @@ static int parser_modexec(PyObject* module) {
 static PyModuleDef_Slot parser_slots[] = {
     {Py_mod_exec, (void*)parser_modexec},  // If Python were written in C++, then Py_mod_exec would be typed better, but
                                            // because it's in C, it expects a void pointer
-    {0, NULL}};
+    {0, NULL}
+};
 
 static int parser_traverse(PyObject* module, visitproc visit, void* arg) {
   parser_state* state = get_module_state(module);
