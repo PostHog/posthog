@@ -27,10 +27,19 @@ from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortP
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
+from posthog.hogql.database.schema.person_distinct_ids import (
+    PersonDistinctIdsTable,
+    RawPersonDistinctIdsTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
-from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
+from posthog.hogql.database.schema.person_overrides import (
+    PersonOverridesTable,
+    RawPersonOverridesTable,
+)
+from posthog.hogql.database.schema.session_replay_events import (
+    RawSessionReplayEventsTable,
+    SessionReplayEventsTable,
+)
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -52,10 +61,10 @@ class Database(BaseModel):
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
     log_entries: LogEntriesTable = LogEntriesTable()
-    console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
+    console_logs_log_entries: (ReplayConsoleLogsLogEntriesTable) = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
 
-    raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
+    raw_session_replay_events: (RawSessionReplayEventsTable) = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
@@ -111,7 +120,11 @@ class Database(BaseModel):
 def create_hogql_database(team_id: int, modifiers: Optional[HogQLQueryModifiers] = None) -> Database:
     from posthog.models import Team
     from posthog.hogql.query import create_default_modifiers_for_team
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery, DataWarehouseViewLink
+    from posthog.warehouse.models import (
+        DataWarehouseTable,
+        DataWarehouseSavedQuery,
+        DataWarehouseViewLink,
+    )
 
     team = Team.objects.get(pk=team_id)
     modifiers = create_default_modifiers_for_team(team, modifiers)

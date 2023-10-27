@@ -12,19 +12,20 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
-    IconHome,
+    IconApps,
     IconDashboard,
     IconDatabase,
-    IconApps,
-    IconPerson,
-    IconQuestion,
+    IconGraph,
+    IconHome,
+    IconLive,
     IconPeople,
+    IconPerson,
+    IconPieChart,
+    IconQuestion,
+    IconRewindPlay,
     IconTestTube,
     IconToggle,
-    IconRewindPlay,
-    IconGraph,
     IconToolbar,
-    IconLive,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 import { annotationsSidebarLogic } from './sidebars/annotations'
@@ -36,6 +37,7 @@ import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { toolbarSidebarLogic } from './sidebars/toolbar'
+import { isNotNil } from 'lib/utils'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
@@ -330,6 +332,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
                         },
+                        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
+                            ? {
+                                  identifier: Scene.WebAnalytics,
+                                  label: 'Web Analytics',
+                                  icon: <IconPieChart />,
+                                  to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session Replay',
@@ -357,7 +367,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
-                    ],
+                    ].filter(isNotNil),
                     [
                         {
                             identifier: Scene.Apps,

@@ -232,8 +232,8 @@
               "type": "lazy_table",
               "table": "events",
               "fields": [
-                  "$session_id",
-                  "session_duration"
+                  "id",
+                  "duration"
               ]
           }
       ],
@@ -1022,8 +1022,8 @@
               "type": "lazy_table",
               "table": "events",
               "fields": [
-                  "$session_id",
-                  "session_duration"
+                  "id",
+                  "duration"
               ]
           }
       ],

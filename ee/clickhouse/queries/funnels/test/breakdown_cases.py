@@ -7,7 +7,10 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
+from posthog.queries.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_results_equal,
+)
 from posthog.test.base import (
     APIBaseTest,
     also_test_with_materialized_columns,
@@ -30,12 +33,23 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
             )
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
             )
-            create_group(team_id=self.team.pk, group_type_index=1, group_key="org:5", properties={"industry": "random"})
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="org:5",
+                properties={"industry": "random"},
+            )
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: List[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> Dict[str, Any]:
@@ -52,7 +66,10 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                     "breakdown": step.breakdown,
                     "breakdown_value": step.breakdown,
                     **(
-                        {"action_id": None, "name": f"Completed {order+1} step{'s' if order > 0 else ''}"}
+                        {
+                            "action_id": None,
+                            "name": f"Completed {order+1} step{'s' if order > 0 else ''}",
+                        }
                         if Funnel == ClickhouseFunnelUnordered
                         else {}
                     ),
@@ -111,7 +128,11 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -146,8 +167,14 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             # Querying persons when aggregating by persons should be ok, despite group breakdown
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "finance"), [people["person1"].uuid])
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "finance"), [people["person1"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 1, "finance"),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2, "finance"),
+                [people["person1"].uuid],
+            )
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -165,9 +192,13 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "technology"), [people["person2"].uuid, people["person3"].uuid]
+                self._get_actor_ids_at_step(filter, 1, "technology"),
+                [people["person2"].uuid, people["person3"].uuid],
             )
-            self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "technology"), [people["person2"].uuid])
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2, "technology"),
+                [people["person2"].uuid],
+            )
 
         # TODO: Delete this test when moved to person-on-events
         @also_test_with_person_on_events_v2
@@ -217,7 +248,11 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",
@@ -273,7 +308,8 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
         @also_test_with_materialized_columns(
-            group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
+            group_properties=[(0, "industry")],
+            materialize_only_with_person_on_events=True,
         )
         @also_test_with_person_on_events_v2
         @snapshot_clickhouse_queries
@@ -323,7 +359,11 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             filters = {
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "insight": INSIGHT_FUNNELS,
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-08",

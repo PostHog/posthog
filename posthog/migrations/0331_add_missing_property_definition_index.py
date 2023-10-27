@@ -18,6 +18,9 @@ class Migration(migrations.Migration):
     operations = [
         AddIndexConcurrently(
             model_name="propertydefinition",
-            index=models.Index(fields=["team_id", "type", "is_numerical"], name="posthog_pro_team_id_eac36d_idx"),
+            index=models.Index(
+                fields=["team_id", "type", "is_numerical"],
+                name="posthog_pro_team_id_eac36d_idx",
+            ),
         ),
     ]

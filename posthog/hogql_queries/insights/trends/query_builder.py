@@ -3,9 +3,10 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.insights.trends.aggregation_operations import (
+    AggregationOperations,
+)
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -138,8 +139,6 @@ class TrendsQueryBuilder:
 
             orchestrator.events_query_builder.append_select(self._breakdown.column_expr())
             orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
-            if self._breakdown.is_session_type:
-                orchestrator.events_query_builder.replace_select_from(self._breakdown_session.session_inner_join())
 
             orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
             orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
@@ -152,12 +151,11 @@ class TrendsQueryBuilder:
             default_query.select.append(self._breakdown.column_expr())
             default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
-            if self._breakdown.is_session_type:
-                default_query.select_from = self._breakdown_session.session_inner_join()
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_query_orchestrator(
-                events_where_clause=self._events_filter(), sample_value=self._sample_value()
+                events_where_clause=self._events_filter(),
+                sample_value=self._sample_value(),
             ).build()
 
         return default_query
@@ -222,7 +220,8 @@ class TrendsQueryBuilder:
         if series_event_name(self.series) is not None:
             filters.append(
                 parse_expr(
-                    "event = {event}", placeholders={"event": ast.Constant(value=series_event_name(self.series))}
+                    "event = {event}",
+                    placeholders={"event": ast.Constant(value=series_event_name(self.series))},
                 )
             )
 
@@ -246,14 +245,6 @@ class TrendsQueryBuilder:
         # Breakdown
         if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
             filters.append(self._breakdown.events_where_filter())
-        if self._breakdown.is_session_type:
-            filters.append(
-                ast.CompareOperation(
-                    left=self._breakdown_session.session_duration_field(),
-                    op=ast.CompareOperationOp.NotEq,
-                    right=ast.Constant(value=None),
-                )
-            )
 
         if len(filters) == 0:
             return ast.Constant(value=True)
@@ -277,10 +268,6 @@ class TrendsQueryBuilder:
             query_date_range=self.query_date_range,
             timings=self.timings,
         )
-
-    @cached_property
-    def _breakdown_session(self):
-        return BreakdownSession(self.query_date_range)
 
     @cached_property
     def _aggregation_operation(self):

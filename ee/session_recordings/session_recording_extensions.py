@@ -45,7 +45,9 @@ def save_recording_with_new_content(recording: SessionRecording, content: str) -
 
     zipped_content = gzip.compress(content.encode("utf-8"))
     object_storage.write(
-        new_path, zipped_content, extras={"ContentType": "application/json", "ContentEncoding": "gzip"}
+        new_path,
+        zipped_content,
+        extras={"ContentType": "application/json", "ContentEncoding": "gzip"},
     )
 
     recording.storage_version = "2023-08-01"
@@ -74,11 +76,17 @@ def persist_recording(recording_id: str, team_id: int) -> None:
 
     if recording.deleted:
         logger.info(
-            "Persisting recording: skipping as recording is deleted", recording_id=recording_id, team_id=team_id
+            "Persisting recording: skipping as recording is deleted",
+            recording_id=recording_id,
+            team_id=team_id,
         )
         return
 
-    logger.info("Persisting recording: loading metadata...", recording_id=recording_id, team_id=team_id)
+    logger.info(
+        "Persisting recording: loading metadata...",
+        recording_id=recording_id,
+        team_id=team_id,
+    )
 
     recording.load_metadata()
 
@@ -103,7 +111,12 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.storage_version = "2023-08-01"
         recording.object_storage_path = target_prefix
         recording.save()
-        logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id, source="s3")
+        logger.info(
+            "Persisting recording: done!",
+            recording_id=recording_id,
+            team_id=team_id,
+            source="s3",
+        )
         return
     else:
         logger.error(

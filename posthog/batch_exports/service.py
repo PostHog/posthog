@@ -186,7 +186,10 @@ async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = 
 
 
 def unpause_batch_export(
-    temporal: Client, batch_export_id: str, note: str | None = None, backfill: bool = False
+    temporal: Client,
+    batch_export_id: str,
+    note: str | None = None,
+    backfill: bool = False,
 ) -> None:
     """Pause this BatchExport.
 

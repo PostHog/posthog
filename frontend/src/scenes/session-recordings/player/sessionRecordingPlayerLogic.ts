@@ -963,7 +963,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
     windowValues({
-        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
 
     beforeUnmount(({ values, actions, cache, props }) => {

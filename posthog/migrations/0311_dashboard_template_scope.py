@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0310_add_starter_dashboard_template"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="scope",
             field=models.CharField(
-                choices=[("team", "Only team"), ("global", "Global")], max_length=24, null=True, blank=True
+                choices=[("team", "Only team"), ("global", "Global")],
+                max_length=24,
+                null=True,
+                blank=True,
             ),
         ),
         migrations.RunSQL(

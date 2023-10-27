@@ -29,17 +29,26 @@ from posthog.permissions import (
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
-from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.models.session_recording_event import (
+    SessionRecordingViewed,
+)
 
 from posthog.session_recordings.queries.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
-from posthog.session_recordings.queries.session_recording_properties import SessionRecordingProperties
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.session_recordings.queries.session_recording_properties import (
+    SessionRecordingProperties,
+)
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
+    convert_original_version_lts_recording,
+)
 from posthog.storage import object_storage
 from prometheus_client import Counter
 
@@ -130,7 +139,11 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -269,7 +282,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
 
         posthoganalytics.capture(
-            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
+            self._distinct_id_from_request(request),
+            "v2 session recording snapshots viewed",
+            event_properties,
         )
 
         if source:
@@ -338,7 +353,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
             posthoganalytics.capture(
-                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
+                self._distinct_id_from_request(request),
+                "session recording snapshots v2 loaded",
+                event_properties,
             )
 
             response_data["snapshots"] = snapshots
@@ -366,7 +383,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             event_properties["source"] = "blob"
             event_properties["blob_key"] = blob_key
             posthoganalytics.capture(
-                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
+                self._distinct_id_from_request(request),
+                "session recording snapshots v2 loaded",
+                event_properties,
             )
 
             with requests.get(url=url, stream=True) as r:
@@ -451,9 +470,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-        (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
-            filter=filter, team=team
-        ).run()
+        (
+            ch_session_recordings,
+            more_recordings_available,
+        ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
@@ -462,7 +482,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
 
     # If we have specified session_ids we need to sort them by the order they were specified
     if all_session_ids:
-        recordings = sorted(recordings, key=lambda x: cast(List[str], all_session_ids).index(x.session_id))
+        recordings = sorted(
+            recordings,
+            key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+        )
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()

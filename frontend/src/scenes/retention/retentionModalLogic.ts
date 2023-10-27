@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { InsightLogicProps } from '~/types'
@@ -10,19 +10,19 @@ import type { retentionModalLogicType } from './retentionModalLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionModalLogic = kea<retentionModalLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionModalLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionModalLogic = kea<retentionModalLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionModalLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
-    }),
-    actions: () => ({
+    })),
+    actions(() => ({
         openModal: (rowIndex: number) => ({ rowIndex }),
         closeModal: true,
-    }),
-    reducers: {
+    })),
+    reducers({
         selectedRow: [
             null as number | null,
             {
@@ -30,8 +30,8 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
                 closeModal: () => null,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
             (querySource, aggregationLabel): Noun => {
@@ -39,10 +39,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         openModal: ({ rowIndex }) => {
             actions.loadPeople(rowIndex)
         },
-    }),
-})
+    })),
+])

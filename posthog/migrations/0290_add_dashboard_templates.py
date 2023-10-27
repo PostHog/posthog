@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0289_add_tags_to_feature_flags"),
     ]
@@ -20,7 +19,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("template_name", models.CharField(max_length=400, null=True)),
@@ -30,11 +32,20 @@ class Migration(migrations.Migration):
                 (
                     "tags",
                     django.contrib.postgres.fields.ArrayField(
-                        base_field=models.CharField(max_length=255), default=list, size=None
+                        base_field=models.CharField(max_length=255),
+                        default=list,
+                        size=None,
                     ),
                 ),
                 ("github_url", models.CharField(max_length=8201, null=True)),
-                ("team", models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
             ],
         ),
         migrations.AddConstraint(

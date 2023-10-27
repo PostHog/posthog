@@ -3,7 +3,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.permissions import IsStaffUser
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.queries.time_to_see_data.serializers import (
+    SessionEventsQuerySerializer,
+    SessionsQuerySerializer,
+)
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 
 

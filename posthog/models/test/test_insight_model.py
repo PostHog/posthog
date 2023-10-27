@@ -102,7 +102,8 @@ class TestInsightModel(BaseTest):
     def test_query_hash_matches_same_query_source(self) -> None:
         insight_with_query_at_top_level = Insight.objects.create(team=self.team, query={"kind": "EventsQuery"})
         insight_with_query_in_source = Insight.objects.create(
-            team=self.team, query={"kind": "DataTable", "source": {"kind": "EventsQuery"}}
+            team=self.team,
+            query={"kind": "DataTable", "source": {"kind": "EventsQuery"}},
         )
 
         filters_hash_one = generate_insight_cache_key(insight_with_query_at_top_level, None)
@@ -141,25 +142,37 @@ class TestInsightModel(BaseTest):
                 # test that query filters are equal when there are no dashboard filters
                 {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
                 {},
-                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}, "properties": None},
+                {
+                    "dateRange": {"date_from": "-14d", "date_to": "-7d"},
+                    "properties": None,
+                },
             ),
             (
                 # test that dashboard filters are used when there are no query filters
                 {},
                 {"date_from": "-14d", "date_to": "-7d"},
-                {"dateRange": {"date_from": "-14d", "date_to": "-7d"}, "properties": None},
+                {
+                    "dateRange": {"date_from": "-14d", "date_to": "-7d"},
+                    "properties": None,
+                },
             ),
             (
                 # test that dashboard filters take priority
                 {"dateRange": {"date_from": "-2d", "date_to": "-1d"}},
                 {"date_from": "-4d", "date_to": "-3d"},
-                {"dateRange": {"date_from": "-4d", "date_to": "-3d"}, "properties": None},
+                {
+                    "dateRange": {"date_from": "-4d", "date_to": "-3d"},
+                    "properties": None,
+                },
             ),
             (
                 # test that dashboard filters take priority, even if only one value is set, the other is set to None
                 {"dateRange": {"date_from": "-14d", "date_to": "-7d"}},
                 {"date_from": "all"},
-                {"dateRange": {"date_from": "all", "date_to": None}, "properties": None},
+                {
+                    "dateRange": {"date_from": "all", "date_to": None},
+                    "properties": None,
+                },
             ),
             (
                 # test that if no filters are set then none are outputted
@@ -171,13 +184,19 @@ class TestInsightModel(BaseTest):
                 # test that properties from the query are used when there are no dashboard properties
                 {"properties": [browser_equals_firefox]},
                 {},
-                {"dateRange": {"date_from": None, "date_to": None}, "properties": [browser_equals_firefox]},
+                {
+                    "dateRange": {"date_from": None, "date_to": None},
+                    "properties": [browser_equals_firefox],
+                },
             ),
             (
                 # test that properties from the dashboard are used when there are no query properties
                 {},
                 {"properties": [browser_equals_chrome]},
-                {"dateRange": {"date_from": None, "date_to": None}, "properties": [browser_equals_chrome]},
+                {
+                    "dateRange": {"date_from": None, "date_to": None},
+                    "properties": [browser_equals_chrome],
+                },
             ),
             (
                 # test that properties are merged when set in both query and dashboard

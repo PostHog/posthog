@@ -35,10 +35,16 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             events_by_person={
                 "person1": [
-                    {"event": "user signed up", "properties": {"$os": "Windows", "$feature/aloha": "control"}},
+                    {
+                        "event": "user signed up",
+                        "properties": {"$os": "Windows", "$feature/aloha": "control"},
+                    },
                 ],
                 "person2": [
-                    {"event": "user signed up", "properties": {"$os": "Windows", "$feature/aloha": "test"}},
+                    {
+                        "event": "user signed up",
+                        "properties": {"$os": "Windows", "$feature/aloha": "test"},
+                    },
                 ],
             },
         )
@@ -57,10 +63,22 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         ActionStep.objects.create(
             action=action_credit_card,
             event="paid",
-            properties=[{"key": "$os", "type": "event", "value": ["Windows"], "operator": "exact"}],
+            properties=[
+                {
+                    "key": "$os",
+                    "type": "event",
+                    "value": ["Windows"],
+                    "operator": "exact",
+                }
+            ],
         )
 
-        ActionStep.objects.create(action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10")
+        ActionStep.objects.create(
+            action=action_credit_card,
+            event="$autocapture",
+            tag_name="button",
+            text="Pay $10",
+        )
 
         filter = Filter(
             data={
@@ -95,7 +113,14 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
         ActionStep.objects.create(
             action=action_credit_card,
             event="paid",
-            properties=[{"key": "$os", "type": "event", "value": ["Windows"], "operator": "exact"}],
+            properties=[
+                {
+                    "key": "$os",
+                    "type": "event",
+                    "value": ["Windows"],
+                    "operator": "exact",
+                }
+            ],
         )
 
         filter = Filter(
@@ -116,7 +141,10 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
                     {"event": "paid", "properties": {"$os": "Windows"}},
                 ],
                 "person2": [
-                    {"event": "paid", "properties": {"$os": "Windows", "$feature/aloha": "test"}},
+                    {
+                        "event": "paid",
+                        "properties": {"$os": "Windows", "$feature/aloha": "test"},
+                    },
                 ],
                 "person3": [
                     {"event": "user signed up", "properties": {"$os": "Windows"}},

@@ -23,13 +23,19 @@ FEATURE_FLAG_CONTENT = lambda id: {
 
 PERSON_CONTENT = lambda id: {"type": "ph-person", "attrs": {"id": id or "person_id"}}
 
-RECORDING_CONTENT = lambda id: {"type": "ph-recording", "attrs": {"id": id or "session_recording_id"}}
+RECORDING_CONTENT = lambda id: {
+    "type": "ph-recording",
+    "attrs": {"id": id or "session_recording_id"},
+}
 RECORDING_COMMENT_CONTENT = lambda id, text: {
     "type": "paragraph",
     "content": [
         {
             "type": "ph-replay-timestamp",
-            "attrs": {"playbackTime": 0, "sessionRecordingId": id or "session_recording_id"},
+            "attrs": {
+                "playbackTime": 0,
+                "sessionRecordingId": id or "session_recording_id",
+            },
         },
         {"text": text or "what the person typed", "type": "text"},
     ],
@@ -45,7 +51,11 @@ QUERY_CONTENT = lambda id: {
     },
 }
 
-BASIC_TEXT = lambda text: {"type": "paragraph", "content": [{"text": text, "type": "text"}], "text_content": text}
+BASIC_TEXT = lambda text: {
+    "type": "paragraph",
+    "content": [{"text": text, "type": "text"}],
+    "text_content": text,
+}
 
 
 class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
@@ -124,7 +134,10 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/notebooks?user=true",
         ).json()["results"]
 
-        assert [r["short_id"] for r in results] == [notebook_two.short_id, notebook_one.short_id]
+        assert [r["short_id"] for r in results] == [
+            notebook_two.short_id,
+            notebook_one.short_id,
+        ]
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/notebooks?created_by={other_user.uuid}",
@@ -362,8 +375,14 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         )
 
     def test_notebook_filter_can_combine(self) -> None:
-        recording_one_node = {"type": "ph-recording", "attrs": {"id": "recording_one", "height": None}}
-        recording_two_node = {"type": "ph-recording", "attrs": {"id": "recording_two", "height": None}}
+        recording_one_node = {
+            "type": "ph-recording",
+            "attrs": {"id": "recording_one", "height": None},
+        }
+        recording_two_node = {
+            "type": "ph-recording",
+            "attrs": {"id": "recording_two", "height": None},
+        }
 
         content_with_both_recordings = [recording_one_node, recording_two_node]
         content_with_recording_one = [recording_one_node]
