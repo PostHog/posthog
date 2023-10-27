@@ -7,6 +7,10 @@ import { useValues } from 'kea'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+// :TRICKY: The URL absolutely needs to be prefixed with `pmtiles://` to work!
+const PMTILES_URL = 'pmtiles://https://posthog-prod-maps.s3.us-east-1.amazonaws.com/20230913.pmtiles'
 
 /** Latitude and longtitude in degrees (+lat is east, -lat is west, +lon is south, -lon is north). */
 export interface MapProps {
@@ -16,30 +20,22 @@ export interface MapProps {
     markers?: Marker[]
     /** Map container class names. */
     className?: string
-    /** The map's MapLibre style. This must be a JSON object conforming to the schema described in the MapLibre Style Specification, or a URL to such JSON. */
-    mapLibreStyleUrl: string | StyleSpecification
 }
 
-export function Map({ className, ...rest }: Omit<MapProps, 'mapLibreStyleUrl'>): JSX.Element {
-    if (!window.JS_MAPLIBRE_STYLE_URL) {
-        return (
-            <div className={`w-full h-full flex flex-col items-center justify-center text-muted p-3 ${className}`}>
-                <h1>Map unavailable</h1>
-                <p>
-                    The <code>MAPLIBRE_STYLE_URL</code> setting is not defined. Please configure this setting with a
-                    valid MapLibre Style URL to display maps.
-                </p>
-            </div>
-        )
-    }
-
-    return <MapComponent mapLibreStyleUrl={window.JS_MAPLIBRE_STYLE_URL} className={className} {...rest} />
-}
-
-export function MapComponent({ center, markers, className, mapLibreStyleUrl }: MapProps): JSX.Element {
+export function Map({ center, markers, className }: MapProps): JSX.Element {
     const mapContainer = useRef<HTMLDivElement>(null)
     const map = useRef<RawMap | null>(null)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+
+    if (!isCloudOrDev) {
+        return (
+            <div className={`w-full h-full flex flex-col items-center justify-center text-muted p-3 ${className}`}>
+                <h1>Map unavailable</h1>
+                <p>The map is currently only available in cloud deployments.</p>
+            </div>
+        )
+    }
 
     useEffect(() => {
         map.current = new RawMap({
@@ -50,9 +46,7 @@ export function MapComponent({ center, markers, className, mapLibreStyleUrl }: M
                 sources: {
                     protomaps: {
                         type: 'vector',
-                        // tiles: ['https://api.protomaps.com/tiles/v3/{z}/{x}/{y}.mvt?key=KEY'],
-                        // url: 'pmtiles://https://example.com/example.pmtiles',
-                        url: 'pmtiles://http://127.0.0.1:8080/20230913.pmtiles',
+                        url: PMTILES_URL,
                         attribution:
                             '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
                     },
