@@ -74,11 +74,15 @@ export function PreflightCheck(): JSX.Element {
             footer={
                 <p className="text-center mt-4 mb-0">
                     Need help? Take a look at our{' '}
-                    <Link to="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                    <Link
+                        to="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                        target="_blank"
+                        targetBlankIcon={false}
+                    >
                         documentation
                     </Link>{' '}
                     or{' '}
-                    <Link to="https://posthog.com/support" target="_blank">
+                    <Link to="https://posthog.com/support" target="_blank" targetBlankIcon={false}>
                         visit community support
                     </Link>
                     .
