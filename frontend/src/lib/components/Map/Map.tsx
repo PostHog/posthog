@@ -9,8 +9,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+const BASE_URL = 'https://posthog-prod-maps.s3.us-east-1.amazonaws.com'
 // :TRICKY: The URL absolutely needs to be prefixed with `pmtiles://` to work!
-const PMTILES_URL = 'pmtiles://https://posthog-prod-maps.s3.us-east-1.amazonaws.com/20230913.pmtiles'
+const PMTILES_URL = `pmtiles://${BASE_URL}/20230913.pmtiles`
+const GLYPH_URL = `${BASE_URL}/fonts/pbf/{fontstack}/{range}.pbf`
 
 /** Latitude and longtitude in degrees (+lat is east, -lat is west, +lon is south, -lon is north). */
 export interface MapProps {
@@ -48,7 +50,7 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
             container: mapContainer.current as HTMLElement,
             style: {
                 version: 8,
-                glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
+                glyphs: GLYPH_URL,
                 sources: {
                     protomaps: {
                         type: 'vector',
