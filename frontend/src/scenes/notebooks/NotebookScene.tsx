@@ -131,9 +131,16 @@ export function NotebookScene(): JSX.Element {
                         icon={<IconHelpOutline />}
                         size={buttonSize}
                         onClick={() => {
-                            selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                            if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
+                                closeSidePanel()
+                            } else {
+                                selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                            }
                         }}
                     >
+                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
+                            ? 'Close '
+                            : ''}
                         Guide
                     </LemonButton>
                     <NotebookExpandButton type="secondary" size={buttonSize} />
