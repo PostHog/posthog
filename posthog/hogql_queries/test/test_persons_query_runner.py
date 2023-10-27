@@ -12,6 +12,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     IntervalType,
+    InsightPersonsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -204,7 +205,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query = PersonsQuery(
                 select=["properties.email"],
                 orderBy=["properties.email DESC"],
-                source=source_query,
+                source=InsightPersonsQuery(source=source_query),
             )
             runner = self._create_runner(query)
             response = runner.calculate()
