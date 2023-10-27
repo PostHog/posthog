@@ -6,14 +6,24 @@ import { EditorFocusPosition } from '../Notebook/utils'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
 import { NotebookNodeResource } from '~/types'
 import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { notebookPopoverLogic } from './notebookPopoverLogic'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
     connect({
-        values: [sidePanelLogic, ['sidePanelOpen']],
-        actions: [sidePanelLogic, ['openSidePanel']],
+        values: [
+            sidePanelLogic,
+            ['sidePanelOpen', 'selectedTab'],
+            featureFlagLogic,
+            ['featureFlags'],
+            notebookPopoverLogic,
+            ['popoverVisibility'],
+        ],
+        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel'], notebookPopoverLogic, ['setPopoverVisibility']],
     }),
     actions({
         setFullScreen: (full: boolean) => ({ full }),
@@ -22,6 +32,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         endDropMode: true,
         setDropDistance: (distance: number) => ({ distance }),
         setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
+        toggleVisibility: true,
     }),
 
     reducers(() => ({
@@ -82,6 +93,20 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     })),
 
     selectors(({ cache, actions }) => ({
+        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000]],
+
+        visibility: [
+            (s) => [s.selectedTab, s.sidePanelOpen, s.popoverVisibility, s.is3000],
+            (selectedTab, sidePanelOpen, popoverVisibility, is3000): 'hidden' | 'peek' | 'visible' => {
+                // NOTE: To be removed after 3000 release
+                if (!is3000) {
+                    return popoverVisibility
+                }
+
+                return selectedTab === SidePanelTab.Notebooks && sidePanelOpen ? 'visible' : 'hidden'
+            },
+        ],
+
         dropProperties: [
             (s) => [s.dropMode, s.dropDistance, s.sidePanelOpen],
             (
@@ -112,8 +137,33 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         ],
     })),
 
-    listeners(({ cache, actions }) => ({
+    listeners(({ cache, actions, values }) => ({
+        selectNotebook: (options) => {
+            if (!values.is3000) {
+                actions.setPopoverVisibility('visible')
+                notebookPopoverLogic.actions.selectNotebook(options.id, options.autofocus)
+
+                return
+            }
+            actions.openSidePanel(SidePanelTab.Notebooks)
+        },
+        toggleVisibility: () => {
+            if (!values.is3000) {
+                actions.setPopoverVisibility(values.popoverVisibility === 'visible' ? 'hidden' : 'visible')
+                return
+            }
+
+            if (values.visibility === 'hidden') {
+                actions.openSidePanel(SidePanelTab.Notebooks)
+            } else {
+                actions.closeSidePanel()
+            }
+        },
         startDropMode: () => {
+            if (!values.is3000) {
+                notebookPopoverLogic.actions.startDropMode()
+                return
+            }
             cache.dragEntercount = 0
             cache.dragStart = null
             actions.openSidePanel(SidePanelTab.Notebooks)
@@ -130,9 +180,10 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             window.addEventListener('drag', cache.dragListener)
         },
         endDropMode: () => {
-            // if (values.visibility === 'peek') {
-            //     actions.setVisibility('hidden')
-            // }
+            if (!values.is3000) {
+                notebookPopoverLogic.actions.endDropMode()
+                return
+            }
             window.removeEventListener('drag', cache.dragListener)
         },
     })),

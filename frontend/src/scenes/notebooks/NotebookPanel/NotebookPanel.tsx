@@ -18,9 +18,6 @@ export function NotebookPanel(): JSX.Element | null {
     const { setFullScreen, selectNotebook } = useActions(notebookPanelLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
-    // const { activeScene } = useValues(sceneLogic)
-
-    // const showEditor = activeScene === Scene.Notebook ? visibility !== 'hidden' : shownAtLeastOnce
     const editable = !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
@@ -40,7 +37,9 @@ export function NotebookPanel(): JSX.Element | null {
                 <span className="flex items-center gap-1 text-primary-alt overflow-hidden">
                     <NotebookListMini
                         selectedNotebookId={selectedNotebook}
-                        onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
+                        onSelectNotebook={(notebook) => {
+                            selectNotebook(notebook.short_id)
+                        }}
                         onNewNotebook={() => createNotebook()}
                     />
                 </span>

@@ -17,7 +17,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-        setVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
+        setPopoverVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
         startDropMode: true,
         endDropMode: true,
         setDropDistance: (distance: number) => ({ distance }),
@@ -32,17 +32,17 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                 selectNotebook: (_, { id }) => id,
             },
         ],
-        visibility: [
+        popoverVisibility: [
             'hidden' as NotebookPopoverVisibility,
             {
-                setVisibility: (_, { visibility }) => visibility,
+                setPopoverVisibility: (_, { visibility }) => visibility,
             },
         ],
         fullScreen: [
             false,
             {
                 setFullScreen: (_, { full }) => full,
-                setVisibility: (state, { visibility }) => (visibility === 'hidden' ? false : state),
+                setPopoverVisibility: (state, { visibility }) => (visibility === 'hidden' ? false : state),
             },
         ],
         initialAutofocus: [
@@ -60,7 +60,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         shownAtLeastOnce: [
             false,
             {
-                setVisibility: (state, { visibility }) => visibility !== 'hidden' || state,
+                setPopoverVisibility: (state, { visibility }) => visibility !== 'hidden' || state,
             },
         ],
         dropMode: [
@@ -81,7 +81,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         droppedResource: [
             null as NotebookNodeResource | string | null,
             {
-                setVisibility: (state, { visibility }) => (visibility === 'hidden' ? null : state),
+                setPopoverVisibility: (state, { visibility }) => (visibility === 'hidden' ? null : state),
                 setDroppedResource: (_, { resource }) => resource,
             },
         ],
@@ -89,7 +89,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
 
     selectors(({ cache, actions }) => ({
         dropProperties: [
-            (s) => [s.dropMode, s.visibility, s.dropDistance],
+            (s) => [s.dropMode, s.popoverVisibility, s.dropDistance],
             (
                 dropMode,
                 visibility,
@@ -100,7 +100,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
                           onDragEnter: () => {
                               cache.dragEntercount = (cache.dragEntercount || 0) + 1
                               if (cache.dragEntercount === 1) {
-                                  actions.setVisibility('visible')
+                                  actions.setPopoverVisibility('visible')
                               }
                           },
 
@@ -109,7 +109,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
 
                               if (cache.dragEntercount <= 0) {
                                   cache.dragEntercount = 0
-                                  actions.setVisibility('peek')
+                                  actions.setPopoverVisibility('peek')
                               }
                           },
                           style: {
@@ -122,7 +122,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     })),
 
     subscriptions({
-        visibility: (value, oldvalue) => {
+        popoverVisibility: (value, oldvalue) => {
             if (oldvalue !== undefined && value !== oldvalue) {
                 posthog.capture(`notebook sidebar ${value}`)
             }
@@ -133,7 +133,7 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         startDropMode: () => {
             cache.dragEntercount = 0
             cache.dragStart = null
-            actions.setVisibility('peek')
+            actions.setPopoverVisibility('peek')
 
             cache.dragListener = (event: MouseEvent) => {
                 if (!cache.dragStart) {
@@ -147,8 +147,8 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             window.addEventListener('drag', cache.dragListener)
         },
         endDropMode: () => {
-            if (values.visibility === 'peek') {
-                actions.setVisibility('hidden')
+            if (values.popoverVisibility === 'peek') {
+                actions.setPopoverVisibility('hidden')
             }
             window.removeEventListener('drag', cache.dragListener)
         },
@@ -156,8 +156,8 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
 
     urlToAction(({ actions, values }) => ({
         '/*': (_, __, ___, { pathname }, { pathname: previousPathname }) => {
-            if (values.visibility === 'visible' && pathname != previousPathname) {
-                actions.setVisibility('hidden')
+            if (values.popoverVisibility === 'visible' && pathname != previousPathname) {
+                actions.setPopoverVisibility('hidden')
             }
         },
     })),
