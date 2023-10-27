@@ -71,6 +71,7 @@ RunnableQueryNode = Union[
     HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
+    InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
     SessionsTimelineQuery,
@@ -81,7 +82,7 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode,
+    query: Dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
     in_export_context: Optional[bool] = False,
@@ -90,7 +91,9 @@ def get_query_runner(
     if isinstance(query, dict):
         kind = query.get("kind", None)
     elif hasattr(query, "kind"):
-        kind = query.kind
+        kind = cast(RunnableQueryNode, query).kind
+    else:
+        raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "LifecycleQuery":
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -179,7 +182,7 @@ class QueryRunner(ABC):
 
     def __init__(
         self,
-        query: RunnableQueryNode | Dict[str, Any],
+        query: RunnableQueryNode | BaseModel | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         in_export_context: Optional[bool] = False,
