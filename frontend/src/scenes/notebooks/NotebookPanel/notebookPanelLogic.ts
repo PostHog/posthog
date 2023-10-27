@@ -1,6 +1,6 @@
 import { actions, kea, reducers, path, listeners, selectors, connect } from 'kea'
 
-import { HTMLProps, RefObject } from 'react'
+import { HTMLProps } from 'react'
 import { EditorFocusPosition } from '../Notebook/utils'
 
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
@@ -44,25 +44,13 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             false,
             {
                 setFullScreen: (_, { full }) => full,
-                setVisibility: (state, { visibility }) => (visibility === 'hidden' ? false : state),
+                closeSidePanel: () => false,
             },
         ],
         initialAutofocus: [
             'start' as EditorFocusPosition,
             {
                 selectNotebook: (_, { autofocus }) => autofocus ?? 'start',
-            },
-        ],
-        elementRef: [
-            null as RefObject<HTMLElement> | null,
-            {
-                setElementRef: (_, { element }) => element,
-            },
-        ],
-        shownAtLeastOnce: [
-            false,
-            {
-                setVisibility: (state, { visibility }) => visibility !== 'hidden' || state,
             },
         ],
         dropMode: [
@@ -75,7 +63,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         droppedResource: [
             null as NotebookNodeResource | string | null,
             {
-                setVisibility: (state, { visibility }) => (visibility === 'hidden' ? null : state),
+                closeSidePanel: () => null,
                 setDroppedResource: (_, { resource }) => resource,
             },
         ],

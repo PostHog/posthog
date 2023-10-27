@@ -12,7 +12,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
-import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
+import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { openNotebookShareDialog } from '../Notebook/NotebookShare'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -157,7 +157,7 @@ export function NotebookPopover(): JSX.Element {
                 onClick={popoverVisibility !== 'visible' ? () => setPopoverVisibility('visible') : undefined}
                 {...dropProperties}
             >
-                <NotebookPopoverDropzone />
+                <NotebookPanelDropzone />
                 <NotebookPopoverCard />
             </div>
         </div>
