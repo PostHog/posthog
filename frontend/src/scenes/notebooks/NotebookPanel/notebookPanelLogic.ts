@@ -1,23 +1,23 @@
-import { actions, kea, reducers, path, listeners, selectors } from 'kea'
+import { actions, kea, reducers, path, listeners, selectors, connect } from 'kea'
 
-import { urlToAction } from 'kea-router'
 import { HTMLProps, RefObject } from 'react'
-import posthog from 'posthog-js'
-import { subscriptions } from 'kea-subscriptions'
-import { EditorFocusPosition } from './utils'
+import { EditorFocusPosition } from '../Notebook/utils'
 
-import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
-import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'
+import type { notebookPanelLogicType } from './notebookPanelLogicType'
+import { NotebookNodeResource } from '~/types'
+import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
-export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
-    path(['scenes', 'notebooks', 'Notebook', 'notebookPopoverLogic']),
+export const notebookPanelLogic = kea<notebookPanelLogicType>([
+    path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
+    connect({
+        values: [sidePanelLogic, ['sidePanelOpen']],
+        actions: [sidePanelLogic, ['openSidePanel']],
+    }),
     actions({
         setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
-        setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-        setVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
         startDropMode: true,
         endDropMode: true,
         setDropDistance: (distance: number) => ({ distance }),
@@ -30,12 +30,6 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-            },
-        ],
-        visibility: [
-            'hidden' as NotebookPopoverVisibility,
-            {
-                setVisibility: (_, { visibility }) => visibility,
             },
         ],
         fullScreen: [
@@ -89,18 +83,18 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
 
     selectors(({ cache, actions }) => ({
         dropProperties: [
-            (s) => [s.dropMode, s.visibility, s.dropDistance],
+            (s) => [s.dropMode, s.dropDistance, s.sidePanelOpen],
             (
                 dropMode,
-                visibility,
-                dropDistance
+                dropDistance,
+                sidePanelOpen
             ): Pick<HTMLProps<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'style'> => {
                 return dropMode
                     ? {
                           onDragEnter: () => {
                               cache.dragEntercount = (cache.dragEntercount || 0) + 1
                               if (cache.dragEntercount === 1) {
-                                  actions.setVisibility('visible')
+                                  actions.openSidePanel(SidePanelTab.Notebooks)
                               }
                           },
 
@@ -109,11 +103,8 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
 
                               if (cache.dragEntercount <= 0) {
                                   cache.dragEntercount = 0
-                                  actions.setVisibility('peek')
+                                  actions.openSidePanel(SidePanelTab.Notebooks)
                               }
-                          },
-                          style: {
-                              transform: visibility === 'peek' ? `translateX(${(1 - dropDistance) * 100}%)` : undefined,
                           },
                       }
                     : {}
@@ -121,19 +112,11 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
         ],
     })),
 
-    subscriptions({
-        visibility: (value, oldvalue) => {
-            if (oldvalue !== undefined && value !== oldvalue) {
-                posthog.capture(`notebook sidebar ${value}`)
-            }
-        },
-    }),
-
-    listeners(({ cache, actions, values }) => ({
+    listeners(({ cache, actions }) => ({
         startDropMode: () => {
             cache.dragEntercount = 0
             cache.dragStart = null
-            actions.setVisibility('peek')
+            actions.openSidePanel(SidePanelTab.Notebooks)
 
             cache.dragListener = (event: MouseEvent) => {
                 if (!cache.dragStart) {
@@ -147,18 +130,10 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             window.addEventListener('drag', cache.dragListener)
         },
         endDropMode: () => {
-            if (values.visibility === 'peek') {
-                actions.setVisibility('hidden')
-            }
+            // if (values.visibility === 'peek') {
+            //     actions.setVisibility('hidden')
+            // }
             window.removeEventListener('drag', cache.dragListener)
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        '/*': (_, __, ___, { pathname }, { pathname: previousPathname }) => {
-            if (values.visibility === 'visible' && pathname != previousPathname) {
-                actions.setVisibility('hidden')
-            }
         },
     })),
 ])

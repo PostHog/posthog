@@ -5,7 +5,7 @@ import { Notebook } from './Notebook/Notebook'
 import { NotFound } from 'lib/components/NotFound'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
+import { notebookPopoverLogic } from './NotebookPanel/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import {

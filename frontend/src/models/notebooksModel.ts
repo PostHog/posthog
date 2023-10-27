@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { notebookPopoverLogic } from 'scenes/notebooks/NotebookPanel/notebookPopoverLogic'
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 import type { notebooksModelType } from './notebooksModelType'

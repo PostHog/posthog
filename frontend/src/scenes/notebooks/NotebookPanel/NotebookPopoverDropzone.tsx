@@ -4,7 +4,7 @@ import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { NotebookNodeType } from '~/types'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
-import { notebookLogicType } from './notebookLogicType'
+import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { LemonButton } from '@posthog/lemon-ui'
 
 export function NotebookPopoverDropzone(): JSX.Element | null {

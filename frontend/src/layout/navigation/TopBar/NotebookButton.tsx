@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { notebookPopoverLogic } from 'scenes/notebooks/NotebookPanel/notebookPopoverLogic'
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
