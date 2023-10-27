@@ -845,7 +845,7 @@ describe('DB', () => {
         })
     })
 
-    describe('addFeatureFlagHashKeysForMergedPerson()', () => {
+    describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
@@ -889,7 +889,7 @@ describe('DB', () => {
         })
 
         it("doesn't fail on empty data", async () => {
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
@@ -906,7 +906,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -947,7 +947,7 @@ describe('DB', () => {
                 hash_key: 'existing_override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 
@@ -982,7 +982,7 @@ describe('DB', () => {
                 hash_key: 'override_value_for_beta_feature',
             })
 
-            await db.addFeatureFlagHashKeysForMergedPerson(team.id, sourcePersonID, targetPersonID)
+            await db.updateCohortsAndFeatureFlagsForMerge(team.id, sourcePersonID, targetPersonID)
 
             const result = await getAllHashKeyOverrides()
 

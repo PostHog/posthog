@@ -16,7 +16,7 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
-            ? 'Scratchpad'
+            ? 'My scratchpad'
             : notebookTemplates.find((notebook) => notebook.short_id === selectedNotebookId)?.title ||
               notebooks.find((notebook) => notebook.short_id === selectedNotebookId)?.title ||
               'Untitled'
