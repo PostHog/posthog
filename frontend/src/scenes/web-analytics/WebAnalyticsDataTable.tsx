@@ -3,7 +3,7 @@ import { DataTableNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useActions } from 'kea'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Query } from '~/queries/Query/Query'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
@@ -122,31 +122,44 @@ export const WebStatsTableTile = ({
     const propertyName = webStatsBreakdownToPropertyName(breakdownBy)
 
     const onClick = useCallback(
-        (record: unknown) => {
-            if (typeof record !== 'object' || !record || !('result' in record)) {
-                return
-            }
-            const result = record.result
-            if (!Array.isArray(result)) {
-                return
-            }
-            // assume that the first element is the value
-            togglePropertyFilter(propertyName, result[0])
+        (breakdownValue: string) => {
+            togglePropertyFilter(propertyName, breakdownValue)
         },
         [togglePropertyFilter, propertyName]
     )
 
-    return (
-        <Query
-            query={query}
-            readOnly={true}
-            context={{
-                ...webAnalyticsDataTableQueryContext,
-                rowProps: (record) => ({
-                    onClick: () => onClick(record),
-                    className: 'hover:underline cursor-pointer hover:bg-mark',
-                }),
-            }}
-        />
-    )
+    const context = useMemo((): QueryContext => {
+        const rowProps: QueryContext['rowProps'] = (record: unknown) => {
+            const breakdownValue = getBreakdownValue(record)
+            if (breakdownValue === undefined) {
+                return {}
+            }
+            return {
+                onClick: () => onClick(breakdownValue),
+                className: 'hover:underline cursor-pointer hover:bg-mark',
+            }
+        }
+        return {
+            ...webAnalyticsDataTableQueryContext,
+            rowProps,
+        }
+    }, [onClick])
+
+    return <Query query={query} readOnly={true} context={context} />
+}
+
+const getBreakdownValue = (record: unknown): string | undefined => {
+    if (typeof record !== 'object' || !record || !('result' in record)) {
+        return undefined
+    }
+    const result = record.result
+    if (!Array.isArray(result)) {
+        return undefined
+    }
+    // assume that the first element is the value
+    const breakdownValue = result[0]
+    if (typeof breakdownValue !== 'string') {
+        return undefined
+    }
+    return breakdownValue
 }
