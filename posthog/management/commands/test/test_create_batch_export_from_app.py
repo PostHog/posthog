@@ -492,9 +492,9 @@ def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
         output = call_command("create_batch_export_from_app", *args)
 
         batch_export_data = json.loads(output)
-        # time.sleep(10)
         workflows = list_workflows(temporal, str(batch_export_data["id"]))
 
-        assert len(workflows) == 1
+        # Backfills are triggered by a Workflow now, so there should be two running.
+        assert len(workflows) == 2
         workflow_execution = workflows[0]
         assert workflow_execution.workflow_type == f"{export_type.lower()}-export"
