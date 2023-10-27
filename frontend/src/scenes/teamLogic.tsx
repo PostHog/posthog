@@ -206,6 +206,9 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        createTeamSuccess: () => {
+            organizationLogic.actions.loadCurrentOrganization()
+        },
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
