@@ -302,4 +302,49 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({ activeUsersMath: BaseMathType.MonthlyActiveUsers })
         })
     })
+
+    describe('enabledIntervals', () => {
+        it('returns all intervals', () => {
+            expectLogic(builtInsightVizDataLogic).toMatchValues({
+                enabledIntervals: {
+                    day: { label: 'day', newDateFrom: undefined },
+                    hour: { label: 'hour', newDateFrom: 'dStart' },
+                    month: { label: 'month', newDateFrom: '-90d' },
+                    week: { label: 'week', newDateFrom: '-30d' },
+                },
+            })
+        })
+
+        it('adds a disabled reason with active users math', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({
+                enabledIntervals: {
+                    day: { label: 'day', newDateFrom: undefined },
+                    hour: {
+                        label: 'hour',
+                        newDateFrom: 'dStart',
+                        disabledReason:
+                            'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                    },
+                    month: {
+                        label: 'month',
+                        newDateFrom: '-90d',
+                        disabledReason:
+                            'Grouping by month is not supported on insights with weekly active users series.',
+                    },
+                    week: { label: 'week', newDateFrom: '-30d' },
+                },
+            })
+        })
+    })
 })
