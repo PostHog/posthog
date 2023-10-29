@@ -3,7 +3,10 @@ from math import ceil
 from typing import Optional, Any, Dict, List
 
 from django.utils.timezone import datetime
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
@@ -16,7 +19,12 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models import Team, Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import LifecycleQuery, ActionsNode, EventsNode, LifecycleQueryResponse
+from posthog.schema import (
+    LifecycleQuery,
+    ActionsNode,
+    EventsNode,
+    LifecycleQueryResponse,
+)
 
 
 class LifecycleQueryRunner(QueryRunner):
@@ -79,17 +87,34 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # TODO: add support for selecting and filtering by breakdowns
+    def to_persons_query(
+        self, day: Optional[str] = None, status: Optional[str] = None
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("persons_query"):
+            exprs = []
+            if day is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["start_of_period"]),
+                        right=ast.Constant(value=day),
+                    )
+                )
+            if status is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["status"]),
+                        right=ast.Constant(value=status),
+                    )
+                )
+
             return parse_select(
-                """
-                SELECT
-                    person_id --, start_of_period as breakdown_1, status as breakdown_2
-                FROM
-                    {events_query}
-                """,
-                placeholders={"events_query": self.events_query},
+                "SELECT person_id FROM {events_query} WHERE {where}",
+                placeholders={
+                    "events_query": self.events_query,
+                    "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
+                },
             )
 
     def calculate(self):
@@ -139,7 +164,10 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
         )
 
     @cached_property

@@ -50,7 +50,12 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
+from posthog.models.filters.mixins.utils import (
+    cached_property,
+    include_dict,
+    include_query_tags,
+    process_bool,
+)
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
@@ -239,7 +244,10 @@ class BreakdownMixin(BaseParamMixin):
     @include_dict
     def breakdown_type_and_group_to_dict(self):
         if self.breakdown_type == "group":
-            return {BREAKDOWN_TYPE: self.breakdown_type, BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index}
+            return {
+                BREAKDOWN_TYPE: self.breakdown_type,
+                BREAKDOWN_GROUP_TYPE_INDEX: self.breakdown_group_type_index,
+            }
         elif self.breakdown_type:
             return {BREAKDOWN_TYPE: self.breakdown_type}
         else:
@@ -343,7 +351,11 @@ class DateMixin(BaseParamMixin):
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_from, self.team.timezone_info, always_truncate=True)  # type: ignore
+                date, delta_mapping = relative_date_parse_with_delta_mapping(
+                    self._date_from,
+                    self.team.timezone_info,  # type: ignore
+                    always_truncate=True,
+                )
                 self.date_from_delta_mapping = delta_mapping
                 return date
             else:
@@ -361,7 +373,11 @@ class DateMixin(BaseParamMixin):
             if isinstance(self._date_to, str):
                 try:
                     return datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(
-                        hour=23, minute=59, second=59, microsecond=999999, tzinfo=ZoneInfo("UTC")
+                        hour=23,
+                        minute=59,
+                        second=59,
+                        microsecond=999999,
+                        tzinfo=ZoneInfo("UTC"),
                     )
                 except ValueError:
                     try:
@@ -369,7 +385,11 @@ class DateMixin(BaseParamMixin):
                             tzinfo=ZoneInfo("UTC")
                         )
                     except ValueError:
-                        date, delta_mapping = relative_date_parse_with_delta_mapping(self._date_to, self.team.timezone_info, always_truncate=True)  # type: ignore
+                        date, delta_mapping = relative_date_parse_with_delta_mapping(
+                            self._date_to,
+                            self.team.timezone_info,  # type: ignore
+                            always_truncate=True,
+                        )
                         self.date_to_delta_mapping = delta_mapping
                         return date
             else:

@@ -7,7 +7,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0344_add_new_export_type"),
     ]
@@ -16,7 +15,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="datawarehousesavedquery",
             name="external_tables",
-            field=models.JSONField(blank=True, default=list, help_text="List of all external tables", null=True),
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text="List of all external tables",
+                null=True,
+            ),
         ),
         migrations.CreateModel(
             name="DataWarehouseViewLink",
@@ -26,7 +30,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("table", models.CharField(max_length=128)),
@@ -35,16 +42,23 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
-                        blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
                     "saved_query",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.datawarehousesavedquery"
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.datawarehousesavedquery",
                     ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
             options={
                 "abstract": False,

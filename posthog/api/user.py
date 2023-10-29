@@ -35,7 +35,11 @@ from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import authenticate_secondarily
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
+from posthog.event_usage import (
+    report_user_logged_in,
+    report_user_updated,
+    report_user_verified_email,
+)
 from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
@@ -110,7 +114,10 @@ class UserSerializer(serializers.ModelSerializer):
             "has_seen_product_intro_for",
             "scene_personalisation",
         ]
-        extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
+        extra_kwargs = {
+            "date_joined": {"read_only": True},
+            "password": {"write_only": True},
+        }
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
@@ -166,12 +173,14 @@ class UserSerializer(serializers.ModelSerializer):
                 # usable (properly hashed) and that a password actually exists.
                 if not current_password:
                     raise serializers.ValidationError(
-                        {"current_password": ["This field is required when updating your password."]}, code="required"
+                        {"current_password": ["This field is required when updating your password."]},
+                        code="required",
                     )
 
                 if not instance.check_password(current_password):
                     raise serializers.ValidationError(
-                        {"current_password": ["Your current password is incorrect."]}, code="incorrect_password"
+                        {"current_password": ["Your current password is incorrect."]},
+                        code="incorrect_password",
                     )
             try:
                 validate_password(password, instance)
@@ -276,7 +285,12 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class UserViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -305,7 +319,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return queryset
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
+        return {
+            **super().get_serializer_context(),
+            "user_permissions": UserPermissions(cast(User, self.request.user)),
+        }
 
     @action(methods=["GET"], detail=True)
     def start_2fa_setup(self, request, **kwargs):
@@ -319,7 +336,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     @action(methods=["POST"], detail=True)
     def validate_2fa(self, request, **kwargs):
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"], request.user, data={"token": request.data["token"]}
+            request.session["django_two_factor-hex"],
+            request.user,
+            data={"token": request.data["token"]},
         )
         if not form.is_valid():
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
@@ -345,7 +364,8 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
 
         if not user or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
-                {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
+                {"token": ["This verification token is invalid or has expired."]},
+                code="invalid_token",
             )
 
         if user.pending_email:
@@ -364,7 +384,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return Response({"success": True, "token": token})
 
     @action(
-        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailVerificationThrottle]
+        methods=["POST"],
+        detail=True,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
         uuid = request.data["uuid"]
@@ -398,7 +421,6 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
 def redirect_to_site(request):
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
-    use_new_toolbar = request.user.toolbar_mode != "disabled"
 
     if not app_url:
         return HttpResponse(status=404)
@@ -430,10 +452,7 @@ def redirect_to_site(request):
     # see https://github.com/PostHog/posthog/issues/9671
     state = urllib.parse.quote(json.dumps(params), safe="")
 
-    if use_new_toolbar:
-        return redirect("{}#__posthog={}".format(app_url, state))
-    else:
-        return redirect("{}#state={}".format(app_url, state))
+    return redirect("{}#__posthog={}".format(app_url, state))
 
 
 @require_http_methods(["POST"])

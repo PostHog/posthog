@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0136_global_plugin_attachments"),
     ]
@@ -72,13 +71,19 @@ class Migration(migrations.Migration):
                     ("America/Anguilla", "America/Anguilla"),
                     ("America/Antigua", "America/Antigua"),
                     ("America/Araguaina", "America/Araguaina"),
-                    ("America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"),
+                    (
+                        "America/Argentina/Buenos_Aires",
+                        "America/Argentina/Buenos_Aires",
+                    ),
                     ("America/Argentina/Catamarca", "America/Argentina/Catamarca"),
                     ("America/Argentina/Cordoba", "America/Argentina/Cordoba"),
                     ("America/Argentina/Jujuy", "America/Argentina/Jujuy"),
                     ("America/Argentina/La_Rioja", "America/Argentina/La_Rioja"),
                     ("America/Argentina/Mendoza", "America/Argentina/Mendoza"),
-                    ("America/Argentina/Rio_Gallegos", "America/Argentina/Rio_Gallegos"),
+                    (
+                        "America/Argentina/Rio_Gallegos",
+                        "America/Argentina/Rio_Gallegos",
+                    ),
                     ("America/Argentina/Salta", "America/Argentina/Salta"),
                     ("America/Argentina/San_Juan", "America/Argentina/San_Juan"),
                     ("America/Argentina/San_Luis", "America/Argentina/San_Luis"),
@@ -172,7 +177,10 @@ class Migration(migrations.Migration):
                     ("America/Noronha", "America/Noronha"),
                     ("America/North_Dakota/Beulah", "America/North_Dakota/Beulah"),
                     ("America/North_Dakota/Center", "America/North_Dakota/Center"),
-                    ("America/North_Dakota/New_Salem", "America/North_Dakota/New_Salem"),
+                    (
+                        "America/North_Dakota/New_Salem",
+                        "America/North_Dakota/New_Salem",
+                    ),
                     ("America/Nuuk", "America/Nuuk"),
                     ("America/Ojinaga", "America/Ojinaga"),
                     ("America/Panama", "America/Panama"),

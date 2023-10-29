@@ -9,7 +9,7 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { ConsoleLogEntry, gatherConsoleLogEvents } from '../../../../worker/ingestion/process-event'
+import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -30,9 +30,10 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
     const deduped: ConsoleLogEntry[] = []
 
     for (const cle of consoleLogEntries) {
-        if (!seen.has(cle.message)) {
+        const fingerPrint = `${cle.log_level}-${cle.message}`
+        if (!seen.has(fingerPrint)) {
             deduped.push(cle)
-            seen.add(`${cle.log_level}-${cle.message}`)
+            seen.add(fingerPrint)
         }
     }
     return deduped
@@ -43,6 +44,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
     enabled: boolean
+
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly persistentHighWaterMarker: OffsetHighWaterMarker
@@ -83,9 +85,9 @@ export class ConsoleLogsIngester {
                 status.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
 
                 if (error?.isRetriable) {
-                    // We assume the if the error is retriable, then we
+                    // We assume that if the error is retriable, then we
                     // are probably in a state where e.g. Kafka is down
-                    // temporarily and we would rather simply throw and
+                    // temporarily, and we would rather simply throw and
                     // have the process restarted.
                     throw error
                 }
@@ -140,11 +142,26 @@ export class ConsoleLogsIngester {
             return drop('high_water_mark')
         }
 
+        // cheapest possible check for any console logs to avoid parsing the events because...
+        const hasAnyConsoleLogs = event.events.some(
+            (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/console@1'
+        )
+
+        if (!hasAnyConsoleLogs) {
+            return
+        }
+
+        // ... we don't want to mark events with no console logs as dropped
+        // this keeps the signal here clean and makes it easier to debug
+        // when we disable a team's console log ingestion
+        if (!event.metadata.consoleLogIngestionEnabled) {
+            return drop('console_log_ingestion_disabled')
+        }
+
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
                 gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
             )
-
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
             return consoleLogEvents.map((cle: ConsoleLogEntry) =>

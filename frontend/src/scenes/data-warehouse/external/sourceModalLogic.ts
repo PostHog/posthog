@@ -2,7 +2,7 @@ import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea
 
 import type { sourceModalLogicType } from './sourceModalLogicType'
 import { forms } from 'kea-forms'
-import { AirbyteStripeResourceCreatePayload } from '~/types'
+import { ExternalDataStripeSourceCreatePayload } from '~/types'
 import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
 import { dataWarehouseTableLogic } from '../dataWarehouseTableLogic'
@@ -36,7 +36,14 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     connect({
         values: [dataWarehouseTableLogic, ['tableLoading'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
-        actions: [dataWarehouseSceneLogic, ['toggleSourceModal'], dataWarehouseTableLogic, ['resetTable']],
+        actions: [
+            dataWarehouseSceneLogic,
+            ['toggleSourceModal'],
+            dataWarehouseTableLogic,
+            ['resetTable'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
         selectedConnector: [
@@ -71,28 +78,29 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
     }),
     forms(() => ({
-        airbyteResource: {
-            defaults: { account_id: '', client_secret: '' } as AirbyteStripeResourceCreatePayload,
+        externalDataSource: {
+            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeSourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
                     client_secret: !client_secret && 'Please enter a client secret.',
                 }
             },
-            submit: async (payload: AirbyteStripeResourceCreatePayload) => {
-                const newResource = await api.airbyteResources.create(payload)
+            submit: async (payload: ExternalDataStripeSourceCreatePayload) => {
+                const newResource = await api.externalDataSources.create(payload)
                 return newResource
             },
         },
     })),
     listeners(({ actions }) => ({
-        submitAirbyteResourceSuccess: () => {
+        submitExternalDataSourceSuccess: () => {
             lemonToast.success('New Data Resource Created')
             actions.toggleSourceModal()
-            actions.resetAirbyteResource()
+            actions.resetExternalDataSource()
+            actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
-        submitAirbyteResourceFailure: () => {
+        submitExternalDataSourceFailure: () => {
             lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
         },
     })),

@@ -18,6 +18,7 @@ import {
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
+    IconPipeline,
     IconPlus,
     IconRecording,
     IconRocketLaunch,
@@ -195,18 +196,17 @@ function Pages(): JSX.Element {
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
                     <PageButton
-                        icon={<IconRocketLaunch />}
-                        identifier={Scene.EarlyAccessFeatures}
-                        title={'Early Access Management'}
-                        to={urls.earlyAccessFeatures()}
-                    />
-
-                    <PageButton
                         icon={<IconSurveys />}
                         identifier={Scene.Surveys}
                         title={'Surveys'}
                         to={urls.surveys()}
-                        highlight="beta"
+                        highlight="new"
+                    />
+                    <PageButton
+                        icon={<IconRocketLaunch />}
+                        identifier={Scene.EarlyAccessFeatures}
+                        title={'Early Access Management'}
+                        to={urls.earlyAccessFeatures()}
                     />
                     <div className="SideBar__heading">Data</div>
 
@@ -227,6 +227,9 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
+                        <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
+                    </FlaggedFeature>
                     <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                         <PageButton
                             icon={<IconDatabase />}

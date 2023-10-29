@@ -9,9 +9,9 @@ import stripeLogo from 'public/stripe-logo.svg'
 interface SourceModalProps extends LemonModalProps {}
 
 export default function SourceModal(props: SourceModalProps): JSX.Element {
-    const { tableLoading, isAirbyteResourceSubmitting, selectedConnector, isManualLinkFormVisible, connectors } =
+    const { tableLoading, isExternalDataSourceSubmitting, selectedConnector, isManualLinkFormVisible, connectors } =
         useValues(sourceModalLogic)
-    const { selectConnector, toggleManualLinkFormVisible, resetAirbyteResource, resetTable } =
+    const { selectConnector, toggleManualLinkFormVisible, resetExternalDataSource, resetTable } =
         useActions(sourceModalLogic)
 
     const MenuButton = (config: ConnectorConfigType): JSX.Element => {
@@ -29,7 +29,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const onClear = (): void => {
         selectConnector(null)
         toggleManualLinkFormVisible(false)
-        resetAirbyteResource()
+        resetExternalDataSource()
         resetTable()
     }
 
@@ -40,7 +40,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const formToShow = (): JSX.Element => {
         if (selectedConnector) {
             return (
-                <Form logic={sourceModalLogic} formKey={'airbyteResource'} className="space-y-4" enableFormOnSubmit>
+                <Form logic={sourceModalLogic} formKey={'externalDataSource'} className="space-y-4" enableFormOnSubmit>
                     <Field name="account_id" label="Account Id">
                         <LemonInput className="ph-ignore-input" autoFocus data-attr="account-id" placeholder="acct_" />
                     </Field>
@@ -62,7 +62,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
                             center
                             htmlType="submit"
                             data-attr="source-link"
-                            loading={isAirbyteResourceSubmitting}
+                            loading={isExternalDataSourceSubmitting}
                         >
                             Link
                         </LemonButton>

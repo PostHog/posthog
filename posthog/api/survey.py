@@ -18,7 +18,10 @@ from rest_framework import status
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
@@ -98,11 +101,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         thank_you_message = value.get("thankYouMessageHeader")
         if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3.clean(thank_you_message)
+            value["thankYouMessageHeader"] = nh3_clean_with_whitelist(thank_you_message)
 
         thank_you_description = value.get("thankYouMessageDescription")
         if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3.clean(thank_you_description)
+            value["thankYouMessageDescription"] = nh3_clean_with_whitelist(thank_you_description)
 
         return value
 
@@ -128,9 +131,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
             description = raw_question.get("description")
             if nh3.is_html(question_text):
-                cleaned_question["question"] = nh3.clean(question_text)
+                cleaned_question["question"] = nh3_clean_with_whitelist(question_text)
             if description and nh3.is_html(description):
-                cleaned_question["description"] = nh3.clean(description)
+                cleaned_question["description"] = nh3_clean_with_whitelist(description)
 
             cleaned_questions.append(cleaned_question)
 
@@ -342,3 +345,150 @@ def surveys(request: Request):
     ).data
 
     return cors_response(request, JsonResponse({"surveys": surveys}))
+
+
+def nh3_clean_with_whitelist(to_clean: str):
+    return nh3.clean(
+        to_clean,
+        link_rel="noopener",
+        tags={
+            "a",
+            "abbr",
+            "acronym",
+            "area",
+            "article",
+            "aside",
+            "b",
+            "bdi",
+            "bdo",
+            "blockquote",
+            "br",
+            "caption",
+            "center",
+            "cite",
+            "code",
+            "col",
+            "colgroup",
+            "data",
+            "dd",
+            "del",
+            "details",
+            "dfn",
+            "div",
+            "dl",
+            "dt",
+            "em",
+            "figcaption",
+            "figure",
+            "footer",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "hgroup",
+            "hr",
+            "i",
+            "img",
+            "ins",
+            "kbd",
+            "li",
+            "map",
+            "mark",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "q",
+            "rp",
+            "rt",
+            "rtc",
+            "ruby",
+            "s",
+            "samp",
+            "small",
+            "span",
+            "strike",
+            "strong",
+            "sub",
+            "summary",
+            "sup",
+            "table",
+            "tbody",
+            "td",
+            "th",
+            "thead",
+            "time",
+            "tr",
+            "tt",
+            "u",
+            "ul",
+            "var",
+            "wbr",
+        },
+        attributes={
+            "*": {"style", "lang", "title", "width", "height"},
+            # below are mostly defaults to ammonia, but we need to add them explicitly
+            # because this python binding doesn't allow additive whitelisting
+            "a": {"href", "hreflang"},
+            "bdo": {"dir"},
+            "blockquote": {"cite"},
+            "col": {"align", "char", "charoff", "span"},
+            "colgroup": {"align", "char", "charoff", "span"},
+            "del": {"cite", "datetime"},
+            "hr": {"align", "size", "width"},
+            "img": {"align", "alt", "height", "src", "width"},
+            "ins": {"cite", "datetime"},
+            "ol": {"start", "type"},
+            "q": {"cite"},
+            "table": {
+                "align",
+                "bgcolor",
+                "border",
+                "cellpadding",
+                "cellspacing",
+                "frame",
+                "rules",
+                "summary",
+                "width",
+            },
+            "tbody": {"align", "char", "charoff", "valign"},
+            "td": {
+                "abbr",
+                "align",
+                "axis",
+                "bgcolor",
+                "char",
+                "charoff",
+                "colspan",
+                "headers",
+                "height",
+                "nowrap",
+                "rowspan",
+                "scope",
+                "valign",
+                "width",
+            },
+            "tfoot": {"align", "char", "charoff", "valign"},
+            "th": {
+                "abbr",
+                "align",
+                "axis",
+                "bgcolor",
+                "char",
+                "charoff",
+                "colspan",
+                "headers",
+                "height",
+                "nowrap",
+                "rowspan",
+                "scope",
+                "valign",
+                "width",
+            },
+            "thead": {"align", "char", "charoff", "valign"},
+            "tr": {"align", "bgcolor", "char", "charoff", "valign"},
+        },
+    )

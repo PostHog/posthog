@@ -50,8 +50,8 @@ import {
     BatchExportRun,
     UserBasicType,
     NotebookNodeResource,
-    AirbyteStripeResourceCreatePayload,
-    AirbyteStripeResource,
+    ExternalDataStripeSourceCreatePayload,
+    ExternalDataStripeSource,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -568,9 +568,9 @@ class ApiRequest {
         return this.batchExportRun(id, runId, teamId).addPathComponent('logs')
     }
 
-    // Airbyte
-    public airbyteResources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('airbyte_resources')
+    // External Data Source
+    public externalDataSources(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     // Request finalization
@@ -1578,12 +1578,14 @@ const api = {
         },
     },
 
-    airbyteResources: {
-        async list(): Promise<PaginatedResponse<AirbyteStripeResource>> {
-            return await new ApiRequest().airbyteResources().get()
+    externalDataSources: {
+        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get()
         },
-        async create(data: Partial<AirbyteStripeResourceCreatePayload>): Promise<AirbyteStripeResourceCreatePayload> {
-            return await new ApiRequest().airbyteResources().create({ data })
+        async create(
+            data: Partial<ExternalDataStripeSourceCreatePayload>
+        ): Promise<ExternalDataStripeSourceCreatePayload> {
+            return await new ApiRequest().externalDataSources().create({ data })
         },
     },
 

@@ -18,7 +18,9 @@ class TestBillingManager(BaseTest):
     def test_update_billing_distinct_ids(self, billing_patch_request_mock: MagicMock):
         organization = self.organization
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         User.objects.create_and_join(
             organization=organization,

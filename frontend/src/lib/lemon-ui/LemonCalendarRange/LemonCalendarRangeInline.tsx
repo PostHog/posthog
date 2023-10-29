@@ -33,6 +33,7 @@ export function LemonCalendarRangeInline({
     // How many months fit on the screen, capped between 1..2
     function getMonthCount(): number {
         const width =
+            // eslint-disable-next-line valid-typeof
             typeof window === undefined ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
         return Math.min(Math.max(1, Math.floor(width / WIDTH_OF_ONE_CALENDAR_MONTH)), 2)
     }

@@ -1,7 +1,6 @@
-from posthog.warehouse.models.airbyte_resource import AirbyteResource
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
-from posthog.warehouse.airbyte.connection import AIRBYTE_JOBS_URL
-from posthog.warehouse.airbyte.connection import retrieve_sync
+from posthog.warehouse.external_data_source.connection import AIRBYTE_JOBS_URL, retrieve_sync
 from posthog.celery import app
 from datetime import datetime
 from urllib.parse import urlencode
@@ -15,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def sync_resources():
-    resources = AirbyteResource.objects.filter(are_tables_created=False, status="running")
+    resources = ExternalDataSource.objects.filter(are_tables_created=False, status="running")
 
     for resource in resources:
         _sync_resource.delay(resource.pk)
@@ -23,12 +22,12 @@ def sync_resources():
 
 @app.task(ignore_result=True)
 def _sync_resource(resource_id):
-    resource = AirbyteResource.objects.get(pk=resource_id)
+    resource = ExternalDataSource.objects.get(pk=resource_id)
     job = retrieve_sync(resource.connection_id)
 
     if job["status"] == "succeeded":
 
-        resource = AirbyteResource.objects.get(pk=resource_id)
+        resource = ExternalDataSource.objects.get(pk=resource_id)
         credential, _ = DataWarehouseCredential.objects.get_or_create(
             team_id=resource.team.pk,
             access_key=settings.AIRBYTE_BUCKET_KEY,
@@ -58,13 +57,13 @@ def _sync_resource(resource_id):
 
 
 def get_rows_synced_by_team(begin: datetime, end: datetime, team_id):
-    resources = AirbyteResource.objects.filter(team_id=team_id, are_tables_created=True)
+    resources = ExternalDataSource.objects.filter(team_id=team_id, are_tables_created=True)
     return sum([get_rows_synced_by_resource_id(begin, end, resource.pk) for resource in resources])
 
 
 def get_rows_synced_by_resource_id(begin: datetime, end: datetime, resource_id, offset=0):
 
-    resource = AirbyteResource.objects.get(pk=resource_id)
+    resource = ExternalDataSource.objects.get(pk=resource_id)
     params = {
         "connectionId": resource.connection_id,
         "limit": 100,

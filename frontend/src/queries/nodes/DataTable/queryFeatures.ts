@@ -3,7 +3,7 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isPersonsQuery,
-    isWebOverviewStatsQuery,
+    isWebOverviewQuery,
     isWebStatsTableQuery,
     isWebTopClicksQuery,
 } from '~/queries/utils'
@@ -54,7 +54,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (isWebOverviewStatsQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
+    if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
     }

@@ -56,7 +56,10 @@ def active_teams() -> Set[int]:
         )
         if not teams_by_recency:
             return set()
-        redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {team: score for team, score in teams_by_recency})
+        redis.zadd(
+            RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
+            {team: score for team, score in teams_by_recency},
+        )
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
 
@@ -71,7 +74,10 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
             group_properties={
-                "organization": {"id": str(team.organization.id), "created_at": team.organization.created_at}
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
             },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
@@ -81,7 +87,9 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
 
 
 def is_stale_filter(
-    team: Team, filter: Filter | RetentionFilter | StickinessFilter | PathFilter, cached_result: Any
+    team: Team,
+    filter: Filter | RetentionFilter | StickinessFilter | PathFilter,
+    cached_result: Any,
 ) -> bool:
     interval = filter.period.lower() if isinstance(filter, RetentionFilter) else filter.interval
     return is_stale(team, filter.date_to, interval, cached_result)
