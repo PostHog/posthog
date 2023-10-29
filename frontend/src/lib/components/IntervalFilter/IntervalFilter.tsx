@@ -1,6 +1,4 @@
-import { intervalFilterLogic } from './intervalFilterLogic'
 import { useActions, useValues } from 'kea'
-import { IntervalType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
