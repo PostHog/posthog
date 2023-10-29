@@ -82,6 +82,7 @@ function MoreMenu({
                 },
                 { icon: <IconClose />, label: 'Logout', onClick: logout },
             ]}
+            maxContentWidth={true}
         >
             <LemonButton
                 status={'stealth'}

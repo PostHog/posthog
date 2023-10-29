@@ -47,7 +47,7 @@ const MenuBody = (): JSX.Element => {
                         >
                             <div className="flex-1 font-bold truncate">
                                 <a
-                                    className="text-3000"
+                                    className="text-text-3000"
                                     href={`${apiURL}${
                                         feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
                                     }`}
