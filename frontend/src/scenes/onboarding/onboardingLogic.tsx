@@ -1,10 +1,10 @@
-import { kea } from 'kea'
+import { kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { BillingProductV2Type, ProductKey } from '~/types'
 import { urls } from 'scenes/urls'
 
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, actionToUrl, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { onboardingLogicType } from './onboardingLogicType'
@@ -27,25 +27,27 @@ export type OnboardingStep = JSX.Element
 
 export const getProductUri = (productKey: ProductKey): string => {
     switch (productKey) {
-        case 'product_analytics':
+        case ProductKey.PRODUCT_ANALYTICS:
             return combineUrl(urls.events(), { onboarding_completed: true }).url
-        case 'session_replay':
+        case ProductKey.SESSION_REPLAY:
             return urls.replay()
-        case 'feature_flags':
+        case ProductKey.FEATURE_FLAGS:
             return urls.featureFlags()
+        case ProductKey.SURVEYS:
+            return urls.surveys()
         default:
             return urls.default()
     }
 }
 
-export const onboardingLogic = kea<onboardingLogicType>({
-    props: {} as OnboardingLogicProps,
-    path: ['scenes', 'onboarding', 'onboardingLogic'],
-    connect: {
+export const onboardingLogic = kea<onboardingLogicType>([
+    props({} as OnboardingLogicProps),
+    path(['scenes', 'onboarding', 'onboardingLogic']),
+    connect({
         values: [billingLogic, ['billing'], teamLogic, ['currentTeam']],
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
-    },
-    actions: {
+    }),
+    actions({
         setProduct: (product: BillingProductV2Type | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
@@ -55,8 +57,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
-    },
-    reducers: () => ({
+    }),
+    reducers(() => ({
         productKey: [
             null as string | null,
             {
@@ -95,8 +97,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
@@ -148,8 +150,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
             actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
         },
@@ -205,8 +207,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
         resetStepKey: () => {
             actions.setStepKey(values.allOnboardingSteps[0].props.stepKey)
         },
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { step: stepKey }]
@@ -241,8 +243,8 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 return [values.onCompleteOnboardingRedirectUrl]
             }
         },
-    }),
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
             if (!productKey) {
                 window.location.href = urls.default()
@@ -260,5 +262,5 @@ export const onboardingLogic = kea<onboardingLogicType>({
                 actions.resetStepKey()
             }
         },
-    }),
-})
+    })),
+])

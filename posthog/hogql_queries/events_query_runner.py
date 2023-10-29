@@ -43,14 +43,13 @@ class EventsQueryRunner(QueryRunner):
         query: EventsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        default_limit: Optional[int] = None,
+        in_export_context: Optional[bool] = False,
     ):
-        super().__init__(query, team, timings)
+        super().__init__(query, team, timings, in_export_context)
         if isinstance(query, EventsQuery):
             self.query = query
         else:
             self.query = EventsQuery.model_validate(query)
-        self.default_limit = default_limit
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -100,7 +99,9 @@ class EventsQueryRunner(QueryRunner):
                     with self.timings.measure("event"):
                         where_exprs.append(
                             parse_expr(
-                                "event = {event}", {"event": ast.Constant(value=self.query.event)}, timings=self.timings
+                                "event = {event}",
+                                {"event": ast.Constant(value=self.query.event)},
+                                timings=self.timings,
                             )
                         )
                 if self.query.actionId:
@@ -119,7 +120,9 @@ class EventsQueryRunner(QueryRunner):
                         ids_list = list(map(str, distinct_ids))
                         where_exprs.append(
                             parse_expr(
-                                "distinct_id in {list}", {"list": ast.Constant(value=ids_list)}, timings=self.timings
+                                "distinct_id in {list}",
+                                {"list": ast.Constant(value=ids_list)},
+                                timings=self.timings,
                             )
                         )
 
@@ -132,7 +135,9 @@ class EventsQueryRunner(QueryRunner):
                     parsed_date = relative_date_parse(before, self.team.timezone_info)
                 where_exprs.append(
                     parse_expr(
-                        "timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}, timings=self.timings
+                        "timestamp < {timestamp}",
+                        {"timestamp": ast.Constant(value=parsed_date)},
+                        timings=self.timings,
                     )
                 )
 
@@ -193,6 +198,7 @@ class EventsQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             query_type="EventsQuery",
             timings=self.timings,
+            in_export_context=self.in_export_context,
         )
 
         # Convert star field from tuple to dict in each result
@@ -261,13 +267,18 @@ class EventsQueryRunner(QueryRunner):
 
     def limit(self) -> int:
         # importing locally so we could override in a test
-        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+        from posthog.hogql.constants import (
+            DEFAULT_RETURNED_ROWS,
+            MAX_SELECT_RETURNED_ROWS,
+        )
 
         # adding +1 to the limit to check if there's a "next page" after the requested results
         return (
             min(
                 MAX_SELECT_RETURNED_ROWS,
-                self.default_limit or DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit,
+                (MAX_SELECT_RETURNED_ROWS if self.in_export_context else DEFAULT_RETURNED_ROWS)
+                if self.query.limit is None
+                else self.query.limit,
             )
             + 1
         )

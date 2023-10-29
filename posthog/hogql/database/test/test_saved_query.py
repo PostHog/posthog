@@ -35,7 +35,10 @@ class TestSavedQuery(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
         clickhouse = self._select(query="SELECT * FROM aapl_stock_view LIMIT 10", dialect="clickhouse")
 
@@ -48,9 +51,15 @@ class TestSavedQuery(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
-        clickhouse = self._select(query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10", dialect="clickhouse")
+        clickhouse = self._select(
+            query="SELECT * FROM aapl_stock_view AS some_alias LIMIT 10",
+            dialect="clickhouse",
+        )
 
         self.assertEqual(
             clickhouse,

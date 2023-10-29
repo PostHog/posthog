@@ -80,7 +80,7 @@
     &--with-sidebar {
         // TODO: Sync this with the sidebar width itself
         .NotebookPopover__content {
-            width: calc(50rem + var(--notebook-sidebar-width));
+            width: calc(50rem + var(--notebook-column-left-width));
         }
     }
 

@@ -101,7 +101,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return new_filter, label_to_payload
 
     def merge_results(
-        self, result, cached_result: Optional[Dict[str, Any]], entity_order: int, filter: Filter, team: Team
+        self,
+        result,
+        cached_result: Optional[Dict[str, Any]],
+        entity_order: int,
+        filter: Filter,
+        team: Team,
     ):
         if cached_result and filter.display != TRENDS_CUMULATIVE:
             new_res = []
@@ -139,7 +144,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             result = parse_function(result)
             serialized_data = self._format_serialized(entity, result)
             merged_results, cached_result = self.merge_results(
-                serialized_data, cached_result, entity.order or entity.index, filter, team
+                serialized_data,
+                cached_result,
+                entity.order or entity.index,
+                filter,
+                team,
             )
 
         if cached_result:
@@ -149,7 +158,15 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return merged_results
 
     def _run_query_for_threading(
-        self, result: List, index: int, query_type, sql, params, query_tags: Dict, filter: Filter, team_id: int
+        self,
+        result: List,
+        index: int,
+        query_type,
+        sql,
+        params,
+        query_tags: Dict,
+        filter: Filter,
+        team_id: int,
     ):
         tag_queries(**query_tags)
         with push_scope() as scope:
@@ -171,7 +188,16 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, query_params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, query_params, get_query_tags(), adjusted_filter, team.pk),
+                args=(
+                    result,
+                    entity.index,
+                    query_type,
+                    sql,
+                    query_params,
+                    get_query_tags(),
+                    adjusted_filter,
+                    team.pk,
+                ),
             )
             jobs.append(thread)
 
@@ -189,12 +215,20 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             scope.set_tag("team", team)
             for i, entity in enumerate(filter.entities):
                 scope.set_context(
-                    "query", {"sql": sql_statements_with_params[i][0], "params": sql_statements_with_params[i][1]}
+                    "query",
+                    {
+                        "sql": sql_statements_with_params[i][0],
+                        "params": sql_statements_with_params[i][1],
+                    },
                 )
                 serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
                 serialized_data = self._format_serialized(entity, serialized_data)
                 merged_results, cached_result = self.merge_results(
-                    serialized_data, cached_result, entity.order or entity.index, filter, team
+                    serialized_data,
+                    cached_result,
+                    entity.order or entity.index,
+                    filter,
+                    team,
                 )
                 result[entity.index] = merged_results
 

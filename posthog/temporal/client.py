@@ -8,7 +8,15 @@ from temporalio.client import Client, TLSConfig
 from posthog.temporal.codec import EncryptionCodec
 
 
-async def connect(host, port, namespace, server_root_ca_cert=None, client_cert=None, client_key=None, runtime=None):
+async def connect(
+    host,
+    port,
+    namespace,
+    server_root_ca_cert=None,
+    client_cert=None,
+    client_key=None,
+    runtime=None,
+):
     tls: TLSConfig | bool = False
     if server_root_ca_cert and client_cert and client_key:
         tls = TLSConfig(
@@ -22,7 +30,8 @@ async def connect(host, port, namespace, server_root_ca_cert=None, client_cert=N
         tls=tls,
         runtime=runtime,
         data_converter=dataclasses.replace(
-            temporalio.converter.default(), payload_codec=EncryptionCodec(settings=settings)
+            temporalio.converter.default(),
+            payload_codec=EncryptionCodec(settings=settings),
         ),
     )
     return client

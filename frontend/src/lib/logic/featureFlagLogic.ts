@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, actions, reducers, events } from 'kea'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -64,13 +64,12 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType>({
-    path: ['lib', 'logic', 'featureFlagLogic'],
-    actions: {
+export const featureFlagLogic = kea<featureFlagLogicType>([
+    path(['lib', 'logic', 'featureFlagLogic']),
+    actions({
         setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
-    },
-
-    reducers: {
+    }),
+    reducers({
         featureFlags: [
             getPersistedFeatureFlags(),
             { persist: true },
@@ -84,11 +83,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 setFeatureFlags: () => true,
             },
         ],
-    },
-
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             posthog.onFeatureFlags(actions.setFeatureFlags)
         },
-    }),
-})
+    })),
+])

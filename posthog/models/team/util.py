@@ -49,6 +49,7 @@ def delete_batch_exports(team_ids: List[int]):
 
 can_enable_actor_on_events = False
 
+
 # :TRICKY: Avoid overly eagerly checking whether the migration is complete.
 # We instead cache negative responses for a minute and a positive one forever.
 def actor_on_events_ready() -> bool:

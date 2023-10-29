@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import fs from 'fs'
 import { Server } from 'http'
+import { BatchConsumer } from 'kafka/batch-consumer'
 import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
@@ -99,10 +100,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
-    let stopSessionRecordingEventsConsumer: (() => void) | undefined
     let stopSessionRecordingBlobConsumer: (() => void) | undefined
-    let joinSessionRecordingEventsConsumer: ((timeout?: number) => Promise<void>) | undefined
-    let joinSessionRecordingBlobConsumer: ((timeout?: number) => Promise<void>) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -142,7 +140,6 @@ export async function startPluginsServer(
             stopWebhooksHandlerConsumer?.(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
-            stopSessionRecordingEventsConsumer?.(),
             stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
@@ -152,8 +149,19 @@ export async function startPluginsServer(
         }
 
         await closeHub?.()
+    }
 
-        status.info('👋', 'Over and out!')
+    // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
+    // Ideally we would also join all the other background tasks as well to ensure we stop the
+    // server if we hit any errors and don't end up with zombie instances, but I'll leave that
+    // refactoring for another time. Note that we have the liveness health checks already, so in K8s
+    // cases zombies should be reaped anyway, albeit not in the most efficient way.
+    function shutdownOnConsumerExit(consumer: BatchConsumer) {
+        consumer.join().catch(async (error) => {
+            status.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
+            await closeJobs()
+            process.exit(1)
+        })
     }
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
@@ -164,6 +172,7 @@ export async function startPluginsServer(
         // This makes async exit possible with the process waiting until jobs are closed
         status.info('👋', 'process handling beforeExit event. Closing jobs...')
         await closeJobs()
+        status.info('👋', 'Over and out!')
         process.exit(0)
     })
 
@@ -281,11 +290,11 @@ export async function startPluginsServer(
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
                 {
                     hub: hub,
-                    piscina: piscina,
                 }
             )
 
             analyticsEventsIngestionConsumer = queue
+            shutdownOnConsumerExit(analyticsEventsIngestionConsumer.consumer!)
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
         }
 
@@ -297,10 +306,10 @@ export async function startPluginsServer(
             const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
                 await startAnalyticsEventsIngestionHistoricalConsumer({
                     hub: hub,
-                    piscina: piscina,
                 })
 
             analyticsEventsIngestionHistoricalConsumer = queue
+            shutdownOnConsumerExit(analyticsEventsIngestionHistoricalConsumer.consumer!)
             healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
         }
 
@@ -309,10 +318,12 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
+            const queue = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
-                piscina: piscina,
             })
+
+            analyticsEventsIngestionOverflowConsumer = queue
+            shutdownOnConsumerExit(analyticsEventsIngestionOverflowConsumer.consumer!)
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
@@ -323,7 +334,6 @@ export async function startPluginsServer(
             const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
-                    piscina: piscina,
                 })
 
             onEventHandlerConsumer = onEventQueue
@@ -418,38 +428,13 @@ export async function startPluginsServer(
 
             if (batchConsumer) {
                 stopSessionRecordingBlobConsumer = () => ingester.stop()
-                joinSessionRecordingBlobConsumer = () => batchConsumer.join()
+                shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
         }
 
         if (capabilities.http) {
             httpServer = createHttpServer(serverConfig.HTTP_SERVER_PORT, healthChecks, analyticsEventsIngestionConsumer)
-        }
-
-        // If session recordings consumer is defined, then join it. If join
-        // resolves, then the consumer has stopped and we should shut down
-        // everything else. Ideally we would also join all the other background
-        // tasks as well to ensure we stop the server if we hit any errors and
-        // don't end up with zombie instances, but I'll leave that refactoring
-        // for another time. Note that we have the liveness health checks
-        // already, so in K8s cases zombies should be reaped anyway, albeit not
-        // in the most efficient way.
-        //
-        // When extending to other consumers, we would want to do something like
-        //
-        // ```
-        // try {
-        //      await Promise.race([sessionConsumer.join(), analyticsConsumer.join(), ...])
-        // } finally {
-        //      await closeJobs()
-        // }
-        // ```
-        if (joinSessionRecordingEventsConsumer) {
-            joinSessionRecordingEventsConsumer().catch(closeJobs)
-        }
-        if (joinSessionRecordingBlobConsumer) {
-            joinSessionRecordingBlobConsumer().catch(closeJobs)
         }
 
         return serverInstance ?? { stop: closeJobs }

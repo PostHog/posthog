@@ -336,7 +336,7 @@ function safeString(payload: (string | null)[]) {
         .join(' ')
 }
 
-enum RRWebEventType {
+export enum RRWebEventType {
     DomContentLoaded = 0,
     Load = 1,
     FullSnapshot = 2,

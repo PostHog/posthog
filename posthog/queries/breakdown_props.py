@@ -2,7 +2,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import (
+    BREAKDOWN_TYPES,
+    MONTHLY_ACTIVE,
+    WEEKLY_ACTIVE,
+    PropertyOperatorType,
+)
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
@@ -26,7 +31,10 @@ from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.queries.trends.sql import (
+    HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
+    TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
+)
 from posthog.queries.util import PersonPropertiesMode
 from posthog.utils import PersonOnEventsMode
 
@@ -98,7 +106,10 @@ def get_breakdown_prop_values(
         )
 
         person_query = PersonQuery(
-            filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
+            filter,
+            team.pk,
+            column_optimizer=column_optimizer,
+            entity=entity if not use_all_funnel_entities else None,
         )
         if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2:
             person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(
@@ -160,7 +171,10 @@ def get_breakdown_prop_values(
         filter.hogql_context,
         filter.breakdown_normalize_url,
         direct_on_events=person_properties_mode
-        in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2],
+        in [
+            PersonPropertiesMode.DIRECT_ON_EVENTS,
+            PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+        ],
         cast_as_float=filter.using_histogram,
     )
 
@@ -269,7 +283,11 @@ def _to_value_expression(
             value_expression = translate_hogql(cast(str, breakdown), hogql_context)
     else:
         value_expression = get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url
+            breakdown,
+            table="events",
+            query_alias=None,
+            column="properties",
+            normalize_url=breakdown_normalize_url,
         )
 
     if cast_as_float:

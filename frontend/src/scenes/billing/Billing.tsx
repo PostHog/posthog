@@ -264,7 +264,7 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex justify-between mt-4">
                 <h2>Products</h2>
                 {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton

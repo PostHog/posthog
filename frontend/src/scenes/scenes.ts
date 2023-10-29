@@ -46,6 +46,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web Analytics',
+        layout: 'app-container',
     },
     [Scene.Cohorts]: {
         projectBased: true,
@@ -139,6 +140,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Persons & Groups',
     },
+    [Scene.Pipeline]: {
+        projectBased: true,
+        name: 'Pipeline',
+    },
     [Scene.Experiments]: {
         projectBased: true,
         name: 'Experiments',
@@ -161,6 +166,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
+    },
+    [Scene.SurveyTemplates]: {
+        projectBased: true,
+        name: 'New survey',
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
@@ -322,6 +331,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Notebooks',
     },
+    [Scene.Canvas]: {
+        projectBased: true,
+        name: 'Canvas',
+        layout: 'app-raw',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -422,6 +436,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
+    [urls.pipeline()]: Scene.Pipeline,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -433,6 +448,7 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
@@ -492,4 +508,5 @@ export const routes: Record<string, Scene> = {
     [urls.feedback() + '/*']: Scene.Feedback,
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
+    [urls.canvas()]: Scene.Canvas,
 }

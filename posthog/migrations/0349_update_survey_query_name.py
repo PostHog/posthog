@@ -5,7 +5,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0348_alter_datawarehousetable_format"),
     ]

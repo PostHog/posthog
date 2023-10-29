@@ -4,7 +4,11 @@ import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
-import { defaultDataTableColumns, extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    defaultDataTableColumns,
+    extractExpressionComment,
+    removeExpressionComment,
+} from '~/queries/nodes/DataTable/utils'
 import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
@@ -18,26 +22,28 @@ const EXPORT_MAX_LIMIT = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_MAX_LIMIT }
-        : { source: query.source, max_limit: EXPORT_MAX_LIMIT }
+        ? { path: getPersonsEndpoint(query.source) }
+        : { source: query.source }
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
 
-    const columnMapping = {
-        url: ['properties.$current_url', 'properties.$screen_name'],
-        time: 'timestamp',
-        event: 'event',
-        source: 'properties.$lib',
-        person: isPersonsNode(query.source)
-            ? ['distinct_ids.0', 'properties.email']
-            : ['person.distinct_ids.0', 'person.properties.email'],
-    }
-
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source.kind))
-            ?.flatMap((c) => columnMapping[c] || c)
-            .filter((c) => c !== 'person.$delete')
+        exportContext['columns'] = (
+            (isEventsQuery(query.source) ? query.source.select : null) ??
+            query.columns ??
+            defaultDataTableColumns(query.source.kind)
+        )?.filter((c) => c !== 'person.$delete')
+
+        if (isEventsQuery(query.source)) {
+            exportContext['columns'] = exportContext['columns'].map((c: string) =>
+                removeExpressionComment(c) === 'person' ? 'person.properties.email' : c
+            )
+        } else if (isPersonsNode(query.source)) {
+            exportContext['columns'] = exportContext['columns'].map((c: string) =>
+                removeExpressionComment(c) === 'person' ? 'properties.email' : c
+            )
+        }
     }
     triggerExport({
         export_format: ExporterFormat.CSV,
@@ -185,7 +191,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
-    const canExportAllColumns = isEventsQuery(source) || isPersonsNode(source)
+    const canExportAllColumns = (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source)
     const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
 
     return (

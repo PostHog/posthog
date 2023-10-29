@@ -4,7 +4,10 @@ from typing import Optional, Dict, Tuple
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.schema import DateRange, IntervalType
-from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
+from posthog.utils import (
+    get_compare_period_dates,
+    relative_date_parse_with_delta_mapping,
+)
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -17,14 +20,20 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
     _now_without_timezone: datetime
 
     def __init__(
-        self, date_range: Optional[DateRange], team: Team, interval: Optional[IntervalType], now: datetime
+        self,
+        date_range: Optional[DateRange],
+        team: Team,
+        interval: Optional[IntervalType],
+        now: datetime,
     ) -> None:
         super().__init__(date_range, team, interval, now)
 
     def date_from_delta_mappings(self) -> Dict[str, int] | None:
         if self._date_range and isinstance(self._date_range.date_from, str) and self._date_range.date_from != "all":
             delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_from, self._team.timezone_info, now=self.now_with_timezone
+                self._date_range.date_from,
+                self._team.timezone_info,
+                now=self.now_with_timezone,
             )[1]
             return delta_mapping
 
@@ -33,7 +42,10 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
     def date_to_delta_mappings(self) -> Dict[str, int] | None:
         if self._date_range and self._date_range.date_to:
             delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_to, self._team.timezone_info, always_truncate=True, now=self.now_with_timezone
+                self._date_range.date_to,
+                self._team.timezone_info,
+                always_truncate=True,
+                now=self.now_with_timezone,
             )[1]
             return delta_mapping
         return None

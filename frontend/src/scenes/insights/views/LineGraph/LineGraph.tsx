@@ -50,6 +50,14 @@ export function ensureTooltipElement(): HTMLElement {
     return tooltipEl
 }
 
+function truncateString(str: string, num: number): string {
+    if (str.length > num) {
+        return str.slice(0, num) + ' ...'
+    } else {
+        return str
+    }
+}
+
 export function onChartClick(
     event: ChartEvent,
     chart: Chart,
@@ -365,7 +373,7 @@ export function LineGraph_({
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
-            color: '#2d2d2d' as Color,
+            color: colors.axisLabel as Color,
             font: {
                 family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
@@ -408,6 +416,9 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
+                        if (showValueOnSeries && inSurveyView) {
+                            return true
+                        }
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
@@ -570,6 +581,9 @@ export function LineGraph_({
         }
 
         if (type === GraphType.Bar) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -578,8 +592,9 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         precision,
+                        ...(inSurveyView ? { padding: 10 } : {}),
                     },
-                    grid: gridOptions,
+                    grid: inSurveyView ? { display: false } : gridOptions,
                 },
                 y: {
                     display: !hideYAxis,
@@ -597,6 +612,9 @@ export function LineGraph_({
                 },
             }
         } else if (type === GraphType.Line) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -624,6 +642,9 @@ export function LineGraph_({
                 },
             }
         } else if (isHorizontal) {
+            if (hideXAxis || hideYAxis) {
+                options.layout = { padding: 20 }
+            }
             options.scales = {
                 x: {
                     display: !hideXAxis,
@@ -642,6 +663,13 @@ export function LineGraph_({
                     display: true,
                     beforeFit: (scale) => {
                         if (inSurveyView) {
+                            scale.ticks = scale.ticks.map((tick) => {
+                                if (typeof tick.label === 'string') {
+                                    return { ...tick, label: truncateString(tick.label, 50) }
+                                }
+                                return tick
+                            })
+
                             const ROW_HEIGHT = 60
                             const dynamicHeight = scale.ticks.length * ROW_HEIGHT
                             const height = dynamicHeight

@@ -20,7 +20,6 @@ DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0307_pluginconfig_admin"),
     ]
@@ -29,7 +28,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="PersonOverrideMapping",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("uuid", models.UUIDField()),
                 ("team_id", models.BigIntegerField()),
             ],
@@ -73,14 +80,19 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="personoverride",
             constraint=models.UniqueConstraint(
-                fields=("team", "old_person_id"), name="unique override per old_person_id"
+                fields=("team", "old_person_id"),
+                name="unique override per old_person_id",
             ),
         ),
         migrations.AddConstraint(
             model_name="personoverride",
             constraint=models.CheckConstraint(
                 check=models.Q(
-                    ("old_person_id__exact", django.db.models.expressions.F("override_person_id")), _negated=True
+                    (
+                        "old_person_id__exact",
+                        django.db.models.expressions.F("override_person_id"),
+                    ),
+                    _negated=True,
                 ),
                 name="old_person_id_different_from_override_person_id",
             ),

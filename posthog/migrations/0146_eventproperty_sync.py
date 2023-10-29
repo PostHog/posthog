@@ -12,7 +12,6 @@ ATTRIBUTES = (
 
 
 def sync_event_and_properties_definitions(team_uuid: str, Team, EventDefinition, PropertyDefinition) -> None:
-
     team = None
 
     # It is possible that the team was deleted before the task could run
@@ -64,11 +63,14 @@ def sync_team_event_names_and_properties(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0145_eventdefinition_propertydefinition"),
     ]
 
     operations = [
-        migrations.RunPython(sync_team_event_names_and_properties, migrations.RunPython.noop, elidable=True),
+        migrations.RunPython(
+            sync_team_event_names_and_properties,
+            migrations.RunPython.noop,
+            elidable=True,
+        ),
     ]

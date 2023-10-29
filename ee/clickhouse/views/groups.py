@@ -36,7 +36,11 @@ class ClickhouseGroupsTypesView(StructuredViewSetMixin, mixins.ListModelMixin, v
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
     pagination_class = None
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     sharing_enabled_actions = ["list"]
 
@@ -74,7 +78,11 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     serializer_class = GroupSerializer
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     def get_queryset(self):
         return (
@@ -89,9 +97,17 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "group_type_index", OpenApiTypes.INT, description="Specify the group type to list", required=True
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to list",
+                required=True,
             ),
-            OpenApiParameter("search", OpenApiTypes.STR, description="Search the group name", required=True),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Search the group name",
+                required=True,
+            ),
         ]
     )
     def list(self, request, *args, **kwargs):
@@ -123,10 +139,16 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "group_type_index", OpenApiTypes.INT, description="Specify the group type to find", required=True
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
             ),
             OpenApiParameter(
-                "group_key", OpenApiTypes.STR, description="Specify the key of the group to find", required=True
+                "group_key",
+                OpenApiTypes.STR,
+                description="Specify the key of the group to find",
+                required=True,
             ),
         ]
     )
@@ -142,10 +164,16 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "group_type_index", OpenApiTypes.INT, description="Specify the group type to find", required=True
+                "group_type_index",
+                OpenApiTypes.INT,
+                description="Specify the group type to find",
+                required=True,
             ),
             OpenApiParameter(
-                "id", OpenApiTypes.STR, description="Specify the id of the user to find groups for", required=True
+                "id",
+                OpenApiTypes.STR,
+                description="Specify the id of the user to find groups for",
+                required=True,
             ),
         ]
     )
@@ -186,7 +214,10 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
                 required=True,
             ),
             OpenApiParameter(
-                "key", OpenApiTypes.STR, description="Specify the property key to find values for", required=True
+                "key",
+                OpenApiTypes.STR,
+                description="Specify the property key to find values for",
+                required=True,
             ),
         ]
     )
@@ -201,7 +232,11 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
             GROUP BY tupleElement(keysAndValues, 2)
             ORDER BY value ASC
         """,
-            {"team_id": self.team.pk, "group_type_index": request.GET["group_type_index"], "key": request.GET["key"]},
+            {
+                "team_id": self.team.pk,
+                "group_type_index": request.GET["group_type_index"],
+                "key": request.GET["key"],
+            },
         )
 
         return response.Response([{"name": name[0]} for name in rows])

@@ -296,7 +296,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting Snowflake export batch %s - %s", data_interval_start, data_interval_end)
+        logger.info(
+            "Starting Snowflake export batch %s - %s",
+            data_interval_start,
+            data_interval_end,
+        )
 
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
@@ -374,7 +378,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             raise
 
         else:
-            logger.info("Successfully finished Snowflake export batch %s - %s", data_interval_start, data_interval_end)
+            logger.info(
+                "Successfully finished Snowflake export batch %s - %s",
+                data_interval_start,
+                data_interval_end,
+            )
 
         finally:
             await workflow.execute_activity(

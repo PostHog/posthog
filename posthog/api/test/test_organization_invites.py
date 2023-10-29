@@ -5,7 +5,11 @@ from django.core import mail
 from rest_framework import status
 
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import Organization, OrganizationInvite, OrganizationMembership
+from posthog.models.organization import (
+    Organization,
+    OrganizationInvite,
+    OrganizationMembership,
+)
 from posthog.test.base import APIBaseTest
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
@@ -13,7 +17,6 @@ NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 class TestOrganizationInvitesAPI(APIBaseTest):
     def helper_generate_bulk_invite_payload(self, count: int):
-
         payload = []
 
         for i in range(0, count):
@@ -114,7 +117,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             self.user.distinct_id,
             "team invite executed",
             properties=capture_props,
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
         self.assertEqual(mock_capture.call_count, 2)
@@ -188,7 +195,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_member_count": 1,
                 "email_available": True,
             },
-            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
         )
 
         # Assert capture call for invitee
@@ -209,7 +220,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(21)
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+        with self.settings(
+            EMAIL_ENABLED=True,
+            EMAIL_HOST="localhost",
+            SITE_URL="http://test.posthog.com",
+        ):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -234,7 +249,11 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(5)
         payload[4]["target_email"] = None
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
+        with self.settings(
+            EMAIL_ENABLED=True,
+            EMAIL_HOST="localhost",
+            SITE_URL="http://test.posthog.com",
+        ):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -251,8 +270,16 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
         payload = self.helper_generate_bulk_invite_payload(3)
 
-        with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post(f"/api/organizations/{another_org.id}/invites/bulk/", payload, format="json")
+        with self.settings(
+            EMAIL_ENABLED=True,
+            EMAIL_HOST="localhost",
+            SITE_URL="http://test.posthog.com",
+        ):
+            response = self.client.post(
+                f"/api/organizations/{another_org.id}/invites/bulk/",
+                payload,
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
