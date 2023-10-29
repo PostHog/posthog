@@ -68,7 +68,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             },
         ],
         theme: [
-            'light' as 'light' | 'dark',
+            'dark' as 'light' | 'dark',
             { persist: true },
             {
                 toggleTheme: (state) => (state === 'light' ? 'dark' : 'light'),
