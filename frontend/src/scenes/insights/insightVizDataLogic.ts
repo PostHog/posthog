@@ -41,7 +41,7 @@ import {
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
-import { intervals } from 'lib/components/IntervalFilter/intervals'
+import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import { sceneLogic } from 'scenes/sceneLogic'
