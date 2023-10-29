@@ -1,7 +1,9 @@
+import { windowValues } from 'kea-window-values'
+import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { getShadowRoot, inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { getShadowRoot, elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
@@ -13,12 +15,12 @@ const DEFAULT_PADDING = { width: 35, height: 30 }
 const DEFAULT_PADDING_3000 = { width: 35, height: 3000 }
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
-    path(() => ['toolbar', 'button', 'toolbarButtonLogic']),
+    path(['toolbar', 'button', 'toolbarButtonLogic']),
     connect(() => ({
         actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
     })),
-    actions({
-        openMoreMenu: true,
+    actions(() => ({
+                openMoreMenu: true,
         closeMoreMenu: true,
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
@@ -38,14 +40,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
         setBoundingRect: (boundingRect: DOMRect) => ({ boundingRect }),
-    }),
-
+    })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
         windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     })),
-
-    reducers(({ actions }) => ({
+    reducers(() => ({
         menuPlacement: [
             'top' as 'top' | 'bottom',
             {
@@ -197,7 +197,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             },
         ],
     })),
-
     selectors({
         fullMenuVisible: [
             (s) => [s.moreMenuVisible, s.heatmapInfoVisible, s.actionsInfoVisible, s.flagsVisible],
@@ -285,7 +284,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
                 flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     }),
-
     listeners(({ actions, values }) => ({
         showFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
@@ -319,5 +317,5 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             const toolbarElement = getShadowRoot()?.getElementById('button-toolbar')
             toolbarElement?.setAttribute('theme', theme)
         },
-    }),
+    })),
 ])

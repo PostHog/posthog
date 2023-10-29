@@ -7,18 +7,12 @@ import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lem
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
 }
 
 function ToolbarLaunch(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
-
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -46,21 +40,6 @@ function ToolbarLaunch(): JSX.Element {
         <div className="toolbar-launch-page">
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
-
-            <div className="my-4">
-                <LemonSwitch
-                    data-attr="toolbar-authorized-toggle"
-                    label="Enable the PostHog toolbar"
-                    onChange={() =>
-                        updateUser({
-                            toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
-                        })
-                    }
-                    checked={user?.toolbar_mode !== 'disabled'}
-                    disabled={userLoading}
-                    bordered
-                />
-            </div>
 
             <h2 className="subtitle" id="urls">
                 Authorized URLs for Toolbar

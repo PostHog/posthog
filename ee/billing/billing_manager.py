@@ -162,7 +162,10 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing", headers=self.get_auth_headers(organization))
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization),
+        )
 
         handle_billing_service_error(res)
 
@@ -177,7 +180,10 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing/portal", headers=self.get_auth_headers(organization))
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/portal",
+            headers=self.get_auth_headers(organization),
+        )
 
         handle_billing_service_error(res)
 
@@ -246,6 +252,11 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
             organization.available_product_features = data["available_product_features"]
+            org_modified = True
+
+        never_drop_data = data.get("never_drop_data", None)
+        if never_drop_data != organization.never_drop_data:
+            organization.never_drop_data = never_drop_data
             org_modified = True
 
         if org_modified:

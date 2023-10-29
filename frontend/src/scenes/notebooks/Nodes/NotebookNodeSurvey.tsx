@@ -17,11 +17,11 @@ import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
     const { survey, surveyLoading, hasTargetingFlag, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         setActions([
@@ -39,7 +39,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }, [survey])
 
     useEffect(() => {
-        updateAttributes({ title: survey.name ? `Survey: ${survey.name}` : 'Survey' })
+        setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
     }, [survey.name])
 
     if (surveyMissing) {
@@ -88,8 +88,6 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
                                                     ? survey.questions[0].link
                                                     : undefined
                                             }
-                                            readOnly={true}
-                                            onAppearanceChange={() => {}}
                                         />
                                     </div>
                                 </div>
@@ -140,7 +138,7 @@ type NotebookNodeSurveyAttributes = {
 
 export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttributes>({
     nodeType: NotebookNodeType.Survey,
-    defaultTitle: 'Survey',
+    titlePlaceholder: 'Survey',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.survey(attrs.id),

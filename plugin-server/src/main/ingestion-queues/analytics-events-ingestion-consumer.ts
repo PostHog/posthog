@@ -5,7 +5,6 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION, prefix as KAFKA_PREFIX } from '../../con
 import { Hub } from '../../types'
 import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { status } from '../../utils/status'
-import Piscina from '../../worker/piscina'
 import { eachBatchParallelIngestion, IngestionOverflowMode } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
@@ -17,10 +16,8 @@ export const ingestionPartitionKeyOverflowed = new Counter({
 
 export const startAnalyticsEventsIngestionConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    piscina,
 }: {
     hub: Hub
-    piscina: Piscina
 }) => {
     /*
         Consumes analytics events from the Kafka topic `events_plugin_ingestion`
@@ -56,7 +53,6 @@ export const startAnalyticsEventsIngestionConsumer = async ({
 
     const queue = new IngestionConsumer(
         hub,
-        piscina,
         KAFKA_EVENTS_PLUGIN_INGESTION,
         `${KAFKA_PREFIX}clickhouse-ingestion`,
         batchHandler

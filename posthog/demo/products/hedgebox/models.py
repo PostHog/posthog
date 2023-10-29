@@ -279,9 +279,18 @@ class HedgeboxPerson(SimPerson):
             # The more files, the more likely to delete/download/share rather than upload
             possible_intents_with_weights.extend(
                 [
-                    (HedgeboxSessionIntent.DELETE_FILE_S, math.log10(file_count) / 8 if file_count else 0),
-                    (HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S, math.log10(file_count + 1) if file_count else 0),
-                    (HedgeboxSessionIntent.SHARE_FILE, math.log10(file_count) / 3 if file_count else 0),
+                    (
+                        HedgeboxSessionIntent.DELETE_FILE_S,
+                        math.log10(file_count) / 8 if file_count else 0,
+                    ),
+                    (
+                        HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S,
+                        math.log10(file_count + 1) if file_count else 0,
+                    ),
+                    (
+                        HedgeboxSessionIntent.SHARE_FILE,
+                        math.log10(file_count) / 3 if file_count else 0,
+                    ),
                 ]
             )
             if self.account.allocation_used_fraction < 0.99:
@@ -304,7 +313,8 @@ class HedgeboxPerson(SimPerson):
         if possible_intents_with_weights:
             possible_intents, weights = zip(*possible_intents_with_weights)
             return self.cluster.random.choices(
-                cast(Tuple[HedgeboxSessionIntent], possible_intents), cast(Tuple[float], weights)
+                cast(Tuple[HedgeboxSessionIntent], possible_intents),
+                cast(Tuple[float], weights),
             )[0]
         else:
             return None
@@ -526,7 +536,10 @@ class HedgeboxPerson(SimPerson):
         self.active_client.capture_pageview(dyn_url_file(file.id))
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 1.6) * 20)
         if self.cluster.random.random() < 0.7:
-            self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
+            self.active_client.capture(
+                EVENT_DOWNLOADED_FILE,
+                {"file_type": file.type, "file_size_b": file.size_b},
+            )
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 2) * 80)
         self.need += (self.cluster.random.betavariate(1.2, 1) - 0.5) * 0.08
         if self.cluster.random.random() < 0.2:
@@ -537,13 +550,20 @@ class HedgeboxPerson(SimPerson):
         self.advance_timer(1 + self.cluster.random.betavariate(1.2, 1.2) * 5)
         random = self.cluster.random.random()
         if (
-            self.active_session_intent in (HedgeboxSessionIntent.UPGRADE_PLAN, HedgeboxSessionIntent.DOWNGRADE_PLAN)
+            self.active_session_intent
+            in (
+                HedgeboxSessionIntent.UPGRADE_PLAN,
+                HedgeboxSessionIntent.DOWNGRADE_PLAN,
+            )
             or random < 0.1
         ):
             self.go_to_account_billing()
         elif (
             self.active_session_intent
-            in (HedgeboxSessionIntent.INVITE_TEAM_MEMBER, HedgeboxSessionIntent.REMOVE_TEAM_MEMBER)
+            in (
+                HedgeboxSessionIntent.INVITE_TEAM_MEMBER,
+                HedgeboxSessionIntent.REMOVE_TEAM_MEMBER,
+            )
             or random < 0.1
         ):
             self.go_to_account_team()
@@ -609,7 +629,11 @@ class HedgeboxPerson(SimPerson):
             raise ValueError("Cannot join team without an account")
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": True})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
-        self.active_client.group(GROUP_TYPE_ACCOUNT, self.account.id, {"team_size": len(self.account.team_members)})
+        self.active_client.group(
+            GROUP_TYPE_ACCOUNT,
+            self.account.id,
+            {"team_size": len(self.account.team_members)},
+        )
         self.account.team_members.add(self)
 
     def upload_file(self, file: HedgeboxFile):
@@ -618,12 +642,19 @@ class HedgeboxPerson(SimPerson):
         self.account.files.add(file)
         self.active_client.capture(
             EVENT_UPLOADED_FILE,
-            properties={"file_type": file.type, "file_size_b": file.size_b, "used_mb": self.account.current_used_mb},
+            properties={
+                "file_type": file.type,
+                "file_size_b": file.size_b,
+                "used_mb": self.account.current_used_mb,
+            },
         )
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
+            {
+                "used_mb": self.account.current_used_mb,
+                "file_count": len(self.account.files),
+            },
         )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
@@ -643,7 +674,10 @@ class HedgeboxPerson(SimPerson):
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files)},
+            {
+                "used_mb": self.account.current_used_mb,
+                "file_count": len(self.account.files),
+            },
         )
 
     def share_file(self, file: HedgeboxFile):
@@ -662,7 +696,8 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no successor plan")
         self.active_client.capture(
-            EVENT_UPGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
+            EVENT_UPGRADED_PLAN,
+            {"previous_plan": str(previous_plan), "new_plan": str(new_plan)},
         )
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         self.schedule_effect(
@@ -678,7 +713,11 @@ class HedgeboxPerson(SimPerson):
             )
             for i in range(future_months):
                 bill_timestamp = self.cluster.simulation_time + dt.timedelta(days=30 * i)
-                self.schedule_effect(bill_timestamp, lambda person: person.bill_account(), Effect.Target.SELF)
+                self.schedule_effect(
+                    bill_timestamp,
+                    lambda person: person.bill_account(),
+                    Effect.Target.SELF,
+                )
 
     def downgrade_plan(self):
         assert self.account is not None
@@ -687,7 +726,8 @@ class HedgeboxPerson(SimPerson):
         if new_plan is None:
             raise ValueError("There's no predecessor plan")
         self.active_client.capture(
-            EVENT_DOWNGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan)}
+            EVENT_DOWNGRADED_PLAN,
+            {"previous_plan": str(previous_plan), "new_plan": str(new_plan)},
         )
         self.account.plan = new_plan
 
@@ -716,7 +756,10 @@ class HedgeboxPerson(SimPerson):
         if self.account and self.account.current_monthly_bill_usd:
             self.cluster.matrix.server_client.capture(
                 EVENT_PAID_BILL,
-                {"amount_usd": self.account.current_monthly_bill_usd, "plan": self.account.plan},
+                {
+                    "amount_usd": self.account.current_monthly_bill_usd,
+                    "plan": self.account.plan,
+                },
                 distinct_id=self.in_product_id,
             )
 

@@ -47,7 +47,6 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         return view_link
 
     def _validate_saved_query(self, saved_query_id: str, join_key: Optional[str], team_id: int) -> None:
-
         if not join_key:
             raise serializers.ValidationError("View column must have a join key.")
 

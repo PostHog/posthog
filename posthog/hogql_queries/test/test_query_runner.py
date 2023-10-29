@@ -6,7 +6,11 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 from pydantic import BaseModel
 
-from posthog.hogql_queries.query_runner import QueryResponse, QueryRunner, RunnableQueryNode
+from posthog.hogql_queries.query_runner import (
+    QueryResponse,
+    QueryRunner,
+    RunnableQueryNode,
+)
 from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
 

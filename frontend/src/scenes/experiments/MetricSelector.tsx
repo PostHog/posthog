@@ -133,7 +133,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                             <AggregationSelect insightProps={insightProps} hogqlAvailable />
                         </div>
                         <FunnelConversionWindowFilter insightProps={insightProps} />
-                        <AttributionSelect insightProps={insightProps} query={querySource as InsightQueryNode} />
+                        <AttributionSelect insightProps={insightProps} />
                     </>
                 )}
                 <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
@@ -142,7 +142,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
     )
 }
 
-export function AttributionSelect({ insightProps, query }: EditorFilterProps): JSX.Element {
+export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <div className="flex items-center w-full gap-2">
             <span>
@@ -166,7 +166,7 @@ export function AttributionSelect({ insightProps, query }: EditorFilterProps): J
                     <InfoCircleOutlined className="info-indicator" />
                 </Tooltip>
             </span>
-            <Attribution insightProps={insightProps} query={query} />
+            <Attribution insightProps={insightProps} />
         </div>
     )
 }

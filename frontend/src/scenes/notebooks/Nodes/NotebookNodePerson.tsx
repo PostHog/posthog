@@ -16,20 +16,18 @@ import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema'
 import { NotFound } from 'lib/components/NotFound'
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes
 
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
     const { expanded } = useValues(notebookNodeLogic)
     const { setExpanded, setActions, insertAfter } = useActions(notebookNodeLogic)
-
-    const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
 
     useEffect(() => {
-        updateAttributes({
-            title,
-        })
+        const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+        setTitlePlaceholder(title)
         setActions([
             {
                 text: 'Events',
@@ -105,7 +103,12 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between ', !expanded && 'cursor-pointer')}>
+            <div
+                className={clsx(
+                    'p-4 flex-0 flex gap-2 justify-between min-h-20 items-center',
+                    !expanded && 'cursor-pointer'
+                )}
+            >
                 {personLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
@@ -151,10 +154,11 @@ type NotebookNodePersonAttributes = {
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
-    defaultTitle: 'Person',
+    titlePlaceholder: 'Person',
     Component,
     heightEstimate: 300,
-    minHeight: 100,
+    minHeight: '5rem',
+    startExpanded: false,
     href: (attrs) => urls.personByDistinctId(attrs.id),
     resizeable: true,
     attributes: {

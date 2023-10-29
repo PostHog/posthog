@@ -6,7 +6,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class DeletedPrimaryDashboardTestCase(TestMigrations):
-
     migrate_from = "0221_add_activity_log_model"
     migrate_to = "0222_fix_deleted_primary_dashboards"
     assert_snapshots = True
@@ -65,19 +64,31 @@ class DeletedPrimaryDashboardTestCase(TestMigrations):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:
-        self.assertEqual(Team.objects.get(name="t1").primary_dashboard.id, Dashboard.objects.get(name="d1").id)
+        self.assertEqual(
+            Team.objects.get(name="t1").primary_dashboard.id,
+            Dashboard.objects.get(name="d1").id,
+        )
 
         # CASE 2:
         self.assertEqual(Team.objects.get(name="t2").primary_dashboard, None)
 
         # CASE 3:
-        self.assertEqual(Team.objects.get(name="t3").primary_dashboard.id, Dashboard.objects.get(name="d4").id)
+        self.assertEqual(
+            Team.objects.get(name="t3").primary_dashboard.id,
+            Dashboard.objects.get(name="d4").id,
+        )
 
         # CASE 4:
-        self.assertEqual(Team.objects.get(name="t4").primary_dashboard.id, Dashboard.objects.get(name="d6").id)
+        self.assertEqual(
+            Team.objects.get(name="t4").primary_dashboard.id,
+            Dashboard.objects.get(name="d6").id,
+        )
 
         # CASE 5:
-        self.assertEqual(Team.objects.get(name="t5").primary_dashboard.id, Dashboard.objects.get(name="d9").id)
+        self.assertEqual(
+            Team.objects.get(name="t5").primary_dashboard.id,
+            Dashboard.objects.get(name="d9").id,
+        )
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore

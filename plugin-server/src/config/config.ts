@@ -60,6 +60,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
+        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
@@ -130,6 +131,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
+        POE_EMBRACE_JOIN_FOR_TEAMS: '',
+        RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -223,14 +227,19 @@ export function overrideWithEnv(
 }
 
 export function buildIntegerMatcher(config: string | undefined, allowStar: boolean): ValueMatcher<number> {
-    // Builds a ValueMatcher on a coma-separated list of values.
+    // Builds a ValueMatcher on a comma-separated list of values.
     // Optionally, supports a '*' value to match everything
-    if (!config) {
+    if (!config || config.trim().length == 0) {
         return () => false
     } else if (allowStar && config === '*') {
         return () => true
     } else {
-        const values = new Set(config.split(',').map((n) => parseInt(n)))
+        const values = new Set(
+            config
+                .split(',')
+                .map((n) => parseInt(n))
+                .filter((num) => !isNaN(num))
+        )
         return (v: number) => {
             return values.has(v)
         }

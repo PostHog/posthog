@@ -1,4 +1,4 @@
-import { BuiltLogic, kea } from 'kea'
+import { BuiltLogic, kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     ListStorage,
@@ -66,11 +66,11 @@ export const propertyTaxonomicGroupProps = (
     getIcon: getPropertyDefinitionIcon,
 })
 
-export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
-    path: ['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic'],
-    props: {} as TaxonomicFilterLogicProps,
-    key: (props) => `${props.taxonomicFilterLogicKey}`,
-    connect: {
+export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
+    props({} as TaxonomicFilterLogicProps),
+    key((props) => `${props.taxonomicFilterLogicKey}`),
+    path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -79,8 +79,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupPropertiesModel,
             ['allGroupProperties'],
         ],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         moveUp: true,
         moveDown: true,
         selectSelected: (onComplete?: () => void) => ({ onComplete }),
@@ -98,9 +98,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             groupType,
             results,
         }),
-    }),
-
-    reducers: ({ selectors }) => ({
+    })),
+    reducers(({ selectors }) => ({
         searchQuery: [
             '',
             {
@@ -126,11 +125,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 enableMouseInteractions: () => true,
             },
         ],
-    }),
-
-    // NB, don't change to the async "selectors: (logic) => {}", as this causes a white screen when infiniteListLogic-s
-    // connect to taxonomicFilterLogic to select their initial values. They won't be built yet and will be unknown.
-    selectors: {
+    })),
+    selectors({
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -453,7 +449,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                groupTypes.map((type) => ({
+                Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
                     type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
@@ -470,7 +466,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         groupAnalyticsTaxonomicGroups: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                groupTypes.map((type) => ({
+                Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
@@ -546,8 +542,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     .join('')
             },
         ],
-    },
-    listeners: ({ actions, values, props }) => ({
+    }),
+    listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item) {
                 props.onChange?.(group, value, item)
@@ -648,5 +644,5 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 updatePropertyDefinitions(newPropertyDefinitions)
             }
         },
-    }),
-})
+    })),
+])

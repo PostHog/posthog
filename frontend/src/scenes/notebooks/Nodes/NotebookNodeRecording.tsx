@@ -25,7 +25,7 @@ import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
 
 const HEIGHT = 500
-const MIN_HEIGHT = 400
+const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const { id, noInspector } = attributes
@@ -142,7 +142,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    defaultTitle: 'Session replay',
+    titlePlaceholder: 'Session replay',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,

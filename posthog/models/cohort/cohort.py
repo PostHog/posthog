@@ -193,7 +193,12 @@ class Cohort(models.Model):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
-        logger.warn("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        logger.warn(
+            "cohort_calculation_started",
+            id=self.pk,
+            current_version=self.version,
+            new_version=pending_version,
+        )
         start_time = time.monotonic()
 
         try:
@@ -237,7 +242,10 @@ class Cohort(models.Model):
         """
 
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort, get_static_cohort_size
+        from posthog.models.cohort.util import (
+            insert_static_cohort,
+            get_static_cohort_size,
+        )
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -251,15 +259,26 @@ class Cohort(models.Model):
                 batch = items[i : i + batchsize]
                 persons_query = (
                     Person.objects.filter(team_id=self.team_id)
-                    .filter(Q(persondistinctid__team_id=self.team_id, persondistinctid__distinct_id__in=batch))
+                    .filter(
+                        Q(
+                            persondistinctid__team_id=self.team_id,
+                            persondistinctid__distinct_id__in=batch,
+                        )
+                    )
                     .exclude(cohort__id=self.id)
                 )
-                insert_static_cohort([p for p in persons_query.values_list("uuid", flat=True)], self.pk, self.team)
+                insert_static_cohort(
+                    [p for p in persons_query.values_list("uuid", flat=True)],
+                    self.pk,
+                    self.team,
+                )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
+                        'FROM "posthog_person"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        1,
                     ),
                 )
                 cursor.execute(query, params)
@@ -294,7 +313,9 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1
+                        'FROM "posthog_person"',
+                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                        1,
                     ),
                 )
                 cursor.execute(query, params)

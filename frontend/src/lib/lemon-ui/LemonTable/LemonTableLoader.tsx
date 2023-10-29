@@ -7,6 +7,7 @@ export function LemonTableLoader({
     tag = 'div',
 }: {
     loading?: boolean
+    /** @default 'div' */
     tag?: 'div' | 'th'
 }): JSX.Element {
     return (

@@ -1,7 +1,7 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { IconDarkMode, IconHelpOutline, IconLightMode, IconSettings, IconSync } from 'lib/lemon-ui/icons'
+import { IconQuestion, IconGear, IconDay, IconNight, IconAsterisk } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,7 +9,6 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 import { urls } from 'scenes/urls'
@@ -18,19 +17,19 @@ export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
-    const { isSidebarShown, activeNavbarItemId } = useValues(navigation3000Logic)
+    const { isSidebarShown, activeNavbarItemId, navbarItems } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { isDarkModeOn, darkModeSavedPreference, darkModeSystemPreference, isThemeSyncedWithSystem } =
         useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
 
-    const activeThemeIcon = isDarkModeOn ? <IconDarkMode /> : <IconLightMode />
+    const activeThemeIcon = isDarkModeOn ? <IconNight /> : <IconDay />
 
     return (
         <nav className="Navbar3000">
             <div className="Navbar3000__content">
                 <div className="Navbar3000__top">
-                    {NAVBAR_ITEMS.map((section, index) => (
+                    {navbarItems.map((section, index) => (
                         <ul key={index}>
                             {section.map((item) => (
                                 <NavbarButton
@@ -63,7 +62,7 @@ export function Navbar(): JSX.Element {
                                 isThemeSyncedWithSystem ? (
                                     <div className="relative">
                                         {activeThemeIcon}
-                                        <LemonBadge size="small" position="top-right" content={<IconSync />} />
+                                        <LemonBadge size="small" position="top-right" content={<IconAsterisk />} />
                                     </div>
                                 ) : (
                                     activeThemeIcon
@@ -85,15 +84,16 @@ export function Navbar(): JSX.Element {
                         <HelpButton
                             customComponent={
                                 <NavbarButton
-                                    icon={<IconHelpOutline />}
+                                    icon={<IconQuestion />}
                                     identifier="help-button"
                                     title="Need any help?"
+                                    popoverMarker
                                 />
                             }
                             placement="right-end"
                         />
                         <NavbarButton
-                            icon={<IconSettings />}
+                            icon={<IconGear />}
                             identifier={Scene.ProjectSettings}
                             to={urls.projectSettings()}
                         />
@@ -108,6 +108,7 @@ export function Navbar(): JSX.Element {
                                 identifier="me"
                                 title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                 onClick={toggleSitePopover}
+                                popoverMarker
                             />
                         </Popover>
                     </ul>

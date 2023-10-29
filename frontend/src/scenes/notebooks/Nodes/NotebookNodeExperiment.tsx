@@ -129,7 +129,7 @@ type NotebookNodeExperimentAttributes = {
 
 export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperimentAttributes>({
     nodeType: NotebookNodeType.Experiment,
-    defaultTitle: 'Experiment',
+    titlePlaceholder: 'Experiment',
     Component,
     heightEstimate: '3rem',
     href: (attrs) => urls.experiment(attrs.id),

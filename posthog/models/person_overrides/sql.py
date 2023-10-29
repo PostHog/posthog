@@ -14,7 +14,11 @@
 from django.conf import settings
 
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
+from posthog.settings.data_stores import (
+    CLICKHOUSE_CLUSTER,
+    CLICKHOUSE_DATABASE,
+    KAFKA_HOSTS,
+)
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`

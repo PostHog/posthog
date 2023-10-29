@@ -1,4 +1,6 @@
-from ee.clickhouse.queries.stickiness.stickiness_event_query import ClickhouseStickinessEventsQuery
+from ee.clickhouse.queries.stickiness.stickiness_event_query import (
+    ClickhouseStickinessEventsQuery,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 

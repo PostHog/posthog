@@ -1,7 +1,16 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.kafka_engine import (
+    KAFKA_COLUMNS_WITH_PARTITION,
+    STORAGE_POLICY,
+    kafka_engine,
+    ttl_period,
+)
+from posthog.clickhouse.table_engines import (
+    Distributed,
+    MergeTreeEngine,
+    ReplicationScheme,
+)
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
 """

@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, listeners } from 'kea'
 import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
@@ -45,6 +45,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { SurveyTemplateType } from 'scenes/surveys/constants'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -207,12 +208,12 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
-    path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: () => ({
+export const eventUsageLogic = kea<eventUsageLogicType>([
+    path(['lib', 'utils', 'eventUsageLogic']),
+    connect(() => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    }),
-    actions: {
+    })),
+    actions({
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
@@ -498,13 +499,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyStopped: (survey: Survey) => ({ survey }),
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
         // onboarding
         reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-    },
-    listeners: ({ values }) => ({
+    }),
+    listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -1234,6 +1236,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 start_date: survey.start_date,
             })
         },
+        reportSurveyTemplateClicked: ({ template }) => {
+            posthog.capture('survey template clicked', {
+                template,
+            })
+        },
         reportProductUnsubscribed: ({ product }) => {
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
@@ -1257,5 +1264,5 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 product_key: productKey,
             })
         },
-    }),
-})
+    })),
+])

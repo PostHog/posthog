@@ -141,7 +141,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             return (
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
-                    <h3 className="mb-1 text-md font-semibold">Loading correlation results…</h3>
+                    <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
                     <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
                 </div>
             )
