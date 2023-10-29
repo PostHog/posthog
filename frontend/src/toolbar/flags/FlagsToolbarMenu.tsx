@@ -40,22 +40,25 @@ const MenuBody = (): JSX.Element => {
                     <div className={'feature-flag-row FeatureFlagRow'} key={feature_flag.key}>
                         <div
                             className={clsx(
-                                'flex flex-row items-center px-2',
+                                'flex flex-row items-center',
                                 hasOverride && 'overridden',
                                 'feature-flag-row-header FeatureFlagRow__header'
                             )}
                         >
-                            <div className="flex-1 font-bold truncate">{feature_flag.key}</div>
-                            <a
-                                className="feature-flag-external-link mx-4"
-                                href={`${apiURL}${
-                                    feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
-                                }`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <IconOpenInNew />
-                            </a>
+                            <div className="flex-1 font-bold truncate">
+                                <a
+                                    className="text-3000"
+                                    href={`${apiURL}${
+                                        feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
+                                    }`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    {feature_flag.key}
+                                    <IconOpenInNew />
+                                </a>
+                            </div>
+
                             <LemonSwitch
                                 checked={!!currentValue}
                                 onChange={(checked) => {
@@ -118,7 +121,7 @@ const MenuBody = (): JSX.Element => {
 
 const MenuFooter = ({ className }: Pick<HTMLAttributes<HTMLDivElement>, 'className'>): JSX.Element => {
     return (
-        <div className={clsx('local-feature-flag-override-note px-2 py-1 text-xs', className)}>
+        <div className={clsx('px-2 py-1 text-xs', className)}>
             Note: overriding feature flags will only affect this browser.
         </div>
     )
