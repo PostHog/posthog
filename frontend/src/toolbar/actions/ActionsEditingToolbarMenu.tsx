@@ -88,10 +88,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                             <div className={'h-full overflow-y-scroll'}>
                                 {actionForm.steps?.map((step, index) => (
                                     <Group key={index} name={['steps', index]}>
-                                        <div
-                                            key={index}
-                                            className="action-section px-2 py-1 highlight flex flex-col gap-2"
-                                        >
+                                        <div key={index} className="action-section p-1 highlight flex flex-col gap-2">
                                             <div className="flex flex-row justify-between">
                                                 <h1 className="section-title">
                                                     {index > 0 ? 'OR ' : null}Element #{index + 1}
@@ -222,7 +219,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                         </>
                     }
                     footer={
-                        <div className={'flex flex-row w-full justify-between'}>
+                        <div className={'flex flex-row w-full justify-between px-2 pb-1'}>
                             <LemonButton type="primary" htmlType="submit">
                                 {selectedActionId === 'new' ? 'Create ' : 'Save '}
                                 action

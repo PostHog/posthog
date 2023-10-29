@@ -118,8 +118,8 @@ const MenuBody = (): JSX.Element => {
 
 const MenuFooter = ({ className }: Pick<HTMLAttributes<HTMLDivElement>, 'className'>): JSX.Element => {
     return (
-        <div className={clsx('local-feature-flag-override-note rounded border p-2', className)}>
-            Note, overriding feature flags will only affect this browser.
+        <div className={clsx('local-feature-flag-override-note px-2 py-1 text-xs', className)}>
+            Note: overriding feature flags will only affect this browser.
         </div>
     )
 }
