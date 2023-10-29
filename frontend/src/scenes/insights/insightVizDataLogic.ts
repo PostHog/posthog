@@ -199,7 +199,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         enabledIntervals: [
             (s) => [s.activeUsersMath],
             (activeUsersMath) => {
-                console.debug('enabledIntervals', activeUsersMath)
                 const enabledIntervals: Intervals = { ...intervals }
 
                 if (activeUsersMath) {
