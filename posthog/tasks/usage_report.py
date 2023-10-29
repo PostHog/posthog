@@ -105,8 +105,7 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     survey_responses_count_in_month: int
     # Data Warehouse
-    billable_data_warehouse_rows_synced_in_period: int
-    billable_data_warehouse_rows_synced_in_month: int
+    data_warehouse_rows_synced_in_period: int
 
 
 # Instance metadata to be included in oveall report
@@ -765,9 +764,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
         teams_with_data_warehouse_rows_synced_in_period=get_teams_with_data_warehouse_rows_synced_in_period(
             period_start, period_end
         ),
-        teams_with_data_warehouse_rows_synced_in_month=get_teams_with_data_warehouse_rows_synced_in_period(
-            period_start.replace(day=1), period_end
-        ),
     )
 
 
@@ -838,10 +834,7 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
-        billable_data_warehouse_rows_synced_in_period=all_data["teams_with_data_warehouse_rows_synced_in_period"].get(
-            team.id, 0
-        ),
-        billable_data_warehouse_rows_synced_in_month=all_data["teams_with_data_warehouse_rows_synced_in_month"].get(
+        data_warehouse_rows_synced_in_period=all_data["teams_with_data_warehouse_rows_synced_in_period"].get(
             team.id, 0
         ),
     )
