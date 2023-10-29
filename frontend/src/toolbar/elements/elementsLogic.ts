@@ -338,7 +338,7 @@ export const elementsLogic = kea<elementsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         enableInspect: () => {
             posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -358,9 +358,6 @@ export const elementsLogic = kea<elementsLogicType>([
             } else {
                 actions.setSelectedElement(element)
             }
-
-            const { inspectEnabled, heatmapEnabled, enabledLast, selectedElementMeta } = values
-            const { buttonActionsVisible: actionsEnabled } = actionsTabLogic.values
 
             // Get list of data-* attributes in the element
             const data_attributes = []
@@ -383,12 +380,6 @@ export const elementsLogic = kea<elementsLogicType>([
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length,
-                inspect_enabled: inspectEnabled,
-                heatmap_enabled: heatmapEnabled,
-                actions_enabled: actionsEnabled,
-                enabled_last: enabledLast,
-                heatmap_count: heatmapEnabled ? selectedElementMeta?.count || 0 : undefined,
-                actions_count: actionsEnabled ? selectedElementMeta?.actions.length : undefined,
             })
         },
         createAction: ({ element }) => {
