@@ -11,26 +11,10 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { HedgehogButton } from './HedgehogButton'
 
 export function DraggableButton(): JSX.Element {
-    const {
-        dragPosition,
-        heatmapPosition,
-        heatmapWindowVisible,
-        actionsWindowVisible,
-        actionsPosition,
-        flagsVisible,
-        flagsPosition,
-        hedgehogMode,
-        theme,
-    } = useValues(toolbarButtonLogic)
-    const {
-        saveDragPosition,
-        saveHeatmapPosition,
-        saveActionsPosition,
-        hideActionsInfo,
-        hideHeatmapInfo,
-        hideFlags,
-        saveFlagsPosition,
-    } = useActions(toolbarButtonLogic)
+    const { dragPosition, heatmapPosition, actionsPosition, flagsPosition, hedgehogMode, theme } =
+        useValues(toolbarButtonLogic)
+    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, saveFlagsPosition } =
+        useActions(toolbarButtonLogic)
     const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
     // KLUDGE: if we put theme directly on the div then
@@ -66,8 +50,8 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name="heatmap"
                 label="Heatmap"
-                visible={hedgehogMode && heatmapWindowVisible}
-                close={hideHeatmapInfo}
+                visible={hedgehogMode /*&& heatmapWindowVisible*/}
+                close={() => {} /*hideHeatmapInfo*/}
                 position={heatmapPosition}
                 savePosition={saveHeatmapPosition}
             >
@@ -78,8 +62,8 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name={'actions'}
                 label={'Actions'}
-                visible={hedgehogMode && actionsWindowVisible}
-                close={hideActionsInfo}
+                visible={hedgehogMode /*&& actionsWindowVisible*/}
+                close={() => {} /*hideActionsInfo*/}
                 position={actionsPosition}
                 savePosition={saveActionsPosition}
             >
@@ -93,8 +77,8 @@ export function DraggableButton(): JSX.Element {
                         <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
                     ) : null
                 }
-                visible={hedgehogMode && flagsVisible}
-                close={hideFlags}
+                visible={hedgehogMode /*&& flagsVisible*/}
+                close={() => {} /*hideFlags*/}
                 position={flagsPosition}
                 savePosition={saveFlagsPosition}
             >

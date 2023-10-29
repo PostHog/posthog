@@ -1,9 +1,6 @@
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
-    IconArrowDown,
-    IconArrowUp,
     IconClick,
     IconClose,
     IconDarkMode,
@@ -16,7 +13,7 @@ import {
     IconTarget,
 } from 'lib/lemon-ui/icons'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
+
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -25,7 +22,7 @@ import { Logomark as Logomark3000 } from '~/toolbar/button/icons/icons'
 import { useActions, useValues } from 'kea'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
@@ -39,8 +36,8 @@ function MoreMenu({
 }: {
     onOpenOrClose: (e: React.MouseEvent, actionFn: () => void) => void
 }): JSX.Element {
-    const { moreMenuVisible, theme } = useValues(toolbarButtonLogic)
-    const { setHedgehogMode, closeMoreMenu, openMoreMenu, toggleTheme } = useActions(toolbarButtonLogic)
+    const { visibleMenu, theme } = useValues(toolbarButtonLogic)
+    const { setHedgehogMode, setVisibleMenu, toggleTheme } = useActions(toolbarButtonLogic)
 
     // KLUDGE: if there is no theme, assume light mode, which shouldn't be, but seems to be, necessary
     const currentlyLightMode = !theme || theme === 'light'
@@ -49,10 +46,10 @@ function MoreMenu({
 
     return (
         <LemonMenu
-            visible={moreMenuVisible}
+            visible={visibleMenu === 'more'}
             onVisibilityChange={(visible) => {
-                if (!visible && moreMenuVisible) {
-                    closeMoreMenu()
+                if (!visible && visibleMenu === 'more') {
+                    setVisibleMenu('none')
                 }
             }}
             placement={'top-start'}
@@ -88,107 +85,106 @@ function MoreMenu({
                 icon={<IconMenu />}
                 title={'More'}
                 onClick={(e) => {
-                    onOpenOrClose(e, moreMenuVisible ? closeMoreMenu : openMoreMenu)
+                    onOpenOrClose(e, () => (visibleMenu === 'more' ? setVisibleMenu('none') : setVisibleMenu('more')))
                 }}
                 square={true}
             />
         </LemonMenu>
     )
 }
-
-/**
- * Some toolbar modes show a peek of information before opening the full menu.
- * */
-function PeekMenu(): JSX.Element | null {
-    const { menuPlacement, fullMenuVisible, heatmapInfoVisible, actionsInfoVisible } = useValues(toolbarButtonLogic)
-    const { showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(toolbarButtonLogic)
-
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
-    const { hideButtonActions } = useActions(actionsTabLogic)
-    const { actionCount, allActionsLoading } = useValues(actionsLogic)
-
-    const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
-
-    // const { countFlagsOverridden } = useValues(featureFlagsLogic)
-
-    const peekMenuVisible = !fullMenuVisible && (heatmapEnabled || buttonActionsVisible)
-
-    const clickHandler = heatmapEnabled
-        ? heatmapInfoVisible
-            ? hideHeatmapInfo
-            : showHeatmapInfo
-        : buttonActionsVisible
-        ? actionsInfoVisible
-            ? () => {
-                  hideActionsInfo()
-                  hideButtonActions()
-              }
-            : showActionsInfo
-        : () => {}
-
-    if (!peekMenuVisible) {
-        return null
-    } else {
-        const title = heatmapEnabled ? (
-            <>Heatmap: {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}</>
-        ) : buttonActionsVisible ? (
-            <>
-                Actions:{' '}
-                <div className="whitespace-nowrap text-center">
-                    {allActionsLoading ? (
-                        <Spinner textColored={true} />
-                    ) : (
-                        <LemonBadge.Number size={'small'} count={actionCount} showZero />
-                    )}
-                </div>
-            </>
-        ) : null
-
-        return (
-            <div
-                className={
-                    'flex flex-row gap-2 w-full items-center align-center justify-between px-2 pt-1 cursor-pointer'
-                }
-                onClick={clickHandler}
-            >
-                <div className={'flex flex-grow'}>
-                    <h5 className={'flex flex-row items-center mb-0'}>{title}</h5>
-                </div>
-                <LemonButton
-                    size={'small'}
-                    icon={menuPlacement === 'top' ? <IconArrowUp /> : <IconArrowDown />}
-                    status={'stealth'}
-                    onClick={clickHandler}
-                />
-
-                {/*{flagsVisible ? (*/}
-                {/*    <div className={'flex flex-grow'}>*/}
-                {/*        <h5 className={'flex flex-row items-center mb-0'}>*/}
-                {/*            Feature flags: {countFlagsOverridden} overridden*/}
-                {/*        </h5>*/}
-                {/*    </div>*/}
-                {/*) : null}*/}
-            </div>
-        )
-    }
-}
+//
+// /**
+//  * Some toolbar modes show a peek of information before opening the full menu.
+//  * */
+// function PeekMenu(): JSX.Element | null {
+//     const { menuPlacement, fullMenuVisible, heatmapInfoVisible, actionsInfoVisible } = useValues(toolbarButtonLogic)
+//     const { showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(toolbarButtonLogic)
+//
+//     const { buttonActionsVisible } = useValues(actionsTabLogic)
+//     const { hideButtonActions } = useActions(actionsTabLogic)
+//     const { actionCount, allActionsLoading } = useValues(actionsLogic)
+//
+//     const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
+//
+//     // const { countFlagsOverridden } = useValues(featureFlagsLogic)
+//
+//     const peekMenuVisible = !fullMenuVisible && (heatmapEnabled || buttonActionsVisible)
+//
+//     const clickHandler = heatmapEnabled
+//         ? heatmapInfoVisible
+//             ? hideHeatmapInfo
+//             : showHeatmapInfo
+//         : buttonActionsVisible
+//         ? actionsInfoVisible
+//             ? () => {
+//                   hideActionsInfo()
+//                   hideButtonActions()
+//               }
+//             : showActionsInfo
+//         : () => {}
+//
+//     if (!peekMenuVisible) {
+//         return null
+//     } else {
+//         const title = heatmapEnabled ? (
+//             <>Heatmap: {heatmapLoading ? <Spinner textColored={true} /> : <>{elementCount} elements</>}</>
+//         ) : buttonActionsVisible ? (
+//             <>
+//                 Actions:{' '}
+//                 <div className="whitespace-nowrap text-center">
+//                     {allActionsLoading ? (
+//                         <Spinner textColored={true} />
+//                     ) : (
+//                         <LemonBadge.Number size={'small'} count={actionCount} showZero />
+//                     )}
+//                 </div>
+//             </>
+//         ) : null
+//
+//         return (
+//             <div
+//                 className={
+//                     'flex flex-row gap-2 w-full items-center align-center justify-between px-2 pt-1 cursor-pointer'
+//                 }
+//                 onClick={clickHandler}
+//             >
+//                 <div className={'flex flex-grow'}>
+//                     <h5 className={'flex flex-row items-center mb-0'}>{title}</h5>
+//                 </div>
+//                 <LemonButton
+//                     size={'small'}
+//                     icon={menuPlacement === 'top' ? <IconArrowUp /> : <IconArrowDown />}
+//                     status={'stealth'}
+//                     onClick={clickHandler}
+//                 />
+//
+//                 {/*{flagsVisible ? (*/}
+//                 {/*    <div className={'flex flex-grow'}>*/}
+//                 {/*        <h5 className={'flex flex-row items-center mb-0'}>*/}
+//                 {/*            Feature flags: {countFlagsOverridden} overridden*/}
+//                 {/*        </h5>*/}
+//                 {/*    </div>*/}
+//                 {/*) : null}*/}
+//             </div>
+//         )
+//     }
+// }
 
 function FullMenu(): JSX.Element {
-    const { heatmapInfoVisible, actionsInfoVisible, flagsVisible } = useValues(toolbarButtonLogic)
+    const { visibleMenu } = useValues(toolbarButtonLogic)
 
     return (
         <>
-            {heatmapInfoVisible ? <HeatmapStats /> : null}
-            {actionsInfoVisible ? <ActionsTab /> : null}
-            {flagsVisible ? <FeatureFlags /> : null}
+            {visibleMenu === 'heatmap' ? <HeatmapStats /> : null}
+            {visibleMenu === 'actions' ? <ActionsTab /> : null}
+            {visibleMenu === 'flags' ? <FeatureFlags /> : null}
         </>
     )
 }
 
 function ToolbarInfoMenu(): JSX.Element {
     const menuRef = useRef<HTMLDivElement | null>(null)
-    const { windowHeight, dragPosition, menuPlacement, heatmapInfoVisible, actionsInfoVisible, flagsVisible } =
-        useValues(toolbarButtonLogic)
+    const { visibleMenu, windowHeight, dragPosition, menuPlacement } = useValues(toolbarButtonLogic)
     const { setMenuPlacement } = useActions(toolbarButtonLogic)
     const { heatmapEnabled } = useValues(heatmapLogic)
     const { inspectEnabled } = useValues(elementsLogic)
@@ -205,13 +201,9 @@ function ToolbarInfoMenu(): JSX.Element {
             setMenuPlacement('top')
         }
 
-        const peekIsShowing = heatmapEnabled || buttonActionsVisible
-        const fullIsShowing = heatmapInfoVisible || actionsInfoVisible || flagsVisible
+        const fullIsShowing = visibleMenu === 'heatmap' || visibleMenu === 'actions' || visibleMenu === 'flags'
 
-        if (peekIsShowing && !fullIsShowing) {
-            // needs to be a fixed value for animation to work
-            menuRef.current.style.height = '40px'
-        } else if (fullIsShowing) {
+        if (fullIsShowing) {
             let heightAvailableForMenu = menuRef.current.getBoundingClientRect().bottom
             if (menuPlacement === 'bottom') {
                 heightAvailableForMenu = windowHeight - menuRef.current.getBoundingClientRect().top
@@ -222,16 +214,7 @@ function ToolbarInfoMenu(): JSX.Element {
         } else {
             menuRef.current.style.height = '0px'
         }
-    }, [
-        dragPosition,
-        menuRef,
-        heatmapInfoVisible,
-        actionsInfoVisible,
-        flagsVisible,
-        inspectEnabled,
-        heatmapEnabled,
-        buttonActionsVisible,
-    ])
+    }, [dragPosition, menuRef, visibleMenu, inspectEnabled, heatmapEnabled, buttonActionsVisible])
 
     return (
         <div
@@ -242,23 +225,13 @@ function ToolbarInfoMenu(): JSX.Element {
             )}
         >
             <FullMenu />
-            <PeekMenu />
         </div>
     )
 }
 
 export function Toolbar3000(): JSX.Element {
-    const { flagsVisible, closeTheLastOpenedMenu, minimizedWidth } = useValues(toolbarButtonLogic)
-    const { showFlags, hideFlags, toggleWidth } = useActions(toolbarButtonLogic)
-
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
-    const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
-
-    const { enableInspect, disableInspect } = useActions(elementsLogic)
-    const { inspectEnabled } = useValues(elementsLogic)
-
-    const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
-    const { heatmapEnabled } = useValues(heatmapLogic)
+    const { visibleMenu, minimizedWidth } = useValues(toolbarButtonLogic)
+    const { setVisibleMenu, toggleWidth } = useActions(toolbarButtonLogic)
 
     const { isAuthenticated } = useValues(toolbarLogic)
 
@@ -267,16 +240,17 @@ export function Toolbar3000(): JSX.Element {
         e.preventDefault()
         e.stopPropagation()
         // close the last opened thing
-        closeTheLastOpenedMenu?.()
+        // TODO is this necessary without PEEK mode
+        setVisibleMenu('none')
         // carry out the action
         actionFn()
     }
 
     useKeyboardHotkeys(
         {
-            escape: { action: () => closeTheLastOpenedMenu?.(), willHandleEvent: true },
+            escape: { action: () => setVisibleMenu('none'), willHandleEvent: true },
         },
-        [closeTheLastOpenedMenu]
+        []
     )
 
     return (
@@ -300,16 +274,24 @@ export function Toolbar3000(): JSX.Element {
                             title={'Inspect'}
                             icon={<IconMagnifier />}
                             status={'stealth'}
-                            onClick={(e) => swallowClick(e, inspectEnabled ? disableInspect : enableInspect)}
-                            active={inspectEnabled}
+                            onClick={(e) =>
+                                swallowClick(e, () =>
+                                    visibleMenu === 'inspect' ? setVisibleMenu('none') : setVisibleMenu('inspect')
+                                )
+                            }
+                            active={visibleMenu === 'inspect'}
                             square={true}
                         />
                         <LemonButton
                             title={'Heatmap'}
                             icon={<IconClick />}
                             status={'stealth'}
-                            onClick={(e) => swallowClick(e, heatmapEnabled ? disableHeatmap : enableHeatmap)}
-                            active={heatmapEnabled}
+                            onClick={(e) =>
+                                swallowClick(e, () =>
+                                    visibleMenu === 'heatmap' ? setVisibleMenu('none') : setVisibleMenu('heatmap')
+                                )
+                            }
+                            active={visibleMenu === 'heatmap'}
                             square={true}
                         />
                         <LemonButton
@@ -317,17 +299,23 @@ export function Toolbar3000(): JSX.Element {
                             icon={<IconTarget />}
                             status={'stealth'}
                             onClick={(e) =>
-                                swallowClick(e, buttonActionsVisible ? hideButtonActions : showButtonActions)
+                                swallowClick(e, () =>
+                                    visibleMenu === 'actions' ? setVisibleMenu('none') : setVisibleMenu('actions')
+                                )
                             }
-                            active={buttonActionsVisible}
+                            active={visibleMenu === 'actions'}
                             square={true}
                         />
                         <LemonButton
                             title={'Feature flags'}
                             icon={<IconFlag />}
                             status={'stealth'}
-                            onClick={(e) => swallowClick(e, flagsVisible ? hideFlags : showFlags)}
-                            active={flagsVisible}
+                            onClick={(e) =>
+                                swallowClick(e, () =>
+                                    visibleMenu === 'flags' ? setVisibleMenu('none') : setVisibleMenu('flags')
+                                )
+                            }
+                            active={visibleMenu === 'flags'}
                             square={true}
                         />
                         <MoreMenu onOpenOrClose={swallowClick} />

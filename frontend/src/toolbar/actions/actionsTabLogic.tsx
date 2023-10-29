@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType, ElementType } from '~/types'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
@@ -254,9 +253,10 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 if (!values.buttonActionsVisible) {
                     actions.showButtonActions()
                 }
-                if (!toolbarButtonLogic.values.actionsInfoVisible) {
-                    toolbarButtonLogic.actions.showActionsInfo()
-                }
+                // TODO what's going on here then?
+                // if (!toolbarButtonLogic.values.actionsInfoVisible) {
+                //     toolbarButtonLogic.actions.showActionsInfo()
+                // }
             }
         },
         inspectElementSelected: ({ element, index }) => {

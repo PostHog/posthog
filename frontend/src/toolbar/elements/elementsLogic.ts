@@ -4,7 +4,6 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { elementsLogicType } from './elementsLogicType'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -394,7 +393,8 @@ export const elementsLogic = kea<elementsLogicType>([
         },
         createAction: ({ element }) => {
             actionsTabLogic.actions.showButtonActions()
-            toolbarButtonLogic.actions.showActionsInfo()
+            // TODO what's going on here?
+            //toolbarButtonLogic.actions.showActionsInfo()
             elementsLogic.actions.selectElement(null)
             actionsTabLogic.actions.newAction(element)
         },

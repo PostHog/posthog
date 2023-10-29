@@ -8,7 +8,6 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot, getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
-import { Flag } from '~/toolbar/button/icons/Flag'
 import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -24,7 +23,6 @@ export const HELP_URL =
 export function ToolbarButton(): JSX.Element {
     const {
         extensionPercentage,
-        heatmapInfoVisible,
         toolbarListVerticalPadding,
         helpButtonOnTop,
         side,
@@ -35,22 +33,10 @@ export function ToolbarButton(): JSX.Element {
         inspectExtensionPercentage,
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
-        actionsInfoVisible,
         featureFlagsExtensionPercentage,
-        flagsVisible,
         hedgehogMode,
     } = useValues(toolbarButtonLogic)
-    const {
-        setExtensionPercentage,
-        showHeatmapInfo,
-        hideHeatmapInfo,
-        showActionsInfo,
-        hideActionsInfo,
-        showFlags,
-        hideFlags,
-        setHedgehogMode,
-        setBoundingRect,
-    } = useActions(toolbarButtonLogic)
+    const { setExtensionPercentage, setHedgehogMode, setBoundingRect } = useActions(toolbarButtonLogic)
 
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
@@ -279,11 +265,11 @@ export function ToolbarButton(): JSX.Element {
                                     </Tooltip>
                                 }
                                 zIndex={4}
-                                onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
+                                // onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: heatmapInfoVisible ? 'hsla(17, 100%, 47%, 1)' : 'hsla(17, 84%, 95%, 1)',
-                                    color: heatmapInfoVisible ? '#FFEB3B' : 'hsl(17, 64%, 32%)',
+                                    // background: heatmapInfoVisible ? 'hsla(17, 100%, 47%, 1)' : 'hsla(17, 84%, 95%, 1)',
+                                    // color: heatmapInfoVisible ? '#FFEB3B' : 'hsl(17, 64%, 32%)',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
@@ -340,11 +326,11 @@ export function ToolbarButton(): JSX.Element {
                                     </Tooltip>
                                 }
                                 zIndex={4}
-                                onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
+                                // onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: actionsInfoVisible ? '#f1aa04' : '#fef5e2',
-                                    color: actionsInfoVisible ? '#fef5e2' : '#f1aa04',
+                                    // background: actionsInfoVisible ? '#f1aa04' : '#fef5e2',
+                                    // color: actionsInfoVisible ? '#fef5e2' : '#f1aa04',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
@@ -370,13 +356,13 @@ export function ToolbarButton(): JSX.Element {
                                     ? (featureFlagsExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
-                        content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
+                        // content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
                         zIndex={1}
-                        onClick={flagsVisible ? hideFlags : showFlags}
+                        // onClick={flagsVisible ? hideFlags : showFlags}
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
-                            background: flagsVisible ? '#94D674' : '#D6EBCC',
+                            // background: flagsVisible ? '#94D674' : '#D6EBCC',
                             borderRadius,
                         }}
                     />

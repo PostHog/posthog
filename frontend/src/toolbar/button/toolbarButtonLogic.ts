@@ -1,33 +1,32 @@
 import { windowValues } from 'kea-window-values'
 import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { getShadowRoot, inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { getShadowRoot, elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { subscriptions } from 'kea-subscriptions'
-import { windowValues } from 'kea-window-values'
 
 const DEFAULT_PADDING = { width: 35, height: 30 }
 const DEFAULT_PADDING_3000 = { width: 35, height: 3000 }
 
+export type MenuState = 'none' | 'more' | 'heatmap' | 'actions' | 'flags' | 'inspect'
+
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
     path(['toolbar', 'button', 'toolbarButtonLogic']),
     connect(() => ({
-        actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
+        actions: [
+            actionsTabLogic,
+            ['showButtonActions', 'hideButtonActions'],
+            elementsLogic,
+            ['enableInspect', 'disableInspect'],
+            heatmapLogic,
+            ['enableHeatmap', 'disableHeatmap'],
+        ],
     })),
     actions(() => ({
-                openMoreMenu: true,
-        closeMoreMenu: true,
-        showHeatmapInfo: true,
-        hideHeatmapInfo: true,
-        showActionsInfo: true,
-        hideActionsInfo: true,
-        showFlags: true,
-        hideFlags: true,
         toggleTheme: true,
         toggleWidth: true,
         setMenuPlacement: (placement: 'top' | 'bottom') => ({ placement }),
@@ -40,12 +39,21 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
         setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
         setBoundingRect: (boundingRect: DOMRect) => ({ boundingRect }),
+        setVisibleMenu: (visibleMenu: MenuState) => ({
+            visibleMenu,
+        }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
         windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     })),
     reducers(() => ({
+        visibleMenu: [
+            'none' as MenuState,
+            {
+                setVisibleMenu: (_, { visibleMenu }) => visibleMenu,
+            },
+        ],
         menuPlacement: [
             'top' as 'top' | 'bottom',
             {
@@ -64,65 +72,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             { persist: true },
             {
                 toggleTheme: (state) => (state === 'light' ? 'dark' : 'light'),
-            },
-        ],
-        moreMenuVisible: [
-            false,
-            {
-                openMoreMenu: () => true,
-                closeMoreMenu: () => false,
-            },
-        ],
-        heatmapInfoVisible: [
-            false,
-            {
-                showHeatmapInfo: () => true,
-                hideHeatmapInfo: () => false,
-                [heatmapLogic.actionTypes.disableHeatmap]: () => false,
-                [heatmapLogic.actionTypes.enableHeatmap]: () => false,
-            },
-        ],
-        actionsInfoVisible: [
-            false,
-            {
-                showActionsInfo: () => true,
-                hideActionsInfo: () => false,
-                [actionsTabLogic.actionTypes.showButtonActions]: () => false,
-                [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
-            },
-        ],
-        flagsVisible: [
-            false,
-            {
-                showFlags: () => true,
-                hideFlags: () => false,
-            },
-        ],
-        closeTheLastOpenedMenu: [
-            null as (() => void) | null,
-            {
-                [actionsTabLogic.actionTypes.showButtonActions]: () => {
-                    return () => {
-                        //close full menu
-                        actions.hideActionsInfo()
-                        // hide peek
-                        actionsTabLogic.actions.hideButtonActions()
-                    }
-                },
-                [heatmapLogic.actionTypes.enableHeatmap]: () => {
-                    return () => {
-                        // close full menu
-                        actions.hideHeatmapInfo()
-                        // close peek
-                        heatmapLogic.actions.disableHeatmap()
-                    }
-                },
-                // open flags window
-                showFlags: () => actions.hideFlags,
-                // show actions
-                [elementsLogic.actionTypes.enableInspect]: () => elementsLogic.actions.disableInspect,
-                // show menu
-                openMoreMenu: () => actions.closeMoreMenu,
             },
         ],
         extensionPercentage: [
@@ -198,12 +147,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
         ],
     })),
     selectors({
-        fullMenuVisible: [
-            (s) => [s.moreMenuVisible, s.heatmapInfoVisible, s.actionsInfoVisible, s.flagsVisible],
-            (moreMenuVisible, heatmapInfoVisible, actionsInfoVisible, flagsVisible) => {
-                return moreMenuVisible || heatmapInfoVisible || actionsInfoVisible || flagsVisible
-            },
-        ],
         dragPosition: [
             (s) => [s.padding, s.lastDragPosition, s.windowWidth, s.windowHeight],
             (padding, lastDragPosition, windowWidth, windowHeight) => {
@@ -265,26 +208,33 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             (heatmapEnabled, extensionPercentage) =>
                 heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
-        heatmapWindowVisible: [
-            (s) => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
-            (heatmapInfoVisible, heatmapEnabled) => heatmapInfoVisible && heatmapEnabled,
-        ],
         actionsExtensionPercentage: [
             (s) => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
             (buttonActionsVisible, extensionPercentage) =>
                 buttonActionsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
-        actionsWindowVisible: [
-            (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
-            (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
-        ],
         featureFlagsExtensionPercentage: [
-            (s) => [s.flagsVisible, s.extensionPercentage],
-            (flagsVisible, extensionPercentage) =>
-                flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+            (s) => [s.visibleMenu, s.extensionPercentage],
+            (visibleMenu, extensionPercentage) =>
+                visibleMenu === 'flags' ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     }),
     listeners(({ actions, values }) => ({
+        setVisibleMenu: ({ visibleMenu }) => {
+            if (visibleMenu === 'heatmap') {
+                actions.enableHeatmap()
+            } else if (visibleMenu === 'actions') {
+                actions.showButtonActions()
+            } else if (visibleMenu === 'flags') {
+                // purposefully blank
+            } else if (visibleMenu === 'inspect') {
+                actions.enableInspect()
+            } else {
+                actions.disableInspect()
+                actions.disableHeatmap()
+                actions.hideButtonActions()
+            }
+        },
         showFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
             values.hedgehogActor?.setAnimation('flag')
@@ -317,5 +267,5 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>([
             const toolbarElement = getShadowRoot()?.getElementById('button-toolbar')
             toolbarElement?.setAttribute('theme', theme)
         },
-    })),
+    }),
 ])

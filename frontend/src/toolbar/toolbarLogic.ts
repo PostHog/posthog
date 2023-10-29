@@ -66,7 +66,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         processUserIntent: async () => {
             if (props.userIntent === 'add-action' || props.userIntent === 'edit-action') {
                 actionsTabLogic.actions.showButtonActions()
-                toolbarButtonLogic.actions.showActionsInfo()
+                toolbarButtonLogic.actions.setVisibleMenu('actions')
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
             }
         },
