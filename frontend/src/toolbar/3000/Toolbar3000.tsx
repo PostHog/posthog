@@ -1,4 +1,4 @@
-import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
+// import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconClick,
@@ -12,9 +12,9 @@ import {
     IconMenu,
     IconTarget,
 } from 'lib/lemon-ui/icons'
-import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-
-import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
+// import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+//
+// import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { getToolbarContainer } from '~/toolbar/utils'
@@ -30,6 +30,14 @@ import { HELP_URL } from '../button/ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import clsx from 'clsx'
+import { MenuHeader as FlagsMenuHeader } from '~/toolbar/flags/MenuHeader'
+import { MenuHeader as ActionsMenuHeader } from '~/toolbar/actions/MenuHeader'
+import { MenuHeader as HeatmapMenuHeader } from '~/toolbar/stats/MenuHeader'
+
+import { MenuBody as HeatmapMenuBody } from '~/toolbar/stats/MenuBody'
+import { MenuBody as ActionsMenuBody } from '~/toolbar/actions/MenuBody'
+
+import { MenuFooter as ActionsMenuFooter } from '~/toolbar/actions/MenuFooter'
 
 function MoreMenu({
     onOpenOrClose,
@@ -170,16 +178,47 @@ function MoreMenu({
 //     }
 // }
 
-function FullMenu(): JSX.Element {
+function ButtonMenu(): JSX.Element {
     const { visibleMenu } = useValues(toolbarButtonLogic)
 
+    const header =
+        visibleMenu === 'heatmap' ? (
+            <HeatmapMenuHeader />
+        ) : visibleMenu === 'actions' ? (
+            <ActionsMenuHeader />
+        ) : (
+            <FlagsMenuHeader />
+        )
+
+    const body =
+        visibleMenu === 'heatmap' ? <HeatmapMenuBody /> : visibleMenu === 'actions' ? <ActionsMenuBody /> : null
+
+    const footer = visibleMenu === 'heatmap' ? null : visibleMenu === 'actions' ? <ActionsMenuFooter /> : null
+
     return (
-        <>
-            {visibleMenu === 'heatmap' ? <HeatmapStats /> : null}
-            {visibleMenu === 'actions' ? <ActionsTab /> : null}
-            {visibleMenu === 'flags' ? <FeatureFlags /> : null}
-        </>
+        <div className={clsx('space-y-2 w-full h-full flex flex-col')}>
+            {header}
+
+            <div className={clsx('flex flex-col flex-1 space-y-2 h-full overflow-hidden overflow-y-scroll px-2')}>
+                {body}
+            </div>
+
+            <div className={clsx('flex flex-row space-y-2 px-2 py-1')}>{footer}</div>
+        </div>
     )
+}
+
+function FullMenu(): JSX.Element {
+    return ButtonMenu()
+    // const { visibleMenu } = useValues(toolbarButtonLogic)
+    //
+    // return (
+    //     <>
+    //         {visibleMenu === 'heatmap' ? <HeatmapStats /> : null}
+    //         {visibleMenu === 'actions' ? <ActionsTab /> : null}
+    //         {visibleMenu === 'flags' ? <FeatureFlags /> : null}
+    //     </>
+    // )
 }
 
 function ToolbarInfoMenu(): JSX.Element {
@@ -328,7 +367,7 @@ export function Toolbar3000(): JSX.Element {
                     status={'stealth'}
                     size={'small'}
                     square={true}
-                    noPadding={true}
+                    noPadding={false}
                     onClick={(e) => {
                         e.stopPropagation()
                         toggleWidth()
