@@ -4,11 +4,11 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { useToolbarStyles } from '~/toolbar/Toolbar.stories'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import clsx from 'clsx'
+import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 
 const listActionsAPIResponse = {
     results: [
@@ -319,17 +319,27 @@ const Template: StoryFn<StoryProps> = (props: StoryProps) => {
 }
 
 export const Actions: Story = Template.bind({})
-Actions.args = { contents: <ActionsTab />, name: 'actions', label: 'Actions' }
+Actions.args = { contents: <ActionsToolbarMenu />, name: 'actions', label: 'Actions' }
 
 export const ActionsLightMode: Story = Template.bind({})
-ActionsLightMode.args = { contents: <ActionsTab />, name: 'actions', label: 'Actions (light mode)', theme: 'light' }
+ActionsLightMode.args = {
+    contents: <ActionsToolbarMenu />,
+    name: 'actions',
+    label: 'Actions (light mode)',
+    theme: 'light',
+}
 
 export const ActionsDarkMode: Story = Template.bind({})
-ActionsDarkMode.args = { contents: <ActionsTab />, name: 'actions', label: 'Actions (dark mode)', theme: 'dark' }
+ActionsDarkMode.args = {
+    contents: <ActionsToolbarMenu />,
+    name: 'actions',
+    label: 'Actions (dark mode)',
+    theme: 'dark',
+}
 
 export const ActionsWithResults: Story = Template.bind({})
 ActionsWithResults.args = {
-    contents: <ActionsTab />,
+    contents: <ActionsToolbarMenu />,
     name: 'actions',
     label: 'Actions',
     listActionsAPIResponse: listActionsAPIResponse,
@@ -337,7 +347,7 @@ ActionsWithResults.args = {
 
 export const ActionsWithResultsLightMode: Story = Template.bind({})
 ActionsWithResultsLightMode.args = {
-    contents: <ActionsTab />,
+    contents: <ActionsToolbarMenu />,
     name: 'actions',
     label: 'Actions',
     listActionsAPIResponse: listActionsAPIResponse,
@@ -346,7 +356,7 @@ ActionsWithResultsLightMode.args = {
 
 export const ActionsWithResultsDarkMode: Story = Template.bind({})
 ActionsWithResultsDarkMode.args = {
-    contents: <ActionsTab />,
+    contents: <ActionsToolbarMenu />,
     name: 'actions',
     label: 'Actions',
     listActionsAPIResponse: listActionsAPIResponse,
@@ -357,7 +367,7 @@ ActionsWithResultsDarkMode.args = {
 
 export const Flags: Story = Template.bind({})
 Flags.args = {
-    contents: <FeatureFlags />,
+    contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
     tagComponent: <span className="overridden-tag">1 overridden</span>,
@@ -365,7 +375,7 @@ Flags.args = {
 
 export const FlagsLightMode: Story = Template.bind({})
 FlagsLightMode.args = {
-    contents: <FeatureFlags />,
+    contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
     tagComponent: <span className="overridden-tag">1 overridden</span>,
@@ -374,7 +384,7 @@ FlagsLightMode.args = {
 
 export const FlagsDarkMode: Story = Template.bind({})
 FlagsDarkMode.args = {
-    contents: <FeatureFlags />,
+    contents: <FlagsToolbarMenu />,
     name: 'flags',
     label: 'Feature Flags',
     tagComponent: <span className="overridden-tag">1 overridden</span>,

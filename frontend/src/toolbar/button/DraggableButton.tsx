@@ -2,20 +2,11 @@ import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
-import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
-import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
-import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
-import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { HedgehogButton } from './HedgehogButton'
 
 export function DraggableButton(): JSX.Element {
-    const { dragPosition, heatmapPosition, actionsPosition, flagsPosition, hedgehogMode, theme } =
-        useValues(toolbarButtonLogic)
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, saveFlagsPosition } =
-        useActions(toolbarButtonLogic)
-    const { countFlagsOverridden } = useValues(featureFlagsLogic)
+    const { dragPosition, theme } = useValues(toolbarButtonLogic)
+    const { saveDragPosition } = useActions(toolbarButtonLogic)
 
     // KLUDGE: if we put theme directly on the div then
     // linting and typescript complain about it not being
@@ -46,44 +37,7 @@ export function DraggableButton(): JSX.Element {
                 </div>
             </Draggable>
 
-            <HedgehogButton />
-            <ButtonWindow
-                name="heatmap"
-                label="Heatmap"
-                visible={hedgehogMode /*&& heatmapWindowVisible*/}
-                close={() => {} /*hideHeatmapInfo*/}
-                position={heatmapPosition}
-                savePosition={saveHeatmapPosition}
-            >
-                <div className="toolbar-block">
-                    <HeatmapStats />
-                </div>
-            </ButtonWindow>
-            <ButtonWindow
-                name={'actions'}
-                label={'Actions'}
-                visible={hedgehogMode /*&& actionsWindowVisible*/}
-                close={() => {} /*hideActionsInfo*/}
-                position={actionsPosition}
-                savePosition={saveActionsPosition}
-            >
-                <ActionsTab />
-            </ButtonWindow>
-            <ButtonWindow
-                name="flags"
-                label="Feature Flags"
-                tagComponent={
-                    countFlagsOverridden > 0 ? (
-                        <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
-                    ) : null
-                }
-                visible={hedgehogMode /*&& flagsVisible*/}
-                close={() => {} /*hideFlags*/}
-                position={flagsPosition}
-                savePosition={saveFlagsPosition}
-            >
-                <FeatureFlags />
-            </ButtonWindow>
+            {/*<HedgehogButton />*/}
         </>
     )
 }
