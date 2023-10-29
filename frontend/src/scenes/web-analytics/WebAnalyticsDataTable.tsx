@@ -136,7 +136,6 @@ export const WebStatsTableTile = ({
             }
             return {
                 onClick: () => onClick(breakdownValue),
-                className: 'hover:underline cursor-pointer hover:bg-mark',
             }
         }
         return {
