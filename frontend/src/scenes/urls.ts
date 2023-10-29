@@ -24,6 +24,7 @@ import { toParams } from 'lib/utils'
  * Sync the paths with AutoProjectMiddleware!
  */
 export const urls = {
+    playground: (): string => '/playground',
     default: (): string => '/',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>

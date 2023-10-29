@@ -31,6 +31,10 @@ export const preloadedScenes: Record<string, LoadedScene> = {
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    [Scene.Playground]: {
+        projectBased: true,
+        name: 'Playground',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -349,6 +353,7 @@ export const redirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/': preserveParams(urls.projectHomepage()),
+    '/playground': urls.playground(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
@@ -395,6 +400,7 @@ export const redirects: Record<
 }
 
 export const routes: Record<string, Scene> = {
+    [urls.playground()]: Scene.Playground,
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
     [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,

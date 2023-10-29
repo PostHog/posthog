@@ -4,6 +4,7 @@ import { LogicWrapper } from 'kea'
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
 export enum Scene {
+    Playground = 'Playground',
     Error404 = '404',
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
