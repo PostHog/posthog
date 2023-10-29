@@ -29,6 +29,7 @@ import clsx from 'clsx'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { Tooltip } from '@posthog/lemon-ui'
 
 function MoreMenu({
     onOpenOrClose,
@@ -172,66 +173,74 @@ export function Toolbar3000(): JSX.Element {
             {!minimizedWidth && <ToolbarInfoMenu />}
             <div
                 className={clsx(
-                    'Toolbar3000 px-2 h-10 space-x-2 rounded-lg flex flex-row items-center floating-toolbar-button',
+                    'Toolbar3000 px-1 h-10 rounded-lg flex flex-row items-center floating-toolbar-button',
                     minimizedWidth ? 'Toolbar3000--minimized-width' : ''
                 )}
             >
                 {!minimizedWidth ? (
                     <>
                         <IconDragHandle className={'text-2xl cursor-grab'} />
-                        <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
+                        <LemonDivider vertical={true} className={'h-full ml-1 bg-border-bold-3000'} />
                     </>
                 ) : null}
                 {isAuthenticated && !minimizedWidth ? (
                     <>
-                        <LemonButton
-                            title={'Inspect'}
-                            icon={<IconMagnifier />}
-                            status={'stealth'}
-                            onClick={(e) =>
-                                swallowClick(e, () =>
-                                    visibleMenu === 'inspect' ? setVisibleMenu('none') : setVisibleMenu('inspect')
-                                )
-                            }
-                            active={visibleMenu === 'inspect'}
-                            square={true}
-                        />
-                        <LemonButton
-                            title={'Heatmap'}
-                            icon={<IconClick />}
-                            status={'stealth'}
-                            onClick={(e) =>
-                                swallowClick(e, () =>
-                                    visibleMenu === 'heatmap' ? setVisibleMenu('none') : setVisibleMenu('heatmap')
-                                )
-                            }
-                            active={visibleMenu === 'heatmap'}
-                            square={true}
-                        />
-                        <LemonButton
-                            title={'Actions'}
-                            icon={<IconTarget />}
-                            status={'stealth'}
-                            onClick={(e) =>
-                                swallowClick(e, () =>
-                                    visibleMenu === 'actions' ? setVisibleMenu('none') : setVisibleMenu('actions')
-                                )
-                            }
-                            active={visibleMenu === 'actions'}
-                            square={true}
-                        />
-                        <LemonButton
-                            title={'Feature flags'}
-                            icon={<IconFlag />}
-                            status={'stealth'}
-                            onClick={(e) =>
-                                swallowClick(e, () =>
-                                    visibleMenu === 'flags' ? setVisibleMenu('none') : setVisibleMenu('flags')
-                                )
-                            }
-                            active={visibleMenu === 'flags'}
-                            square={true}
-                        />
+                        <Tooltip title={'Inspect'}>
+                            <LemonButton
+                                icon={<IconMagnifier />}
+                                aria-label={'Inspect'}
+                                status={'stealth'}
+                                onClick={(e) =>
+                                    swallowClick(e, () =>
+                                        visibleMenu === 'inspect' ? setVisibleMenu('none') : setVisibleMenu('inspect')
+                                    )
+                                }
+                                active={visibleMenu === 'inspect'}
+                                square={true}
+                            />
+                        </Tooltip>
+                        <Tooltip title={'Heatmap'}>
+                            <LemonButton
+                                aria-label={'Heatmap'}
+                                icon={<IconClick />}
+                                status={'stealth'}
+                                onClick={(e) =>
+                                    swallowClick(e, () =>
+                                        visibleMenu === 'heatmap' ? setVisibleMenu('none') : setVisibleMenu('heatmap')
+                                    )
+                                }
+                                active={visibleMenu === 'heatmap'}
+                                square={true}
+                            />
+                        </Tooltip>
+                        <Tooltip title={'Actions'}>
+                            <LemonButton
+                                aria-label={'Actions'}
+                                icon={<IconTarget />}
+                                status={'stealth'}
+                                onClick={(e) =>
+                                    swallowClick(e, () =>
+                                        visibleMenu === 'actions' ? setVisibleMenu('none') : setVisibleMenu('actions')
+                                    )
+                                }
+                                active={visibleMenu === 'actions'}
+                                square={true}
+                            />
+                        </Tooltip>
+                        <Tooltip title={'Feature flags'}>
+                            <LemonButton
+                                aria-label={'Feature flags'}
+                                icon={<IconFlag />}
+                                status={'stealth'}
+                                onClick={(e) =>
+                                    swallowClick(e, () =>
+                                        visibleMenu === 'flags' ? setVisibleMenu('none') : setVisibleMenu('flags')
+                                    )
+                                }
+                                active={visibleMenu === 'flags'}
+                                square={true}
+                            />
+                        </Tooltip>
                         <MoreMenu onOpenOrClose={swallowClick} />
                         <LemonDivider vertical={true} className={'h-full bg-border-bold-3000'} />
                     </>
