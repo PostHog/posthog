@@ -1,3 +1,9 @@
+import { ToolbarMenu } from '~/toolbar/3000/ToolbarMenu'
+import { useActions, useValues } from 'kea'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -5,11 +11,20 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { useActions, useValues } from 'kea'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export const MenuBody = (): JSX.Element => {
+const MenuHeader = (): JSX.Element => {
+    const { wildcardHref } = useValues(currentPageLogic)
+    const { setWildcardHref } = useActions(currentPageLogic)
+
+    return (
+        <div>
+            <LemonInput value={wildcardHref} onChange={setWildcardHref} />
+            <div className="text-muted pl-2 pt-1">Use * as a wildcard</div>
+        </div>
+    )
+}
+
+const MenuBody = (): JSX.Element => {
     const { matchLinksByHref, countedElements, clickCount, heatmapLoading, heatmapFilter, canLoadMoreElementStats } =
         useValues(heatmapLogic)
     const { setHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
@@ -86,4 +101,8 @@ export const MenuBody = (): JSX.Element => {
             </div>
         </>
     )
+}
+
+export const HeatmapToolbarMenu = (): JSX.Element => {
+    return <ToolbarMenu header={<MenuHeader />} body={<MenuBody />} footer={null} />
 }

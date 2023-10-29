@@ -30,14 +30,9 @@ import { HELP_URL } from '../button/ToolbarButton'
 import { useLayoutEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import clsx from 'clsx'
-import { MenuHeader as FlagsMenuHeader } from '~/toolbar/flags/MenuHeader'
-import { MenuHeader as ActionsMenuHeader } from '~/toolbar/actions/MenuHeader'
-import { MenuHeader as HeatmapMenuHeader } from '~/toolbar/stats/MenuHeader'
-
-import { MenuBody as HeatmapMenuBody } from '~/toolbar/stats/MenuBody'
-import { MenuBody as ActionsMenuBody } from '~/toolbar/actions/MenuBody'
-
-import { MenuFooter as ActionsMenuFooter } from '~/toolbar/actions/MenuFooter'
+import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
+import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
 
 function MoreMenu({
     onOpenOrClose,
@@ -178,47 +173,18 @@ function MoreMenu({
 //     }
 // }
 
-function ButtonMenu(): JSX.Element {
+function ButtonMenu(): JSX.Element | null {
     const { visibleMenu } = useValues(toolbarButtonLogic)
 
-    const header =
-        visibleMenu === 'heatmap' ? (
-            <HeatmapMenuHeader />
-        ) : visibleMenu === 'actions' ? (
-            <ActionsMenuHeader />
-        ) : (
-            <FlagsMenuHeader />
-        )
+    if (visibleMenu === 'flags') {
+        return <FlagsToolbarMenu />
+    } else if (visibleMenu === 'heatmap') {
+        return <HeatmapToolbarMenu />
+    } else if (visibleMenu === 'actions') {
+        return <ActionsToolbarMenu />
+    }
 
-    const body =
-        visibleMenu === 'heatmap' ? <HeatmapMenuBody /> : visibleMenu === 'actions' ? <ActionsMenuBody /> : null
-
-    const footer = visibleMenu === 'heatmap' ? null : visibleMenu === 'actions' ? <ActionsMenuFooter /> : null
-
-    return (
-        <div className={clsx('space-y-2 w-full h-full flex flex-col')}>
-            {header}
-
-            <div className={clsx('flex flex-col flex-1 space-y-2 h-full overflow-hidden overflow-y-scroll px-2')}>
-                {body}
-            </div>
-
-            <div className={clsx('flex flex-row space-y-2 px-2 py-1')}>{footer}</div>
-        </div>
-    )
-}
-
-function FullMenu(): JSX.Element {
-    return ButtonMenu()
-    // const { visibleMenu } = useValues(toolbarButtonLogic)
-    //
-    // return (
-    //     <>
-    //         {visibleMenu === 'heatmap' ? <HeatmapStats /> : null}
-    //         {visibleMenu === 'actions' ? <ActionsTab /> : null}
-    //         {visibleMenu === 'flags' ? <FeatureFlags /> : null}
-    //     </>
-    // )
+    return null
 }
 
 function ToolbarInfoMenu(): JSX.Element {
@@ -263,7 +229,7 @@ function ToolbarInfoMenu(): JSX.Element {
                 menuPlacement === 'top' ? 'bottom' : 'top-12'
             )}
         >
-            <FullMenu />
+            <ButtonMenu />
         </div>
     )
 }
