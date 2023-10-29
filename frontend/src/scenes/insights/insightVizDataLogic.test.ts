@@ -90,6 +90,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
+                        interval: 'day', // side effect
                         dateRange: {
                             date_from: '-7d',
                             date_to: null,
@@ -113,6 +114,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
+                        interval: 'day', // side effect
                         dateRange: {
                             date_from: '-7d',
                             date_to: '-3d',
