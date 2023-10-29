@@ -41,6 +41,7 @@ import {
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import { intervals } from 'lib/components/IntervalFilter/intervals'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -194,6 +195,33 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.series],
             (series): BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null =>
                 getActiveUsersMath(series),
+        ],
+        enabledIntervals: [
+            (s) => [s.activeUsersMath],
+            (activeUsersMath) => {
+                console.debug('enabledIntervals', activeUsersMath)
+                const enabledIntervals: Intervals = { ...intervals }
+
+                if (activeUsersMath) {
+                    // Disallow grouping by hour for WAUs/MAUs as it's an expensive query that produces a view that's not useful for users
+                    enabledIntervals.hour = {
+                        ...enabledIntervals.hour,
+                        disabledReason:
+                            'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                    }
+
+                    // Disallow grouping by month for WAUs as the resulting view is misleading to users
+                    if (activeUsersMath === BaseMathType.WeeklyActiveUsers) {
+                        enabledIntervals.month = {
+                            ...enabledIntervals.month,
+                            disabledReason:
+                                'Grouping by month is not supported on insights with weekly active users series.',
+                        }
+                    }
+                }
+
+                return enabledIntervals
+            },
         ],
 
         erroredQueryId: [
