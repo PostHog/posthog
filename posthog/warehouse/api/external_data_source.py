@@ -6,9 +6,9 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source
-from posthog.warehouse.external_data_source.connection import create_connection
-from posthog.warehouse.external_data_source.destination import create_destination
+from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
+from posthog.warehouse.external_data_source.connection import create_connection, start_sync
+from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
 from posthog.api.routing import StructuredViewSetMixin
 
 from posthog.models import User
@@ -55,8 +55,19 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             client_secret=client_secret,
         )
         new_source = create_stripe_source(stripe_payload)
-        new_destination = create_destination(self.team_id)
-        new_connection = create_connection(new_source.source_id, new_destination.destination_id)
+
+        try:
+            new_destination = create_destination(self.team_id)
+        except Exception as e:
+            delete_source(new_source.source_id)
+            raise e
+
+        try:
+            new_connection = create_connection(new_source.source_id, new_destination.destination_id)
+        except Exception as e:
+            delete_source(new_source.source_id)
+            delete_destination(new_destination.destination_id)
+            raise e
 
         ExternalDataSource.objects.create(
             source_id=new_source.source_id,
@@ -65,5 +76,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             status="running",
             source_type="Stripe",
         )
+
+        start_sync(new_connection.connection_id)
 
         return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source.source_id})

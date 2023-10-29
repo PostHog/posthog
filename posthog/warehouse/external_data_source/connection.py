@@ -36,7 +36,6 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
         raise ValueError(response_payload["detail"])
 
     update_connection_stream(response_payload["connectionId"], headers)
-    start_sync(response_payload["connectionId"], headers)
 
     return ExternalDataConnection(
         source_id=response_payload["sourceId"],
@@ -64,7 +63,12 @@ def update_connection_stream(connection_id: str, headers: Dict):
         raise ValueError(response_payload["detail"])
 
 
-def start_sync(connection_id: str, headers: Dict):
+def start_sync(connection_id: str):
+    token = settings.AIRBYTE_API_KEY
+    if not token:
+        raise ValueError("AIRBYTE_API_KEY must be set in order to start sync.")
+
+    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"jobType": "sync", "connectionId": connection_id}
 
     response = requests.post(AIRBYTE_JOBS_URL, json=payload, headers=headers)
