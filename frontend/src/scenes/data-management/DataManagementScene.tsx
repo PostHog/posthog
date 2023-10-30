@@ -1,4 +1,5 @@
-import { kea, useActions, useValues } from 'kea'
+import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
@@ -114,23 +115,23 @@ const tabs: Record<
     },
 }
 
-const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
-    path: ['scenes', 'events', 'dataManagementSceneLogic'],
-    connect: {
+const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
+    path(['scenes', 'events', 'dataManagementSceneLogic']),
+    connect({
         values: [featureFlagLogic, ['featureFlags']],
-    },
-    actions: {
+    }),
+    actions({
         setTab: (tab: DataManagementTab) => ({ tab }),
-    },
-    reducers: {
+    }),
+    reducers({
         tab: [
             DataManagementTab.EventDefinitions as DataManagementTab,
             {
                 setTab: (_, { tab }) => tab,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         breadcrumbs: [
             (s) => [s.tab],
             (tab): Breadcrumb[] => {
@@ -160,11 +161,11 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
                 }) as DataManagementTab[]
             },
         ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
     }),
-    urlToAction: ({ actions, values }) => {
+    actionToUrl(() => ({
+        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
+    })),
+    urlToAction(({ actions, values }) => {
         return Object.fromEntries(
             Object.entries(tabs).map(([key, tab]) => [
                 tab.url,
@@ -175,8 +176,8 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>({
                 },
             ])
         )
-    },
-})
+    }),
+])
 
 export function DataManagementScene(): JSX.Element {
     const { enabledTabs, tab } = useValues(dataManagementSceneLogic)
