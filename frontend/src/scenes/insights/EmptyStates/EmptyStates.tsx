@@ -224,7 +224,6 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                         data-attr="funnels-single-step-help"
                         to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noopener"
                         className="flex items-center justify-center"
                         targetBlankIcon
                     >
@@ -253,7 +252,6 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                         data-attr="insight-funnels-emptystate-help"
                         to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
-                        rel="noopener"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />

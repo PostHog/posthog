@@ -266,7 +266,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <Link
                                                     to={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
                                                     target="_blank"
-                                                    rel="noopener"
                                                     targetBlankIcon
                                                 >
                                                     {' '}

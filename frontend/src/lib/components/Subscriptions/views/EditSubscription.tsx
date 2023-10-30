@@ -161,7 +161,6 @@ export function EditSubscription({
                                     <Link
                                         to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                         target="_blank"
-                                        rel="noopener"
                                         targetBlankIcon
                                     >
                                         Learn more
@@ -188,7 +187,6 @@ export function EditSubscription({
                                             <Link
                                                 to="https://posthog.com/docs/self-host/configure/email"
                                                 target="_blank"
-                                                rel="noopener"
                                                 targetBlankIcon
                                             >
                                                 configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
@@ -276,7 +274,6 @@ export function EditSubscription({
                                                     <Link
                                                         to="https://posthog.com/docs/integrate/third-party/slack"
                                                         target="_blank"
-                                                        rel="noopener"
                                                     >
                                                         added the PostHog Slack App
                                                     </Link>{' '}
@@ -308,7 +305,6 @@ export function EditSubscription({
                                                             <Link
                                                                 to="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
-                                                                rel="noopener"
                                                             >
                                                                 See the Docs for more information
                                                             </Link>

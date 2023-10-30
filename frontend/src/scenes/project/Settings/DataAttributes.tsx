@@ -20,10 +20,7 @@ export function DataAttributes(): JSX.Element {
         <>
             <p>
                 Specify a comma-separated list of{' '}
-                <Link
-                    to="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes"
-                    rel="noreferrer noopener"
-                >
+                <Link to="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes">
                     data attributes
                 </Link>{' '}
                 used in your app. For example: <code>data-attr, data-custom-id, data-myref-*</code>. These attributes

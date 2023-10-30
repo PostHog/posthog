@@ -162,7 +162,6 @@ export function FeatureFlagReleaseConditions({
                                             <Link
                                                 to={urls.cohort(property.value)}
                                                 target="_blank"
-                                                rel="noopener"
                                                 className="simple-tag tag-light-blue text-primary-alt display-value"
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||

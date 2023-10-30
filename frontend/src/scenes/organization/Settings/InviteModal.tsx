@@ -24,12 +24,7 @@ export function EmailUnavailableMessage(): JSX.Element {
         <LemonBanner type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
-                <Link
-                    to="https://posthog.com/docs/self-host/configure/email"
-                    target="_blank"
-                    targetBlankIcon
-                    rel="noopener"
-                >
+                <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
                     configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
                 </Link>
                 .<br />

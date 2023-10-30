@@ -282,11 +282,11 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             </div>
             <div className="mt-4 text-center text-muted">
                 By clicking continue you agree to our{' '}
-                <Link to="https://posthog.com/terms" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
                 </Link>{' '}
                 and{' '}
-                <Link to="https://posthog.com/privacy" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy
                 </Link>
                 .

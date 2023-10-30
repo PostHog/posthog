@@ -132,7 +132,6 @@ export function SystemStatus(): JSX.Element {
                             <Link
                                 target="_blank"
                                 targetBlankIcon
-                                rel="noopener"
                                 to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
                             >
                                 Learn more

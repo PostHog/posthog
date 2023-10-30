@@ -21,12 +21,7 @@ export function ActionsTab(): JSX.Element {
                     <>
                         <ActionsList />
                         <div className="text-right mt-4">
-                            <Link
-                                to={`${apiURL}${urls.actions()}`}
-                                target="_blank"
-                                targetBlankIcon
-                                rel="noopener noreferrer"
-                            >
+                            <Link to={`${apiURL}${urls.actions()}`} target="_blank" targetBlankIcon>
                                 View &amp; edit all actions
                             </Link>
                         </div>

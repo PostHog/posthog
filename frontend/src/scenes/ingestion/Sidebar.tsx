@@ -61,7 +61,7 @@ export function Sidebar(): JSX.Element {
                         </>
                     )}
                     <div className="IngestionSidebar__help">
-                        <Link to={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                        <Link to={`https://posthog.com/slack${HELP_UTM_TAGS}`} target="_blank">
                             <LemonButton
                                 icon={<IconQuestionAnswer />}
                                 fullWidth
@@ -74,7 +74,6 @@ export function Sidebar(): JSX.Element {
                         </Link>
                         <Link
                             to={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
-                            rel="noopener"
                             target="_blank"
                             className="mt-2"
                         >

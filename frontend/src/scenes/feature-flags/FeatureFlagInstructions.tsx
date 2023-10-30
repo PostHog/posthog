@@ -24,13 +24,7 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     return (
         <div className="mt-4">
             Need more information?{' '}
-            <Link
-                data-attr="feature-flag-doc-link"
-                target="_blank"
-                rel="noopener"
-                to={documentationLink}
-                targetBlankIcon
-            >
+            <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
                 Check the docs
             </Link>
         </div>

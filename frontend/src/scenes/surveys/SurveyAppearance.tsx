@@ -318,7 +318,7 @@ export function BaseAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <Link to="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </Link>
                     )}
@@ -528,7 +528,7 @@ export function SurveyRatingAppearance({
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
-                            <Link to="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            <Link to="https://posthog.com" target="_blank" className="footer-branding">
                                 Survey by {posthogLogoSVG}
                             </Link>
                         )}
@@ -616,7 +616,7 @@ export function SurveyMultipleChoiceAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <Link to="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
                         </Link>
                     )}
@@ -668,7 +668,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
-                    <Link to="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                    <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
                     </Link>
                 )}

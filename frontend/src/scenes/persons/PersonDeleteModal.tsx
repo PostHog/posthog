@@ -23,12 +23,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     <p>
                         If you opt to delete the person and its corresponding events, the events will not be immediately
                         removed. Instead these events will be deleted on a set schedule during non-peak usage times.{' '}
-                        <Link
-                            to="https://posthog.com/docs/privacy/data-deletion"
-                            target="_blank"
-                            rel="noopener"
-                            className="font-bold"
-                        >
+                        <Link to="https://posthog.com/docs/privacy/data-deletion" target="_blank" className="font-bold">
                             Learn more
                         </Link>
                     </p>
