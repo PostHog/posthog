@@ -184,7 +184,7 @@ export async function startPluginsServer(
     ])
 
     process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-        status.error('🤮', `Unhandled Promise Rejection: ${error?.stack || error} for promise: ${promise}`)
+        status.error('🤮', `Unhandled Promise Rejection: ${error} for promise: ${promise}`)
 
         if (error instanceof KafkaJSProtocolError) {
             kafkaProtocolErrors.inc({
