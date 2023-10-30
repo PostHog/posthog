@@ -25,6 +25,7 @@ export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsPie,
 ]
 
 export enum OrganizationMembershipLevel {

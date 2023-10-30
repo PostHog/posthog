@@ -24,9 +24,15 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        indexedResults,
+        labelGroupType,
+        trendsFilter,
+        formula,
+        showValueOnSeries,
+        supportsPercentStackView,
+        showPercentStackView,
+    } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -87,6 +93,8 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             trendsFilter={trendsFilter}
                             formula={formula}
                             showValueOnSeries={showValueOnSeries}
+                            supportsPercentStackView={supportsPercentStackView}
+                            showPercentStackView={showPercentStackView}
                             onClick={
                                 !showPersonsModal || formula
                                     ? undefined
