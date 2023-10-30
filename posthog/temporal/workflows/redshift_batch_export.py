@@ -30,18 +30,19 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 
 
-def insert_record_to_redshift(
-    record: dict[str, typing.Any],
+def insert_records_to_redshift(
+    records: list[dict[str, typing.Any]],
     redshift_connection: psycopg2.extensions.connection,
     schema: str,
     table: str,
+    batch_size: int = 100,
 ):
     """Execute an INSERT query with given Redshift connection.
 
     The recommended way to insert multiple values into Redshift is using a COPY statement (see:
     https://docs.aws.amazon.com/redshift/latest/dg/r_COPY.html). However, Redshift cannot COPY from local
     files like Postgres, but only from files in S3 or executing commands in SSH hosts. Setting that up would
-    be quite complex and require more configuration from the user compared to the old Redshift export plugin.
+    add complexity and require more configuration from the user compared to the old Redshift export plugin.
     For this reasons, we are going with basic INSERT statements for now, and we can migrate to COPY from S3
     later if the need arises.
 
@@ -51,18 +52,32 @@ def insert_record_to_redshift(
         redshift_connection: A connection to Redshift setup by psycopg2.
         schema: The schema that contains the table where to insert the record.
         table: The name of the table where to insert the record.
+        batch_size: Number of records to insert in batch. Setting this too high could
+            make us go OOM or exceed Redshift's SQL statement size limit (16MB).
     """
-    columns = record.keys()
+    batch = [next(records)]
+
+    columns = batch[0].keys()
 
     with redshift_connection.cursor() as cursor:
-        query = sql.SQL("INSERT INTO {table} {fields} VALUES {placeholder}").format(
+        query = sql.SQL("INSERT INTO {table} ({fields}) VALUES {placeholder}").format(
             table=sql.Identifier(schema, table),
             fields=sql.SQL(", ").join(map(sql.Identifier, columns)),
             placeholder=sql.Placeholder(),
         )
         template = sql.SQL("({})").format(sql.SQL(", ").join(map(sql.Placeholder, columns)))
 
-        psycopg2.extras.execute_values(cursor, query, record, template)
+        for record in records:
+            batch.append(record)
+
+            if len(batch) < batch_size:
+                continue
+
+            psycopg2.extras.execute_values(cursor, query, batch, template)
+            batch = []
+
+        if len(batch) > 0:
+            psycopg2.extras.execute_values(cursor, query, batch, template)
 
 
 @dataclass
@@ -128,7 +143,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
                     ("uuid", "VARCHAR(200)"),
                     ("event", "VARCHAR(200)"),
                     ("properties", properties_type),
-                    ("elements", properties_type),
+                    ("elements", "VARCHAR(65535)"),
                     ("set", properties_type),
                     ("set_once", properties_type),
                     ("distinct_id", "VARCHAR(200)"),
@@ -152,15 +167,18 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             "site_url",
             "timestamp",
         ]
-        json_columns = ("properties", "elements", "set", "set_once")
+        json_columns = ("properties", "set", "set_once")
+
+        def map_to_record(result: dict) -> dict:
+            return {
+                key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
+                for key in schema_columns
+            }
 
         with postgres_connection(inputs) as connection:
-            for result in results_iterator:
-                record = {
-                    key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
-                    for key in schema_columns
-                }
-                insert_record_to_redshift(record, connection, inputs.schema, inputs.table_name)
+            insert_records_to_redshift(
+                (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
+            )
 
 
 @workflow.defn(name="redshift-export")
