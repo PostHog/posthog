@@ -1,6 +1,7 @@
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { resizerLogicType } from './resizerLogicType'
+import posthog from 'posthog-js'
 
 export type ResizerEvent = {
     originX: number
@@ -76,7 +77,7 @@ export const resizerLogic = kea<resizerLogicType>([
             },
         ],
     }),
-    listeners(({ cache, props, actions }) => ({
+    listeners(({ cache, props, actions, values }) => ({
         beginResize: ({ startX }) => {
             if (!props.containerRef.current) {
                 return
@@ -87,6 +88,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 actions.resetDesiredWidth()
                 actions.endResize()
                 cache.firstClickTimestamp = null
+
                 return
             }
 
@@ -133,12 +135,25 @@ export const resizerLogic = kea<resizerLogicType>([
             cache.onMouseUp = (e: MouseEvent): void => {
                 if (e.button === 0) {
                     const event = calculateEvent(e, false)
-                    if (!isClosed) {
-                        // We only want to persist the value if it is open
-                        actions.setDesiredWidth(event.desiredWidth)
+
+                    if (event.desiredWidth !== values.width) {
+                        if (!isClosed) {
+                            // We only want to persist the value if it is open
+                            actions.setDesiredWidth(event.desiredWidth)
+                        }
+
+                        props.onResize?.(event)
+
+                        posthog.capture('element resized', {
+                            key: props.persistentKey,
+                            newWidth: event.desiredWidth,
+                            originalWidth: originContainerBounds.width,
+                            isClosed,
+                        })
                     }
+
                     actions.endResize()
-                    props.onResize?.(event)
+
                     removeAllListeners(cache)
                 }
             }

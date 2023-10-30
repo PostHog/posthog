@@ -11,6 +11,7 @@ import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+import posthog from 'posthog-js'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
@@ -48,7 +49,7 @@ export function SidePanel(): JSX.Element {
 
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
-        persistentKey: '',
+        persistentKey: 'side-panel',
         closeThreshold: 200,
         placement: 'left',
         onToggleClosed: (shouldBeClosed) => {

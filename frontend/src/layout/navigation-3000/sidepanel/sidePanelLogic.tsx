@@ -31,13 +31,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 setSidePanelOpen: (_, { open }) => open,
             },
         ],
-        desiredWidth: [
-            null as number | null,
-            { persist: true },
-            {
-                setDesiredWidth: (_, { open }) => open,
-            },
-        ],
     })),
 
     listeners(({ actions, values }) => ({
