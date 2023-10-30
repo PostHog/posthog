@@ -19,7 +19,14 @@ def sync_resources():
 @app.task(ignore_result=True)
 def _sync_resource(resource_id):
     resource = ExternalDataSource.objects.get(pk=resource_id)
-    job = retrieve_sync(resource.connection_id)
+
+    try:
+        job = retrieve_sync(resource.connection_id)
+    except Exception as e:
+        logger.exception("Sync Resource failed with an unexpected exception.", exc_info=e)
+        resource.status = "error"
+        resource.save()
+        return
 
     if job["status"] == "succeeded":
 
@@ -30,7 +37,6 @@ def _sync_resource(resource_id):
             access_secret=settings.AIRBYTE_BUCKET_SECRET,
         )
 
-        # TODO: THIS IS PATH SHOULD BE SPLIT BY TEAM_ID
         data = {
             "credential": credential,
             "name": "stripe_customers",
@@ -50,3 +56,6 @@ def _sync_resource(resource_id):
             resource.are_tables_created = True
             resource.status = job["status"]
             resource.save()
+    else:
+        resource.status = job["status"]
+        resource.save()

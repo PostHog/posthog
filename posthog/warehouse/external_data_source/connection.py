@@ -63,6 +63,7 @@ def update_connection_stream(connection_id: str, headers: Dict):
         raise ValueError(response_payload["detail"])
 
 
+# Fire and forget
 def start_sync(connection_id: str):
     token = settings.AIRBYTE_API_KEY
     if not token:
@@ -71,11 +72,7 @@ def start_sync(connection_id: str):
     headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"jobType": "sync", "connectionId": connection_id}
 
-    response = requests.post(AIRBYTE_JOBS_URL, json=payload, headers=headers)
-    response_payload = response.json()
-
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
+    requests.post(AIRBYTE_JOBS_URL, json=payload, headers=headers)
 
 
 def retrieve_sync(connection_id: str):

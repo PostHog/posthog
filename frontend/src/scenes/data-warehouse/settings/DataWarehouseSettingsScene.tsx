@@ -6,6 +6,8 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -16,6 +18,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -29,14 +32,16 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-data-warehouse-easy-link"
-                        key={'new-data-warehouse-easy-link'}
-                        onClick={toggleSourceModal}
-                    >
-                        Link Source
-                    </LemonButton>
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={toggleSourceModal}
+                        >
+                            Link Source
+                        </LemonButton>
+                    ) : undefined
                 }
                 caption={
                     <div>

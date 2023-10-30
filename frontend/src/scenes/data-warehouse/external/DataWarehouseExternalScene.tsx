@@ -11,6 +11,8 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import SourceModal from './SourceModal'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
@@ -21,6 +23,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
     const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen } =
         useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -34,19 +37,21 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButtonWithSideAction
-                        type="primary"
-                        sideAction={{
-                            icon: <IconSettings />,
-                            onClick: () => router.actions.push(urls.dataWarehouseSettings()),
-                            'data-attr': 'saved-insights-new-insight-dropdown',
-                        }}
-                        data-attr="new-data-warehouse-easy-link"
-                        key={'new-data-warehouse-easy-link'}
-                        onClick={toggleSourceModal}
-                    >
-                        Link Source
-                    </LemonButtonWithSideAction>
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
+                        <LemonButtonWithSideAction
+                            type="primary"
+                            sideAction={{
+                                icon: <IconSettings />,
+                                onClick: () => router.actions.push(urls.dataWarehouseSettings()),
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={toggleSourceModal}
+                        >
+                            Link Source
+                        </LemonButtonWithSideAction>
+                    ) : undefined
                 }
                 caption={
                     <div>
