@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -71,30 +71,49 @@ class AggregationOperations:
             return parse_expr(f'count(DISTINCT e."$group_{self.series.math_group_type_index}")')
         elif self.series.math_property is not None:
             if self.series.math == "avg":
-                return self._math_func("avg")
+                return self._math_func("avg", None)
             elif self.series.math == "sum":
-                return self._math_func("sum")
+                return self._math_func("sum", None)
             elif self.series.math == "min":
-                return self._math_func("min")
+                return self._math_func("min", None)
             elif self.series.math == "max":
-                return self._math_func("max")
+                return self._math_func("max", None)
             elif self.series.math == "median":
-                return self._math_func("median")
+                return self._math_func("median", None)
             elif self.series.math == "p90":
-                return self._math_quantile(0.9)
+                return self._math_quantile(0.9, None)
             elif self.series.math == "p95":
-                return self._math_quantile(0.95)
+                return self._math_quantile(0.95, None)
             elif self.series.math == "p99":
-                return self._math_quantile(0.99)
+                return self._math_quantile(0.99, None)
             else:
                 raise NotImplementedError()
 
         return parse_expr("count(e.uuid)")
 
     def requires_query_orchestration(self) -> bool:
-        return self.series.math == "weekly_active" or self.series.math == "monthly_active"
+        math_to_return_true = [
+            "weekly_active",
+            "monthly_active",
+        ]
 
-    def _math_func(self, method: str) -> ast.Call:
+        return self._is_count_per_actor_variant() or self.series.math in math_to_return_true
+
+    def _is_count_per_actor_variant(self):
+        return self.series.math in [
+            "avg_count_per_actor",
+            "min_count_per_actor",
+            "max_count_per_actor",
+            "median_count_per_actor",
+            "p90_count_per_actor",
+            "p95_count_per_actor",
+            "p99_count_per_actor",
+        ]
+
+    def _math_func(self, method: str, override_chain: Optional[List[str | int]]) -> ast.Call:
+        if override_chain is not None:
+            return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
+
         if self.series.math_property == "$time":
             return ast.Call(
                 name=method,
@@ -110,13 +129,16 @@ class AggregationOperations:
             chain = ["session", "duration"]
         else:
             chain = ["properties", self.series.math_property]
+
         return ast.Call(name=method, args=[ast.Field(chain=chain)])
 
-    def _math_quantile(self, percentile: float) -> ast.Call:
+    def _math_quantile(self, percentile: float, override_chain: Optional[List[str | int]]) -> ast.Call:
+        chain = ["properties", self.series.math_property]
+
         return ast.Call(
             name="quantile",
             params=[ast.Constant(value=percentile)],
-            args=[ast.Field(chain=["properties", self.series.math_property])],
+            args=[ast.Field(chain=override_chain or chain)],
         )
 
     def _interval_placeholders(self):
@@ -136,6 +158,12 @@ class AggregationOperations:
     def _parent_select_query(
         self, inner_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self._is_count_per_actor_variant():
+            return parse_select(
+                "SELECT total, day_start FROM {inner_query}",
+                placeholders={"inner_query": inner_query},
+            )
+
         return parse_select(
             """
                 SELECT
@@ -153,6 +181,39 @@ class AggregationOperations:
     def _inner_select_query(
         self, cross_join_select_query: ast.SelectQuery | ast.SelectUnionQuery
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self._is_count_per_actor_variant():
+            if self.series.math == "avg_count_per_actor":
+                math_func = self._math_func("avg", ["total"])
+            elif self.series.math == "min_count_per_actor":
+                math_func = self._math_func("min", ["total"])
+            elif self.series.math == "max_count_per_actor":
+                math_func = self._math_func("max", ["total"])
+            elif self.series.math == "median_count_per_actor":
+                math_func = self._math_func("median", ["total"])
+            elif self.series.math == "p90_count_per_actor":
+                math_func = self._math_quantile(0.9, ["total"])
+            elif self.series.math == "p95_count_per_actor":
+                math_func = self._math_quantile(0.95, ["total"])
+            elif self.series.math == "p99_count_per_actor":
+                math_func = self._math_quantile(0.99, ["total"])
+            else:
+                raise NotImplementedError()
+
+            total_alias = ast.Alias(alias="total", expr=math_func)
+
+            return parse_select(
+                """
+                    SELECT
+                        {total_alias}, day_start
+                    FROM {inner_query}
+                    GROUP BY day_start
+                """,
+                placeholders={
+                    "inner_query": cross_join_select_query,
+                    "total_alias": total_alias,
+                },
+            )
+
         return parse_select(
             """
                 SELECT
@@ -181,6 +242,24 @@ class AggregationOperations:
     def _events_query(
         self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self._is_count_per_actor_variant():
+            return parse_select(
+                """
+                    SELECT
+                        count(e.uuid) AS total,
+                        dateTrunc({interval}, timestamp) AS day_start
+                    FROM events AS e
+                    SAMPLE {sample}
+                    WHERE {events_where_clause}
+                    GROUP BY e.person_id, day_start
+                """,
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "events_where_clause": events_where_clause,
+                    "sample": sample_value,
+                },
+            )
+
         return parse_select(
             """
                 SELECT
