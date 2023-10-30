@@ -215,6 +215,9 @@ dependencies:
   papaparse:
     specifier: ^5.4.1
     version: 5.4.1
+  pmtiles:
+    specifier: ^2.11.0
+    version: 2.11.0
   posthog-js:
     specifier: 1.87.4
     version: 1.87.4
@@ -227,6 +230,9 @@ dependencies:
   prop-types:
     specifier: ^15.7.2
     version: 15.8.1
+  protomaps-themes-base:
+    specifier: 2.0.0-alpha.1
+    version: 2.0.0-alpha.1
   query-selector-shadow-dom:
     specifier: ^1.0.0
     version: 1.0.0
@@ -10671,6 +10677,10 @@ packages:
     resolution: {integrity: sha512-5u2V/CDW15QM1XbbgS+0DfPxVB+jUKhWEKuuFuHncbk3tEEqzmoXL+2KyOFuKGqOnmdIy0/davWF1CkuwtibCw==}
     dev: false
 
+  /fflate@0.8.1:
+    resolution: {integrity: sha512-/exOvEuc+/iaUm105QIiOt4LpBdMTWsXxqR0HDF35vx3fmaKzw7354gTilCh5rkzEt8WYyG//ku3h3nRmd7CHQ==}
+    dev: false
+
   /figures@3.2.0:
     resolution: {integrity: sha512-yaduQFRKLXYOGgEn6AZau90j3ggSOyiqXU0F9JZfeXYhNa+Jk4X+s45A2zg5jns87GAFa34BBm2kXw4XpNcbdg==}
     engines: {node: '>=8'}
@@ -15082,6 +15092,12 @@ packages:
       semver-compare: 1.0.0
     dev: true
 
+  /pmtiles@2.11.0:
+    resolution: {integrity: sha512-dU9SzzaqmCGpdEuTnIba6bDHT6j09ZJFIXxwGpvkiEnce3ZnBB1VKt6+EOmJGueriweaZLAMTUmKVElU2CBe0g==}
+    dependencies:
+      fflate: 0.8.1
+    dev: false
+
   /pngjs@3.4.0:
     resolution: {integrity: sha512-NCrCHhWmnQklfH4MtJMRjZ2a8c80qXeMlQMv2uVp9ISJMTt562SbGd6n2oq0PaPgKm7Z6pL9E2UlLIhC+SHL3w==}
     engines: {node: '>=4.0.0'}
@@ -15749,6 +15765,10 @@ packages:
 
   /protocol-buffers-schema@3.6.0:
     resolution: {integrity: sha512-TdDRD+/QNdrCGCE7v8340QyuXd4kIWIgapsE2+n/SaGiSSbomYl4TjHlvIoCWRpE7wFt02EpB35VVA2ImcBVqw==}
+    dev: false
+
+  /protomaps-themes-base@2.0.0-alpha.1:
+    resolution: {integrity: sha512-eGAiUpBPAohnMvEHoF7NRWp7YuTNk/JsAVJ4733jqNw+/EF6Q5TMjqCOZScG3YSri5NStJg+9Upb95M2AQ3pjw==}
     dev: false
 
   /proxy-addr@2.0.7:
