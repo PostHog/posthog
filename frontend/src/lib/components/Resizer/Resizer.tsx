@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
 export type ResizerProps = ResizerLogicProps & {
-    offset?: number
+    offset?: number | string
 }
 
 export function Resizer(props: ResizerProps): JSX.Element {
