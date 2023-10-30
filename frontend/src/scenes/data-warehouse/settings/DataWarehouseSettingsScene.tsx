@@ -1,9 +1,8 @@
-import { LemonButton, LemonMenu, LemonMenuItems, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,6 +11,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
     logic: dataWarehouseSettingsLogic,
+}
+
+const StatusTagSetting = {
+    running: 'default',
+    success: 'primary',
+    error: 'danger',
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
@@ -67,24 +72,8 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         key: 'status',
                         width: 0,
                         render: function RenderStatus(_, source) {
-                            return <LemonTag type="primary">{source.status}</LemonTag>
-                        },
-                    },
-
-                    {
-                        width: 0,
-                        render: function Render() {
-                            const menuItems: LemonMenuItems = [
-                                {
-                                    label: 'Remove',
-                                    status: 'danger',
-                                    onClick: () => {},
-                                },
-                            ]
                             return (
-                                <LemonMenu items={menuItems} placement="left">
-                                    <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />
-                                </LemonMenu>
+                                <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
                             )
                         },
                     },

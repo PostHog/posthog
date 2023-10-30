@@ -33,7 +33,7 @@ def create_destination(team_id: int) -> ExternalDataDestination:
     response_payload = response.json()
 
     if not response.ok:
-        raise ValueError(response_payload["detail"])
+        raise ValueError(response_payload["message"])
 
     return ExternalDataDestination(
         destination_id=response_payload["destinationId"],
@@ -44,9 +44,9 @@ def delete_destination(destination_id: str) -> None:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to delete a destiantion.")
-    headers = {"authorization": "Bearer {token}"}
+    headers = {"authorization": f"Bearer {token}"}
 
     response = requests.delete(AIRBYTE_DESTINATION_URL + "/" + destination_id, headers=headers)
 
     if not response.ok:
-        raise ValueError(response.json()["detail"])
+        raise ValueError(response.json()["message"])

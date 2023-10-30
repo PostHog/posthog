@@ -33,7 +33,7 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
     response_payload = response.json()
 
     if not response.ok:
-        raise ValueError(response_payload["detail"])
+        raise ValueError(response_payload["message"])
 
     update_connection_stream(response_payload["connectionId"], headers)
 
@@ -60,7 +60,19 @@ def update_connection_stream(connection_id: str, headers: Dict):
     response_payload = response.json()
 
     if not response.ok:
-        raise ValueError(response_payload["detail"])
+        raise ValueError(response_payload["message"])
+
+
+def delete_connection(connection_id: str) -> None:
+    token = settings.AIRBYTE_API_KEY
+    if not token:
+        raise ValueError("AIRBYTE_API_KEY must be set in order to delete a connection.")
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.delete(AIRBYTE_CONNECTION_URL + "/" + connection_id, headers=headers)
+
+    if not response.ok:
+        raise ValueError(response.json()["message"])
 
 
 # Fire and forget

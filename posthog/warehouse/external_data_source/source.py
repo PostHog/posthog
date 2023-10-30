@@ -4,7 +4,6 @@ from posthog.models.utils import UUIDT
 from pydantic import BaseModel, field_validator
 from typing import Dict, Optional
 import datetime as dt
-from posthog.batch_exports.http import validate_date_input
 
 AIRBYTE_SOURCE_URL = "https://api.airbyte.com/v1/sources"
 
@@ -28,6 +27,8 @@ class StripeSourcePayload(BaseModel):
     @field_validator("start_date")
     @classmethod
     def valid_iso_start_date(cls, v: Optional[str]) -> Optional[str]:
+        from posthog.batch_exports.http import validate_date_input
+
         if not v:
             return v
 
@@ -87,7 +88,7 @@ def _create_source(payload: Dict) -> ExternalDataSource:
     response = requests.post(AIRBYTE_SOURCE_URL, json=payload, headers=headers)
     response_payload = response.json()
     if not response.ok:
-        raise ValueError(response_payload["detail"])
+        raise ValueError(response_payload["message"])
 
     return ExternalDataSource(
         source_id=response_payload["sourceId"],
@@ -101,9 +102,9 @@ def delete_source(source_id):
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to delete a source.")
-    headers = {"authorization": "Bearer {token}"}
+    headers = {"authorization": f"Bearer {token}"}
 
     response = requests.delete(AIRBYTE_SOURCE_URL + "/" + source_id, headers=headers)
 
     if not response.ok:
-        raise ValueError(response.json()["detail"])
+        raise ValueError(response.json()["message"])
