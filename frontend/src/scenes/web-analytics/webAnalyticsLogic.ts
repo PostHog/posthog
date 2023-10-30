@@ -5,13 +5,13 @@ import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters, WebStatsBreakdown }
 import { EventPropertyFilter, HogQLPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { isNotNil } from 'lib/utils'
 
-interface Layout {
+export interface WebTileLayout {
     colSpan?: number
     rowSpan?: number
 }
 
 interface BaseTile {
-    layout: Layout
+    layout: WebTileLayout
 }
 
 interface QueryTile extends BaseTile {
@@ -19,7 +19,7 @@ interface QueryTile extends BaseTile {
     query: QuerySchema
 }
 
-interface TabsTile extends BaseTile {
+export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
     tabs: {
