@@ -138,7 +138,7 @@
         }
     }
 
-    &--compact {
+    &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
             max-width: 800px;
         }
