@@ -10,6 +10,17 @@ export type SidebarChangeNoticeProps = {
     children: LemonDropdownProps['children']
 }
 
+/**
+ * Used in combination with a feature flag like:
+ *
+ * sidebar-notice-annotations-2023-10-30
+ * matching:
+ *   properties:
+ *     sidebar_notice/annotations-2023-10-30: doesn't equal true
+ *     joined_at: before 2023-10-30
+ *
+ */
+
 const NOTICES: {
     identifier: Scene
     description: React.ReactNode
