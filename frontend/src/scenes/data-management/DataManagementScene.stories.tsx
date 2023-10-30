@@ -1,4 +1,4 @@
-import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
@@ -117,7 +117,7 @@ export function Database(): JSX.Element {
 }
 
 export function IngestionWarnings(): JSX.Element {
-    useFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])
+    setFeatureFlags([FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED])
     useEffect(() => {
         router.actions.push(urls.ingestionWarnings())
     }, [])
