@@ -63,7 +63,7 @@ export function SidebarChangeNotice({ identifier, children }: SidebarChangeNotic
 
     return (
         <Popover
-            placement="right"
+            placement="right-start"
             visible={true}
             showArrow
             overlay={

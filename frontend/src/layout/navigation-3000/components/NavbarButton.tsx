@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SidebarChangeNotice } from '~/layout/navigation/SideBar/SidebarChangeNotice'
 
 export interface NavbarButtonProps {
     identifier: string
@@ -37,21 +38,23 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 delayMs={0}
                 visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
             >
-                <LemonButton
-                    ref={ref}
-                    data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
-                    onMouseEnter={() => setHasBeenClicked(false)}
-                    onClick={() => {
-                        setHasBeenClicked(true)
-                        onClick?.()
-                    }}
-                    className={clsx(
-                        'NavbarButton',
-                        here && 'NavbarButton--here',
-                        popoverMarker && 'NavbarButton--popover'
-                    )}
-                    {...buttonProps}
-                />
+                <SidebarChangeNotice identifier={identifier}>
+                    <LemonButton
+                        ref={ref}
+                        data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
+                        onMouseEnter={() => setHasBeenClicked(false)}
+                        onClick={() => {
+                            setHasBeenClicked(true)
+                            onClick?.()
+                        }}
+                        className={clsx(
+                            'NavbarButton',
+                            here && 'NavbarButton--here',
+                            popoverMarker && 'NavbarButton--popover'
+                        )}
+                        {...buttonProps}
+                    />
+                </SidebarChangeNotice>
             </Tooltip>
         </li>
     )
