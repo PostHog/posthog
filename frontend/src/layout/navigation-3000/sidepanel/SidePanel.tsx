@@ -74,7 +74,7 @@ export function SidePanel(): JSX.Element {
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
-                <div className="rotate-90 flex items-center gap-2 px-2">
+                <div className="rotate-90 flex items-center gap-1 px-2">
                     {Object.entries(SidePanelTabs)
                         .filter(([tab]) => enabledTabs.includes(tab))
                         .map(([tab, { label, Icon }]) => (
