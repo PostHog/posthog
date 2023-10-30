@@ -39,6 +39,7 @@ import {
     defaultSurveyAppearance,
     SurveyQuestionLabel,
     SurveyUrlMatchTypeLabels,
+    QUESTION_CHOICE_OPEN_ENDED_PREFIX,
 } from './constants'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import React from 'react'
@@ -462,66 +463,123 @@ export default function SurveyEdit(): JSX.Element {
                                                                                         (
                                                                                             choice: string,
                                                                                             index: number
-                                                                                        ) => (
-                                                                                            <div
-                                                                                                className="flex flex-row gap-2"
-                                                                                                key={index}
-                                                                                            >
-                                                                                                <LemonInput
-                                                                                                    value={choice}
-                                                                                                    fullWidth
-                                                                                                    onChange={(val) => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices[
-                                                                                                            index
-                                                                                                        ] = val
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
+                                                                                        ) => {
+                                                                                            const isOpenEnded =
+                                                                                                choice.startsWith(
+                                                                                                    QUESTION_CHOICE_OPEN_ENDED_PREFIX
+                                                                                                )
+                                                                                            return (
+                                                                                                <div
+                                                                                                    className="flex flex-row gap-2 relative"
+                                                                                                    key={index}
+                                                                                                >
+                                                                                                    <LemonInput
+                                                                                                        value={
+                                                                                                            isOpenEnded
+                                                                                                                ? choice.slice(
+                                                                                                                      QUESTION_CHOICE_OPEN_ENDED_PREFIX.length
+                                                                                                                  )
+                                                                                                                : choice
+                                                                                                        }
+                                                                                                        fullWidth
+                                                                                                        onChange={(
+                                                                                                            val
+                                                                                                        ) => {
+                                                                                                            const newChoices =
+                                                                                                                [
+                                                                                                                    ...value,
+                                                                                                                ]
+                                                                                                            newChoices[
+                                                                                                                index
+                                                                                                            ] =
+                                                                                                                (isOpenEnded
+                                                                                                                    ? QUESTION_CHOICE_OPEN_ENDED_PREFIX
+                                                                                                                    : '') +
+                                                                                                                val
+                                                                                                            onChange(
+                                                                                                                newChoices
+                                                                                                            )
+                                                                                                        }}
+                                                                                                    />
+                                                                                                    {isOpenEnded && (
+                                                                                                        <span className="question-choice-open-ended-footer">
+                                                                                                            open-ended
+                                                                                                        </span>
+                                                                                                    )}
+                                                                                                    <LemonButton
+                                                                                                        icon={
+                                                                                                            <IconDelete />
+                                                                                                        }
+                                                                                                        size="small"
+                                                                                                        status="muted"
+                                                                                                        noPadding
+                                                                                                        onClick={() => {
+                                                                                                            const newChoices =
+                                                                                                                [
+                                                                                                                    ...value,
+                                                                                                                ]
+                                                                                                            newChoices.splice(
+                                                                                                                index,
+                                                                                                                1
+                                                                                                            )
+                                                                                                            onChange(
+                                                                                                                newChoices
+                                                                                                            )
+                                                                                                        }}
+                                                                                                    />
+                                                                                                </div>
+                                                                                            )
+                                                                                        }
+                                                                                    )}
+                                                                                    <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                                                        {(value || []).length < 6 && (
+                                                                                            <>
                                                                                                 <LemonButton
                                                                                                     icon={
-                                                                                                        <IconDelete />
+                                                                                                        <IconPlusMini />
                                                                                                     }
-                                                                                                    size="small"
-                                                                                                    status="muted"
-                                                                                                    noPadding
+                                                                                                    type="secondary"
+                                                                                                    fullWidth={false}
                                                                                                     onClick={() => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices.splice(
-                                                                                                            index,
-                                                                                                            1
-                                                                                                        )
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
+                                                                                                        if (!value) {
+                                                                                                            onChange([
+                                                                                                                '',
+                                                                                                            ])
+                                                                                                        } else {
+                                                                                                            onChange([
+                                                                                                                ...value,
+                                                                                                                '',
+                                                                                                            ])
+                                                                                                        }
                                                                                                     }}
-                                                                                                />
-                                                                                            </div>
-                                                                                        )
-                                                                                    )}
-                                                                                    <div className="w-fit">
-                                                                                        {(value || []).length < 6 && (
-                                                                                            <LemonButton
-                                                                                                icon={<IconPlusMini />}
-                                                                                                type="secondary"
-                                                                                                fullWidth={false}
-                                                                                                onClick={() => {
-                                                                                                    if (!value) {
-                                                                                                        onChange([''])
-                                                                                                    } else {
-                                                                                                        onChange([
-                                                                                                            ...value,
-                                                                                                            '',
-                                                                                                        ])
+                                                                                                >
+                                                                                                    Add choice
+                                                                                                </LemonButton>
+                                                                                                <LemonButton
+                                                                                                    icon={
+                                                                                                        <IconPlusMini />
                                                                                                     }
-                                                                                                }}
-                                                                                            >
-                                                                                                Add choice
-                                                                                            </LemonButton>
+                                                                                                    type="secondary"
+                                                                                                    fullWidth={false}
+                                                                                                    onClick={() => {
+                                                                                                        if (!value) {
+                                                                                                            onChange([
+                                                                                                                QUESTION_CHOICE_OPEN_ENDED_PREFIX +
+                                                                                                                    'Other',
+                                                                                                            ])
+                                                                                                        } else {
+                                                                                                            onChange([
+                                                                                                                ...value,
+                                                                                                                QUESTION_CHOICE_OPEN_ENDED_PREFIX +
+                                                                                                                    'Other',
+                                                                                                            ])
+                                                                                                        }
+                                                                                                    }}
+                                                                                                >
+                                                                                                    Add open-ended
+                                                                                                    choice
+                                                                                                </LemonButton>
+                                                                                            </>
                                                                                         )}
                                                                                     </div>
                                                                                 </div>

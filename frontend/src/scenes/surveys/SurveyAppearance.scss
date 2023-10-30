@@ -226,12 +226,13 @@
     opacity: 1 !important;
 }
 
-.multiple-choice-options input[type='checkbox']:checked + label {
+.multiple-choice-options input:checked + label {
     font-weight: bold;
+    border: 1.5px solid rgba(0, 0, 0);
 }
 
-.multiple-choice-options input:checked + label {
-    border: 1.5px solid rgb(0 0 0);
+.multiple-choice-options input:checked + label input {
+    font-weight: bold;
 }
 
 .multiple-choice-options label {
@@ -241,6 +242,25 @@
     border: 1.5px solid rgb(0 0 0 / 25%);
     border-radius: 4px;
     background: white;
+}
+
+.multiple-choice-options .choice-option-open label {
+    padding-right: 30px;
+}
+
+.multiple-choice-options .choice-option-open input:disabled + label {
+    opacity: 0.6;
+}
+
+.multiple-choice-options .choice-option-open label input {
+    position: relative;
+    opacity: 1;
+    outline: 1px solid rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+}
+
+.multiple-choice-options .choice-option-open label input:focus {
+    outline-color: black;
 }
 
 .thank-you-message {
