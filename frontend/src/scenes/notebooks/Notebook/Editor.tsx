@@ -215,6 +215,7 @@ export function Editor(): JSX.Element {
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
                 focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),

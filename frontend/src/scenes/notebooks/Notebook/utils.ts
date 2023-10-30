@@ -101,6 +101,7 @@ export interface NotebookEditor {
     setSelection: (position: number) => void
     setTextSelection: (position: number | EditorRange) => void
     focus: (position: EditorFocusPosition) => void
+    chain: () => EditorCommands
     destroy: () => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void

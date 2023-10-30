@@ -44,8 +44,7 @@
     }
 
     &--editable:hover,
-    &--selected,
-    &--active {
+    &--selected {
         .NotebookNode__gap {
             opacity: 1;
             height: 2rem;

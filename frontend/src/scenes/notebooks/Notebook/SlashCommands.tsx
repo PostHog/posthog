@@ -19,7 +19,7 @@ import {
     InsightsTrendsIcon,
 } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange } from './utils'
+import { EditorCommands, EditorRange, JSONContent, NotebookEditor } from './utils'
 import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -34,8 +34,8 @@ import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/Not
 
 type SlashCommandsProps = {
     mode: 'slash' | 'add'
-    query?: string
     range?: EditorRange
+    query?: string
     decorationNode?: any
 }
 
@@ -63,12 +63,12 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'h1',
+        title: 'h2',
         icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'h1',
+        title: 'h3',
         icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },
@@ -348,7 +348,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     ? TEXT_CONTROLS[selectedHorizontalIndex].command
                     : filteredSlashCommands[selectedIndex].command
 
-            const partialCommand = await command(editor.deleteRange(range))
+            const chain = range ? editor.deleteRange(range) : editor.chain()
+            const partialCommand = await command(chain)
             partialCommand.run()
         }
     }
@@ -411,6 +412,10 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         return null
     }
 
+    const chain = range
+        ? (content) => editor.deleteRange(range).insertContent(content).run()
+        : (content) => editor.insertContentAfterNode(getPos(), content)
+
     return (
         <div className="space-y-px">
             <div className="flex items-center gap-1">
@@ -435,7 +440,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                    onClick={async () => (await item.command(chain)).run()}
                 >
                     {item.title}
                 </LemonButton>
@@ -521,3 +526,7 @@ export const SlashCommandsExtension = Extension.create({
         ]
     },
 })
+
+const replaceSelection = (editor: NotebookEditor, range: EditorRange, content: JSONContent) => {
+    editor.deleteRange(range).insertContent(content).run()
+}

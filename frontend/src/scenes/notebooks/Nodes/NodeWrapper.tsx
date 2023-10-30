@@ -223,9 +223,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         mode="add"
                                         visible={slashCommandsPopoverVisible}
                                         onClickOutside={() => setSlashCommandsPopoverVisible(false)}
+                                        onSelectContent={(content, editor) => {
+                                            editor.insertContentAfterNode(getPos(), content)
+                                        }}
                                     >
                                         <LemonButton
-                                            size="tiny"
+                                            size="xsmall"
                                             type="secondary"
                                             status="primary"
                                             icon={<IconPlus />}
@@ -238,7 +241,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                     {actions.map((x, i) => (
                                         <LemonButton
                                             key={i}
-                                            size="tiny"
+                                            size="xsmall"
                                             type="secondary"
                                             status="primary"
                                             icon={x.icon ?? <IconPlusMini />}
