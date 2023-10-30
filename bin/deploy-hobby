@@ -2,6 +2,7 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
