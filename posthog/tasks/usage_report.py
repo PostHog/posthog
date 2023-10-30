@@ -600,7 +600,7 @@ def get_teams_with_data_warehouse_rows_synced_in_period(begin: datetime, end: da
     from posthog.warehouse.sync_resource import get_rows_synced_by_team
 
     team_ids = ExternalDataSource.objects.distinct("team_id").values_list("team_id", flat=True)
-    results = [{team_id: get_rows_synced_by_team(begin, end, team_id)} for team_id in team_ids]
+    results = [(team_id, get_rows_synced_by_team(begin, end, team_id)) for team_id in team_ids]
 
     return results
 
