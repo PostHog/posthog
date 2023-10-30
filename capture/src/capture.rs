@@ -16,6 +16,7 @@ use time::OffsetDateTime;
 
 use crate::billing_limits::QuotaResource;
 use crate::event::ProcessingContext;
+use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
@@ -50,7 +51,7 @@ pub async fn event(
     }
 
     let token = extract_and_verify_token(&events).map_err(|err| {
-        counter!("capture_token_shape_invalid_total", events.len() as u64);
+        report_dropped_events("token_shape_invalid", events.len() as u64);
         err
     })?;
 
@@ -81,7 +82,7 @@ pub async fn event(
         .await;
 
     if limited {
-        counter!("capture_events_dropped_over_quota", 1);
+        report_dropped_events("over_quota", 1);
 
         // for v0 we want to just return ok 🙃
         // this is because the clients are pretty dumb and will just retry over and over and

@@ -3,8 +3,12 @@
 use std::time::Instant;
 
 use axum::{extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse};
+use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
+pub fn report_dropped_events(cause: &'static str, quantity: u64) {
+    counter!("capture_events_dropped_total", quantity, "cause" => cause);
+}
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     // Ok I broke it at the end, but the limit on our ingress is 60 and that's a nicer way of reaching it
     const EXPONENTIAL_SECONDS: &[f64] = &[

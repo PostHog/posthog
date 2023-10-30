@@ -12,6 +12,7 @@ use rdkafka::util::Timeout;
 use tracing::info;
 
 use crate::event::ProcessedEvent;
+use crate::prometheus::report_dropped_events;
 
 #[async_trait]
 pub trait EventSink {
@@ -152,18 +153,15 @@ impl KafkaSink {
             timestamp: None,
             headers: None,
         }) {
-            Ok(_) => {
-                metrics::increment_counter!("capture_events_ingested");
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::InvalidMessageSize) => {
-                    metrics::increment_counter!("capture_events_dropped_too_big");
+                    report_dropped_events("kafka_message_size", 1);
                     Err(CaptureError::EventTooBig)
                 }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
-                    metrics::increment_counter!("capture_events_dropped");
+                    report_dropped_events("kafka_write_error", 1);
                     tracing::error!("failed to produce event: {}", e);
                     Err(CaptureError::RetryableSinkError)
                 }
