@@ -63,6 +63,7 @@ export function Experiment(): JSX.Element {
         flagImplementationWarning,
         props,
         aggregationLabel,
+        showGroupsOptions,
         groupTypes,
         experimentMissing,
     } = useValues(experimentLogic)
@@ -338,7 +339,7 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
-                                        {experimentId === 'new' && groupTypes.length > 0 && (
+                                        {experimentId === 'new' && showGroupsOptions && (
                                             <>
                                                 <div className="mt-4">
                                                     <strong>Default participant type</strong>
@@ -371,7 +372,7 @@ export function Experiment(): JSX.Element {
                                                     }}
                                                     options={[
                                                         { value: -1, label: 'Persons' },
-                                                        ...groupTypes.map((groupType) => ({
+                                                        ...Array.from(groupTypes.values()).map((groupType) => ({
                                                             value: groupType.group_type_index,
                                                             label: capitalizeFirstLetter(
                                                                 aggregationLabel(groupType.group_type_index).plural

@@ -1,6 +1,12 @@
 import { setFeatureFlags } from '~/mocks/browser'
 import type { Decorator } from '@storybook/react'
 
+declare module '@storybook/types' {
+    interface Parameters {
+        featureFlags?: string[]
+    }
+}
+
 /** Global story decorator that allows setting feature flags.
  *
  * ```ts

@@ -26,6 +26,7 @@ from posthog.schema import (
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
+    InsightPersonsQuery,
     DashboardFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -70,6 +71,7 @@ RunnableQueryNode = Union[
     HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
+    InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
     SessionsTimelineQuery,
@@ -80,7 +82,7 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode,
+    query: Dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
     in_export_context: Optional[bool] = False,
@@ -89,7 +91,9 @@ def get_query_runner(
     if isinstance(query, dict):
         kind = query.get("kind", None)
     elif hasattr(query, "kind"):
-        kind = query.kind
+        kind = query.kind  # type: ignore
+    else:
+        raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "LifecycleQuery":
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -123,6 +127,15 @@ def get_query_runner(
 
         return PersonsQueryRunner(
             query=cast(PersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "InsightPersonsQuery":
+        from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
+
+        return InsightPersonsQueryRunner(
+            query=cast(InsightPersonsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             in_export_context=in_export_context,
@@ -169,7 +182,7 @@ class QueryRunner(ABC):
 
     def __init__(
         self,
-        query: RunnableQueryNode | Dict[str, Any],
+        query: RunnableQueryNode | BaseModel | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         in_export_context: Optional[bool] = False,

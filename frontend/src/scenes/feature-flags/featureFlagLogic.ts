@@ -749,9 +749,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 variantRolloutSum === 100,
         ],
         aggregationTargetName: [
-            (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
-            (featureFlag, groupTypes, aggregationLabel): string => {
-                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
+            (s) => [s.featureFlag, s.aggregationLabel],
+            (featureFlag, aggregationLabel): string => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
                 return 'users'

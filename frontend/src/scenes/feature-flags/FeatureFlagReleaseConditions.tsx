@@ -440,7 +440,7 @@ export function FeatureFlagReleaseConditions({
                             <Select.Option key={-1} value={-1}>
                                 Users
                             </Select.Option>
-                            {groupTypes.map((groupType) => (
+                            {Array.from(groupTypes.values()).map((groupType) => (
                                 <Select.Option key={groupType.group_type_index} value={groupType.group_type_index}>
                                     {capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
                                 </Select.Option>
