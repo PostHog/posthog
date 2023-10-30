@@ -80,10 +80,15 @@ def retrieve_sync(connection_id: str):
     headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
     params = {"connectionId": connection_id, "limit": 1}
     response = requests.get(AIRBYTE_JOBS_URL, params=params, headers=headers)
-    response_payload = response.json()["data"]
-    latest_job = response_payload[0]
+    response_payload = response.json()
 
     if not response.ok:
-        raise ValueError(response_payload["detail"])
+        raise ValueError(response_payload["message"])
+
+    data = response_payload.get("data", [])
+    if not data:
+        return None
+
+    latest_job = response_payload["data"][0]
 
     return latest_job

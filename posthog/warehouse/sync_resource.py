@@ -10,10 +10,10 @@ logger = structlog.get_logger(__name__)
 
 
 def sync_resources():
-    resources = ExternalDataSource.objects.filter(are_tables_created=False, status="running")
+    resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
 
     for resource in resources:
-        _sync_resource.delay(resource.pk)
+        _sync_resource(resource.pk)
 
 
 @app.task(ignore_result=True)
@@ -27,6 +27,11 @@ def _sync_resource(resource_id):
         resource.status = "error"
         resource.save()
         return
+
+    if job is None:
+        logger.error(f"No jobs found for connection: {resource.connection_id}")
+        resource.status = "error"
+        resource.save()
 
     if job["status"] == "succeeded":
 
