@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, listeners } from 'kea'
 import api from 'lib/api'
 import { promptLogic } from 'lib/logic/promptLogic'
 import { InsightModel } from '~/types'
@@ -6,10 +6,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
-export const insightsModel = kea<insightsModelType>({
-    path: ['models', 'insightsModel'],
-    connect: [promptLogic({ key: 'rename-insight' }), teamLogic],
-    actions: () => ({
+export const insightsModel = kea<insightsModelType>([
+    path(['models', 'insightsModel']),
+    connect([promptLogic({ key: 'rename-insight' }), teamLogic]),
+    actions(() => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
         //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
@@ -22,8 +22,8 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
             insightIds,
         }),
-    }),
-    listeners: ({ actions }) => ({
+    })),
+    listeners(({ actions }) => ({
         renameInsight: async ({ item }) => {
             promptLogic({ key: 'rename-insight' }).actions.prompt({
                 title: 'Rename insight',
@@ -58,5 +58,5 @@ export const insightsModel = kea<insightsModelType>({
             actions.duplicateInsightSuccess(addedItem)
             lemonToast.success('Insight duplicated')
         },
-    }),
-})
+    })),
+])

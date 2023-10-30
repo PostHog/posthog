@@ -1484,6 +1484,67 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node2 = self._select("select event from (<HogQLQuery query='select event from events' />)")
             assert node2 == node
 
+        def test_visit_hogqlx_tag_nested(self):
+            # Basic case
+            node = self._select(
+                "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
+            )
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="OuterQuery",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
+                            ],
+                        ),
+                    )
+                ],
+            )
+
+            # Empty tag
+            node = self._select("select event from <OuterQuery></OuterQuery>")
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
+
+            # With attribute
+            node = self._select(
+                "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+            )
+            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert table_node == ast.HogQLXTag(
+                kind="OuterQuery",
+                attributes=[
+                    ast.HogQLXAttribute(name="q", value=ast.Constant(value="b")),
+                    ast.HogQLXAttribute(
+                        name="source",
+                        value=ast.HogQLXTag(
+                            kind="HogQLQuery",
+                            attributes=[
+                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
+                            ],
+                        ),
+                    ),
+                ],
+            )
+
+            # With mismatched closing tag
+            with self.assertRaises(HogQLException) as e:
+                self._select(
+                    "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></HogQLQuery>"
+                )
+            assert str(e.exception) == "Opening and closing HogQLX tags must match. Got OuterQuery and HogQLQuery"
+
+            # With mismatched closing tag
+            with self.assertRaises(HogQLException) as e:
+                self._select(
+                    "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+                )
+            assert str(e.exception) == "Nested HogQLX tags cannot have a source attribute"
+
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
             table_node = cast(ast.SelectQuery, node).select_from.table

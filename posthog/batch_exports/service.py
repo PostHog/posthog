@@ -252,6 +252,18 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
+@async_to_sync
+async def cancel_running_batch_export_backfill(temporal: Client, workflow_id: str) -> None:
+    """Delete a running BatchExportBackfill.
+
+    A BatchExportBackfill represents a Temporal Workflow. When deleting the Temporal
+    Schedule that we are backfilling, we should also clean-up any Workflows that are
+    still running.
+    """
+    handle = temporal.get_workflow_handle(workflow_id=workflow_id)
+    await handle.cancel()
+
+
 @dataclass
 class BackfillBatchExportInputs:
     """Inputs for the BackfillBatchExport Workflow."""
@@ -270,7 +282,7 @@ def backfill_export(
     team_id: int,
     start_at: dt.datetime,
     end_at: dt.datetime,
-) -> None:
+) -> str:
     """Starts a backfill for given team and batch export covering given date range.
 
     Arguments:
@@ -291,11 +303,12 @@ def backfill_export(
         start_at=start_at.isoformat(),
         end_at=end_at.isoformat(),
     )
-    start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    workflow_id = start_backfill_batch_export_workflow(temporal, inputs=inputs)
+    return workflow_id
 
 
 @async_to_sync
-async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> None:
+async def start_backfill_batch_export_workflow(temporal: Client, inputs: BackfillBatchExportInputs) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
     handle = temporal.get_schedule_handle(inputs.batch_export_id)
     description = await handle.describe()
@@ -304,12 +317,15 @@ async def start_backfill_batch_export_workflow(temporal: Client, inputs: Backfil
         # Adjust end_at to account for jitter if present.
         inputs.end_at = (dt.datetime.fromisoformat(inputs.end_at) + description.schedule.spec.jitter).isoformat()
 
+    workflow_id = f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}"
     await temporal.start_workflow(
         "backfill-batch-export",
         inputs,
-        id=f"{inputs.batch_export_id}-Backfill-{inputs.start_at}-{inputs.end_at}",
+        id=workflow_id,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
     )
+
+    return workflow_id
 
 
 def create_batch_export_run(

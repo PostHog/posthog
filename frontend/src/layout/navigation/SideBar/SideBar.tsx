@@ -18,6 +18,7 @@ import {
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
+    IconPipeline,
     IconPlus,
     IconRecording,
     IconRocketLaunch,
@@ -226,6 +227,9 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
+                        <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
+                    </FlaggedFeature>
                     <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                         <PageButton
                             icon={<IconDatabase />}

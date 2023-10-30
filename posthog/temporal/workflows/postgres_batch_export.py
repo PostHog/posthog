@@ -36,9 +36,9 @@ def postgres_connection(inputs):
         port=inputs.port,
         # The 'hasSelfSignedCert' parameter in the postgres-plugin was provided mainly
         # for users of Heroku and RDS. It was used to set 'rejectUnauthorized' to false if a self-signed cert was used.
-        # Mapping this to sslmode is not straight-forward, but going by Heroku's recommendation (see below) we should use 'no-verify'.
+        # Mapping this to sslmode is not straight-forward, but going by Heroku's recommendation (see below) we should use 'disable'.
         # Reference: https://devcenter.heroku.com/articles/connecting-heroku-postgres#connecting-in-node-js
-        sslmode="no-verify" if inputs.has_self_signed_cert is True else "prefer",
+        sslmode="disable" if inputs.has_self_signed_cert is True else "prefer",
     )
 
     try:
@@ -57,7 +57,8 @@ def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name:
     tsv_file.seek(0)
 
     with postgres_connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
+        if schema:
+            cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
         cursor.copy_from(
             tsv_file,
             table_name,
@@ -128,6 +129,11 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
         )
         with postgres_connection(inputs) as connection:
             with connection.cursor() as cursor:
+                if inputs.schema:
+                    table_identifier = sql.Identifier(inputs.schema, inputs.table_name)
+                else:
+                    table_identifier = sql.Identifier(inputs.table_name)
+
                 result = cursor.execute(
                     sql.SQL(
                         """
@@ -145,7 +151,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                             "timestamp" TIMESTAMP WITH TIME ZONE
                         )
                         """
-                    ).format(sql.Identifier(inputs.schema, inputs.table_name))
+                    ).format(table_identifier)
                 )
 
         schema_columns = [

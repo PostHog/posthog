@@ -187,7 +187,9 @@ public:
 
     virtual std::any visitColumnLambdaExpr(HogQLParser::ColumnLambdaExprContext *context) = 0;
 
-    virtual std::any visitHogqlxTagElement(HogQLParser::HogqlxTagElementContext *context) = 0;
+    virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *context) = 0;
+
+    virtual std::any visitHogqlxTagElementNested(HogQLParser::HogqlxTagElementNestedContext *context) = 0;
 
     virtual std::any visitHogqlxTagAttribute(HogQLParser::HogqlxTagAttributeContext *context) = 0;
 
