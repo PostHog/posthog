@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import json
 import typing
@@ -31,7 +32,7 @@ from posthog.temporal.workflows.postgres_batch_export import (
 
 
 def insert_records_to_redshift(
-    records: list[dict[str, typing.Any]],
+    records: collections.abc.Iterator[dict[str, typing.Any]],
     redshift_connection: psycopg2.extensions.connection,
     schema: str,
     table: str,
@@ -53,7 +54,8 @@ def insert_records_to_redshift(
         schema: The schema that contains the table where to insert the record.
         table: The name of the table where to insert the record.
         batch_size: Number of records to insert in batch. Setting this too high could
-            make us go OOM or exceed Redshift's SQL statement size limit (16MB).
+            make us go OOM or exceed Redshift's SQL statement size limit (16MB). Setting this too low
+            can significantly affect performance due to Redshift's poor handling of INSERTs.
     """
     batch = [next(records)]
 
@@ -93,7 +95,21 @@ class RedshiftInsertInputs(PostgresInsertInputs):
 
 @activity.defn
 async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
-    """Activity streams data from ClickHouse to Redshift."""
+    """Activity to insert data from ClickHouse to Redshift.
+
+    This activity executes the following steps:
+    1. Check if anything is to be exported.
+    2. Create destination table if not present.
+    3. Query rows to export.
+    4. Insert rows into Redshift.
+
+    Args:
+        inputs: The dataclass holding inputs for this activity. The inputs
+            include: connection configuration (e.g. host, user, port), batch export
+            query parameters (e.g. team_id, data_interval_start, include_events), and
+            the Redshift-specific properties_data_type to indicate the type of JSON-like
+            fields.
+    """
     logger = get_batch_exports_logger(inputs=inputs)
     logger.info(
         "Running Postgres export batch %s - %s",
@@ -169,9 +185,10 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         ]
         json_columns = ("properties", "set", "set_once")
 
-        def map_to_record(result: dict) -> dict:
+        def map_to_record(row: dict) -> dict:
+            """Map row to a record to insert to Redshift."""
             return {
-                key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
+                key: json.dumps(row[key]) if key in json_columns and row[key] is not None else row[key]
                 for key in schema_columns
             }
 
@@ -189,11 +206,6 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     Schedule. When ran by a schedule, `data_interval_end` should be set to
     `None` so that we will fetch the end of the interval from the Temporal
     search attribute `TemporalScheduledStartTime`.
-
-    This Workflow executes the same insert activity as the PostgresBatchExportWorkflow,
-    as Postgres and AWS Redshift are fairly compatible. The only differences are:
-    * Postgres JSONB fields are VARCHAR in Redshift.
-    * Non retryable errors can be different between both.
     """
 
     @staticmethod

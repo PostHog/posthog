@@ -1,13 +1,13 @@
-from uuid import uuid4
-from random import randint
-import json
 import datetime as dt
+import json
 import os
+from random import randint
+from uuid import uuid4
 
 import psycopg2
-from psycopg2 import sql
 import pytest
 from django.conf import settings
+from psycopg2 import sql
 
 from posthog.temporal.tests.batch_exports.base import (
     EventValues,
@@ -33,7 +33,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def assert_events_in_redshift(connection, schema, table_name, events):
-    """Assert provided events written to a given Postgres table."""
+    """Assert provided events written to a given Redshift table."""
 
     inserted_events = []
 
@@ -78,7 +78,10 @@ def assert_events_in_redshift(connection, schema, table_name, events):
 
 @pytest.fixture
 def redshift_config():
-    """Fixture to provide a default configuration for Redshift batch exports."""
+    """Fixture to provide a default configuration for Redshift batch exports.
+
+    Reads required env vars to construct configuration.
+    """
     user = os.environ["REDSHIFT_USER"]
     password = os.environ["REDSHIFT_PASSWORD"]
     host = os.environ["REDSHIFT_HOST"]
@@ -96,7 +99,16 @@ def redshift_config():
 
 @pytest.fixture
 def setup_test_db(redshift_config):
-    """Fixture to manage a database for Redshift exports."""
+    """Fixture to manage a database for Redshift export testing.
+
+    Managing a test database involves the following steps:
+    1. Creating a test database.
+    2. Initializing a connection to that database.
+    3. Creating a test schema.
+    4. Yielding the connection to be used in tests.
+    5. After tests, drop the test schema and any tables in it.
+    6. Drop the test database.
+    """
     connection = psycopg2.connect(
         user=redshift_config["user"],
         password=redshift_config["password"],
