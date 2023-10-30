@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import './NotebookPanel.scss'
 import { Notebook } from '../Notebook/Notebook'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebooksModel } from '~/models/notebooksModel'
@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 export function NotebookPanel(): JSX.Element | null {
     const { fullScreen, selectedNotebook, initialAutofocus, droppedResource, dropProperties } =
         useValues(notebookPanelLogic)
-    const { setFullScreen, selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
+    const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const editable = !notebook?.is_template
