@@ -27,8 +27,9 @@ import {
     IconToggle,
     IconToolbar,
     IconNotebook,
-    IconHardDrive,
     IconRocket,
+    IconServer,
+    IconChat,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 import { annotationsSidebarLogic } from './sidebars/annotations'
@@ -300,6 +301,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             featureFlag: FEATURE_FLAGS.NOTEBOOKS,
                         },
                         {
+                            identifier: Scene.Events,
+                            label: 'Event explorer',
+                            icon: <IconLive />,
+                            to: urls.events(),
+                        },
+                        {
                             identifier: Scene.DataManagement,
                             label: 'Data management',
                             icon: <IconDatabase />,
@@ -330,21 +337,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     ],
                     [
                         {
-                            identifier: Scene.Events,
-                            label: 'Events',
-                            icon: <IconLive />,
-                            to: urls.events(),
-                        },
-                        {
-                            identifier: Scene.WebAnalytics,
-                            label: 'Web Analytics',
-                            icon: <IconGraph />, // TODO
-                            to: urls.webAnalytics(),
-                            featureFlag: FEATURE_FLAGS.WEB_ANALYTICS,
-                        },
-                        {
                             identifier: Scene.SavedInsights,
-                            label: 'Product Analytics',
+                            label: 'Product analytics',
                             icon: <IconGraph />,
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
@@ -352,15 +346,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
                             ? {
                                   identifier: Scene.WebAnalytics,
-                                  label: 'Web Analytics',
+                                  label: 'Web analytics',
                                   icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
                               }
                             : null,
                         {
                             identifier: Scene.DataWarehouse,
-                            label: 'Data Warehouse',
-                            icon: <IconHardDrive />, // TODO
+                            label: 'Data warehouse',
+                            icon: <IconServer />,
                             to: urls.dataWarehouse(),
                             featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
                         },
@@ -371,22 +365,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.replay(),
                         },
                         {
+                            identifier: Scene.Surveys,
+                            label: 'Surveys',
+                            icon: <IconChat />,
+                            to: urls.surveys(),
+                        },
+                        {
                             identifier: Scene.FeatureFlags,
-                            label: 'Feature Flags',
+                            label: 'Feature flags',
                             icon: <IconToggle />,
                             logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.featureFlags(),
                         },
                         {
                             identifier: Scene.Experiments,
-                            label: 'A/B Testing',
+                            label: 'A/B testing',
                             icon: <IconTestTube />,
                             logic: isUsingSidebar ? experimentsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.experiments(),
                         },
                         {
                             identifier: Scene.EarlyAccessFeatures,
-                            label: 'Early Access Features',
+                            label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
                         },
