@@ -13,7 +13,7 @@ import { NotebookNodeType } from '~/types'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
-import { IconNotebook } from '@posthog/icons'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
