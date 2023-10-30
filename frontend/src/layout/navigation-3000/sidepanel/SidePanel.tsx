@@ -14,7 +14,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
-        label: 'Notebook',
+        label: 'Notebooks',
         Icon: IconNotebook,
         Content: NotebookPanel,
     },
@@ -49,7 +49,7 @@ export function SidePanel(): JSX.Element {
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
         persistentKey: '',
-        closeThreshold: 450,
+        closeThreshold: 200,
         placement: 'left',
         onToggleClosed: (shouldBeClosed) => {
             shouldBeClosed ? closeSidePanel() : selectedTab ? openSidePanel(selectedTab) : undefined

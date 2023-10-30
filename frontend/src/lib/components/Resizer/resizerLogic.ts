@@ -53,6 +53,7 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
         width: [
             null as number | null,
+            { persist: true },
             {
                 setDesiredWidth: (_, { width }) => width,
                 resetDesiredWidth: () => null,
@@ -62,6 +63,8 @@ export const resizerLogic = kea<resizerLogicType>([
             null as number | null,
             {
                 setResizingWidth: (_, { width }) => width,
+                beginResize: () => null,
+                endResize: () => null,
             },
         ],
     }),
@@ -69,7 +72,7 @@ export const resizerLogic = kea<resizerLogicType>([
         desiredWidth: [
             (s) => [s.width, s.resizingWidth, s.isResizeInProgress],
             (width, resizingWidth, isResizeInProgress) => {
-                return isResizeInProgress ? resizingWidth : width
+                return isResizeInProgress ? resizingWidth ?? width : width
             },
         ],
     }),
@@ -78,6 +81,17 @@ export const resizerLogic = kea<resizerLogicType>([
             if (!props.containerRef.current) {
                 return
             }
+
+            if (cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 200) {
+                // Double click - reset to original width
+                actions.resetDesiredWidth()
+                actions.endResize()
+                cache.firstClickTimestamp = null
+                return
+            }
+
+            cache.firstClickTimestamp = Date.now()
+
             const originContainerBounds = props.containerRef.current.getBoundingClientRect()
 
             let isClosed = props.closeThreshold ? originContainerBounds.width < props.closeThreshold : false
