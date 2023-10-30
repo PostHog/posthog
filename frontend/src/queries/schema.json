@@ -93,6 +93,9 @@
                     "$ref": "#/definitions/PersonsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightPersonsQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -1620,6 +1623,29 @@
             ],
             "type": "string"
         },
+        "InsightPersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightPersonsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -1894,6 +1920,7 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
+                "InsightPersonsQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2146,7 +2173,7 @@
                 "source": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/LifecycleQuery"
+                            "$ref": "#/definitions/InsightPersonsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
