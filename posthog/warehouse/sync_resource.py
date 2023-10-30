@@ -87,6 +87,6 @@ def _accumulate_jobs_field(url, field, acc=0):
     acc += sum([job[field] for job in response_data])
 
     if response_next:
-        return _accumulate_jobs_field(response_payload["next"], acc=acc)
+        return _accumulate_jobs_field(response_payload["next"], field, acc=acc)
 
     return acc
