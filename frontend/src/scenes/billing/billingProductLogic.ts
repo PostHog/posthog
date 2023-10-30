@@ -193,18 +193,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     DEFAULT_BILLING_LIMIT
             )
         },
-        reportSurveyShown: ({ surveyID, productType }) => {
-            posthog.getActiveMatchingSurveys((surveys) => {
-                const matchingSurvey = surveys.filter((survey) => survey.id === surveyID)[0]
-                if (!matchingSurvey) {
-                    actions.deactivateProduct(productType)
-                    throw new Error(`Survey with ID ${surveyID} not found.`)
-                }
-                posthog.capture('survey shown', {
-                    $survey_id: surveyID,
-                })
-                actions.setSurveyID(surveyID)
+        reportSurveyShown: ({ surveyID }) => {
+            posthog.capture('survey shown', {
+                $survey_id: surveyID,
             })
+            actions.setSurveyID(surveyID)
         },
         reportSurveySent: ({ surveyID, surveyResponseValue }) => {
             posthog.capture('survey sent', {

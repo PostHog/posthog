@@ -23,7 +23,14 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                     value={surveyResponseValue}
                     onChange={setSurveyResponseValue}
                 />
-                <div className="flex justify-end pt-2">
+                <div className="flex justify-between pt-2 gap-8">
+                    <LemonButton
+                        type={'tertiary'}
+                        status={'muted'}
+                        to="mailto:sales@posthog.com?subject=Issues%20With%20Bill"
+                    >
+                        Big bills got you down? Chat with support
+                    </LemonButton>
                     <LemonButton
                         type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                         status={textAreaNotEmpty ? 'primary' : 'muted'}
