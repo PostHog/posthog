@@ -6,7 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Breadcrumb } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 import type { personsManagementSceneLogicType } from './PersonsManagementSceneType'
 import { Persons } from './tabs/Persons'
@@ -17,7 +17,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect({
-        values: [groupsAccessLogic, ['groupsAccessStatus']],
+        values: [groupsAccessLogic, ['groupsAccessStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
     }),
     actions({
         setTab: (tab: string) => ({ tab }),
@@ -32,12 +32,18 @@ const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     }),
     selectors({
         tabs: [
-            (s) => [s.groupsAccessStatus],
+            (s) => [s.groupsAccessStatus, s.groupTypes, s.aggregationLabel],
             (
-                groupsAccessStatus
+                groupsAccessStatus,
+                groupTypes,
+                aggregationLabel
             ): Record<string, { url: string; label: LemonTab<any>['label']; content: any; buttons?: any }> => {
-                // eslint-disable-next-line no-console
-                console.log(groupsAccessStatus)
+                const showGroupsIntroductionPage = [
+                    GroupsAccessStatus.HasAccess,
+                    GroupsAccessStatus.HasGroupTypes,
+                    GroupsAccessStatus.NoAccess,
+                ].includes(groupsAccessStatus)
+
                 return {
                     persons: {
                         url: urls.persons(),
@@ -59,6 +65,22 @@ const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
                             </LemonButton>
                         ),
                     },
+                    // ...(showGroupsIntroductionPage
+                    //     ?
+                    //         {
+                    //             label: 'Groups',
+                    //             content: <p>Yo</p>
+                    //             url: urls.groups(0),
+                    //         },
+
+                    //     : groupTypes.values()).map(
+                    //           (groupType) =>
+                    //               ({
+                    //                   label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                    //                   key: groupType.group_type_index,
+                    //                   link: urls.groups(groupType.group_type_index),
+                    //               } as LemonTab<number>)
+                    //       )),
                 }
             },
         ],
