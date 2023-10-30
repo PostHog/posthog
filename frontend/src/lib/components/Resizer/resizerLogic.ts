@@ -83,15 +83,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 return
             }
 
-            if (cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 200) {
-                // Double click - reset to original width
-                actions.resetDesiredWidth()
-                actions.endResize()
-                cache.firstClickTimestamp = null
-
-                return
-            }
-
+            const isDoubleClick = cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 200
             cache.firstClickTimestamp = Date.now()
 
             const originContainerBounds = props.containerRef.current.getBoundingClientRect()
@@ -150,6 +142,10 @@ export const resizerLogic = kea<resizerLogicType>([
                             originalWidth: originContainerBounds.width,
                             isClosed,
                         })
+                    } else if (isDoubleClick) {
+                        // Double click - reset to original width
+                        actions.resetDesiredWidth()
+                        cache.firstClickTimestamp = null
                     }
 
                     actions.endResize()
