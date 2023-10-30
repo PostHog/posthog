@@ -41,7 +41,6 @@ declare module '@storybook/types' {
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
         }
-        mockDate?: string | number | Date
         msw?: {
             mocks?: Mocks
         }
