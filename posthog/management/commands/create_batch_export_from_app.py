@@ -202,7 +202,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
         }
         export_type = "BigQuery"
 
-    elif plugin.name == "PostgreSQL Export Plugin":
+    elif plugin.name == "PostgreSQL Export Plugin" or plugin.name == "PostgreSQL Live + Historical Export (Alpha)":
         if database_url := plugin_config.config.get("databaseUrl", None):
             raw_config = parse_dsn(database_url)
         else:
