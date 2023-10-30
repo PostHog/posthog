@@ -24,7 +24,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel'], notebookPopoverLogic, ['setPopoverVisibility']],
     }),
     actions({
-        setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
         startDropMode: true,
         endDropMode: true,
@@ -38,13 +37,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-            },
-        ],
-        fullScreen: [
-            false,
-            {
-                setFullScreen: (_, { full }) => full,
-                closeSidePanel: () => false,
             },
         ],
         initialAutofocus: [

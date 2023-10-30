@@ -1,6 +1,7 @@
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { resizerLogicType } from './resizerLogicType'
+import posthog from 'posthog-js'
 
 export type ResizerEvent = {
     originX: number
@@ -53,6 +54,7 @@ export const resizerLogic = kea<resizerLogicType>([
         ],
         width: [
             null as number | null,
+            { persist: true },
             {
                 setDesiredWidth: (_, { width }) => width,
                 resetDesiredWidth: () => null,
@@ -62,6 +64,8 @@ export const resizerLogic = kea<resizerLogicType>([
             null as number | null,
             {
                 setResizingWidth: (_, { width }) => width,
+                beginResize: () => null,
+                endResize: () => null,
             },
         ],
     }),
@@ -69,15 +73,27 @@ export const resizerLogic = kea<resizerLogicType>([
         desiredWidth: [
             (s) => [s.width, s.resizingWidth, s.isResizeInProgress],
             (width, resizingWidth, isResizeInProgress) => {
-                return isResizeInProgress ? resizingWidth : width
+                return isResizeInProgress ? resizingWidth ?? width : width
             },
         ],
     }),
-    listeners(({ cache, props, actions }) => ({
+    listeners(({ cache, props, actions, values }) => ({
         beginResize: ({ startX }) => {
             if (!props.containerRef.current) {
                 return
             }
+
+            if (cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 200) {
+                // Double click - reset to original width
+                actions.resetDesiredWidth()
+                actions.endResize()
+                cache.firstClickTimestamp = null
+
+                return
+            }
+
+            cache.firstClickTimestamp = Date.now()
+
             const originContainerBounds = props.containerRef.current.getBoundingClientRect()
 
             let isClosed = props.closeThreshold ? originContainerBounds.width < props.closeThreshold : false
@@ -119,12 +135,25 @@ export const resizerLogic = kea<resizerLogicType>([
             cache.onMouseUp = (e: MouseEvent): void => {
                 if (e.button === 0) {
                     const event = calculateEvent(e, false)
-                    if (!isClosed) {
-                        // We only want to persist the value if it is open
-                        actions.setDesiredWidth(event.desiredWidth)
+
+                    if (event.desiredWidth !== values.width) {
+                        if (!isClosed) {
+                            // We only want to persist the value if it is open
+                            actions.setDesiredWidth(event.desiredWidth)
+                        }
+
+                        props.onResize?.(event)
+
+                        posthog.capture('element resized', {
+                            key: props.persistentKey,
+                            newWidth: event.desiredWidth,
+                            originalWidth: originContainerBounds.width,
+                            isClosed,
+                        })
                     }
+
                     actions.endResize()
-                    props.onResize?.(event)
+
                     removeAllListeners(cache)
                 }
             }

@@ -15,8 +15,7 @@ import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { urls } from 'scenes/urls'
 
 export function NotebookPanel(): JSX.Element | null {
-    const { fullScreen, selectedNotebook, initialAutofocus, droppedResource, dropProperties } =
-        useValues(notebookPanelLogic)
+    const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
@@ -27,7 +26,7 @@ export function NotebookPanel(): JSX.Element | null {
         832: 'medium',
     })
 
-    const contentWidthHasEffect = useMemo(() => fullScreen && size === 'medium', [fullScreen, size])
+    const contentWidthHasEffect = useMemo(() => size === 'medium', [size])
 
     return (
         <div ref={ref} className="NotebookPanel" {...dropProperties}>
@@ -52,7 +51,7 @@ export function NotebookPanel(): JSX.Element | null {
                                 onClick={() => closeSidePanel()}
                                 status="primary-alt"
                                 icon={<IconOpenInNew />}
-                                tooltip="View notebook outside of popover"
+                                tooltip="Open as main focus"
                                 tooltipPlacement="left"
                             />
 
@@ -66,16 +65,6 @@ export function NotebookPanel(): JSX.Element | null {
                             />
 
                             {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
-
-                            {/* <LemonButton
-                                size="small"
-                                onClick={() => setFullScreen(!fullScreen)}
-                                status="primary-alt"
-                                active={fullScreen}
-                                icon={<IconFullScreen />}
-                                tooltip="Toggle full screen"
-                                tooltipPlacement="left"
-                            /> */}
                         </span>
                     </header>
 
