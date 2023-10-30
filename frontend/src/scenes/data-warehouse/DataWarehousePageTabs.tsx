@@ -1,4 +1,5 @@
-import { kea, useActions, useValues } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { kea, useActions, useValues, path, actions, reducers } from 'kea'
 import { urls } from 'scenes/urls'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
@@ -18,23 +19,23 @@ const tabUrls = {
     [DataWarehouseTab.Views]: urls.dataWarehouseSavedQueries(),
 }
 
-const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
-    path: ['scenes', 'warehouse', 'dataWarehouseTabsLogic'],
-    actions: {
+const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>([
+    path(['scenes', 'warehouse', 'dataWarehouseTabsLogic']),
+    actions({
         setTab: (tab: DataWarehouseTab) => ({ tab }),
-    },
-    reducers: {
+    }),
+    reducers({
         tab: [
             DataWarehouseTab.External as DataWarehouseTab,
             {
                 setTab: (_, { tab }) => tab,
             },
         ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => tabUrls[tab as DataWarehouseTab] || urls.dataWarehousePosthog(),
     }),
-    urlToAction: ({ actions, values }) => {
+    actionToUrl(() => ({
+        setTab: ({ tab }) => tabUrls[tab as DataWarehouseTab] || urls.dataWarehousePosthog(),
+    })),
+    urlToAction(({ actions, values }) => {
         return Object.fromEntries(
             Object.entries(tabUrls).map(([key, url]) => [
                 url,
@@ -45,8 +46,8 @@ const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
                 },
             ])
         )
-    },
-})
+    }),
+])
 
 export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.Element {
     const { setTab } = useActions(dataWarehouseTabsLogic)

@@ -1,5 +1,4 @@
-import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/lemon-ui'
-import { Tooltip } from 'antd'
+import { LemonButton, LemonInput, LemonSelect, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import {
     IconInfo,
@@ -17,6 +16,7 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
+import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
@@ -88,6 +88,11 @@ export function PlayerInspectorControls(): JSX.Element {
                         type="search"
                         value={searchQuery}
                         fullWidth
+                        suffix={
+                            <Tooltip title={<InspectorSearchInfo />}>
+                                <IconInfo />
+                            </Tooltip>
+                        }
                     />
                 </div>
                 {windowIds.length > 1 ? (

@@ -1,25 +1,23 @@
 import base64
 import json
 import random
-from unittest.mock import patch
 import time
+from unittest.mock import patch
+
+import pytest
 from django.conf import settings
-
-
 from django.core.cache import cache
 from django.db import connection, connections
 from django.test import TransactionTestCase, TestCase
 from django.test.client import Client
-from rest_framework.test import APIClient
 from freezegun import freeze_time
-import pytest
 from rest_framework import status
-from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
-from posthog.models.group.group import Group
+from rest_framework.test import APIClient
 
-
-from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
+from posthog import redis
 from posthog.api.decide import label_for_team_id_to_track
+from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
+from posthog.database_healthcheck import postgres_healthcheck
 from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
@@ -30,21 +28,16 @@ from posthog.models import (
     PluginSourceFile,
 )
 from posthog.models.cohort.cohort import Cohort
+from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
+from posthog.models.group.group import Group
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
-from posthog.models.person import PersonDistinctId
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import (
-    BaseTest,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
-)
-from posthog.database_healthcheck import postgres_healthcheck
-from posthog import redis
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 
 
 @patch(
@@ -1228,7 +1221,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         new_person_id = person.id
         old_person_id = person2.id
         # this happens in the plugin server
-        # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+        # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
         # at which point we run the query
         query = f"""
             WITH deletions AS (
@@ -2942,6 +2935,35 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
                 {b"165192618": b"1"},
             )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_decide_new_capture_activation(self, *args):
+        self.client.logout()
+        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("analytics" in response.json())
+            self.assertEqual(response.json()["analytics"]["endpoint"], "/i/v0/e/")
+
+        with self.settings(
+            NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)},
+            NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0,
+            NEW_ANALYTICS_CAPTURE_ENDPOINT="/custom",
+        ):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue("analytics" in response.json())
+            self.assertEqual(response.json()["analytics"]["endpoint"], "/custom")
+
+        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={"0"}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=1.0):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse("analytics" in response.json())
+
+        with self.settings(NEW_ANALYTICS_CAPTURE_TEAM_IDS={str(self.team.id)}, NEW_ANALYTICS_CAPTURE_SAMPLING_RATE=0):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, 200)
+            self.assertFalse("analytics" in response.json())
 
 
 class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):

@@ -45,6 +45,7 @@ export enum NodeKind {
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     PersonsQuery = 'PersonsQuery',
+    SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -58,6 +59,7 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+    InsightPersonsQuery = 'InsightPersonsQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -81,6 +83,8 @@ export type AnyDataNode =
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | PersonsQuery
+    | InsightPersonsQuery
+    | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
     | WebOverviewQuery
@@ -533,7 +537,7 @@ export interface PersonsQueryResponse {
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
-    source?: LifecycleQuery | HogQLQuery
+    source?: InsightPersonsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -542,6 +546,32 @@ export interface PersonsQuery extends DataNode {
     limit?: number
     offset?: number
     response?: PersonsQueryResponse
+}
+
+export interface TimelineEntry {
+    /** Session ID. None means out-of-session events */
+    sessionId?: string
+    events: EventType[]
+    /** Duration of the recording in seconds. */
+    recording_duration_s?: number
+}
+
+export interface SessionsTimelineQueryResponse {
+    results: TimelineEntry[]
+    hasMore?: boolean
+    timings?: QueryTiming[]
+    hogql?: string
+}
+
+export interface SessionsTimelineQuery extends DataNode {
+    kind: NodeKind.SessionsTimelineQuery
+    /** Fetch sessions only for a given person */
+    personId?: string
+    /** Only fetch sessions that started after this timestamp (default: '-24h') */
+    after?: string
+    /** Only fetch sessions that started before this timestamp (default: '+5s') */
+    before?: string
+    response?: SessionsTimelineQueryResponse
 }
 
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
@@ -624,6 +654,16 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
+
+export interface InsightPersonsQuery {
+    kind: NodeKind.InsightPersonsQuery
+    source: InsightQueryNode
+    day?: string
+    status?: string
+    // TODO: add breakdowns
+    // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
+    response?: PersonsQueryResponse
+}
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
     if (!source) {

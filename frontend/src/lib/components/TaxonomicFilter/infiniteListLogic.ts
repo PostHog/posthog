@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
@@ -65,13 +66,11 @@ async function fetchCachedListResponse(path: string, searchParams: Record<string
     return response
 }
 
-export const infiniteListLogic = kea<infiniteListLogicType>({
-    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
-    props: {} as InfiniteListLogicProps,
-
-    key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
-
-    connect: (props: InfiniteListLogicProps) => ({
+export const infiniteListLogic = kea<infiniteListLogicType>([
+    props({} as InfiniteListLogicProps),
+    key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
+    path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
+    connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
             ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
@@ -79,9 +78,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             ['featureFlags'],
         ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
-    }),
-
-    actions: {
+    })),
+    actions({
         selectSelected: true,
         moveUp: true,
         moveDown: true,
@@ -92,29 +90,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
         abortAnyRunningQuery: true,
-    },
-
-    reducers: ({ props }) => ({
-        index: [
-            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
-            {
-                setIndex: (_, { index }) => index,
-                loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
-            },
-        ],
-        showPopover: [props.popoverEnabled !== false, {}],
-        limit: [
-            100,
-            {
-                setLimit: (_, { limit }) => limit,
-            },
-        ],
-        startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
-        stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
-        isExpanded: [false, { expand: () => true }],
     }),
-
-    loaders: ({ actions, values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
@@ -208,61 +185,27 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 },
             },
         ],
-    }),
-
-    listeners: ({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
-            if (values.hasRemoteDataSource) {
-                let loadFrom: number | null = null
-                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
-                    if (!values.results[i]) {
-                        loadFrom = i
-                        break
-                    }
-                }
-                if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
-                    actions.loadRemoteItems({ offset, limit: values.limit })
-                }
-            }
-        },
-        setSearchQuery: () => {
-            if (values.hasRemoteDataSource) {
-                actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else {
-                actions.setIndex(0)
-            }
-        },
-        moveUp: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index - 1 + totalListCount) % totalListCount)
-        },
-        moveDown: () => {
-            const { index, totalListCount } = values
-            actions.setIndex((index + 1) % totalListCount)
-        },
-        selectSelected: () => {
-            if (values.isExpandableButtonSelected) {
-                actions.expand()
-            } else {
-                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
-            }
-        },
-        loadRemoteItemsSuccess: ({ remoteItems }) => {
-            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
-        },
-        expand: () => {
-            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
-        },
-        abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-            }
-            cache.abortController = new AbortController()
-        },
-    }),
-
-    selectors: {
+    })),
+    reducers(({ props }) => ({
+        index: [
+            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
+            {
+                setIndex: (_, { index }) => index,
+                loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
+            },
+        ],
+        showPopover: [props.popoverEnabled !== false, {}],
+        limit: [
+            100,
+            {
+                setLimit: (_, { limit }) => limit,
+            },
+        ],
+        startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
+        stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
+        isExpanded: [false, { expand: () => true }],
+    })),
+    selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
@@ -391,9 +334,59 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (s) => [s.index, s.startIndex, s.stopIndex],
             (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
-    },
-
-    events: ({ actions, values, props }) => ({
+    }),
+    listeners(({ values, actions, props, cache }) => ({
+        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
+            if (values.hasRemoteDataSource) {
+                let loadFrom: number | null = null
+                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
+                    if (!values.results[i]) {
+                        loadFrom = i
+                        break
+                    }
+                }
+                if (loadFrom !== null) {
+                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    actions.loadRemoteItems({ offset, limit: values.limit })
+                }
+            }
+        },
+        setSearchQuery: () => {
+            if (values.hasRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else {
+                actions.setIndex(0)
+            }
+        },
+        moveUp: () => {
+            const { index, totalListCount } = values
+            actions.setIndex((index - 1 + totalListCount) % totalListCount)
+        },
+        moveDown: () => {
+            const { index, totalListCount } = values
+            actions.setIndex((index + 1) % totalListCount)
+        },
+        selectSelected: () => {
+            if (values.isExpandableButtonSelected) {
+                actions.expand()
+            } else {
+                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+            }
+        },
+        loadRemoteItemsSuccess: ({ remoteItems }) => {
+            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+        },
+        expand: () => {
+            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
+        },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = new AbortController()
+        },
+    })),
+    events(({ actions, values, props }) => ({
         afterMount: () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
@@ -402,5 +395,5 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
             }
         },
-    }),
-})
+    })),
+])

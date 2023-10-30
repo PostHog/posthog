@@ -97,7 +97,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             {"event": "negatively_related", "timestamp": datetime(2020, 1, 3, 14)},
             {"event": "paid", "timestamp": datetime(2020, 1, 4, 14)},
         ]
-        journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team, create_people=False)
 
         return (
             filter,

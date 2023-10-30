@@ -9,6 +9,11 @@ import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { trendsDataLogic } from '../trendsDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { combineUrl, router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -16,6 +21,7 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -76,13 +82,31 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
+                          if (isLifecycle && query && isInsightVizNode(query) && isLifecycleQuery(query.source)) {
+                              const newQuery: DataTableNode = {
+                                  kind: NodeKind.DataTableNode,
+                                  full: true,
+                                  source: {
+                                      kind: NodeKind.PersonsQuery,
+                                      source: {
+                                          kind: NodeKind.InsightPersonsQuery,
+                                          source: query.source,
+                                          day,
+                                          status: dataset.status,
+                                      },
+                                  },
+                              }
+                              router.actions.push(combineUrl(urls.persons(), undefined, { q: newQuery }).url)
+                              return
+                          }
+
                           if (!dataset) {
                               return
                           }
 
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const datasetUrls = urlsForDatasets(crossDataset, index)
 
-                          if (urls?.length) {
+                          if (datasetUrls?.length) {
                               const title = isStickiness ? (
                                   <>
                                       <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
@@ -97,7 +121,7 @@ export function ActionsLineGraph({
                               )
 
                               openPersonsModal({
-                                  urls,
+                                  urls: datasetUrls,
                                   urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
                               })
