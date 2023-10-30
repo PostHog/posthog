@@ -3,7 +3,6 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { Breadcrumb } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -13,11 +12,17 @@ import { Persons } from './tabs/Persons'
 import { groupsModel } from '~/models/groupsModel'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { LemonButton } from '@posthog/lemon-ui'
+import { PageHeader } from 'lib/components/PageHeader'
+
+export type PersonsManagementTabs = Record<
+    string,
+    { url: string; label: LemonTab<any>['label']; content: any; buttons?: any }
+>
 
 const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect({
-        values: [groupsAccessLogic, ['groupsAccessStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsAccessLogic, ['groupsAccessStatus'], groupsModel, ['groupTypes']],
     }),
     actions({
         setTab: (tab: string) => ({ tab }),
@@ -32,12 +37,8 @@ const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     }),
     selectors({
         tabs: [
-            (s) => [s.groupsAccessStatus, s.groupTypes, s.aggregationLabel],
-            (
-                groupsAccessStatus,
-                groupTypes,
-                aggregationLabel
-            ): Record<string, { url: string; label: LemonTab<any>['label']; content: any; buttons?: any }> => {
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus): PersonsManagementTabs => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
@@ -49,7 +50,6 @@ const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
                         url: urls.persons(),
                         label: 'Persons',
                         content: <Persons />,
-                        // buttons: <NewAnnotationButton />,
                     },
                     cohorts: {
                         url: urls.cohorts(),
@@ -118,9 +118,11 @@ const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
 ])
 
 export function PersonsManagementScene(): JSX.Element {
-    const { tabs, tab } = useValues(personsManagementSceneLogic)
+    const { tabs, tab, groupTypes } = useValues(personsManagementSceneLogic)
     const { setTab } = useActions(personsManagementSceneLogic)
     const { showGroupsOptions } = useValues(groupsModel)
+
+    console.log(groupTypes)
 
     const lemonTabs: LemonTab<string>[] = Object.entries(tabs).map(([key, tab]) => ({
         key: key,
