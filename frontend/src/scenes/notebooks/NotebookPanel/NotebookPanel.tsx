@@ -52,7 +52,7 @@ export function NotebookPanel(): JSX.Element | null {
                                 onClick={() => closeSidePanel()}
                                 status="primary-alt"
                                 icon={<IconOpenInNew />}
-                                tooltip="View notebook outside of popover"
+                                tooltip="Open as main focus"
                                 tooltipPlacement="left"
                             />
 
