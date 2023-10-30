@@ -48,10 +48,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         name: 'Web Analytics',
         layout: 'app-container',
     },
-    [Scene.Cohorts]: {
-        projectBased: true,
-        name: 'Cohorts',
-    },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
@@ -100,21 +96,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Person',
     },
-    [Scene.Persons]: {
+    [Scene.PersonsManagement]: {
         projectBased: true,
-        name: 'Persons & Groups',
+        name: 'Persons, Cohorts & Groups',
     },
     [Scene.Action]: {
         projectBased: true,
         name: 'Action',
     },
-    [Scene.Groups]: {
-        projectBased: true,
-        name: 'Persons & Groups',
-    },
     [Scene.Group]: {
         projectBased: true,
-        name: 'Persons & Groups',
+        name: 'Persons, Cohorts & Groups',
     },
     [Scene.Pipeline]: {
         projectBased: true,
@@ -409,13 +401,13 @@ export const routes: Record<string, Scene> = {
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
-    [urls.persons()]: Scene.Persons,
+    [urls.persons()]: Scene.PersonsManagement,
     [urls.pipeline()]: Scene.Pipeline,
-    [urls.groups(':groupTypeIndex')]: Scene.Groups,
+    [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
     [urls.cohort(':id')]: Scene.Cohort,
-    [urls.cohorts()]: Scene.Cohorts,
+    [urls.cohorts()]: Scene.PersonsManagement,
     [urls.experiments()]: Scene.Experiments,
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
