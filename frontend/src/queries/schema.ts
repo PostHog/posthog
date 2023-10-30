@@ -619,6 +619,9 @@ export enum WebStatsBreakdown {
     Browser = 'Browser',
     OS = 'OS',
     DeviceType = 'DeviceType',
+    Country = 'Country',
+    Region = 'Region',
+    City = 'City',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
