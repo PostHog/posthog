@@ -6,6 +6,8 @@
     width: 3rem;
     display: flex;
     background: var(--accent-3000);
+    transition: min-width 200ms ease-in-out, width 200ms ease-in-out;
+    min-width: 3rem;
 
     .LemonButton {
         min-height: 2.25rem !important; // Reduce minimum height
@@ -35,6 +37,7 @@
     &--resizing {
         // Stop the content from stealing focus whilst resizing
         pointer-events: none;
+        transition: none;
     }
 
     .SidePanel3000__bar {
