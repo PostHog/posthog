@@ -1,8 +1,9 @@
-from typing import Dict, List, Literal, Optional, cast
+import random
+from typing import Dict, List, Literal, Optional, cast, Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
-from django.conf import settings
+from prometheus_client import Histogram
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -23,7 +24,7 @@ from hogql_parser import (
     parse_select as _parse_select_cpp,
 )
 
-RULE_TO_PARSE_FUNCTION = {
+RULE_TO_PARSE_FUNCTION: Dict[Literal["python", "cpp"], Dict[Literal["expr", "order_expr", "select"], Callable]] = {
     "python": {
         "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
         "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
@@ -36,6 +37,15 @@ RULE_TO_PARSE_FUNCTION = {
     },
 }
 
+RULE_TO_HISTOGRAM: Dict[Literal["expr", "order_expr", "select"], Histogram] = {
+    rule: Histogram(
+        f"parse_{rule}_seconds",
+        f"Time to parse {rule} expression",
+        labelnames=["backend"],
+    )
+    for rule in RULE_TO_PARSE_FUNCTION["python"]
+}
+
 
 def parse_expr(
     expr: str,
@@ -46,12 +56,13 @@ def parse_expr(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
     if not backend:
-        # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = random.choice(("cpp", "python"))
+        assert backend is not None
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_expr_{backend}"):
-        node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
+        with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -66,12 +77,13 @@ def parse_order_expr(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.Expr:
     if not backend:
-        # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = random.choice(("cpp", "python"))
+        assert backend is not None
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_order_expr_{backend}"):
-        node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
+        with RULE_TO_HISTOGRAM["order_expr"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -86,12 +98,13 @@ def parse_select(
     backend: Optional[Literal["python", "cpp"]] = None,
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     if not backend:
-        # TODO: Switch over to C++ in production once we are confident there are no issues
-        backend = "cpp" if settings.DEBUG else "python"
+        backend = random.choice(("cpp", "python"))
+        assert backend is not None
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
+        with RULE_TO_HISTOGRAM["select"].labels(backend=backend).time():
+            node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
