@@ -74,22 +74,32 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         if (isManualLinkFormVisible) {
             return (
                 <div>
-                    <DatawarehouseTableForm />
-                    <LemonDivider className="mt-4" />
-                    <div className="mt-2 flex flex-row justify-end gap-2">
-                        <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onClear}>
-                            Back
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            center
-                            htmlType="submit"
-                            data-attr="source-link"
-                            loading={tableLoading}
-                        >
-                            Link
-                        </LemonButton>
-                    </div>
+                    <DatawarehouseTableForm
+                        footer={
+                            <>
+                                <LemonDivider className="mt-4" />
+                                <div className="mt-2 flex flex-row justify-end gap-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        center
+                                        data-attr="source-modal-back-button"
+                                        onClick={onClear}
+                                    >
+                                        Back
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        center
+                                        htmlType="submit"
+                                        data-attr="source-link"
+                                        loading={tableLoading}
+                                    >
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            </>
+                        }
+                    />
                 </div>
             )
         }

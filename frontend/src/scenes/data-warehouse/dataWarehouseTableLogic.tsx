@@ -9,6 +9,7 @@ import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
 import { DataTableNode } from '~/queries/schema'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
+import { dataWarehouseSceneLogic } from './external/dataWarehouseSceneLogic'
 
 export interface TableLogicProps {
     id: string | 'new'
@@ -30,7 +31,12 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     path(['scenes', 'data-warehouse', 'tableLogic']),
     props({} as TableLogicProps),
     connect(() => ({
-        actions: [databaseSceneLogic, ['loadDatabase']],
+        actions: [
+            databaseSceneLogic,
+            ['loadDatabase'],
+            dataWarehouseSceneLogic,
+            ['loadDataWarehouse', 'toggleSourceModal'],
+        ],
     })),
     actions({
         editingTable: (editing: boolean) => ({ editing }),
@@ -64,6 +70,8 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
+            actions.loadDataWarehouse()
+            actions.toggleSourceModal()
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {
