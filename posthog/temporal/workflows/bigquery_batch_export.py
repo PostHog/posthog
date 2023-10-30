@@ -154,7 +154,11 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
 
         with bigquery_client(inputs) as bq_client:
             bigquery_table = create_table_in_bigquery(
-                inputs.project_id, inputs.dataset_id, inputs.table_id, table_schema, bq_client
+                inputs.project_id,
+                inputs.dataset_id,
+                inputs.table_id,
+                table_schema,
+                bq_client,
             )
 
             with BatchExportTemporaryFile() as jsonl_file:
@@ -212,7 +216,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to BigQuery."""
         logger = get_batch_exports_logger(inputs=inputs)
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info("Starting BigQuery export batch %s - %s", data_interval_start, data_interval_end)
+        logger.info(
+            "Starting BigQuery export batch %s - %s",
+            data_interval_start,
+            data_interval_end,
+        )
 
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
@@ -289,7 +297,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             raise
 
         else:
-            logger.info("Successfully finished BigQuery export batch %s - %s", data_interval_start, data_interval_end)
+            logger.info(
+                "Successfully finished BigQuery export batch %s - %s",
+                data_interval_start,
+                data_interval_end,
+            )
 
         finally:
             await workflow.execute_activity(

@@ -1,5 +1,11 @@
-import { useFeatureFlags } from '~/mocks/browser'
-import type { DecoratorFn } from '@storybook/react'
+import { setFeatureFlags } from '~/mocks/browser'
+import type { Decorator } from '@storybook/react'
+
+declare module '@storybook/types' {
+    interface Parameters {
+        featureFlags?: string[]
+    }
+}
 
 /** Global story decorator that allows setting feature flags.
  *
@@ -13,9 +19,9 @@ import type { DecoratorFn } from '@storybook/react'
  * } as ComponentMeta<typeof MyComponent>
  * ```
  */
-export const withFeatureFlags: DecoratorFn = (Story, { parameters }) => {
+export const withFeatureFlags: Decorator = (Story, { parameters }) => {
     if (parameters.featureFlags) {
-        useFeatureFlags(parameters.featureFlags)
+        setFeatureFlags(parameters.featureFlags)
     }
 
     return <Story />

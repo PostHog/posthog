@@ -313,7 +313,10 @@ export function splitIngestionBatch(
         }
         const pluginEvent = formPipelineEvent(message)
         const eventKey = computeKey(pluginEvent)
-        if (overflowMode === IngestionOverflowMode.Reroute && !ConfiguredLimiter.consume(eventKey, 1)) {
+        if (
+            overflowMode === IngestionOverflowMode.Reroute &&
+            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
+        ) {
             // Local overflow detection triggering, reroute to overflow topic too
             message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()

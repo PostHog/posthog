@@ -55,7 +55,11 @@ class HogQLContext:
         return f"%({key})s"
 
     def add_notice(
-        self, message: str, start: Optional[int] = None, end: Optional[int] = None, fix: Optional[str] = None
+        self,
+        message: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.notices):
             self.notices.append(HogQLNotice(start=start, end=end, message=message, fix=fix))

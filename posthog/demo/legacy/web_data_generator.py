@@ -7,7 +7,15 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, ActionStep, Dashboard, DashboardTile, Insight, Person, PropertyDefinition
+from posthog.models import (
+    Action,
+    ActionStep,
+    Dashboard,
+    DashboardTile,
+    Insight,
+    Person,
+    PropertyDefinition,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
@@ -27,7 +35,12 @@ class WebDataGenerator(DataGenerator):
 
     def create_actions_dashboards(self):
         homepage = Action.objects.create(team=self.team, name="Hogflix homepage view")
-        ActionStep.objects.create(action=homepage, event="$pageview", url="http://hogflix.com", url_matching="exact")
+        ActionStep.objects.create(
+            action=homepage,
+            event="$pageview",
+            url="http://hogflix.com",
+            url_matching="exact",
+        )
 
         user_signed_up = Action.objects.create(team=self.team, name="Hogflix signed up")
         ActionStep.objects.create(
@@ -54,14 +67,24 @@ class WebDataGenerator(DataGenerator):
             description="Shows a conversion funnel from sign up to watching a movie.",
             filters={
                 "actions": [
-                    {"id": homepage.id, "name": "Hogflix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {
+                        "id": homepage.id,
+                        "name": "Hogflix homepage view",
+                        "order": 0,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                    },
                     {
                         "id": user_signed_up.id,
                         "name": "Hogflix signed up",
                         "order": 1,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    {"id": user_paid.id, "name": "Hogflix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {
+                        "id": user_paid.id,
+                        "name": "Hogflix paid",
+                        "order": 2,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                    },
                 ],
                 "insight": "FUNNELS",
             },
@@ -77,7 +100,11 @@ class WebDataGenerator(DataGenerator):
             event="$pageview",
             distinct_id=distinct_id,
             timestamp=now() - relativedelta(days=start_day),
-            properties={"$current_url": "http://hogflix.com", "$browser": browser, "$lib": "web"},
+            properties={
+                "$current_url": "http://hogflix.com",
+                "$browser": browser,
+                "$lib": "web",
+            },
         )
 
         self.add_event(
@@ -107,7 +134,11 @@ class WebDataGenerator(DataGenerator):
             self.add_event(
                 event="$pageview",
                 distinct_id=distinct_id,
-                properties={"$current_url": "http://hogflix.com/2", "$browser": browser, "$lib": "web"},
+                properties={
+                    "$current_url": "http://hogflix.com/2",
+                    "$browser": browser,
+                    "$lib": "web",
+                },
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=30),
             )
             if index % 5 == 0:
@@ -131,7 +162,11 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
-                    properties={"$current_url": "http://hogflix.com/3", "$browser": browser, "$lib": "web"},
+                    properties={
+                        "$current_url": "http://hogflix.com/3",
+                        "$browser": browser,
+                        "$lib": "web",
+                    },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
 

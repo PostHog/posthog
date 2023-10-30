@@ -12,7 +12,9 @@ from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_facto
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
 
-class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
+class TestClickhouseCalculateCohort(
+    ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)
+):  # type: ignore
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_stickiness_cohort(self, _insert_cohort_from_insight_filter):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"])
@@ -198,7 +200,14 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
             "insight": "TRENDS",
             "interval": "day",
             "properties": json.dumps(
-                [{"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}]
+                [
+                    {
+                        "key": "$domain",
+                        "value": "app.posthog.com",
+                        "operator": "icontains",
+                        "type": "event",
+                    }
+                ]
             ),
         }
 
@@ -242,7 +251,12 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                     }
                 ],
                 "properties": [
-                    {"key": "$domain", "value": "app.posthog.com", "operator": "icontains", "type": "event"}
+                    {
+                        "key": "$domain",
+                        "value": "app.posthog.com",
+                        "operator": "icontains",
+                        "type": "event",
+                    }
                 ],
                 "entity_id": "$pageview",
                 "entity_type": "events",
@@ -365,7 +379,10 @@ class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_f
                         _create_person(
                             team_id=self.team.pk,
                             distinct_ids=[id],
-                            properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                            properties={
+                                "name": id,
+                                **({"email": "test@posthog.com"} if id == "p1" else {}),
+                            },
                         )
                     )
                 for timestamp in timestamps:

@@ -3,7 +3,13 @@ from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.utils import UUIDT
 from posthog.schema import HogQLPropertyFilter, HogQLQuery, HogQLFilters
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events, _create_event
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    flush_persons_and_events,
+    _create_event,
+)
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -24,7 +30,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=[f"id-{random_uuid}-{index}"],
                 is_identified=True,
             )
-            _create_event(distinct_id=f"id-{random_uuid}-{index}", event=f"clicky-{index}", team=self.team)
+            _create_event(
+                distinct_id=f"id-{random_uuid}-{index}",
+                event=f"clicky-{index}",
+                team=self.team,
+            )
         flush_persons_and_events()
         return random_uuid
 
@@ -60,7 +70,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.CompareOperation(
-                left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="clicky-3")
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="clicky-3"),
             ),
         )
         self.assertEqual(clear_locations(query), expected)
@@ -69,7 +81,10 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_values(self):
         runner = self._create_runner(
-            HogQLQuery(query="select count(event) from events where event={e}", values={"e": "clicky-3"})
+            HogQLQuery(
+                query="select count(event) from events where event={e}",
+                values={"e": "clicky-3"},
+            )
         )
         query = runner.to_query()
         query = clear_locations(query)
@@ -77,7 +92,9 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.CompareOperation(
-                left=ast.Field(chain=["event"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value="clicky-3")
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value="clicky-3"),
             ),
         )
         self.assertEqual(clear_locations(query), expected)

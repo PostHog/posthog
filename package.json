@@ -74,7 +74,7 @@
         "@medv/finder": "^2.1.0",
         "@microlink/react-json-view": "^1.21.3",
         "@monaco-editor/react": "4.4.6",
-        "@posthog/icons": "0.1.4",
+        "@posthog/icons": "0.1.21",
         "@posthog/plugin-scaffold": "^1.4.3",
         "@react-hook/size": "^2.1.2",
         "@rrweb/types": "^2.0.0-alpha.11",
@@ -134,7 +134,7 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
-        "posthog-js": "1.85.3",
+        "posthog-js": "1.87.3",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -248,6 +248,7 @@
         "eslint-plugin-eslint-comments": "^3.2.0",
         "eslint-plugin-jest": "^27.4.3",
         "eslint-plugin-no-only-tests": "^3.1.0",
+        "eslint-plugin-posthog": "link:./eslint-rules",
         "eslint-plugin-prettier": "^5.0.1",
         "eslint-plugin-react": "^7.33.2",
         "eslint-plugin-storybook": "^0.6.15",
@@ -304,7 +305,8 @@
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
             "ruff"
-        ]
+        ],
+        "!(HogQL*)*.{c,cpp,h,hpp}": "clang-format -i"
     },
     "browserslist": {
         "development": [

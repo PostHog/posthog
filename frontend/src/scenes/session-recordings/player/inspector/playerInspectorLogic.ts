@@ -713,6 +713,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     findAllMatches: true,
                     ignoreLocation: true,
                     shouldSort: false,
+                    useExtendedSearch: true,
                 }),
         ],
 

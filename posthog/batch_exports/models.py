@@ -38,7 +38,9 @@ class BatchExportDestination(UUIDModel):
     }
 
     type: models.CharField = models.CharField(
-        choices=Destination.choices, max_length=64, help_text="A choice of supported BatchExportDestination types."
+        choices=Destination.choices,
+        max_length=64,
+        help_text="A choice of supported BatchExportDestination types.",
     )
     config: models.JSONField = models.JSONField(
         default=dict,
@@ -46,10 +48,12 @@ class BatchExportDestination(UUIDModel):
         help_text="A JSON field to store all configuration parameters required to access a BatchExportDestination.",
     )
     created_at: models.DateTimeField = models.DateTimeField(
-        auto_now_add=True, help_text="The timestamp at which this BatchExportDestination was created."
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExportDestination was created.",
     )
     last_updated_at: models.DateTimeField = models.DateTimeField(
-        auto_now=True, help_text="The timestamp at which this BatchExportDestination was last updated."
+        auto_now=True,
+        help_text="The timestamp at which this BatchExportDestination was last updated.",
     )
 
 
@@ -74,7 +78,9 @@ class BatchExportRun(UUIDModel):
         STARTING = "Starting"
 
     batch_export = models.ForeignKey(
-        "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this run belongs to."
+        "BatchExport",
+        on_delete=models.CASCADE,
+        help_text="The BatchExport this run belongs to.",
     )
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this run."
@@ -89,17 +95,25 @@ class BatchExportRun(UUIDModel):
     data_interval_end: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
     cursor: models.TextField = models.TextField(null=True, help_text="An opaque cursor that may be used to resume.")
     created_at: models.DateTimeField = models.DateTimeField(
-        auto_now_add=True, help_text="The timestamp at which this BatchExportRun was created."
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExportRun was created.",
     )
     finished_at: models.DateTimeField = models.DateTimeField(
-        null=True, help_text="The timestamp at which this BatchExportRun finished, successfully or not."
+        null=True,
+        help_text="The timestamp at which this BatchExportRun finished, successfully or not.",
     )
     last_updated_at: models.DateTimeField = models.DateTimeField(
-        auto_now=True, help_text="The timestamp at which this BatchExportRun was last updated."
+        auto_now=True,
+        help_text="The timestamp at which this BatchExportRun was last updated.",
     )
 
 
-BATCH_EXPORT_INTERVALS = [("hour", "hour"), ("day", "day"), ("week", "week"), ("every 5 minutes", "every 5 minutes")]
+BATCH_EXPORT_INTERVALS = [
+    ("hour", "hour"),
+    ("day", "day"),
+    ("week", "week"),
+    ("every 5 minutes", "every 5 minutes"),
+]
 
 
 class BatchExport(UUIDModel):
@@ -113,7 +127,9 @@ class BatchExport(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name: models.TextField = models.TextField(help_text="A human-readable name for this BatchExport.")
     destination: models.ForeignKey = models.ForeignKey(
-        "BatchExportDestination", on_delete=models.CASCADE, help_text="The destination to export data to."
+        "BatchExportDestination",
+        on_delete=models.CASCADE,
+        help_text="The destination to export data to.",
     )
     interval = models.CharField(
         max_length=64,
@@ -125,19 +141,27 @@ class BatchExport(UUIDModel):
     paused = models.BooleanField(default=False, help_text="Whether this BatchExport is paused or not.")
     deleted = models.BooleanField(default=False, help_text="Whether this BatchExport is deleted or not.")
     created_at: models.DateTimeField = models.DateTimeField(
-        auto_now_add=True, help_text="The timestamp at which this BatchExport was created."
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExport was created.",
     )
     last_updated_at: models.DateTimeField = models.DateTimeField(
-        auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
+        auto_now=True,
+        help_text="The timestamp at which this BatchExport was last updated.",
     )
     last_paused_at: models.DateTimeField = models.DateTimeField(
-        null=True, default=None, help_text="The timestamp at which this BatchExport was last paused."
+        null=True,
+        default=None,
+        help_text="The timestamp at which this BatchExport was last paused.",
     )
     start_at: models.DateTimeField = models.DateTimeField(
-        null=True, default=None, help_text="Time before which any Batch Export runs won't be triggered."
+        null=True,
+        default=None,
+        help_text="Time before which any Batch Export runs won't be triggered.",
     )
     end_at: models.DateTimeField = models.DateTimeField(
-        null=True, default=None, help_text="Time after which any Batch Export runs won't be triggered."
+        null=True,
+        default=None,
+        help_text="Time after which any Batch Export runs won't be triggered.",
     )
 
     @property
@@ -244,7 +268,9 @@ class BatchExportBackfill(UUIDModel):
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     batch_export = models.ForeignKey(
-        "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this backfill belongs to."
+        "BatchExport",
+        on_delete=models.CASCADE,
+        help_text="The BatchExport this backfill belongs to.",
     )
     start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
     end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
@@ -252,11 +278,21 @@ class BatchExportBackfill(UUIDModel):
         choices=Status.choices, max_length=64, help_text="The status of this backfill."
     )
     created_at: models.DateTimeField = models.DateTimeField(
-        auto_now_add=True, help_text="The timestamp at which this BatchExportBackfill was created."
+        auto_now_add=True,
+        help_text="The timestamp at which this BatchExportBackfill was created.",
     )
     finished_at: models.DateTimeField = models.DateTimeField(
-        null=True, help_text="The timestamp at which this BatchExportBackfill finished, successfully or not."
+        null=True,
+        help_text="The timestamp at which this BatchExportBackfill finished, successfully or not.",
     )
     last_updated_at: models.DateTimeField = models.DateTimeField(
-        auto_now=True, help_text="The timestamp at which this BatchExportBackfill was last updated."
+        auto_now=True,
+        help_text="The timestamp at which this BatchExportBackfill was last updated.",
     )
+
+    @property
+    def workflow_id(self) -> str:
+        """Return the Workflow id that corresponds to this BatchExportBackfill model."""
+        start_at = self.start_at.strftime("%Y-%m-%dT%H:%M:%S")
+        end_at = self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
+        return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
