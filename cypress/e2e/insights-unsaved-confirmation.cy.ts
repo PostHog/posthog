@@ -40,7 +40,7 @@ describe('Insights', () => {
 
             cy.get('[data-attr="menu-item-dashboards"]').click()
 
-            cy.url().should('include', '/dashboards')
+            cy.url().should('include', '/dashboard')
         })
 
         it('Can keep editing changed new insight after navigating away with confirm() rejection (case 1)', () => {
