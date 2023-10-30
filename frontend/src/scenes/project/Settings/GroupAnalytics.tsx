@@ -81,7 +81,7 @@ export function GroupAnalytics(): JSX.Element | null {
                 </LemonBanner>
             )}
 
-            <LemonTable columns={columns} dataSource={groupTypes} loading={groupTypesLoading} />
+            <LemonTable columns={columns} dataSource={Array.from(groupTypes.values())} loading={groupTypesLoading} />
 
             <div className="flex gap-2 mt-4">
                 <LemonButton type="primary" disabled={!hasChanges} onClick={save}>

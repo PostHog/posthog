@@ -324,27 +324,29 @@ export const mathsLogic = kea<mathsLogicType>([
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) =>
                 Object.fromEntries(
-                    groupTypes.map((groupType) => [
-                        apiValueToMathType('unique_group', groupType.group_type_index),
-                        {
-                            name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                            shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                            description: (
-                                <>
-                                    Number of unique {aggregationLabel(groupType.group_type_index).plural} who performed
-                                    the event in the specified period.
-                                    <br />
-                                    <br />
-                                    <i>
-                                        Example: If 7 users in a single $
-                                        {aggregationLabel(groupType.group_type_index).singular} perform an event 9 times
-                                        in the given period, it counts only as 1.
-                                    </i>
-                                </>
-                            ),
-                            category: MathCategory.ActorCount,
-                        } as MathDefinition,
-                    ])
+                    Array.from(groupTypes.values())
+                        .map((groupType) => [
+                            apiValueToMathType('unique_group', groupType.group_type_index),
+                            {
+                                name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                                shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                                description: (
+                                    <>
+                                        Number of unique {aggregationLabel(groupType.group_type_index).plural} who
+                                        performed the event in the specified period.
+                                        <br />
+                                        <br />
+                                        <i>
+                                            Example: If 7 users in a single $
+                                            {aggregationLabel(groupType.group_type_index).singular} perform an event 9
+                                            times in the given period, it counts only as 1.
+                                        </i>
+                                    </>
+                                ),
+                                category: MathCategory.ActorCount,
+                            } as MathDefinition,
+                        ])
+                        .filter(Boolean)
                 ),
         ],
     }),
