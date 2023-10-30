@@ -56,7 +56,7 @@ import { dateMapping } from 'lib/utils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
-type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
+export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
