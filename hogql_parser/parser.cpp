@@ -1789,7 +1789,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableFunctionExpr) {
     string table_name = visitAsString(ctx->identifier());
     auto table_args_ctx = ctx->tableArgList();
-    PyObject* table_args = table_args_ctx ? visitAsPyObject(table_args_ctx) : Py_NewRef(Py_None);
+    PyObject* table_args = table_args_ctx ? visitAsPyObject(table_args_ctx) : PyList_New(0);
+    if (!table_args) throw PyInternalException();
     PyObject* table = build_ast_node("Field", "{s:[s#]}", "chain", table_name.data(), table_name.size());
     if (!table) {
       Py_DECREF(table_args);
