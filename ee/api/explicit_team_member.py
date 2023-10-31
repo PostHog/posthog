@@ -110,7 +110,7 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = False
+    include_in_docs = True
 
     def get_permissions(self):
         if (
