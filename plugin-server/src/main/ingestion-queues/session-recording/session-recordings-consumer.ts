@@ -92,6 +92,7 @@ const counterKafkaMessageReceived = new Counter({
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
+    offsetLag?: number
 }
 
 export interface TeamIDWithConfig {
@@ -407,8 +408,9 @@ export class SessionRecordingIngester {
                                 const highOffset = offsetsByPartition[partition]
 
                                 if (highOffset) {
+                                    metrics.offsetLag = highOffset - metrics.lastMessageOffset
                                     // NOTE: This is an important metric used by the autoscaler
-                                    gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
+                                    gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
                                 }
                             }
 
@@ -682,8 +684,8 @@ export class SessionRecordingIngester {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,
-            const referenceTime = this.partitionAssignments[sessionManager.partition]?.lastMessageTimestamp
-            if (!referenceTime) {
+            const { lastMessageTimestamp, offsetLag } = this.partitionAssignments[sessionManager.partition] || {}
+            if (!lastMessageTimestamp) {
                 status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                     partition: sessionManager.partition,
                 })
@@ -691,7 +693,7 @@ export class SessionRecordingIngester {
             }
 
             const flushPromise = sessionManager
-                .flushIfSessionBufferIsOld(referenceTime)
+                .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
                 .catch((err) => {
                     status.error(
                         '🚽',
