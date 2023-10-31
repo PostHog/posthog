@@ -439,7 +439,6 @@ describe('ingester', () => {
         })
 
         it('should not be affected by other partitions ', async () => {
-            console.log('test start')
             await ingester.handleEachBatch([
                 createMessage('sid1', 1),
                 createMessage('sid2', 2),
