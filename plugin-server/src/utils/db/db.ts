@@ -71,6 +71,7 @@ import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
     safeClickhouseString,
+    sanitizeJsonbValue,
     shouldStoreLog,
     timeoutGuard,
     unparsePersonPartial,
@@ -677,9 +678,9 @@ export class DB {
                 `SELECT * FROM inserted_person;`,
             [
                 createdAt.toISO(),
-                JSON.stringify(properties),
-                JSON.stringify(propertiesLastUpdatedAt),
-                JSON.stringify(propertiesLastOperation),
+                sanitizeJsonbValue(properties),
+                sanitizeJsonbValue(propertiesLastUpdatedAt),
+                sanitizeJsonbValue(propertiesLastOperation),
                 teamId,
                 isUserId,
                 isIdentified,
@@ -739,7 +740,7 @@ export class DB {
             return [person, []]
         }
 
-        const values = [...updateValues, person.id]
+        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1, ${Object.keys(

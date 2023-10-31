@@ -33,7 +33,7 @@ export type NotebookNodeLogicProps = {
     notebookLogic: BuiltLogic<notebookLogicType>
     getPos?: () => number
     resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
-    settings?: NotebookNodeSettings
+    Settings?: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
@@ -121,7 +121,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         notebookLogic: [(_, p) => [p.notebookLogic], (notebookLogic) => notebookLogic],
         nodeAttributes: [(_, p) => [p.attributes], (nodeAttributes) => nodeAttributes],
         nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
-        settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.settings ?? null],
+        Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes],
