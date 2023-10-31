@@ -82,7 +82,5 @@ export const getLagMultipler = (lag: number, threshold = 1000000) => {
         return 1
     }
 
-    const overThresholdLag = lag - threshold
-
-    return Math.max(0.1, 1 - overThresholdLag / (threshold * 10))
+    return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
 }
