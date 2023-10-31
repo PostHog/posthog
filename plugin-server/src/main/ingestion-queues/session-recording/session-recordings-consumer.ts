@@ -92,7 +92,6 @@ const counterKafkaMessageReceived = new Counter({
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
-    lastKnownCommit?: number
 }
 
 export interface TeamIDWithConfig {
@@ -378,6 +377,14 @@ export class SessionRecordingIngester {
                 }
 
                 await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.refreshOffsets`,
+                    func: async () => {
+                        // Refresh what the actual committed offsets are - we can drop all messages that are below this as well as only committing higher
+                        await this.offsetsRefresher.refresh()
+                    },
+                })
+
+                await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         for (const message of messages) {
@@ -390,7 +397,6 @@ export class SessionRecordingIngester {
                                 metrics.lastMessageTimestamp = timestamp
 
                                 // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                                metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset - 1
                                 metrics.lastMessageOffset = offset
 
                                 counterKafkaMessageReceived.inc({ partition })
@@ -723,6 +729,8 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
+        const offsetsByPartition = await this.offsetsRefresher.get()
+
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
                 /**
@@ -731,6 +739,8 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
+                const committedHighOffset = offsetsByPartition[partition]
+
                 const tp = {
                     topic: this.topic,
                     partition,
@@ -756,7 +766,6 @@ export class SessionRecordingIngester {
                 const highestOffsetToCommit = potentiallyBlockingOffset
                     ? potentiallyBlockingOffset - 1 // TRICKY: We want to commit the offset before the lowest blocking offset
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
-                const lastKnownCommit = metrics.lastKnownCommit ?? -1
 
                 if (!highestOffsetToCommit) {
                     if (partition === 101) {
@@ -764,7 +773,7 @@ export class SessionRecordingIngester {
                             blockingSession: potentiallyBlockingSession?.sessionId,
                             blockingSessionTeamId: potentiallyBlockingSession?.teamId,
                             partition: partition,
-                            lastKnownCommit,
+                            committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
                         })
@@ -772,8 +781,8 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                // If the last known commit is more than or equal to the highest offset we want to commit then we don't need to do anything
-                if (lastKnownCommit >= highestOffsetToCommit) {
+                // If the last known commit is ahead of the highest offset we want to commit then we don't need to do anything
+                if (committedHighOffset > highestOffsetToCommit) {
                     if (partition === 101) {
                         status.warn(
                             '🤔',
@@ -782,7 +791,7 @@ export class SessionRecordingIngester {
                                 blockingSession: potentiallyBlockingSession?.sessionId,
                                 blockingSessionTeamId: potentiallyBlockingSession?.teamId,
                                 partition: partition,
-                                lastKnownCommit,
+                                committedHighOffset,
                                 lastMessageOffset: metrics.lastMessageOffset,
                                 highestOffsetToCommit,
                             }
@@ -797,8 +806,6 @@ export class SessionRecordingIngester {
                     // for some reason you commit the next offset you expect to read and not the one you actually have
                     offset: highestOffsetToCommit + 1,
                 })
-
-                metrics.lastKnownCommit = highestOffsetToCommit
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
                 await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)
