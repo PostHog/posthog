@@ -43,7 +43,7 @@ export const queryWatermarkOffsets = (
             (err, offsets) => {
                 if (err) {
                     status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                    return reject()
+                    return reject(err)
                 }
 
                 resolve([partition, offsets.highOffset])
@@ -61,10 +61,10 @@ export const queryCommittedOffsets = (
             return reject('Not connected')
         }
 
-        batchConsumer.consumer.committed(topicPartitions, 5000, (err, offsets) => {
+        batchConsumer.consumer.committed(topicPartitions, 10000, (err, offsets) => {
             if (err) {
                 status.error('🔥', 'Failed to query kafka committed offsets', err)
-                return reject()
+                return reject(err)
             }
 
             resolve(
