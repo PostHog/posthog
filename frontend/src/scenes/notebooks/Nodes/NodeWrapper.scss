@@ -27,6 +27,10 @@
             overflow: hidden;
         }
 
+        .NotebookNode__settings {
+            border-bottom: 1px solid var(--border);
+        }
+
         .NotebookNode__content {
             transition: box-shadow 150ms ease-out;
             z-index: 1;

@@ -54,13 +54,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         getPos,
         attributes,
         updateAttributes,
-        settings = null,
+        Settings = null,
     } = props
 
     useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic } = useActions(notebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
@@ -176,7 +176,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                                 {isEditable ? (
                                                     <>
-                                                        {settings ? (
+                                                        {Settings ? (
                                                             <LemonButton
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
@@ -195,6 +195,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 ) : null}
                                             </div>
                                         </div>
+
+                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
+                                            <div className="NotebookNode__settings">
+                                                <Settings
+                                                    key={nodeId}
+                                                    attributes={attributes}
+                                                    updateAttributes={updateAttributes}
+                                                />
+                                            </div>
+                                        ) : null}
+
                                         <div
                                             ref={contentRef}
                                             className={clsx(
@@ -387,5 +398,4 @@ export const NotebookNodeChildRenderer = ({
             selected={false}
         />
     )
-    // return
 }

@@ -28,7 +28,6 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    settings?: NotebookNodeSettings
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 

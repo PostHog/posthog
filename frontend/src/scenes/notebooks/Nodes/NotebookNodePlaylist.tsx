@@ -172,7 +172,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
             return { filters: searchParams.filters }
         },
     },
-    settings: Settings,
+    Settings,
 })
 
 export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {
