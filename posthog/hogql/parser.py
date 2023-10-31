@@ -44,7 +44,7 @@ RULE_TO_HISTOGRAM: Dict[Literal["expr", "order_expr", "select"], Histogram] = {
         f"Time to parse {rule} expression",
         labelnames=["backend"],
     )
-    for rule in RULE_TO_PARSE_FUNCTION["python"]
+    for rule in ("expr", "order_expr", "select")
 }
 
 
