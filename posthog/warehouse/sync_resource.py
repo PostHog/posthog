@@ -34,7 +34,6 @@ def _sync_resource(resource_id):
         resource.save()
 
     if job["status"] == "succeeded":
-
         resource = ExternalDataSource.objects.get(pk=resource_id)
         credential, _ = DataWarehouseCredential.objects.get_or_create(
             team_id=resource.team.pk,
