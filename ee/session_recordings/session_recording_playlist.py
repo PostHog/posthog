@@ -265,9 +265,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             return response.Response({"success": True})
 
         if request.method == "DELETE":
-            playlist_item = SessionRecordingPlaylistItem.objects.get(
-                playlist=playlist, recording=session_recording_id
-            )  # type: ignore
+            playlist_item = SessionRecordingPlaylistItem.objects.get(playlist=playlist, recording=session_recording_id)  # type: ignore
 
             if playlist_item:
                 playlist_item.delete()

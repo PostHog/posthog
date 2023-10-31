@@ -702,6 +702,4 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )  # type: ignore
+    await sync_to_async(update_batch_export_backfill_status)(backfill_id=uuid.UUID(inputs.id), status=inputs.status)  # type: ignore

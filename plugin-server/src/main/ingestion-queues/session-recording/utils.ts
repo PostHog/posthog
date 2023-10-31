@@ -76,3 +76,11 @@ export const queryCommittedOffsets = (
         })
     })
 }
+
+export const getLagMultipler = (lag: number, threshold = 1000000) => {
+    if (lag < threshold) {
+        return 1
+    }
+
+    return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
+}
