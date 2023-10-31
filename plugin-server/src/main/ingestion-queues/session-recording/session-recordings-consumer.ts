@@ -759,11 +759,35 @@ export class SessionRecordingIngester {
                 const lastKnownCommit = metrics.lastKnownCommit ?? -1
 
                 if (!highestOffsetToCommit) {
+                    if (partition === 101) {
+                        status.warn('🤔', 'blob_ingester_consumer - no highestOffsetToCommit for partition', {
+                            blockingSession: potentiallyBlockingSession?.sessionId,
+                            blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                            partition: partition,
+                            lastKnownCommit,
+                            lastMessageOffset: metrics.lastMessageOffset,
+                            highestOffsetToCommit,
+                        })
+                    }
                     return
                 }
 
                 // If the last known commit is more than or equal to the highest offset we want to commit then we don't need to do anything
                 if (lastKnownCommit >= highestOffsetToCommit) {
+                    if (partition === 101) {
+                        status.warn(
+                            '🤔',
+                            'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
+                            {
+                                blockingSession: potentiallyBlockingSession?.sessionId,
+                                blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                                partition: partition,
+                                lastKnownCommit,
+                                lastMessageOffset: metrics.lastMessageOffset,
+                                highestOffsetToCommit,
+                            }
+                        )
+                    }
                     return
                 }
 
