@@ -5,7 +5,6 @@ import { Notebook } from './Notebook/Notebook'
 import { NotFound } from 'lib/components/NotFound'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { notebookPopoverLogic } from './Notebook/notebookPopoverLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import {
@@ -27,6 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { openNotebookShareDialog } from './Notebook/NotebookShare'
+import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -44,8 +44,8 @@ export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { notebook, conflictWarningVisible, showHistory } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId: notebookId }))
-    const { selectNotebook, setVisibility } = useActions(notebookPopoverLogic)
-    const { selectedNotebook, visibility } = useValues(notebookPopoverLogic)
+    const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
+    const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
@@ -56,9 +56,9 @@ export function NotebookScene(): JSX.Element {
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
-            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10">
+            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10 flex-1">
                 <h2 className="text-muted-alt">
-                    This Notebook is open in the sidebar <IconArrowRight />
+                    This Notebook is open in the side panel <IconArrowRight />
                 </h2>
 
                 <p>
@@ -66,7 +66,7 @@ export function NotebookScene(): JSX.Element {
                     and it will be full screen here instead.
                 </p>
 
-                <LemonButton type="secondary" onClick={() => setVisibility('hidden')}>
+                <LemonButton type="secondary" onClick={() => closeSidePanel()}>
                     Open it here instead
                 </LemonButton>
             </div>
@@ -131,10 +131,16 @@ export function NotebookScene(): JSX.Element {
                         icon={<IconHelpOutline />}
                         size={buttonSize}
                         onClick={() => {
-                            selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                            setVisibility('visible')
+                            if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
+                                closeSidePanel()
+                            } else {
+                                selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                            }
                         }}
                     >
+                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
+                            ? 'Close '
+                            : ''}
                         Guide
                     </LemonButton>
                     <NotebookExpandButton type="secondary" size={buttonSize} />
@@ -143,17 +149,17 @@ export function NotebookScene(): JSX.Element {
                         size={buttonSize}
                         onClick={() => {
                             selectNotebook(notebookId)
-                            setVisibility('visible')
                         }}
                         tooltip={
                             <>
-                                Opens the notebook in a popover, that can be accessed from anywhere in the PostHog app.
-                                This is great for dragging and dropping elements like Insights, Recordings or even
+                                Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
+                                app. This is great for dragging and dropping elements like Insights, Recordings or even
                                 Feature Flags into your active Notebook.
                             </>
                         }
+                        sideIcon={<IconArrowRight />}
                     >
-                        Open in popover
+                        Open in side panel
                     </LemonButton>
                 </div>
             </div>

@@ -25,7 +25,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, now, queryCommittedOffsets, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -92,7 +92,6 @@ const counterKafkaMessageReceived = new Counter({
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
-    lastKnownCommit?: number
 }
 
 export interface TeamIDWithConfig {
@@ -113,7 +112,8 @@ export class SessionRecordingIngester {
     partitionAssignments: Record<number, PartitionMetrics> = {}
     partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-    offsetsRefresher: BackgroundRefresher<Record<number, number>>
+    latestOffsetsRefresher: BackgroundRefresher<Record<number, number>>
+    committedOffsetsRefresher: BackgroundRefresher<Record<number, number>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
@@ -157,7 +157,7 @@ export class SessionRecordingIngester {
             }
         })
 
-        this.offsetsRefresher = new BackgroundRefresher(async () => {
+        this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
                     queryWatermarkOffsets(this.batchConsumer, partition)
@@ -168,6 +168,10 @@ export class SessionRecordingIngester {
                 acc[partition] = highOffset
                 return acc
             }, {} as Record<number, number>)
+        }, 5000)
+
+        this.committedOffsetsRefresher = new BackgroundRefresher(async () => {
+            return await queryCommittedOffsets(this.batchConsumer, this.assignedTopicPartitions)
         }, 5000)
     }
 
@@ -390,7 +394,6 @@ export class SessionRecordingIngester {
                                 metrics.lastMessageTimestamp = timestamp
 
                                 // If we don't have a last known commit then set it to the offset before as that must be the last commit
-                                metrics.lastKnownCommit = metrics.lastKnownCommit ?? offset - 1
                                 metrics.lastMessageOffset = offset
 
                                 counterKafkaMessageReceived.inc({ partition })
@@ -401,7 +404,7 @@ export class SessionRecordingIngester {
                                     })
                                     .set(now() - timestamp)
 
-                                const offsetsByPartition = await this.offsetsRefresher.get()
+                                const offsetsByPartition = await this.latestOffsetsRefresher.get()
                                 const highOffset = offsetsByPartition[partition]
 
                                 if (highOffset) {
@@ -599,7 +602,7 @@ export class SessionRecordingIngester {
         if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             await this.partitionLocker.claim(topicPartitions)
         }
-        await this.offsetsRefresher.refresh()
+        await this.latestOffsetsRefresher.refresh()
     }
 
     async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
@@ -671,7 +674,7 @@ export class SessionRecordingIngester {
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
                 // TODO: If the above works, all sessions are removed. Can we drop?
-                await this.offsetsRefresher.refresh()
+                await this.latestOffsetsRefresher.refresh()
             },
         })
     }
@@ -723,6 +726,8 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
+        const committedOffsetsByPartition = await this.committedOffsetsRefresher.refresh()
+
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
                 /**
@@ -731,6 +736,8 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
+                const committedHighOffset = committedOffsetsByPartition[partition]
+
                 const tp = {
                     topic: this.topic,
                     partition,
@@ -756,14 +763,37 @@ export class SessionRecordingIngester {
                 const highestOffsetToCommit = potentiallyBlockingOffset
                     ? potentiallyBlockingOffset - 1 // TRICKY: We want to commit the offset before the lowest blocking offset
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
-                const lastKnownCommit = metrics.lastKnownCommit ?? -1
 
                 if (!highestOffsetToCommit) {
+                    if (partition === 101) {
+                        status.warn('🤔', 'blob_ingester_consumer - no highestOffsetToCommit for partition', {
+                            blockingSession: potentiallyBlockingSession?.sessionId,
+                            blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                            partition: partition,
+                            committedHighOffset,
+                            lastMessageOffset: metrics.lastMessageOffset,
+                            highestOffsetToCommit,
+                        })
+                    }
                     return
                 }
 
-                // If the last known commit is more than or equal to the highest offset we want to commit then we don't need to do anything
-                if (lastKnownCommit >= highestOffsetToCommit) {
+                // If the last known commit is ahead of the highest offset we want to commit then we don't need to do anything
+                if (committedHighOffset > highestOffsetToCommit) {
+                    if (partition === 101) {
+                        status.warn(
+                            '🤔',
+                            'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
+                            {
+                                blockingSession: potentiallyBlockingSession?.sessionId,
+                                blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                                partition: partition,
+                                committedHighOffset,
+                                lastMessageOffset: metrics.lastMessageOffset,
+                                highestOffsetToCommit,
+                            }
+                        )
+                    }
                     return
                 }
 
@@ -773,8 +803,6 @@ export class SessionRecordingIngester {
                     // for some reason you commit the next offset you expect to read and not the one you actually have
                     offset: highestOffsetToCommit + 1,
                 })
-
-                metrics.lastKnownCommit = highestOffsetToCommit
 
                 // Store the committed offset to the persistent store to avoid rebalance issues
                 await this.persistentHighWaterMarker.add(tp, KAFKA_CONSUMER_GROUP_ID, highestOffsetToCommit)

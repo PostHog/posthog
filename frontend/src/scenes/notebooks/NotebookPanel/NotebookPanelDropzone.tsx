@@ -1,17 +1,17 @@
 import clsx from 'clsx'
 import { DragEventHandler, useState } from 'react'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { NotebookNodeType } from '~/types'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
-import { notebookLogicType } from './notebookLogicType'
+import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { LemonButton } from '@posthog/lemon-ui'
+import { notebookPanelLogic } from './notebookPanelLogic'
 
-export function NotebookPopoverDropzone(): JSX.Element | null {
+export function NotebookPanelDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)
 
-    const { dropMode, droppedResource } = useValues(notebookPopoverLogic)
-    const { setDroppedResource } = useActions(notebookPopoverLogic)
+    const { dropMode, droppedResource } = useValues(notebookPanelLogic)
+    const { setDroppedResource } = useActions(notebookPanelLogic)
 
     const onDrop: DragEventHandler<HTMLDivElement> = (event) => {
         event.preventDefault()
@@ -50,9 +50,9 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
 
     return (
         <div
-            className={clsx('NotebookPopoverDropzone', {
-                'NotebookPopoverDropzone--active': isDragActive,
-                'NotebookPopoverDropzone--dropped': !!droppedResource,
+            className={clsx('NotebookPanelDropzone', {
+                'NotebookPanelDropzone--active': isDragActive,
+                'NotebookPanelDropzone--dropped': !!droppedResource,
             })}
             onDragEnter={() => setIsDragActive(true)}
             onDragLeave={() => setIsDragActive(false)}
@@ -60,7 +60,7 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
             onDrop={onDrop}
         >
             {droppedResource ? (
-                <div className="NotebookPopoverDropzone__dropped">
+                <div className="NotebookPanelDropzone__dropped">
                     <div className="flex items-start justify-between">
                         <h2>Add dropped resource to...</h2>
                         <LemonButton size="small" onClick={() => setDroppedResource(null)}>
@@ -70,7 +70,7 @@ export function NotebookPopoverDropzone(): JSX.Element | null {
                     <NotebookSelectList onNotebookOpened={onNotebookOpened} resource />
                 </div>
             ) : (
-                <div className="NotebookPopoverDropzone__message">Drop here for a different Notebook</div>
+                <div className="NotebookPanelDropzone__message">Drop here for a different Notebook</div>
             )}
         </div>
     )

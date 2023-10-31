@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
@@ -48,5 +49,30 @@ export const queryWatermarkOffsets = (
                 resolve([partition, offsets.highOffset])
             }
         )
+    })
+}
+
+export const queryCommittedOffsets = (
+    batchConsumer: BatchConsumer | undefined,
+    topicPartitions: TopicPartition[]
+): Promise<Record<number, number>> => {
+    return new Promise<Record<number, number>>((resolve, reject) => {
+        if (!batchConsumer) {
+            return reject('Not connected')
+        }
+
+        batchConsumer.consumer.committed(topicPartitions, 5000, (err, offsets) => {
+            if (err) {
+                status.error('🔥', 'Failed to query kafka committed offsets', err)
+                return reject()
+            }
+
+            resolve(
+                offsets.reduce((acc, { partition, offset }) => {
+                    acc[partition] = offset
+                    return acc
+                }, {} as Record<number, number>)
+            )
+        })
     })
 }
