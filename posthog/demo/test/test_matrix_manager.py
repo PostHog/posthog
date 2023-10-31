@@ -11,16 +11,16 @@ from posthog.demo.matrix.models import SimPerson, SimSessionIntent
 from posthog.test.base import ClickhouseDestroyTablesMixin
 
 
-class DummySessionIntent(SimSessionIntent):
+class PlaceholderSessionIntent(SimSessionIntent):
     FLAIL = auto()
 
 
-class DummyPerson(SimPerson):
+class PlaceholderPerson(SimPerson):
     def determine_next_session_datetime(self):
         return self.cluster.start
 
-    def determine_session_intent(self) -> Optional[DummySessionIntent]:
-        return DummySessionIntent.FLAIL
+    def determine_session_intent(self) -> Optional[PlaceholderSessionIntent]:
+        return PlaceholderSessionIntent.FLAIL
 
     def simulate_session(self):
         self.active_client.capture_pageview("/", {"foo": "bar"})
@@ -29,7 +29,7 @@ class DummyPerson(SimPerson):
         self.advance_timer(86400 * 12)
 
 
-class DummyCluster(Cluster):
+class PlaceholderCluster(Cluster):
     MIN_RADIUS = 0
     MAX_RADIUS = 0
 
@@ -37,10 +37,10 @@ class DummyCluster(Cluster):
         return 0  # Start every cluster at the same time
 
 
-class DummyMatrix(Matrix):
+class PlaceholderMatrix(Matrix):
     PRODUCT_NAME = "Test"
-    CLUSTER_CLASS = DummyCluster
-    PERSON_CLASS = DummyPerson
+    CLUSTER_CLASS = PlaceholderCluster
+    PERSON_CLASS = PlaceholderPerson
 
     def set_project_up(self, team, user):
         return super().set_project_up(team, user)
@@ -49,12 +49,12 @@ class DummyMatrix(Matrix):
 class TestMatrixManager(ClickhouseDestroyTablesMixin):
     CLASS_DATA_LEVEL_SETUP = False
 
-    matrix: DummyMatrix
+    matrix: PlaceholderMatrix
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.matrix = DummyMatrix(
+        cls.matrix = PlaceholderMatrix(
             n_clusters=3,
             now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
             days_future=0,
@@ -91,7 +91,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             )[0][0]
             >= 3
         )
-        assert self.team.name == DummyMatrix.PRODUCT_NAME
+        assert self.team.name == PlaceholderMatrix.PRODUCT_NAME
 
     def test_run_on_team_using_pre_save(self):
         manager = MatrixManager(self.matrix, use_pre_save=True)

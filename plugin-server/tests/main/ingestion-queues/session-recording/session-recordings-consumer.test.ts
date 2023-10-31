@@ -639,7 +639,7 @@ describe('ingester', () => {
             await ingester.handleEachBatch(partitionMsgs1)
         }
 
-        // NOTE: This test is a sanity check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
+        // NOTE: This test is a coherence check for the follow up test. It demonstrates what happens if we shutdown in the wrong order
         // It doesn't reliably work though as the onRevoke is called via the kafka lib ending up with dangling promises so rather it is here as a reminder
         // demonstation for when we need it
         it.skip('shuts down with error if redis forcefully shutdown', async () => {

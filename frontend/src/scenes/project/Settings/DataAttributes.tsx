@@ -33,8 +33,8 @@ export function DataAttributes(): JSX.Element {
             <p>
                 For example, when creating an action on your CTA button, the best selector could be something like:{' '}
                 <code>div &gt; form &gt; button:nth-child(2)</code>. However all buttons in your app have a{' '}
-                <code>data-custom-id</code> attribute. If you whitelist it here, the selector for your button will
-                instead be <code>button[data-custom-id='cta-button']</code>.
+                <code>data-custom-id</code> attribute. If you allow it here, the selector for your button will instead
+                be <code>button[data-custom-id='cta-button']</code>.
             </p>
             <div className="space-y-4 max-w-160">
                 <LemonSelectMultiple

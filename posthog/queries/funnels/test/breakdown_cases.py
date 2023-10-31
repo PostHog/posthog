@@ -1217,13 +1217,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     },
                 ]
             }
-            # Dummy events to make sure that breakdown is not confused
+            # Sample events to make sure that breakdown is not confused
             # It was confused before due to the nature of fetching breakdown values with a LIMIT based on value popularity
             # See https://github.com/PostHog/posthog/pull/5496
             for current_url_letter in ascii_lowercase[:20]:
-                # Twenty dummy breakdown values
+                # Twenty sample breakdown values
                 for _ in range(2):
-                    # Each twice, so that the breakdown values from dummy events rank higher in raw order
+                    # Each twice, so that the breakdown values from sample events rank higher in raw order
                     # This test makes sure that events are prefiltered properly to avoid problems with this raw order
                     events_by_person["user_1"].append(
                         {

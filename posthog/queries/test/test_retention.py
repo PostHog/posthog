@@ -89,7 +89,7 @@ def retention_test_factory(retention):
                 ],
             )
 
-            result = retention().run(RetentionFilter(data={"dummy": "dummy"}), self.team)
+            result = retention().run(RetentionFilter(data={"sample": "sample"}), self.team)
             self.assertEqual(
                 pluck(result, "values", "count"),
                 [

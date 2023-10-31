@@ -1,0 +1,12 @@
+.wokeignore
+posthog/management/sql/0050_event_partitions.sql
+posthog/migrations/0001_initial_squashed_0284_improved_caching_state_idx.py
+posthog/migrations/0160_organization_domain_whitelist.py
+posthog/migrations/0161_property_defs_search.py
+posthog/migrations/0223_organizationdomain.py
+*.ambr
+frontend/src/scenes/plugins/source/types/packages.json
+# External lib settings
+posthog/settings/web.py
+# External lib settings 
+ee/settings.py

@@ -37,7 +37,7 @@ export function ProjectNotice(): JSX.Element | null {
         demo_project: {
             message: (
                 <>
-                    This is a demo project with dummy data.
+                    This is a demo project with sample data.
                     {altTeamForIngestion && (
                         <>
                             {' '}

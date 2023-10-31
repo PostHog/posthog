@@ -527,8 +527,8 @@ def assert_events_have_been_overriden(overriden_events, person_overrides):
             "person_id": rows[0][3],
         }
 
-        assert event["uuid"] == new_event["uuid"]  # Sanity check
-        assert event["team_id"] == new_event["team_id"]  # Sanity check
+        assert event["uuid"] == new_event["uuid"]  # coherence check
+        assert event["team_id"] == new_event["team_id"]  # coherence check
         assert event["person_id"] != new_event["person_id"]
 
         # If all is well, we should have overriden old_person_id with an override_person_id.
@@ -592,8 +592,8 @@ async def test_squash_events_partition_dry_run(
             "person_id": rows[0][3],
         }
 
-        assert event["uuid"] == new_event["uuid"]  # Sanity check
-        assert event["team_id"] == new_event["team_id"]  # Sanity check
+        assert event["uuid"] == new_event["uuid"]  # coherence check
+        assert event["team_id"] == new_event["team_id"]  # coherence check
         assert event["person_id"] == new_event["person_id"]
 
 
@@ -1018,7 +1018,7 @@ async def test_delete_squashed_person_overrides_from_postgres(
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    # These are sanity checks to ensure the fixtures are working properly.
+    # These are coherence checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
         with pg_connection.cursor() as cursor:
@@ -1063,7 +1063,7 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     query_inputs, activity_environment, team_id, person_overrides, pg_connection
 ):
     """Test we do not delete person overrides when dry_run=True."""
-    # These are sanity checks to ensure the fixtures are working properly.
+    # These are coherence checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
         with pg_connection.cursor() as cursor:
@@ -1112,7 +1112,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    # These are sanity checks to ensure the fixtures are working properly.
+    # These are coherence checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
         with pg_connection.cursor() as cursor:

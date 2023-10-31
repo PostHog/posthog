@@ -148,7 +148,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2012-01-15T03:21:34.000Z"):
-            filter = PathFilter(team=self.team, data={"dummy": "dummy"})
+            filter = PathFilter(team=self.team, data={"sample": "sample"})
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(response[0]["source"], "1_/", response)
