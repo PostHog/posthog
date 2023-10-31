@@ -6,7 +6,7 @@ import { Breadcrumb, PipelineTabs } from '~/types'
 
 export const singularName = (tab: PipelineTabs): string => {
     switch (tab) {
-        case PipelineTabs.Filtering:
+        case PipelineTabs.Filters:
             return 'filter'
         case PipelineTabs.Transformations:
             return 'transformation'
@@ -17,8 +17,8 @@ export const singularName = (tab: PipelineTabs): string => {
 
 export const humanFriendlyTabName = (tab: PipelineTabs): string => {
     switch (tab) {
-        case PipelineTabs.Filtering:
-            return 'Filtering'
+        case PipelineTabs.Filters:
+            return 'Filters'
         case PipelineTabs.Transformations:
             return 'Transformations'
         case PipelineTabs.Destinations:

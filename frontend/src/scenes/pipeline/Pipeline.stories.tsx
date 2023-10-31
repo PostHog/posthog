@@ -22,7 +22,7 @@ export function PipelineLandingPage(): JSX.Element {
 }
 export function PipelineFilteringPage(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipeline(PipelineTabs.Filtering))
+        router.actions.push(urls.pipeline(PipelineTabs.Filters))
         pipelineLogic.mount()
     }, [])
     return <App />
