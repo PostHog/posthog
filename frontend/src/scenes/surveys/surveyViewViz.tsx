@@ -345,7 +345,7 @@ export function SingleChoiceQuestionPieChart({
                                             className="w-3 h-3 rounded-full mr-2"
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-30 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
                                         <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
                                     </div>
