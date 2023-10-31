@@ -22,6 +22,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
         onMouseLeaveResult: true,
+        setScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
     }),
     loaders({
@@ -61,6 +62,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
+        scrolling: [false, { setScrolling: (_, { scrolling }) => scrolling }],
     }),
     selectors({
         searchResults: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.results],
@@ -77,7 +79,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         maxIndex: [(s) => [s.filterSearchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
         activeResultIndex: [
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
-            (keyboardResultIndex: number, hoverResultIndex: number | null) => keyboardResultIndex,
+            (keyboardResultIndex: number, hoverResultIndex: number | null) => hoverResultIndex || keyboardResultIndex,
         ],
     }),
     listeners(({ values, actions }) => ({

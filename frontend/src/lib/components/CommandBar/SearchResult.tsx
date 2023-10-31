@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { useActions } from 'kea'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
@@ -14,13 +14,28 @@ type SearchResultProps = {
 }
 
 const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    const { onMouseEnterResult, onMouseLeaveResult, openResult } = useActions(searchBarLogic)
+    const { scrolling } = useValues(searchBarLogic)
+    const { onMouseEnterResult, onMouseLeaveResult, openResult, setScrolling } = useActions(searchBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (keyboardFocused) {
-            ref.current?.scrollIntoView()
+            // :HACKY: This uses the non-standard scrollIntoViewIfNeeded api
+            // to improve scroll behaviour. Change to scrollIntoView({ scrollMode: 'if-needed' })
+            // once available.
+            if (!!(ref.current as any)?.scrollIntoViewIfNeeded) {
+                ;(ref.current as any).scrollIntoViewIfNeeded(false)
+            } else {
+                ref.current?.scrollIntoView()
+            }
+
+            // set scrolling state to prevent mouse enter/leave events during
+            // keyboard navigation
+            setScrolling(true)
+            setTimeout(() => {
+                setScrolling(false)
+            }, 50)
         }
     }, [keyboardFocused])
 
@@ -29,10 +44,16 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
             className={`w-full pl-3 pr-2 ${
                 focused ? 'bg-secondary-3000-hover' : 'bg-secondary-3000'
             } border-b cursor-pointer`}
-            onMouseEnter={() => {
+            onMouseEnter={(e) => {
+                if (scrolling) {
+                    return
+                }
                 onMouseEnterResult(resultIndex)
             }}
             onMouseLeave={() => {
+                if (scrolling) {
+                    return
+                }
                 onMouseLeaveResult()
             }}
             onClick={() => {
