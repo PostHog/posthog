@@ -32,7 +32,7 @@ RULE_TO_PARSE_FUNCTION: Dict[Literal["python", "cpp"], Dict[Literal["expr", "ord
         "select": lambda string: HogQLParseTreeConverter().visit(get_parser(string).select()),
     },
     "cpp": {
-        "expr": lambda string, _: _parse_expr_cpp(string),  # The start arg is ignored in the C++ version
+        "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
         "order_expr": lambda string: _parse_order_expr_cpp(string),
         "select": lambda string: _parse_select_cpp(string),
     },
