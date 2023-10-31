@@ -89,7 +89,6 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
 
 class AttachmentsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    # authentication_classes = []
     permission_classes = (permissions.AllowAny,)
     throttle_classes = [UploadedMediaRateThrottle]
     parser_classes = [FileUploadParser]
