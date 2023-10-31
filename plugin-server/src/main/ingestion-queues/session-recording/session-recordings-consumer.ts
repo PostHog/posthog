@@ -807,6 +807,14 @@ export class SessionRecordingIngester {
                 //     return
                 // }
 
+                if (partition === 101) {
+                    status.info('🤔', 'blob_ingester_consumer - committing offset', {
+                        partition: partition,
+                        highestOffsetToCommit,
+                        metrics,
+                    })
+                }
+
                 this.batchConsumer?.consumer.commit({
                     ...tp,
                     // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
