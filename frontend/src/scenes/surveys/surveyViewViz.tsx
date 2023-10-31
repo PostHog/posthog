@@ -10,6 +10,8 @@ import {
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -460,7 +462,14 @@ export function OpenTextViz({
                 <></>
             ) : (
                 <>
-                    <div className="font-semibold text-muted-alt">Open text</div>
+                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                        <div className="inline-flex gap-1">
+                            <div className="font-semibold text-muted-alt">Open text</div>
+                            <LemonDivider vertical className="my-1 mx-1" />
+                            <div className="font-semibold text-muted-alt">random responses</div>
+                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                        </div>
+                    </Tooltip>
                     <div className="text-xl font-bold mb-4">{question.question}</div>
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
