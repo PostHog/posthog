@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 import { useLayoutEffect, useRef, useState } from 'react'
-import { createRoot } from 'react-dom/client'
-import Textfit from './Textfit'
 import clsx from 'clsx'
 
 import { insightLogic } from '../../insightLogic'
@@ -9,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartParams, TrendResult } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { ensureTooltipElement } from '../LineGraph/LineGraph'
+import { ensureTooltip } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
@@ -21,6 +19,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 import './BoldNumber.scss'
 import { useEffect } from 'react'
+import Textfit from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -39,7 +38,7 @@ function useBoldNumberTooltip({
     const divRef = useRef<HTMLDivElement>(null)
 
     const divRect = divRef.current?.getBoundingClientRect()
-    const tooltipEl = ensureTooltipElement()
+    const [tooltipRoot, tooltipEl] = ensureTooltip()
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -49,7 +48,7 @@ function useBoldNumberTooltip({
 
         const seriesResult = insightData?.result?.[0]
 
-        createRoot(tooltipEl).render(
+        tooltipRoot.render(
             <InsightTooltip
                 renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                 seriesData={[

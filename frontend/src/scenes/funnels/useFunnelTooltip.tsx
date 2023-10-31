@@ -1,13 +1,12 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
-import { createRoot } from 'react-dom/client'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ensureTooltipElement } from 'scenes/insights/views/LineGraph/LineGraph'
+import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -109,15 +108,14 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
+        const [tooltipRoot, tooltipEl] = ensureTooltip()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         if (isTooltipShown) {
             tooltipEl.style.display = 'initial'
         }
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
-            // TODO: Shouldn't we unmount at some point??
-            createRoot(tooltipEl).render(
+            tooltipRoot.render(
                 <>
                     {currentTooltip && (
                         <FunnelTooltip

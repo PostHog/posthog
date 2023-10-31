@@ -1,12 +1,11 @@
 import { useValues, useActions } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import { createRoot } from 'react-dom/client'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ChartParams, TrendResult } from '~/types'
 import './WorldMap.scss'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
-import { ensureTooltipElement } from '../LineGraph/LineGraph'
+import { ensureTooltip } from '../LineGraph/LineGraph'
 import { worldMapLogic } from './worldMapLogic'
 import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
@@ -30,7 +29,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
     const svgRef = useRef<SVGSVGElement>(null)
 
     const svgRect = svgRef.current?.getBoundingClientRect()
-    const tooltipEl = ensureTooltipElement()
+    const [tooltipRoot, tooltipEl] = ensureTooltip()
 
     useEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -39,7 +38,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         }
 
         if (tooltipCoordinates) {
-            createRoot(tooltipEl).render(
+            tooltipRoot.render(
                 <>
                     {currentTooltip && (
                         <InsightTooltip
