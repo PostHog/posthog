@@ -4,6 +4,7 @@ import { useActions } from 'kea'
 import { resultTypeToName } from './constants'
 import { searchBarLogic, urlForResult } from './searchBarLogic'
 import { SearchResult as SearchResultType } from './types'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 type SearchResultProps = {
     result: SearchResultType
@@ -50,5 +51,15 @@ const SearchResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
         </div>
     )
 }
+
+export const SearchResultSkeleton = (): JSX.Element => (
+    <div className="w-full pl-3 pr-2 bg-secondary-3000 border-b">
+        <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+            <LemonSkeleton className="w-32 opacity-75" height={3} />
+            <LemonSkeleton className="w-80" />
+            <LemonSkeleton className="w-100 opacity-75" height={3} />
+        </div>
+    </div>
+)
 
 export default SearchResult
