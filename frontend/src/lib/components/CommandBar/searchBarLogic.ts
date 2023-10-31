@@ -50,6 +50,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
         hoverResultIndex: [
             null as number | null,
             {
+                setSearchQuery: () => null,
+                setActiveTab: () => null,
                 onMouseEnterResult: (_, { index }) => index,
                 onMouseLeaveResult: () => null,
                 onArrowUp: () => null,
