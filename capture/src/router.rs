@@ -1,10 +1,12 @@
 use std::future::ready;
 use std::sync::Arc;
 
+use axum::http::Method;
 use axum::{
     routing::{get, post},
     Router,
 };
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{billing_limits::BillingLimiter, capture, redis::Client, sink, time::TimeSource};
@@ -41,12 +43,20 @@ pub fn router<
         billing,
     };
 
+    // Very permissive CORS policy, as old SDK versions
+    // and reverse proxies might send funky headers.
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(Any)
+        .allow_origin(AllowOrigin::mirror_request());
+
     let router = Router::new()
         // TODO: use NormalizePathLayer::trim_trailing_slash
         .route("/", get(index))
-        .route("/i/v0/e", post(capture::event))
-        .route("/i/v0/e/", post(capture::event))
+        .route("/i/v0/e", post(capture::event).options(capture::options))
+        .route("/i/v0/e/", post(capture::event).options(capture::options))
         .layer(TraceLayer::new_for_http())
+        .layer(cors)
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 

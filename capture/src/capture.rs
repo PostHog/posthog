@@ -104,6 +104,12 @@ pub async fn event(
     }))
 }
 
+pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
+    Ok(Json(CaptureResponse {
+        status: CaptureResponseCode::Ok,
+    }))
+}
+
 pub fn process_single_event(
     event: &RawEvent,
     context: &ProcessingContext,
