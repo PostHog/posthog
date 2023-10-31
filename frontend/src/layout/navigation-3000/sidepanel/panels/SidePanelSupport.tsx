@@ -16,6 +16,7 @@ export const SidePanelSupport = (): JSX.Element => {
         return () => closeSupportForm()
     }, [selectedTab])
 
+    // TODO: Fix to make sure this automatically opens based on hashparams
     return (
         <div className="p-3 max-w-160 w-full mx-auto">
             <h1>{title}</h1>

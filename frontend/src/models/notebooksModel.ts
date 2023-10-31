@@ -36,6 +36,8 @@ export const openNotebook = async (
     // TODO: We want a better solution than assuming it will always be mounted
     const thePanelLogic = notebookPanelLogic.findMounted()
 
+    // TODO: Fix auto opening to correctly open in the panel if it comes from the panel
+
     if (thePanelLogic && target === NotebookTarget.Popover) {
         notebookPanelLogic.actions.selectNotebook(notebookId, focus)
     } else {
