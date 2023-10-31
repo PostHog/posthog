@@ -1,7 +1,6 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
@@ -31,8 +30,10 @@ async function deleteKeysWithPrefix(hub: Hub) {
     await hub.redisPool.release(redisClient)
 }
 
-const mockQueryWatermarkOffsets = jest.fn()
 const mockCommit = jest.fn()
+const mockQueryWatermarkOffsets = jest.fn((_1, _2, cb) => {
+    cb(null, { highOffset: 0, lowOffset: 0 })
+})
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -62,8 +63,7 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
     let team: Team
     let teamToken = ''
-    let mockOffsets: Record<number, number> = {}
-    let mockCommittedOffsets: Record<number, number> = {}
+    let nextOffset: number
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -71,13 +71,6 @@ describe('ingester', () => {
     })
 
     beforeEach(async () => {
-        // The below mocks simulate committing to kafka and querying the offsets
-        mockCommittedOffsets = {}
-        mockOffsets = {}
-        mockCommit.mockImplementation((tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
-        mockQueryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
-            cb(null, { highOffset: mockCommittedOffsets[partition] ?? 1, lowOffset: 0 })
-        })
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
@@ -85,6 +78,7 @@ describe('ingester', () => {
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
+        nextOffset = 1
 
         // Our tests will use multiple partitions so we assign them to begin with
         await ingester.onAssignPartitions([createTP(1), createTP(2)])
@@ -107,20 +101,15 @@ describe('ingester', () => {
     })
 
     const commitAllOffsets = async () => {
-        // Simulate a background refresh for testing
-        await ingester.offsetsRefresher.refresh()
         await ingester.commitAllOffsets(ingester.partitionAssignments, Object.values(ingester.sessions))
     }
 
     const createMessage = (session_id: string, partition = 1) => {
-        mockOffsets[partition] = mockOffsets[partition] ?? 0
-        mockOffsets[partition]++
-
         return createKafkaMessage(
             teamToken,
             {
                 partition,
-                offset: mockOffsets[partition],
+                offset: nextOffset++,
             },
             {
                 $session_id: session_id,
@@ -334,6 +323,7 @@ describe('ingester', () => {
             await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')])
             expect(ingester.partitionAssignments[1]).toMatchObject({
                 lastMessageOffset: 2,
+                lastKnownCommit: 0,
             })
 
             await commitAllOffsets()
@@ -394,6 +384,7 @@ describe('ingester', () => {
 
             expect(ingester.partitionAssignments[1]).toMatchObject({
                 lastMessageOffset: 4,
+                lastKnownCommit: 0,
             })
 
             // No offsets are below the blocking one
@@ -440,21 +431,21 @@ describe('ingester', () => {
 
         it('should not be affected by other partitions ', async () => {
             await ingester.handleEachBatch([
-                createMessage('sid1', 1),
-                createMessage('sid2', 2),
-                createMessage('sid2', 2),
+                createMessage('sid1', 1), // offset 1
+                createMessage('sid2', 2), // offset 2
+                createMessage('sid2', 2), // offset 3
             ])
 
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
-            await ingester.handleEachBatch([createMessage('sid1', 1)])
+            await ingester.handleEachBatch([createMessage('sid1', 1)]) // offset 4
 
-            // We should now have a blocking session on partition 1 and 2 with partition 1 being committable
+            // We should now have a blocking session on partition 1 and 2 with partition 1 being commitable
             await commitAllOffsets()
             expect(mockCommit).toHaveBeenCalledTimes(1)
             expect(mockCommit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
-                    offset: 2,
+                    offset: 4,
                 })
             )
 
@@ -466,13 +457,13 @@ describe('ingester', () => {
             expect(mockCommit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 1,
-                    offset: 3,
+                    offset: 5,
                 })
             )
             expect(mockCommit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 2,
-                    offset: 3,
+                    offset: 4,
                 })
             )
         })
@@ -655,22 +646,6 @@ describe('ingester', () => {
                 { status: 'fulfilled' },
                 { status: 'fulfilled' },
             ])
-        })
-    })
-
-    describe('when a team is disabled', () => {
-        it('can commit even if an entire batch is disabled', async () => {
-            // non-zero offset because the code can't commit offset 0
-            await ingester.handleEachBatch([
-                createKafkaMessage('invalid_token', { offset: 12 }),
-                createKafkaMessage('invalid_token', { offset: 13 }),
-            ])
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenCalledWith({
-                offset: 14,
-                partition: 1,
-                topic: 'session_recording_snapshot_item_events_test',
-            })
         })
     })
 })
