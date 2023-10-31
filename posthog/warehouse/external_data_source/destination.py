@@ -9,7 +9,7 @@ class ExternalDataDestination(BaseModel):
     destination_id: str
 
 
-def create_destination(team_id: int) -> ExternalDataDestination:
+def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestination:
     token = settings.AIRBYTE_API_KEY
     if not token:
         raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
@@ -25,7 +25,7 @@ def create_destination(team_id: int) -> ExternalDataDestination:
             "s3_bucket_path": f"airbyte/{team_id}",
         },
         "name": f"S3/{team_id}",
-        "workspaceId": settings.AIRBYTE_WORKSPACE_ID,
+        "workspaceId": workspace_id,
     }
     headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {token}"}
 

@@ -46,11 +46,7 @@ class ExternalDataSource(BaseModel):
     workspace_id: str
 
 
-def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
-    workspace_id = settings.AIRBYTE_WORKSPACE_ID
-    if not workspace_id:
-        raise ValueError("AIRBYTE_WORKSPACE_ID must be set in order to create a source.")
-
+def create_stripe_source(payload: StripeSourcePayload, workspace_id: str) -> ExternalDataSource:
     optional_config = {}
     if payload.start_date:
         optional_config["start_date"] = payload.start_date.isoformat()

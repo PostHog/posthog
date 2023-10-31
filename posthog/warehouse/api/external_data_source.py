@@ -57,10 +57,10 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             account_id=account_id,
             client_secret=client_secret,
         )
-        new_source = create_stripe_source(stripe_payload)
+        new_source = create_stripe_source(stripe_payload, workspace.workspace_id)
 
         try:
-            new_destination = create_destination(self.team_id)
+            new_destination = create_destination(self.team_id, workspace.workspace_id)
         except Exception as e:
             delete_source(new_source.source_id)
             raise e
