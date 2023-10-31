@@ -648,4 +648,20 @@ describe('ingester', () => {
             ])
         })
     })
+
+    describe('when a team is disabled', () => {
+        it('can commit even if an entire batch is disabled', async () => {
+            // non-zero offset because the code can't commit offset 0
+            await ingester.handleEachBatch([
+                createKafkaMessage('invalid_token', { offset: 12 }),
+                createKafkaMessage('invalid_token', { offset: 13 }),
+            ])
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenCalledWith({
+                offset: 14,
+                partition: 1,
+                topic: 'session_recording_snapshot_item_events_test',
+            })
+        })
+    })
 })
