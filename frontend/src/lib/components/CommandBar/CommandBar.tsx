@@ -9,19 +9,7 @@ import { BarStatus } from './types'
 
 import './index.scss'
 import SearchBar from './SearchBar'
-
-const CommandBarOverlay = ({ children }: { children?: React.ReactNode }): JSX.Element => (
-    <div
-        className="fixed top-0 left-0 w-full h-full flex flex-col items-center justify-center"
-        // eslint-disable-next-line react/forbid-dom-props
-        style={{
-            zIndex: 'var(--z-command-palette)',
-            background: 'color-mix(in srgb, var(--bg-light) 75%, transparent)',
-        }}
-    >
-        {children}
-    </div>
-)
+import { LemonModal } from '@posthog/lemon-ui'
 
 const CommandBarContainer = forwardRef<HTMLDivElement, { children?: React.ReactNode }>(function CommandBarContainer(
     { children },
@@ -60,16 +48,12 @@ function CommandBar(): JSX.Element | null {
         []
     )
 
-    if (barStatus === BarStatus.HIDDEN) {
-        return null
-    }
-
     return (
-        <CommandBarOverlay>
+        <LemonModal isOpen={barStatus !== BarStatus.HIDDEN} simple closable={false} width={800}>
             <CommandBarContainer ref={containerRef}>
                 <SearchBar />
             </CommandBarContainer>
-        </CommandBarOverlay>
+        </LemonModal>
     )
 }
 
