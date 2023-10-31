@@ -5,11 +5,11 @@ import { searchBarLogic } from './searchBarLogic'
 import SearchResult from './SearchResult'
 
 const SearchResults = (): JSX.Element => {
-    const { searchResults, activeResultIndex, keyboardResultIndex, maxIndex } = useValues(searchBarLogic)
+    const { filterSearchResults, activeResultIndex, keyboardResultIndex, maxIndex } = useValues(searchBarLogic)
     const { onArrowUp, onArrowDown, openResult } = useActions(searchBarLogic)
 
     useEventListener('keydown', (event) => {
-        if (!searchResults) {
+        if (!filterSearchResults) {
             return
         }
 
@@ -27,7 +27,7 @@ const SearchResults = (): JSX.Element => {
 
     return (
         <div className="grow overscroll-none overflow-y-auto">
-            {searchResults?.map((result, index) => (
+            {filterSearchResults?.map((result, index) => (
                 <SearchResult
                     key={`${result.type}_${result.result_id}`}
                     result={result}

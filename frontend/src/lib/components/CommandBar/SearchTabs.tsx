@@ -10,6 +10,7 @@ const SearchTabs = (): JSX.Element | null => {
     if (!searchResponse) {
         return null
     }
+
     return (
         <div className="flex items-center border-t">
             <SearchBarTab type="all" isFirst active={activeTab === 'all'} />

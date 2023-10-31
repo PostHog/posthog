@@ -17,6 +17,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     actions({
         setSearchQuery: (query: string) => ({ query }),
+        setActiveTab: (tab: ResultTypeWithAll) => ({ tab }),
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onMouseEnterResult: (index: number) => ({ index }),
@@ -39,6 +40,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             0,
             {
                 setSearchQuery: () => 0,
+                setActiveTab: () => 0,
                 openResult: () => 0,
                 onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
@@ -53,12 +55,26 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 onArrowDown: () => null,
             },
         ],
-        activeTab: ['all' as ResultTypeWithAll, {}],
+        activeTab: [
+            'all' as ResultTypeWithAll,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
     }),
     selectors({
         searchResults: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.results],
         searchCounts: [(s) => [s.searchResponse], (searchResponse) => searchResponse?.counts],
-        maxIndex: [(s) => [s.searchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
+        filterSearchResults: [
+            (s) => [s.searchResults, s.activeTab],
+            (searchResults, activeTab) => {
+                if (activeTab === 'all') {
+                    return searchResults
+                }
+                return searchResults?.filter((r) => r.type === activeTab)
+            },
+        ],
+        maxIndex: [(s) => [s.filterSearchResults], (searchResults) => (searchResults ? searchResults.length - 1 : 0)],
         activeResultIndex: [
             (s) => [s.keyboardResultIndex, s.hoverResultIndex],
             (keyboardResultIndex: number, hoverResultIndex: number | null) => keyboardResultIndex,
