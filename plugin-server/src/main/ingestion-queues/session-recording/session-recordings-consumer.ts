@@ -168,6 +168,10 @@ export class SessionRecordingIngester {
                 return acc
             }, {} as Record<number, number>)
         }, 5000)
+
+        this.committedOffsetsRefresher = new BackgroundRefresher(async () => {
+            return await queryCommittedOffsets(this.batchConsumer, this.assignedTopicPartitions)
+        }, 5000)
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {
