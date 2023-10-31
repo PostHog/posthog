@@ -1,4 +1,3 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
