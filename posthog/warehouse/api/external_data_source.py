@@ -6,6 +6,7 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import ExternalDataSource
+from posthog.warehouse.external_data_source.workspace import get_or_create_workspace
 from posthog.warehouse.external_data_source.source import StripeSourcePayload, create_stripe_source, delete_source
 from posthog.warehouse.external_data_source.connection import create_connection, start_sync
 from posthog.warehouse.external_data_source.destination import create_destination, delete_destination
@@ -50,6 +51,8 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         account_id = request.data["account_id"]
         client_secret = request.data["client_secret"]
 
+        workspace = get_or_create_workspace(self.team_id)
+
         stripe_payload = StripeSourcePayload(
             account_id=account_id,
             client_secret=client_secret,
@@ -75,6 +78,7 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="running",
             source_type="Stripe",
+            workspace=workspace,
         )
 
         start_sync(new_connection.connection_id)
