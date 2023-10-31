@@ -22,7 +22,7 @@ import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
+export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 
 const counterS3FilesWritten = new Counter({
