@@ -92,7 +92,7 @@ const histogramKafkaBatchSizeKb = new Histogram({
 const counterKafkaMessageReceived = new Counter({
     name: 'recording_blob_ingestion_kafka_message_received',
     help: 'The number of messages we have received from Kafka',
-    labelNames: ['partition'],
+    labelNames: ['partition', 'team'],
 })
 
 type PartitionMetrics = {
@@ -308,6 +308,8 @@ export class SessionRecordingIngester {
             teamIdWithConfig = await getTeamFn(token)
         }
 
+        messagesParsedCounter.label(token).inc()
+
         // NB `==` so we're comparing undefined and null
         if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
             eventDroppedCounter
@@ -400,8 +402,6 @@ export class SessionRecordingIngester {
                             // If we don't have a last known commit then set it to the offset before as that must be the last commit
                             metrics.lastMessageOffset = offset
 
-                            counterKafkaMessageReceived.inc({ partition })
-
                             if (timestamp) {
                                 // For some reason timestamp can be null. If it isn't, update our ingestion metrics
                                 metrics.lastMessageTimestamp = timestamp
@@ -423,10 +423,14 @@ export class SessionRecordingIngester {
                             }
 
                             const recordingMessage = await this.parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                                this.teamsRefresher.get().then((teams) => {
+                                    const teamId = teams[token]?.teamId
+                                    counterKafkaMessageReceived.inc({ partition, team: teamId || token })
+                                    return {
+                                        teamId: teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    }
+                                })
                             )
 
                             if (recordingMessage) {
