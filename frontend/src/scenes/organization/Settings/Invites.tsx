@@ -98,7 +98,7 @@ export function Invites(): JSX.Element {
 
     return (
         <div>
-            <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
+            <h2 id="invites" className="subtitle justify-between">
                 Pending Invites
                 <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                     Invite team member

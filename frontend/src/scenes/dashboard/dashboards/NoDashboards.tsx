@@ -21,7 +21,7 @@ export const NoDashboards = (): JSX.Element => {
                         })
                     }
                 >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
+                    <div className="text-4xl text-center">
                         <AppstoreAddOutlined />
                     </div>
                 </Card>
@@ -36,7 +36,7 @@ export const NoDashboards = (): JSX.Element => {
                         })
                     }
                 >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
+                    <div className="text-4xl text-center">
                         <AppstoreAddOutlined />
                     </div>
                 </Card>

@@ -71,12 +71,7 @@ export function MetricsTab(): JSX.Element {
                         }}
                         embedded
                     />
-                    <div
-                        style={{
-                            margin: '1rem',
-                            textAlign: 'center',
-                        }}
-                    >
+                    <div className="m-4 text-center">
                         <Button
                             disabled={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0}
                             onClick={() => loadMoreRows(row.key)}

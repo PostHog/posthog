@@ -111,7 +111,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             title={<span className="card-secondary">Feature flag usage and implementation</span>}
             className="experiment-implementation-details"
         >
-            <div style={{ justifyContent: 'space-between' }} className="flex mb-2">
+            <div className="flex mb-2 justify-between">
                 <div>
                     <span className="mr-2">Variant group</span>
                     <Select

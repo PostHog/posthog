@@ -86,7 +86,7 @@ module.exports = {
             },
         ],
         'react/forbid-dom-props': [
-            'error',
+            'warn',
             {
                 forbid: [
                     {

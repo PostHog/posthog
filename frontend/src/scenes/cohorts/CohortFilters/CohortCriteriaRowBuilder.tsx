@@ -121,7 +121,7 @@ export function CohortCriteriaRowBuilder({
                             />
                         )}
                     </Row>
-                    <div style={{ display: 'flex' }}>
+                    <div className="flex">
                         <Col>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         </Col>

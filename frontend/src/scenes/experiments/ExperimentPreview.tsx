@@ -225,7 +225,7 @@ export function ExperimentPreview({
                         </Col>
                         <Col span={12}>
                             <div className="card-secondary">Participants</div>
-                            <div style={{ display: 'inline-block' }}>
+                            <div className="inline-block">
                                 {targetingProperties ? (
                                     <>
                                         {groupFilters(targetingProperties, undefined, aggregationLabel)}

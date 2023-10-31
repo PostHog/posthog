@@ -699,13 +699,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div
-                                                        style={{
-                                                            position: 'absolute',
-                                                            left: '1rem',
-                                                            width: 350,
-                                                        }}
-                                                    >
+                                                    <div className="absolute left-4" style={{ width: 350 }}>
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -929,7 +923,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col items-center h-full w-full sticky top-0 pt-8" style={{ maxWidth: 320 }}>
+            <div className="max-w-80 flex flex-col items-center h-full w-full sticky top-0 pt-8">
                 <SurveyFormAppearance
                     activePreview={selectedQuestion || 0}
                     survey={survey}

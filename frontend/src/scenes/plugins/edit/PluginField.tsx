@@ -77,7 +77,7 @@ export function PluginField({
             ))}
         </Select>
     ) : (
-        <strong style={{ color: 'var(--danger)' }}>
+        <strong className="text-danger">
             Unknown field type "<code>{fieldConfig.type}</code>".
             <br />
             You may need to upgrade PostHog!

@@ -10,13 +10,11 @@ export function KafkaInspectorTab(): JSX.Element {
 
     return (
         <div>
-            <h3 className="l3" style={{ marginTop: 16 }}>
-                Kafka Inspector
-            </h3>
+            <h3 className="l3 mt-4">Kafka Inspector</h3>
             <div className="mb-4">Debug Kafka messages using the inspector tool.</div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
-                <div style={{ display: 'flex', marginBottom: '0.75rem' }}>
+                <div className="flex mb-3">
                     <Form
                         logic={kafkaInspectorLogic}
                         formKey="fetchKafkaMessage"

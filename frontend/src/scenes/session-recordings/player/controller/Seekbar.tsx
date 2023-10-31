@@ -63,9 +63,9 @@ export function Seekbar(): JSX.Element {
                             ))}
                         </div>
 
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div
                             className="PlayerSeekbar__currentbar"
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
                         />
                         {/* eslint-disable-next-line react/forbid-dom-props */}
