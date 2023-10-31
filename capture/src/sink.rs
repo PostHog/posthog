@@ -25,7 +25,7 @@ pub struct PrintSink {}
 #[async_trait]
 impl EventSink for PrintSink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        tracing::info!("single event: {:?}", event);
+        info!("single event: {:?}", event);
         counter!("capture_events_ingested_total", 1);
 
         Ok(())
@@ -37,7 +37,7 @@ impl EventSink for PrintSink {
         histogram!("capture_event_batch_size", events.len() as f64);
         counter!("capture_events_ingested_total", events.len() as u64);
         for event in events {
-            tracing::info!("event: {:?}", event);
+            info!("event: {:?}", event);
         }
 
         Ok(())
@@ -173,12 +173,16 @@ impl KafkaSink {
 #[async_trait]
 impl EventSink for KafkaSink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        Self::kafka_send(self.producer.clone(), self.topic.clone(), event).await
+        Self::kafka_send(self.producer.clone(), self.topic.clone(), event).await?;
+
+        histogram!("capture_event_batch_size", 1.0);
+        counter!("capture_events_ingested_total", 1);
+        Ok(())
     }
 
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut set = JoinSet::new();
-
+        let batch_size = events.len();
         for event in events {
             let producer = self.producer.clone();
             let topic = self.topic.clone();
@@ -189,6 +193,8 @@ impl EventSink for KafkaSink {
         // Await on all the produce promises
         while (set.join_next().await).is_some() {}
 
+        histogram!("capture_event_batch_size", batch_size as f64);
+        counter!("capture_events_ingested_total", batch_size as u64);
         Ok(())
     }
 }
