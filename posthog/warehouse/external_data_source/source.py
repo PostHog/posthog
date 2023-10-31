@@ -47,10 +47,6 @@ class ExternalDataSource(BaseModel):
 
 
 def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
-    workspace_name = settings.AIRBYTE_INSTANCE_NAME
-    if not workspace_name:
-        raise ValueError("AIRBYTE_INSTANCE_NAME must be set in order to create a source.")
-
     workspace_id = settings.AIRBYTE_WORKSPACE_ID
     if not workspace_id:
         raise ValueError("AIRBYTE_WORKSPACE_ID must be set in order to create a source.")
@@ -72,7 +68,7 @@ def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
             "client_secret": payload.client_secret,
             **optional_config,
         },
-        "name": workspace_name,
+        "name": "stripe source",
         "workspaceId": workspace_id,
     }
     return _create_source(payload)
