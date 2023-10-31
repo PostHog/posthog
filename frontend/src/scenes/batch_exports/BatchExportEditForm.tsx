@@ -415,12 +415,13 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonInput placeholder="events" />
                                     </Field>
 
-                                    <Field name="properties_data_type">
+                                    <Field name="properties_data_type" label="Properties data type">
                                         <LemonSelect
                                             options={[
                                                 { value: 'varchar', label: 'VARCHAR(65535)' },
                                                 { value: 'super', label: 'SUPER' },
                                             ]}
+                                            value={'varchar'}
                                         />
                                     </Field>
 

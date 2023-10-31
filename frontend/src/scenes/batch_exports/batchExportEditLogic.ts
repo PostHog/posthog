@@ -75,7 +75,7 @@ const formFields = (
                   database: !config.database ? 'This field is required' : '',
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
-                  properties_data_type: 'varchar',
+                  properties_data_type: '',
                   exclude_events: '',
                   include_events: '',
               }
