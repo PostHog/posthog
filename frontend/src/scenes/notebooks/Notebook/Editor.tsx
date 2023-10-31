@@ -188,9 +188,7 @@ export function Editor(): JSX.Element {
                             .setTextSelection(coordinates.pos)
                             .insertContent({
                                 type: NotebookNodeType.Image,
-                                attrs: {
-                                    file,
-                                },
+                                attrs: { file },
                             })
                             .run()
 
@@ -209,6 +207,7 @@ export function Editor(): JSX.Element {
                 getText: () => textContent(editor.state.doc),
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                getCurrentPosition: () => editor.state.selection.$anchor.pos,
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),

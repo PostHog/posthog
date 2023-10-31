@@ -94,6 +94,7 @@ export interface NotebookEditor {
     getText: () => string
     getEndPosition: () => number
     getSelectedNode: () => Node | null
+    getCurrentPosition: () => number
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void

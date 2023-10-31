@@ -60,8 +60,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
-    const { unregisterNodeLogic } = useActions(notebookLogic)
+    const { isEditable, editingNodeId, containerSize, slashCommandsPopoverVisible } = useValues(mountedNotebookLogic)
+    const { unregisterNodeLogic, setSlashCommandsPopoverVisible } = useActions(notebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -70,9 +70,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId, slashCommandsPopoverVisible } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine, setSlashCommandsPopoverVisible } =
-        useActions(nodeLogic)
+    const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
+    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
@@ -232,11 +231,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                 <>
                                     <SlashCommandsPopover
                                         mode="add"
+                                        getPos={() => getPos() + 1}
                                         visible={slashCommandsPopoverVisible}
                                         onClickOutside={() => setSlashCommandsPopoverVisible(false)}
-                                        onSelectContent={(content, editor) => {
-                                            editor.insertContentAfterNode(getPos(), content)
-                                        }}
                                     >
                                         <LemonButton
                                             size="xsmall"

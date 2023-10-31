@@ -108,6 +108,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        setSlashCommandsPopoverVisible: (visible: boolean) => ({ visible }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -188,6 +189,12 @@ export const notebookLogic = kea<notebookLogicType>([
             'small' as 'small' | 'medium',
             {
                 setContainerSize: (_, { containerSize }) => containerSize,
+            },
+        ],
+        slashCommandsPopoverVisible: [
+            false,
+            {
+                setSlashCommandsPopoverVisible: (_, { visible }) => visible,
             },
         ],
     })),

@@ -19,12 +19,12 @@ import {
     InsightsTrendsIcon,
 } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange, JSONContent, NotebookEditor } from './utils'
+import { EditorCommands, EditorRange } from './utils'
 import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
@@ -32,9 +32,19 @@ import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 
-type SlashCommandsProps = {
-    mode: 'slash' | 'add'
-    range?: EditorRange
+type SlashCommandConditionalProps =
+    | {
+          mode: 'add'
+          getPos: () => number
+          range?: never
+      }
+    | {
+          mode: 'slash'
+          getPos?: never
+          range: EditorRange
+      }
+
+type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
     decorationNode?: any
 }
@@ -53,7 +63,7 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
+    command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -89,8 +99,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Trend',
         search: 'trend insight',
         icon: <InsightsTrendsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: false,
@@ -113,8 +124,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Funnel',
         search: 'funnel insight',
         icon: <InsightsFunnelsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.FunnelsQuery,
                     series: [
@@ -139,8 +151,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Retention',
         search: 'retention insight',
         icon: <InsightsRetentionIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.RetentionQuery,
                     retentionFilter: {
@@ -165,8 +178,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Paths',
         search: 'paths insight',
         icon: <InsightsPathsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.PathsQuery,
                     pathsFilter: {
@@ -179,8 +193,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Stickiness',
         search: 'stickiness insight',
         icon: <InsightsStickinessIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.StickinessQuery,
                     series: [
@@ -199,8 +214,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Lifecycle',
         search: 'lifecycle insight',
         icon: <InsightsLifecycleIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.LifecycleQuery,
                     series: [
@@ -218,8 +234,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'HogQL',
         search: 'sql',
         icon: <InsightSQLIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -249,8 +266,9 @@ order by count() desc
         title: 'Events',
         search: 'data explore',
         icon: <IconTableChart />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -267,8 +285,9 @@ order by count() desc
         title: 'Persons',
         search: 'people users',
         icon: <IconCohort />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     columns: defaultDataTableColumns(NodeKind.PersonsNode),
@@ -283,19 +302,19 @@ order by count() desc
         title: 'Session Replays',
         search: 'recordings video',
         icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
         search: 'picture',
         icon: <IconUploadFile />,
-        command: async (chain) => {
+        command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
                 const files = await selectFile({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
-                    return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
+                    return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
             } catch (e) {
                 lemonToast.error('Something went wrong when trying to select a file.')
@@ -307,10 +326,11 @@ order by count() desc
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range = { from: 0, to: 0 }, query },
+    { mode, range, getPos, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
+    const { setSlashCommandsPopoverVisible } = useActions(notebookLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
@@ -341,17 +361,25 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const onPressEnter = async (): Promise<void> => {
+    const execute = async (command: SlashCommandsItem['command']): Promise<void> => {
         if (editor) {
-            const command =
-                selectedIndex === -1
-                    ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                    : filteredSlashCommands[selectedIndex].command
+            const position = mode === 'slash' ? range : getPos()
+            const chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
 
-            const chain = range ? editor.deleteRange(range) : editor.chain()
-            const partialCommand = await command(chain)
+            const partialCommand = await command(chain, position)
             partialCommand.run()
+
+            setSlashCommandsPopoverVisible(false)
         }
+    }
+
+    const onPressEnter = async (): Promise<void> => {
+        const command =
+            selectedIndex === -1
+                ? TEXT_CONTROLS[selectedHorizontalIndex].command
+                : filteredSlashCommands[selectedIndex].command
+
+        await execute(command)
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
@@ -412,10 +440,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         return null
     }
 
-    const chain = range
-        ? (content) => editor.deleteRange(range).insertContent(content).run()
-        : (content) => editor.insertContentAfterNode(getPos(), content)
-
     return (
         <div className="space-y-px">
             <div className="flex items-center gap-1">
@@ -425,7 +449,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                        onClick={async () => await execute(item.command)}
                         icon={item.icon}
                     />
                 ))}
@@ -440,7 +464,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(chain)).run()}
+                    onClick={async () => await execute(item.command)}
                 >
                     {item.title}
                 </LemonButton>
@@ -466,17 +490,20 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
 export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
     function SlashCommandsPopover(
-        { mode, decorationNode, range, query, ...props }: SlashCommandsPopoverProps,
+        { visible, decorationNode, children, onClickOutside, ...props }: SlashCommandsPopoverProps,
         ref
     ): JSX.Element | null {
         return (
             <Popover
                 placement="right-start"
                 fallbackPlacements={['left-start', 'right-end']}
-                overlay={<SlashCommands ref={ref} mode={mode} range={range} query={query} />}
+                overlay={<SlashCommands ref={ref} {...props} />}
                 referenceElement={decorationNode}
-                {...props}
-            />
+                visible={visible}
+                onClickOutside={onClickOutside}
+            >
+                {children}
+            </Popover>
         )
     }
 )
@@ -526,7 +553,3 @@ export const SlashCommandsExtension = Extension.create({
         ]
     },
 })
-
-const replaceSelection = (editor: NotebookEditor, range: EditorRange, content: JSONContent) => {
-    editor.deleteRange(range).insertContent(content).run()
-}
