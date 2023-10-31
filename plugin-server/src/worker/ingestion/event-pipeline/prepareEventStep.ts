@@ -1,12 +1,22 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { PreIngestionEvent } from 'types'
 
+import { UUID } from '../../../utils/utils'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
+    const { db } = runner.hub
+
+    if (!UUID.validateString(uuid, false)) {
+        await captureIngestionWarning(db, team_id, 'skipping_event_invalid_uuid', {
+            eventUuid: JSON.stringify(uuid),
+        })
+        throw new Error(`Not a valid UUID: "${uuid}"`)
+    }
+
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         // TODO: make that metric name more generic when transitionning to prometheus
