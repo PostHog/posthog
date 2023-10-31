@@ -1,4 +1,4 @@
-import { kea, path, actions, reducers, selectors, listeners, connect } from 'kea'
+import { kea, path, actions, reducers, selectors, listeners, connect, afterMount } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -71,6 +71,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.hideCommandBar()
         },
     })),
+    afterMount(({ actions }) => {
+        actions.setSearchQuery('')
+    }),
 ])
 
 export const urlForResult = (result: SearchResult): string => {
