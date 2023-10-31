@@ -1,7 +1,7 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { Message } from 'node-rdkafka'
+import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
@@ -11,7 +11,6 @@ import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
-import { TopicPartitionOffset } from 'kafkajs'
 
 const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 
@@ -63,8 +62,8 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
     let team: Team
     let teamToken = ''
-    let nextOffset: number
-    let mockCommittedOffsets = {}
+    let mockOffsets: Record<number, number> = {}
+    let mockCommittedOffsets: Record<number, number> = {}
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -74,9 +73,10 @@ describe('ingester', () => {
     beforeEach(async () => {
         // The below mocks simulate committing to kafka and querying the offsets
         mockCommittedOffsets = {}
+        mockOffsets = {}
         mockCommit.mockImplementation((tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
         mockQueryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
-            cb(null, { highOffset: mockCommittedOffsets[partition] ?? 0, lowOffset: 0 })
+            cb(null, { highOffset: mockCommittedOffsets[partition] ?? 1, lowOffset: 0 })
         })
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
@@ -85,7 +85,6 @@ describe('ingester', () => {
 
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
-        nextOffset = 1
 
         // Our tests will use multiple partitions so we assign them to begin with
         await ingester.onAssignPartitions([createTP(1), createTP(2)])
@@ -114,11 +113,14 @@ describe('ingester', () => {
     }
 
     const createMessage = (session_id: string, partition = 1) => {
+        mockOffsets[partition] = mockOffsets[partition] ?? 0
+        mockOffsets[partition]++
+
         return createKafkaMessage(
             teamToken,
             {
                 partition,
-                offset: nextOffset++,
+                offset: mockOffsets[partition],
             },
             {
                 $session_id: session_id,
@@ -437,22 +439,23 @@ describe('ingester', () => {
         })
 
         it('should not be affected by other partitions ', async () => {
+            console.log('test start')
             await ingester.handleEachBatch([
-                createMessage('sid1', 1), // offset 1
-                createMessage('sid2', 2), // offset 2
-                createMessage('sid2', 2), // offset 3
+                createMessage('sid1', 1),
+                createMessage('sid2', 2),
+                createMessage('sid2', 2),
             ])
 
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
-            await ingester.handleEachBatch([createMessage('sid1', 1)]) // offset 4
+            await ingester.handleEachBatch([createMessage('sid1', 1)])
 
-            // We should now have a blocking session on partition 1 and 2 with partition 1 being commitable
+            // We should now have a blocking session on partition 1 and 2 with partition 1 being committable
             await commitAllOffsets()
             expect(mockCommit).toHaveBeenCalledTimes(1)
             expect(mockCommit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
-                    offset: 4,
+                    offset: 2,
                 })
             )
 
@@ -464,13 +467,13 @@ describe('ingester', () => {
             expect(mockCommit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 1,
-                    offset: 5,
+                    offset: 3,
                 })
             )
             expect(mockCommit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 2,
-                    offset: 4,
+                    offset: 3,
                 })
             )
         })
