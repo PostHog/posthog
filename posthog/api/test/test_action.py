@@ -22,7 +22,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/actions/",
             data={
                 "name": "user signed up",
-                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                        "isNew": "asdf",
+                    }
+                ],
                 "description": "Test description",
             },
             HTTP_ORIGIN="http://testserver",
@@ -68,7 +75,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver"
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "user signed up"},
+            HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -157,7 +166,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_update_action_remove_all_steps(self, *args):
-
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
 
@@ -202,11 +210,15 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
-        list_response = self.client.get(f"/api/projects/{self.team.id}/actions/", HTTP_ORIGIN="https://evilwebsite.com")
+        list_response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_ORIGIN="https://evilwebsite.com",
+        )
         self.assertEqual(list_response.status_code, 403)
 
         detail_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com"
+            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/",
+            HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(detail_response.status_code, 403)
 
@@ -250,10 +262,25 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
         action = Action.objects.create(team=self.team, name="bla")
         ActionStep.objects.create(action=action, event="custom event")
-        _create_event(event="custom event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
-        _create_event(event="another event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+        _create_event(
+            event="custom event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:20:00Z",
+        )
+        _create_event(
+            event="another event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:20:00Z",
+        )
         # test team leakage
-        _create_event(event="custom event", team=team2, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+        _create_event(
+            event="custom event",
+            team=team2,
+            distinct_id="test",
+            timestamp="2021-12-04T19:20:00Z",
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
@@ -262,10 +289,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_hogql_filter(self, *args):
         action = Action.objects.create(team=self.team, name="bla")
         ActionStep.objects.create(
-            action=action, event="custom event", properties=[{"key": "'a%sd' != 'sdf'", "type": "hogql"}]
+            action=action,
+            event="custom event",
+            properties=[{"key": "'a%sd' != 'sdf'", "type": "hogql"}],
         )
-        _create_event(event="custom event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
-        _create_event(event="another event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:21:00Z")
+        _create_event(
+            event="custom event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:20:00Z",
+        )
+        _create_event(
+            event="another event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:21:00Z",
+        )
 
         # action count
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
@@ -283,10 +322,22 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_hogql_filter_no_event(self, *args):
         action = Action.objects.create(team=self.team, name="bla")
         ActionStep.objects.create(
-            action=action, event=None, properties=[{"key": "event like 'blue %'", "type": "hogql"}]
+            action=action,
+            event=None,
+            properties=[{"key": "event like 'blue %'", "type": "hogql"}],
         )
-        _create_event(event="blue event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
-        _create_event(event="green event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:21:00Z")
+        _create_event(
+            event="blue event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:20:00Z",
+        )
+        _create_event(
+            event="green event",
+            team=self.team,
+            distinct_id="test",
+            timestamp="2021-12-04T19:21:00Z",
+        )
 
         # action count
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
@@ -306,14 +357,18 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
-            team=self.team, name="first", created_by=User.objects.create_and_join(self.organization, "a", "")
+            team=self.team,
+            name="first",
+            created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
         with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
-            team=self.team, name="second", created_by=User.objects.create_and_join(self.organization, "b", "")
+            team=self.team,
+            name="second",
+            created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
         with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
@@ -332,7 +387,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_create_tags_on_non_ee_not_allowed(self):
         response = self.client.post(
-            f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]}
+            f"/api/projects/{self.team.id}/actions/",
+            {"name": "Default", "tags": ["random", "hello"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -346,7 +402,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
-            {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics."},
+            {
+                "name": "action new name",
+                "tags": ["random", "hello"],
+                "description": "Internal system metrics.",
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -375,7 +435,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.id}",
-            {"name": "action new name", "description": "Internal system metrics.", "tags": []},
+            {
+                "name": "action new name",
+                "description": "Internal system metrics.",
+                "tags": [],
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -387,7 +451,14 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/actions/",
             data={
                 "name": "user signed up",
-                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "steps": [
+                    {
+                        "text": "sign up",
+                        "selector": "div > button",
+                        "url": "/signup",
+                        "isNew": "asdf",
+                    }
+                ],
                 "description": "Test description",
             },
             HTTP_ORIGIN="http://testserver",

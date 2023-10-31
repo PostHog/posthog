@@ -1,16 +1,16 @@
-import { kea } from 'kea'
+import { kea, path, actions, listeners } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-export const productsLogic = kea<productsLogicType>({
-    path: () => ['scenes', 'products', 'productsLogic'],
-    actions: () => ({
+export const productsLogic = kea<productsLogicType>([
+    path(() => ['scenes', 'products', 'productsLogic']),
+    actions(() => ({
         onSelectProduct: (product: ProductKey) => ({ product }),
-    }),
-    listeners: () => ({
+    })),
+    listeners(() => ({
         onSelectProduct: ({ product }) => {
             eventUsageLogic.actions.reportOnboardingProductSelected(product)
 
@@ -30,5 +30,5 @@ export const productsLogic = kea<productsLogicType>({
                     return
             }
         },
-    }),
-})
+    })),
+])

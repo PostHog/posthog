@@ -157,7 +157,10 @@ projects_router.register(
     ["team_id"],
 )
 projects_router.register(
-    r"warehouse_view_links", view_link.ViewLinkViewSet, "project_warehouse_view_links", ["team_id"]
+    r"warehouse_view_links",
+    view_link.ViewLinkViewSet,
+    "project_warehouse_view_links",
+    ["team_id"],
 )
 
 projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "warehouse_api", ["team_id"])
@@ -219,6 +222,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
+
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402

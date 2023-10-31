@@ -46,17 +46,24 @@ class TestUtils(BaseTest):
             "http://testserver/api/some_url?offset=10",
         )
         self.assertEqual(
-            format_paginated_url(request("/api/some_url?offset=0"), offset=0, page_size=10), "api/some_url?offset=10"
+            format_paginated_url(request("/api/some_url?offset=0"), offset=0, page_size=10),
+            "api/some_url?offset=10",
         )
         self.assertEqual(
             format_paginated_url(
-                request("/api/some_url?offset=0"), offset=0, page_size=10, mode=PaginationMode.previous
+                request("/api/some_url?offset=0"),
+                offset=0,
+                page_size=10,
+                mode=PaginationMode.previous,
             ),
             None,
         )
         self.assertEqual(
             format_paginated_url(
-                request("/api/some_url?offset=0"), offset=20, page_size=10, mode=PaginationMode.previous
+                request("/api/some_url?offset=0"),
+                offset=20,
+                page_size=10,
+                mode=PaginationMode.previous,
             ),
             "api/some_url?offset=0",
         )
@@ -64,7 +71,11 @@ class TestUtils(BaseTest):
     def test_get_target_entity(self):
         request = lambda url: cast(Any, RequestFactory().get(url))
         filter = Filter(
-            data={"entity_id": "$pageview", "entity_type": "events", "events": [{"id": "$pageview", "type": "events"}]}
+            data={
+                "entity_id": "$pageview",
+                "entity_type": "events",
+                "events": [{"id": "$pageview", "type": "events"}],
+            }
         )
         entity = get_target_entity(filter)
 
@@ -90,10 +101,20 @@ class TestUtils(BaseTest):
         assert entity.math == "unique_group"
 
     def test_check_definition_ids_inclusion_field_sql(self):
+        definition_ids = [
+            "",
+            None,
+            '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]',
+        ]
 
-        definition_ids = ["", None, '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]']
-
-        expected_ids_list = [[], [], ["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]]
+        expected_ids_list = [
+            [],
+            [],
+            [
+                "1fcefbef-7ea1-42fd-abca-4848b53133c0",
+                "c8452399-8a10-4142-864d-6f2ca8c65154",
+            ],
+        ]
 
         for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
             ordered_expected_ids = list(set(expected_ids))  # type: ignore
@@ -155,27 +176,43 @@ class TestUtils(BaseTest):
         raise_if_user_provided_url_unsafe("https://1.1.1.1")  # Safe, public IP
         self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe(""))
         self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe("@@@"))
-        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe("posthog.com"))
+        self.assertRaisesMessage(
+            ValueError,
+            "No hostname",
+            lambda: raise_if_user_provided_url_unsafe("posthog.com"),
+        )
         self.assertRaisesMessage(
             ValueError,
             "Scheme must be either HTTP or HTTPS",
             lambda: raise_if_user_provided_url_unsafe("ftp://posthog.com"),
         )
         self.assertRaisesMessage(
-            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://localhost")
+            ValueError,
+            "Internal hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://localhost"),
         )
         self.assertRaisesMessage(
-            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5")
+            ValueError,
+            "Internal hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5"),
         )
         self.assertRaisesMessage(
-            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0")
+            ValueError,
+            "Internal hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0"),
         )
         self.assertRaisesMessage(
-            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24")
+            ValueError,
+            "Internal hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24"),
         )
         self.assertRaisesMessage(
-            ValueError, "Internal hostname", lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21")
+            ValueError,
+            "Internal hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21"),
         )
         self.assertRaisesMessage(
-            ValueError, "Invalid hostname", lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com")
+            ValueError,
+            "Invalid hostname",
+            lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com"),
         )  # Non-existent

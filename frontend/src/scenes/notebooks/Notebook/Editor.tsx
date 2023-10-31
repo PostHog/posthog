@@ -8,6 +8,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import TaskItem from '@tiptap/extension-task-item'
+import TaskList from '@tiptap/extension-task-list'
 
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
@@ -37,6 +39,9 @@ import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
 import { NotebookNodeAttachment } from '../Nodes/NotebookNodeAttachment'
+import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -47,7 +52,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -63,7 +68,7 @@ export function Editor(): JSX.Element {
 
     const _editor = useEditor({
         extensions: [
-            CustomDocument,
+            mode === 'notebook' ? CustomDocument : ExtensionDocument,
             StarterKit.configure({
                 document: false,
                 gapcursor: false,
@@ -95,6 +100,10 @@ export function Editor(): JSX.Element {
                     }
                 },
             }),
+            TaskList,
+            TaskItem.configure({
+                nested: true,
+            }),
             NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeQuery,
@@ -111,9 +120,12 @@ export function Editor(): JSX.Element {
             NotebookNodeSurvey,
             NotebookNodeImage,
             NotebookNodeAttachment,
+            NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
             NodeGapInsertionExtension,
+            NotebookNodePersonFeed,
+            NotebookNodeMap,
         ],
         editorProps: {
             handleDrop: (view, event, _slice, moved) => {

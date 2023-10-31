@@ -29,27 +29,33 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.queries.time_to_see_data.serializers import (
+    SessionEventsQuerySerializer,
+    SessionsQuerySerializer,
+)
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    TeamRateThrottle,
+)
 from posthog.schema import HogQLMetadata
 from posthog.utils import refresh_requested_by_client
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
     "TrendsQuery",
-    "WebOverviewStatsQuery",
+    "WebOverviewQuery",
     "WebTopSourcesQuery",
     "WebTopClicksQuery",
     "WebTopPagesQuery",
     "WebStatsTableQuery",
 ]
-QUERY_WITH_RUNNER_NO_CACHE = [
-    "EventsQuery",
-    "PersonsQuery",
-    "HogQLQuery",
-]
+QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -80,7 +86,11 @@ class QuerySchemaParser(JSONParser):
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     parser_classes = (QuerySchemaParser,)
 
@@ -180,7 +190,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 raise ValidationError(ex)
 
             query = json.loads(
-                query_source, parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}")
+                query_source,
+                parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}"),
             )
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
@@ -211,7 +222,10 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 
 
 def process_query(
-    team: Team, query_json: Dict, in_export_context: Optional[bool] = False, request: Optional[Request] = None
+    team: Team,
+    query_json: Dict,
+    in_export_context: Optional[bool] = False,
+    request: Optional[Request] = None,
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query

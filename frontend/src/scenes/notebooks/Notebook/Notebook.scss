@@ -2,6 +2,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    width: 100%;
 
     .NotebookEditor {
         flex: 1;
@@ -36,12 +37,40 @@
                 height: 0;
             }
 
+            > ol {
+                list-style-type: decimal;
+            }
+
             > ul {
                 list-style-type: disc;
             }
 
-            > ol {
-                list-style-type: decimal;
+            > ul[data-type='taskList'] {
+                list-style-type: none;
+                padding-left: 0px;
+
+                li {
+                    display: flex;
+
+                    > label {
+                        flex: 0 0 auto;
+                        margin-right: 0.5rem;
+                        user-select: none;
+                    }
+
+                    > div {
+                        flex: 1 1 auto;
+                    }
+
+                    ul li,
+                    ol li {
+                        display: list-item;
+                    }
+
+                    ul[data-type='taskList'] > li {
+                        display: flex;
+                    }
+                }
             }
 
             > ul,
@@ -109,7 +138,7 @@
         }
     }
 
-    &--compact {
+    &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
             max-width: 800px;
         }
@@ -123,47 +152,76 @@
         }
     }
 
-    .NotebookSidebar {
+    .NotebookColumn {
         position: relative;
         width: 0px;
         transition: width var(--notebook-popover-transition-properties);
 
         --notebook-sidebar-height: calc(100vh - 9rem);
 
-        .NotebookScene & {
-            --notebook-sidebar-height: calc(100vh - 11rem);
-        }
-
-        .NotebookSidebar__content {
+        .NotebookColumn__content {
             position: sticky;
             align-self: flex-start;
             top: 0px;
-            width: var(--notebook-sidebar-width);
+
             transform: translateX(-100%);
             transition: transform var(--notebook-popover-transition-properties);
+        }
 
-            .NotebookScene & {
-                // Account for sticky header
+        .NotebookScene &,
+        .NotebookPopover & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
+
+            .NotebookColumn__padding {
+                // Account for fixed title
+                height: 4rem;
+            }
+        }
+
+        .NotebookScene & {
+            .NotebookColumn__content {
+                // Account for static header
                 top: 4rem;
             }
         }
 
-        &--showing {
-            width: var(--notebook-sidebar-width);
-            margin-right: 1rem;
-
-            .NotebookSidebar__content {
-                transform: translateX(0);
+        &--left {
+            .NotebookColumn__content {
+                width: var(--notebook-column-left-width);
+                transform: translateX(-100%);
             }
         }
 
-        .NotebookHistory {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            height: var(--notebook-sidebar-height);
-            overflow: hidden;
+        &--right {
+            .NotebookColumn__content {
+                width: var(--notebook-column-right-width);
+                transform: translateX(100%);
+            }
         }
+
+        &--showing {
+            &.NotebookColumn--left {
+                width: var(--notebook-column-left-width);
+                margin-right: 1rem;
+            }
+
+            &.NotebookColumn--right {
+                width: var(--notebook-column-right-width);
+                margin-left: 1rem;
+            }
+
+            .NotebookColumn__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookHistory {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: var(--notebook-sidebar-height);
+        overflow: hidden;
     }
 
     .NotebookInlineMenu {
@@ -176,7 +234,7 @@
         }
     }
 
-    .NotebookSidebar__widget {
+    .NotebookColumnLeft__widget {
         > .LemonWidget__content {
             max-height: calc(100vh - 220px);
             overflow: auto;

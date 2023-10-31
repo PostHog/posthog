@@ -14,10 +14,10 @@ import {
     IconGauge,
     IconLive,
     IconMessages,
-    IconNotebook,
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
+    IconPipeline,
     IconPlus,
     IconRecording,
     IconRocketLaunch,
@@ -51,8 +51,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
+import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -226,6 +227,9 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
+                        <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
+                    </FlaggedFeature>
                     <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                         <PageButton
                             icon={<IconDatabase />}

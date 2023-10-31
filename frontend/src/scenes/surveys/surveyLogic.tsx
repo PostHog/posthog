@@ -7,7 +7,6 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
     Breadcrumb,
-    ChartDisplayType,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -16,20 +15,14 @@ import {
     SurveyUrlMatchType,
 } from '~/types'
 import type { surveyLogicType } from './surveyLogicType'
-import { DataTableNode, InsightVizNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import {
-    defaultSurveyFieldValues,
-    SURVEY_EVENT_NAME,
-    SURVEY_RESPONSE_PROPERTY,
-    NEW_SURVEY,
-    NewSurvey,
-} from './constants'
+import { defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
 import { sanitize } from 'dompurify'
 
 export enum SurveyEditSection {
@@ -126,7 +119,6 @@ export const surveyLogic = kea<surveyLogicType>([
             isEditingThankYouMessage,
         }),
         archiveSurvey: true,
-        setCurrentQuestionIndexAndType: (idx: number, type: SurveyQuestionType) => ({ idx, type }),
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedQuestion: (idx: number | null) => ({ idx }),
@@ -375,6 +367,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
+                            AND trim(JSONExtractString(properties, '${getResponseField(questionIndex)}')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                         LIMIT 20
@@ -425,8 +418,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
         },
-        loadSurveySuccess: ({ survey }) => {
-            actions.setCurrentQuestionIndexAndType(0, survey.questions[0].type)
+        loadSurveySuccess: () => {
             actions.loadSurveyUserStats()
         },
         resetTargeting: () => {
@@ -500,13 +492,6 @@ export const surveyLogic = kea<surveyLogicType>([
             SurveyEditSection.Steps as SurveyEditSection | null,
             {
                 setSelectedSection: (_, { section }) => section,
-            },
-        ],
-        // TODO: remove this currentQuestionIndexAndType once surveys visualisation flag is rolled out
-        currentQuestionIndexAndType: [
-            { idx: 0, type: SurveyQuestionType.Open } as { idx: number; type: SurveyQuestionType },
-            {
-                setCurrentQuestionIndexAndType: (_, { idx, type }) => ({ idx, type }),
             },
         ],
         surveyRatingResultsReady: [
@@ -589,16 +574,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 ...(survey?.name ? [{ name: survey.name }] : []),
             ],
         ],
-        surveyResponseProperty: [
-            (s) => [s.currentQuestionIndexAndType],
-            (currentQuestionIndexAndType): string => {
-                return currentQuestionIndexAndType.idx === 0
-                    ? SURVEY_RESPONSE_PROPERTY
-                    : `${SURVEY_RESPONSE_PROPERTY}_${currentQuestionIndexAndType.idx}`
-            },
-        ],
         dataTableQuery: [
-            (s) => [s.survey, s.surveyResponseProperty],
+            (s) => [s.survey],
             (survey): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -646,102 +623,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
         ],
-        surveyMetricsQueries: [
-            (s) => [s.survey],
-            (survey): SurveyMetricsQueries | null => {
-                const surveyId = survey.id
-                if (surveyId === 'new') {
-                    return null
-                }
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
-
-                const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' `
-                const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'`
-                return {
-                    surveysShown: {
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: surveysShownHogqlQuery,
-                        },
-                        showTimings: false,
-                    },
-                    surveysDismissed: {
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: surveysDismissedHogqlQuery,
-                        },
-                        showTimings: false,
-                    },
-                }
-            },
-        ],
-        surveyRatingQuery: [
-            (s) => [s.survey, s.surveyResponseProperty],
-            (survey, surveyResponseProperty): InsightVizNode | null => {
-                if (survey.id === 'new') {
-                    return null
-                }
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
-
-                return {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        dateRange: {
-                            date_from: startDate,
-                            date_to: endDate,
-                        },
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$survey_id',
-                                operator: PropertyOperator.Exact,
-                                value: survey.id,
-                            },
-                        ],
-                        series: [{ event: SURVEY_EVENT_NAME, kind: NodeKind.EventsNode }],
-                        trendsFilter: { display: ChartDisplayType.ActionsBarValue },
-                        breakdown: { breakdown: surveyResponseProperty, breakdown_type: 'event' },
-                    },
-                    showTable: true,
-                }
-            },
-        ],
-        surveyMultipleChoiceQuery: [
-            (s) => [s.survey, s.surveyResponseProperty, s.currentQuestionIndexAndType],
-            (survey, surveyResponseProperty, currentQuestionIndexAndType): DataTableNode | null => {
-                if (survey.id === 'new') {
-                    return null
-                }
-
-                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
-                const endDate = survey.end_date
-                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
-                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
-
-                const singleChoiceQuery = `select count(), properties.${surveyResponseProperty} as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}' group by choice order by count() desc`
-                const multipleChoiceQuery = `select count(), arrayJoin(JSONExtractArrayRaw(properties, '${surveyResponseProperty}')) as choice from events where event == 'survey sent' and properties.$survey_id == '${survey.id}' and timestamp >= '${startDate}' and timestamp <= '${endDate}'  group by choice order by count() desc`
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.HogQLQuery,
-                        query:
-                            currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice
-                                ? singleChoiceQuery
-                                : multipleChoiceQuery,
-                    },
-                    showTimings: false,
-                }
-            },
-        ],
         hasTargetingFlag: [
             (s) => [s.survey],
             (survey): boolean => {
@@ -759,6 +640,22 @@ export const surveyLogic = kea<surveyLogicType>([
                     }
                 }
                 return null
+            },
+        ],
+        surveyNPSScore: [
+            (s) => [s.surveyRatingResults],
+            (surveyRatingResults) => {
+                if (surveyRatingResults) {
+                    const questionIdx = Object.keys(surveyRatingResults)[0]
+                    const questionResults: number[] = surveyRatingResults[questionIdx].data
+                    if (questionResults.length === 11) {
+                        const promoters = questionResults.slice(9, 11).reduce((a, b) => a + b, 0)
+                        const passives = questionResults.slice(7, 9).reduce((a, b) => a + b, 0)
+                        const detractors = questionResults.slice(0, 7).reduce((a, b) => a + b, 0)
+                        const npsScore = ((promoters - detractors) / (promoters + passives + detractors)) * 100
+                        return npsScore.toFixed(1)
+                    }
+                }
             },
         ],
     }),

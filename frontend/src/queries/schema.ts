@@ -45,6 +45,7 @@ export enum NodeKind {
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     PersonsQuery = 'PersonsQuery',
+    SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -58,9 +59,10 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+    InsightPersonsQuery = 'InsightPersonsQuery',
 
     // Web analytics queries
-    WebOverviewStatsQuery = 'WebOverviewStatsQuery',
+    WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
 
@@ -81,9 +83,11 @@ export type AnyDataNode =
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | PersonsQuery
+    | InsightPersonsQuery
+    | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
-    | WebOverviewStatsQuery
+    | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
 
@@ -313,7 +317,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | PersonsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
-        | WebOverviewStatsQuery
+        | WebOverviewQuery
         | WebStatsTableQuery
         | WebTopClicksQuery
 
@@ -533,7 +537,7 @@ export interface PersonsQueryResponse {
 
 export interface PersonsQuery extends DataNode {
     kind: NodeKind.PersonsQuery
-    source?: LifecycleQuery | HogQLQuery
+    source?: InsightPersonsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -544,22 +548,55 @@ export interface PersonsQuery extends DataNode {
     response?: PersonsQueryResponse
 }
 
+export interface TimelineEntry {
+    /** Session ID. None means out-of-session events */
+    sessionId?: string
+    events: EventType[]
+    /** Duration of the recording in seconds. */
+    recording_duration_s?: number
+}
+
+export interface SessionsTimelineQueryResponse {
+    results: TimelineEntry[]
+    hasMore?: boolean
+    timings?: QueryTiming[]
+    hogql?: string
+}
+
+export interface SessionsTimelineQuery extends DataNode {
+    kind: NodeKind.SessionsTimelineQuery
+    /** Fetch sessions only for a given person */
+    personId?: string
+    /** Only fetch sessions that started after this timestamp (default: '-24h') */
+    after?: string
+    /** Only fetch sessions that started before this timestamp (default: '+5s') */
+    before?: string
+    response?: SessionsTimelineQueryResponse
+}
+
 export type WebAnalyticsPropertyFilters = (EventPropertyFilter | HogQLPropertyFilter)[]
 
 export interface WebAnalyticsQueryBase {
-    dateRange: DateRange
+    dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
 }
 
-export interface WebOverviewStatsQuery extends WebAnalyticsQueryBase {
-    kind: NodeKind.WebOverviewStatsQuery
-    response?: WebOverviewStatsQueryResponse
+export interface WebOverviewQuery extends WebAnalyticsQueryBase {
+    kind: NodeKind.WebOverviewQuery
+    response?: WebOverviewQueryResponse
 }
 
-export interface WebOverviewStatsQueryResponse extends QueryResponse {
-    results: unknown[]
-    types?: unknown[]
-    columns?: unknown[]
+export interface WebOverviewItem {
+    key: string
+    value?: number
+    previous?: number
+    kind: 'unit' | 'duration_s' | 'percentage'
+    changeFromPreviousPct?: number
+    isIncreaseBad?: boolean
+}
+
+export interface WebOverviewQueryResponse extends QueryResponse {
+    results: WebOverviewItem[]
 }
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
@@ -617,6 +654,16 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
+
+export interface InsightPersonsQuery {
+    kind: NodeKind.InsightPersonsQuery
+    source: InsightQueryNode
+    day?: string
+    status?: string
+    // TODO: add breakdowns
+    // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
+    response?: PersonsQueryResponse
+}
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
     if (!source) {

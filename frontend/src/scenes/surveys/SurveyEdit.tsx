@@ -12,6 +12,7 @@ import {
     LemonSelect,
     LemonTabs,
     LemonTextArea,
+    Link,
 } from '@posthog/lemon-ui'
 import { Field, PureField } from 'lib/forms/Field'
 import {
@@ -23,7 +24,6 @@ import {
     SurveyUrlMatchType,
     AvailableFeature,
 } from '~/types'
-import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
 import {
     BaseAppearance,
@@ -48,6 +48,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { surveysLogic } from './surveysLogic'
+import { FlagSelector } from 'lib/components/FlagSelector'
 
 function PresentationTypeCard({
     title,
@@ -591,26 +592,37 @@ export default function SurveyEdit(): JSX.Element {
                                     />
                                     <div className="flex gap-2">
                                         {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
-                                            <LemonButton
-                                                type="secondary"
-                                                className="w-max mt-2"
-                                                icon={<IconPlus />}
-                                                sideIcon={<IconLock className="ml-1 text-base text-muted" />}
-                                                disabledReason={
-                                                    surveysMultipleQuestionsAvailable
-                                                        ? null
-                                                        : 'Subscribe for multiple question surveys'
-                                                }
-                                                onClick={() => {
-                                                    setSurveyValue('questions', [
-                                                        ...survey.questions,
-                                                        { ...defaultSurveyFieldValues.open.questions[0] },
-                                                    ])
-                                                    setSelectedQuestion(survey.questions.length)
-                                                }}
-                                            >
-                                                Add question
-                                            </LemonButton>
+                                            <div className="flex items-center gap-2 mt-2">
+                                                <LemonButton
+                                                    type="secondary"
+                                                    className="w-max"
+                                                    icon={<IconPlus />}
+                                                    sideIcon={
+                                                        surveysMultipleQuestionsAvailable ? null : (
+                                                            <IconLock className="ml-1 text-base text-muted" />
+                                                        )
+                                                    }
+                                                    disabledReason={
+                                                        surveysMultipleQuestionsAvailable
+                                                            ? null
+                                                            : 'Subscribe to surveys for multiple questions'
+                                                    }
+                                                    onClick={() => {
+                                                        setSurveyValue('questions', [
+                                                            ...survey.questions,
+                                                            { ...defaultSurveyFieldValues.open.questions[0] },
+                                                        ])
+                                                        setSelectedQuestion(survey.questions.length)
+                                                    }}
+                                                >
+                                                    Add question
+                                                </LemonButton>
+                                                {!surveysMultipleQuestionsAvailable && (
+                                                    <Link to={'/organization/billing'} target="_blank" targetBlankIcon>
+                                                        Subscribe
+                                                    </Link>
+                                                )}
+                                            </div>
                                         )}
                                         {!survey.appearance.displayThankYouMessage && (
                                             <LemonButton

@@ -68,7 +68,11 @@ class UploadedMedia(UUIDModel):
         except ObjectStorageError as ose:
             capture_exception(ose)
             logger.error(
-                "uploaded_media.object-storage-error", file_name=file_name, team=team.pk, exception=ose, exc_info=True
+                "uploaded_media.object-storage-error",
+                file_name=file_name,
+                team=team.pk,
+                exception=ose,
+                exc_info=True,
             )
             return None
 

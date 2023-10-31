@@ -28,6 +28,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Persons]: () => import('./persons/PersonsScene'),
+    [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
@@ -79,6 +80,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
+    [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
 }

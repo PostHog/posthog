@@ -1,33 +1,33 @@
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import './NotebookPopover.scss'
-import { Notebook } from './Notebook'
-import { notebookPopoverLogic } from 'scenes/notebooks/Notebook/notebookPopoverLogic'
+import { Notebook } from '../Notebook/Notebook'
+import { notebookPopoverLogic } from 'scenes/notebooks/NotebookPanel/notebookPopoverLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconFullScreen, IconChevronRight, IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
 import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { NotebookListMini } from './NotebookListMini'
+import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
-import { notebookLogic } from './notebookLogic'
+import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
-import { NotebookPopoverDropzone } from './NotebookPopoverDropzone'
+import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { openNotebookShareDialog } from './NotebookShare'
+import { openNotebookShareDialog } from '../Notebook/NotebookShare'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 export function NotebookPopoverCard(): JSX.Element | null {
-    const { visibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
+    const { popoverVisibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
         useValues(notebookPopoverLogic)
-    const { setVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
+    const { setPopoverVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
     const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const { activeScene } = useValues(sceneLogic)
 
-    const showEditor = activeScene === Scene.Notebook ? visibility !== 'hidden' : shownAtLeastOnce
-    const editable = visibility !== 'hidden' && !notebook?.is_template
+    const showEditor = activeScene === Scene.Notebook ? popoverVisibility !== 'hidden' : shownAtLeastOnce
+    const editable = popoverVisibility !== 'hidden' && !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -56,7 +56,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
                     <LemonButton
                         size="small"
                         to={urls.notebook(selectedNotebook)}
-                        onClick={() => setVisibility('hidden')}
+                        onClick={() => setPopoverVisibility('hidden')}
                         status="primary-alt"
                         icon={<IconOpenInNew />}
                         tooltip="View notebook outside of popover"
@@ -85,7 +85,7 @@ export function NotebookPopoverCard(): JSX.Element | null {
 
                     <LemonButton
                         size="small"
-                        onClick={() => setVisibility('hidden')}
+                        onClick={() => setPopoverVisibility('hidden')}
                         status="primary-alt"
                         icon={<IconChevronRight />}
                         tooltip="Hide Notebook Sidebar"
@@ -109,27 +109,27 @@ export function NotebookPopoverCard(): JSX.Element | null {
 }
 
 export function NotebookPopover(): JSX.Element {
-    const { visibility, fullScreen, selectedNotebook, dropProperties } = useValues(notebookPopoverLogic)
-    const { setVisibility, setFullScreen, setElementRef } = useActions(notebookPopoverLogic)
-    const { isShowingSidebar } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { popoverVisibility, fullScreen, selectedNotebook, dropProperties } = useValues(notebookPopoverLogic)
+    const { setPopoverVisibility, setFullScreen, setElementRef } = useActions(notebookPopoverLogic)
+    const { isShowingLeftColumn } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
     const ref = useRef<HTMLDivElement>(null)
 
     useKeyboardHotkeys(
-        visibility === 'visible'
+        popoverVisibility === 'visible'
             ? {
                   escape: {
                       action: () => {
                           if (fullScreen) {
                               setFullScreen(false)
                           } else {
-                              setVisibility('hidden')
+                              setPopoverVisibility('hidden')
                           }
                       },
                   },
               }
             : {},
-        [visibility]
+        [popoverVisibility]
     )
 
     useEffect(() => {
@@ -143,21 +143,21 @@ export function NotebookPopover(): JSX.Element {
             ref={ref}
             className={clsx(
                 'NotebookPopover',
-                `NotebookPopover--${visibility}`,
+                `NotebookPopover--${popoverVisibility}`,
                 fullScreen && 'NotebookPopover--full-screen',
-                isShowingSidebar && 'NotebookPopover--with-sidebar'
+                isShowingLeftColumn && 'NotebookPopover--with-sidebar'
             )}
         >
             <div
                 className="NotebookPopover__backdrop"
-                onClick={visibility === 'visible' ? () => setVisibility('hidden') : undefined}
+                onClick={popoverVisibility === 'visible' ? () => setPopoverVisibility('hidden') : undefined}
             />
             <div
                 className="NotebookPopover__content"
-                onClick={visibility !== 'visible' ? () => setVisibility('visible') : undefined}
+                onClick={popoverVisibility !== 'visible' ? () => setPopoverVisibility('visible') : undefined}
                 {...dropProperties}
             >
-                <NotebookPopoverDropzone />
+                <NotebookPanelDropzone />
                 <NotebookPopoverCard />
             </div>
         </div>

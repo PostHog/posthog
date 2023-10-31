@@ -29,8 +29,9 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import validate_function_args
-from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args
+from posthog.hogql.resolver import ResolverException, resolve_types
+from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
@@ -74,7 +75,12 @@ def print_ast(
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     return print_prepared_ast(
-        node=prepared_ast, context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty
+        node=prepared_ast,
+        context=context,
+        dialect=dialect,
+        stack=stack,
+        settings=settings,
+        pretty=pretty,
     )
 
 
@@ -121,9 +127,13 @@ def print_prepared_ast(
 ) -> str:
     with context.timings.measure("printer"):
         # _Printer also adds a team_id guard if printing clickhouse
-        return _Printer(context=context, dialect=dialect, stack=stack or [], settings=settings, pretty=pretty).visit(
-            node
-        )
+        return _Printer(
+            context=context,
+            dialect=dialect,
+            stack=stack or [],
+            settings=settings,
+            pretty=pretty,
+        ).visit(node)
 
 
 @dataclass
@@ -238,7 +248,11 @@ class _Printer(Visitor):
 
         array_join = ""
         if node.array_join_op is not None:
-            if node.array_join_op not in ("ARRAY JOIN", "LEFT ARRAY JOIN", "INNER ARRAY JOIN"):
+            if node.array_join_op not in (
+                "ARRAY JOIN",
+                "LEFT ARRAY JOIN",
+                "INNER ARRAY JOIN",
+            ):
                 raise HogQLException(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
             if len(node.array_join_list) == 0:
@@ -266,7 +280,10 @@ class _Printer(Visitor):
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
                 else:
-                    limit = ast.Call(name="min2", args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit])
+                    limit = ast.Call(
+                        name="min2",
+                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                    )
             else:
                 limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
@@ -642,7 +659,11 @@ class _Printer(Visitor):
             func_meta = HOGQL_AGGREGATIONS[node.name]
 
             validate_function_args(
-                node.args, func_meta.min_args, func_meta.max_args, node.name, function_term="aggregation"
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+                function_term="aggregation",
             )
             if func_meta.min_params:
                 if node.params is None:
@@ -678,7 +699,11 @@ class _Printer(Visitor):
                 if node.params is None:
                     raise HogQLException(f"Function '{node.name}' requires parameters in addition to arguments")
                 validate_function_args(
-                    node.params, func_meta.min_params, func_meta.max_params, node.name, argument_term="parameter"
+                    node.params,
+                    func_meta.min_params,
+                    func_meta.max_params,
+                    node.name,
+                    argument_term="parameter",
                 )
 
             if self.dialect == "clickhouse":
@@ -724,7 +749,10 @@ class _Printer(Visitor):
                     )
 
                     if first_arg_constant_type is not None:
-                        for overload_types, overload_clickhouse_name in func_meta.overloads:
+                        for (
+                            overload_types,
+                            overload_clickhouse_name,
+                        ) in func_meta.overloads:
                             if isinstance(first_arg_constant_type, overload_types):
                                 relevant_clickhouse_name = overload_clickhouse_name
                                 break  # Found an overload matching the first function org
@@ -750,8 +778,7 @@ class _Printer(Visitor):
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
-            all_function_names = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
-            close_matches = get_close_matches(node.name, all_function_names, 1)
+            close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise HogQLException(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
@@ -802,7 +829,8 @@ class _Printer(Visitor):
                     return self.visit(
                         ast.AsteriskType(
                             table_type=ast.TableAliasType(
-                                table_type=ast.TableType(table=resolved_field), alias=type.table_type.alias
+                                table_type=ast.TableType(table=resolved_field),
+                                alias=type.table_type.alias,
                             )
                         )
                     )

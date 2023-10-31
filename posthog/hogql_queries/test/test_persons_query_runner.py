@@ -12,8 +12,15 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     IntervalType,
+    InsightPersonsQuery,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events, _create_event
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    flush_persons_and_events,
+    _create_event,
+)
 from freezegun import freeze_time
 
 
@@ -35,7 +42,11 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 distinct_ids=[f"id-{random_uuid}-{index}"],
                 is_identified=True,
             )
-            _create_event(distinct_id=f"id-{random_uuid}-{index}", event=f"clicky-{index}", team=self.team)
+            _create_event(
+                distinct_id=f"id-{random_uuid}-{index}",
+                event=f"clicky-{index}",
+                team=self.team,
+            )
 
         flush_persons_and_events()
         return random_uuid
@@ -81,7 +92,11 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(
             PersonsQuery(
                 properties=[
-                    PersonPropertyFilter(key="random_uuid", value=self.random_uuid, operator=PropertyOperator.exact),
+                    PersonPropertyFilter(
+                        key="random_uuid",
+                        value=self.random_uuid,
+                        operator=PropertyOperator.exact,
+                    ),
                     HogQLPropertyFilter(key="toInt(properties.index) > 5"),
                 ]
             )
@@ -93,7 +108,11 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(
             PersonsQuery(
                 fixedProperties=[
-                    PersonPropertyFilter(key="random_uuid", value=self.random_uuid, operator=PropertyOperator.exact),
+                    PersonPropertyFilter(
+                        key="random_uuid",
+                        value=self.random_uuid,
+                        operator=PropertyOperator.exact,
+                    ),
                     HogQLPropertyFilter(key="toInt(properties.index) < 2"),
                 ]
             )
@@ -134,6 +153,13 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
 
+    def test_persons_query_order_by_with_aliases(self):
+        # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(PersonsQuery(select=["properties.email as email"]))
+        results = runner.calculate().results
+        self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
@@ -144,7 +170,12 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.hasMore, True)
 
         runner = self._create_runner(
-            PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1, offset=2)
+            PersonsQuery(
+                select=["properties.email"],
+                orderBy=["properties.email DESC"],
+                limit=1,
+                offset=2,
+            )
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
@@ -153,7 +184,11 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_source_hogql_query(self):
         self.random_uuid = self._create_random_persons()
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
-        query = PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], source=source_query)
+        query = PersonsQuery(
+            select=["properties.email"],
+            orderBy=["properties.email DESC"],
+            source=source_query,
+        )
         runner = self._create_runner(query)
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
@@ -165,12 +200,20 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             source_query = LifecycleQuery(
                 series=[EventsNode(event="clicky-4")],
                 properties=[
-                    PersonPropertyFilter(key="random_uuid", value=self.random_uuid, operator=PropertyOperator.exact)
+                    PersonPropertyFilter(
+                        key="random_uuid",
+                        value=self.random_uuid,
+                        operator=PropertyOperator.exact,
+                    )
                 ],
                 interval=IntervalType.day,
                 dateRange=DateRange(date_from="-7d"),
             )
-            query = PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], source=source_query)
+            query = PersonsQuery(
+                select=["properties.email"],
+                orderBy=["properties.email DESC"],
+                source=InsightPersonsQuery(source=source_query),
+            )
             runner = self._create_runner(query)
             response = runner.calculate()
             self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])

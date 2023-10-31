@@ -346,6 +346,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
+    session_recording_minimum_duration_milliseconds: number | null
+    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -931,6 +935,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    FEED = 'feed',
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
@@ -2468,9 +2473,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2478,7 +2485,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
@@ -3055,14 +3062,13 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: JSONContent // TODO: Type this better
+    content: JSONContent | null
     version: number
     // used to power text-based search
     text_content?: string | null
 }
 
 export enum NotebookNodeType {
-    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3078,6 +3084,9 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
     Attachment = 'ph-attachment',
+    PersonFeed = 'ph-person-feed',
+    Properties = 'ph-properties',
+    Map = 'ph-map',
 }
 
 export type NotebookNodeResource = {

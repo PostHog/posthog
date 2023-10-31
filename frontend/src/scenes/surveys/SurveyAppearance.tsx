@@ -490,8 +490,10 @@ export function SurveyRatingAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="rating-section">
                     <div className="rating-options">
                         {ratingSurveyQuestion.display === 'emoji' && (
@@ -588,8 +590,10 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
@@ -599,7 +603,7 @@ export function SurveyMultipleChoiceAppearance({
                                 name="choice"
                                 value={choice}
                             />
-                            <label>{choice}</label>
+                            <label style={{ color: textColor }}>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}

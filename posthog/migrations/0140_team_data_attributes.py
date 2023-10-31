@@ -10,7 +10,6 @@ def set_default_data_attributes(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0139_dashboard_tagging"),
     ]

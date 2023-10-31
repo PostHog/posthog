@@ -1,5 +1,5 @@
 import { InsightLogicProps } from '~/types'
-import { ComponentType } from 'react'
+import { ComponentType, HTMLProps } from 'react'
 import { DataTableNode } from '~/queries/schema'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
@@ -14,6 +14,7 @@ export interface QueryContext {
     insightProps?: InsightLogicProps
     emptyStateHeading?: string
     emptyStateDetail?: string
+    rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

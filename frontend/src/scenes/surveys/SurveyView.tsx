@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,15 +12,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
-import {
-    PropertyFilterType,
-    PropertyOperator,
-    RatingSurveyQuestion,
-    Survey,
-    SurveyQuestion,
-    SurveyQuestionType,
-    SurveyType,
-} from '~/types'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
@@ -221,7 +213,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </div>
                                             )}
                                             {survey.type !== SurveyType.API ? (
-                                                <div className="mt-6">
+                                                <div className="mt-6" style={{ maxWidth: 320 }}>
                                                     <SurveyFormAppearance
                                                         activePreview={selectedQuestion || 0}
                                                         survey={survey}
@@ -252,10 +244,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyMetricsQueries,
-        surveyRatingQuery,
-        surveyMultipleChoiceQuery,
-        currentQuestionIndexAndType,
         surveyUserStats,
         surveyUserStatsLoading,
         surveyRatingResults,
@@ -266,104 +254,66 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyMultipleChoiceResultsReady,
         surveyOpenTextResults,
         surveyOpenTextResultsReady,
+        surveyNPSScore,
     } = useValues(surveyLogic)
-    const { setCurrentQuestionIndexAndType } = useActions(surveyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
-            {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                <>
-                    <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
-                    {survey.questions.map((question, i) => {
-                        if (question.type === SurveyQuestionType.Rating) {
-                            return (
+            <>
+                <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+                {survey.questions.map((question, i) => {
+                    if (question.type === SurveyQuestionType.Rating) {
+                        return (
+                            <>
+                                {question.scale === 10 && (
+                                    <>
+                                        <div className="text-4xl font-bold">{surveyNPSScore}</div>
+                                        <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
+                                        {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
+                                            // TODO: rework this to show nps scores over time
+                                            <SurveyNPSResults survey={survey as Survey} />
+                                        )}
+                                    </>
+                                )}
                                 <RatingQuestionBarChart
                                     key={`survey-q-${i}`}
                                     surveyRatingResults={surveyRatingResults}
                                     surveyRatingResultsReady={surveyRatingResultsReady}
                                     questionIndex={i}
                                 />
-                            )
-                        } else if (question.type === SurveyQuestionType.SingleChoice) {
-                            return (
-                                <SingleChoiceQuestionPieChart
-                                    key={`survey-q-${i}`}
-                                    surveySingleChoiceResults={surveySingleChoiceResults}
-                                    surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
-                                    questionIndex={i}
-                                />
-                            )
-                        } else if (question.type === SurveyQuestionType.MultipleChoice) {
-                            return (
-                                <MultipleChoiceQuestionBarChart
-                                    key={`survey-q-${i}`}
-                                    surveyMultipleChoiceResults={surveyMultipleChoiceResults}
-                                    surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
-                                    questionIndex={i}
-                                />
-                            )
-                        } else if (question.type === SurveyQuestionType.Open) {
-                            return (
-                                <OpenTextViz
-                                    key={`survey-q-${i}`}
-                                    surveyOpenTextResults={surveyOpenTextResults}
-                                    surveyOpenTextResultsReady={surveyOpenTextResultsReady}
-                                    questionIndex={i}
-                                />
-                            )
-                        }
-                    })}
-                </>
-            )}
-            {surveyMetricsQueries && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                <div className="flex flex-row gap-4 mb-4">
-                    <div className="flex-1">
-                        <Query query={surveyMetricsQueries.surveysShown} />
-                    </div>
-                    <div className="flex-1">
-                        <Query query={surveyMetricsQueries.surveysDismissed} />
-                    </div>
-                </div>
-            )}
-            {survey.questions.length > 1 && !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                <div className="mb-4 max-w-80">
-                    <LemonSelect
-                        dropdownMatchSelectWidth
-                        fullWidth
-                        onChange={(idx) => {
-                            setCurrentQuestionIndexAndType(idx, survey.questions[idx].type)
-                        }}
-                        options={[
-                            ...survey.questions.map((q: SurveyQuestion, idx: number) => ({
-                                label: q.question,
-                                value: idx,
-                            })),
-                        ]}
-                        value={currentQuestionIndexAndType.idx}
-                    />
-                </div>
-            )}
-            {currentQuestionIndexAndType.type === SurveyQuestionType.Rating &&
-                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                    <div className="mb-4">
-                        <Query query={surveyRatingQuery} />
-                        {(survey.questions[currentQuestionIndexAndType.idx] as RatingSurveyQuestion).scale === 10 && (
-                            <>
-                                <LemonDivider className="my-4" />
-                                <h2>NPS Score</h2>
-                                <SurveyNPSResults survey={survey as Survey} />
                             </>
-                        )}
-                    </div>
-                )}
-            {(currentQuestionIndexAndType.type === SurveyQuestionType.SingleChoice ||
-                currentQuestionIndexAndType.type === SurveyQuestionType.MultipleChoice) &&
-                !featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                    <div className="mb-4">
-                        <Query query={surveyMultipleChoiceQuery} />
-                    </div>
-                )}
+                        )
+                    } else if (question.type === SurveyQuestionType.SingleChoice) {
+                        return (
+                            <SingleChoiceQuestionPieChart
+                                key={`survey-q-${i}`}
+                                surveySingleChoiceResults={surveySingleChoiceResults}
+                                surveySingleChoiceResultsReady={surveySingleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    } else if (question.type === SurveyQuestionType.MultipleChoice) {
+                        return (
+                            <MultipleChoiceQuestionBarChart
+                                key={`survey-q-${i}`}
+                                surveyMultipleChoiceResults={surveyMultipleChoiceResults}
+                                surveyMultipleChoiceResultsReady={surveyMultipleChoiceResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    } else if (question.type === SurveyQuestionType.Open) {
+                        return (
+                            <OpenTextViz
+                                key={`survey-q-${i}`}
+                                surveyOpenTextResults={surveyOpenTextResults}
+                                surveyOpenTextResultsReady={surveyOpenTextResultsReady}
+                                questionIndex={i}
+                            />
+                        )
+                    }
+                })}
+            </>
             {!disableEventsTable && (surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />)}
         </>
     )
@@ -371,71 +321,73 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
 function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
     return (
-        <Query
-            query={{
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
-                        date_to: survey.end_date
-                            ? dayjs(survey.end_date).format('YYYY-MM-DD')
-                            : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+        <>
+            <Query
+                query={{
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        dateRange: {
+                            date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
+                            date_to: survey.end_date
+                                ? dayjs(survey.end_date).format('YYYY-MM-DD')
+                                : dayjs().add(1, 'day').format('YYYY-MM-DD'),
+                        },
+                        series: [
+                            {
+                                event: SURVEY_EVENT_NAME,
+                                kind: NodeKind.EventsNode,
+                                custom_name: 'Promoters',
+                                properties: [
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$survey_response',
+                                        operator: PropertyOperator.Exact,
+                                        value: [9, 10],
+                                    },
+                                ],
+                            },
+                            {
+                                event: SURVEY_EVENT_NAME,
+                                kind: NodeKind.EventsNode,
+                                custom_name: 'Passives',
+                                properties: [
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$survey_response',
+                                        operator: PropertyOperator.Exact,
+                                        value: [7, 8],
+                                    },
+                                ],
+                            },
+                            {
+                                event: SURVEY_EVENT_NAME,
+                                kind: NodeKind.EventsNode,
+                                custom_name: 'Detractors',
+                                properties: [
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$survey_response',
+                                        operator: PropertyOperator.Exact,
+                                        value: [0, 1, 2, 3, 4, 5, 6],
+                                    },
+                                ],
+                            },
+                        ],
+                        properties: [
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$survey_id',
+                                operator: PropertyOperator.Exact,
+                                value: survey.id,
+                            },
+                        ],
+                        trendsFilter: {
+                            formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
+                        },
                     },
-                    series: [
-                        {
-                            event: SURVEY_EVENT_NAME,
-                            kind: NodeKind.EventsNode,
-                            custom_name: 'Promoters',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.Event,
-                                    key: '$survey_response',
-                                    operator: PropertyOperator.Exact,
-                                    value: [9, 10],
-                                },
-                            ],
-                        },
-                        {
-                            event: SURVEY_EVENT_NAME,
-                            kind: NodeKind.EventsNode,
-                            custom_name: 'Passives',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.Event,
-                                    key: '$survey_response',
-                                    operator: PropertyOperator.Exact,
-                                    value: [7, 8],
-                                },
-                            ],
-                        },
-                        {
-                            event: SURVEY_EVENT_NAME,
-                            kind: NodeKind.EventsNode,
-                            custom_name: 'Detractors',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.Event,
-                                    key: '$survey_response',
-                                    operator: PropertyOperator.Exact,
-                                    value: [1, 2, 3, 4, 5, 6],
-                                },
-                            ],
-                        },
-                    ],
-                    properties: [
-                        {
-                            type: PropertyFilterType.Event,
-                            key: '$survey_id',
-                            operator: PropertyOperator.Exact,
-                            value: survey.id,
-                        },
-                    ],
-                    trendsFilter: {
-                        formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
-                    },
-                },
-            }}
-        />
+                }}
+            />
+        </>
     )
 }

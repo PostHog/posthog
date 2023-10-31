@@ -93,13 +93,19 @@
                     "$ref": "#/definitions/PersonsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightPersonsQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
-                    "$ref": "#/definitions/WebOverviewStatsQuery"
+                    "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
                     "$ref": "#/definitions/WebStatsTableQuery"
@@ -484,7 +490,7 @@
                             "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         },
                         {
-                            "$ref": "#/definitions/WebOverviewStatsQuery"
+                            "$ref": "#/definitions/WebOverviewQuery"
                         },
                         {
                             "$ref": "#/definitions/WebStatsTableQuery"
@@ -1617,6 +1623,29 @@
             ],
             "type": "string"
         },
+        "InsightPersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightPersonsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -1881,6 +1910,7 @@
                 "HogQLQuery",
                 "HogQLMetadata",
                 "PersonsQuery",
+                "SessionsTimelineQuery",
                 "DataTableNode",
                 "SavedInsightNode",
                 "InsightVizNode",
@@ -1890,7 +1920,8 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
-                "WebOverviewStatsQuery",
+                "InsightPersonsQuery",
+                "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
                 "TimeToSeeDataSessionsQuery",
@@ -2142,7 +2173,7 @@
                 "source": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/LifecycleQuery"
+                            "$ref": "#/definitions/InsightPersonsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -2617,6 +2648,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionsTimelineQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "after": {
+                    "description": "Only fetch sessions that started after this timestamp (default: '-24h')",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch sessions that started before this timestamp (default: '+5s')",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "SessionsTimelineQuery",
+                    "type": "string"
+                },
+                "personId": {
+                    "description": "Fetch sessions only for a given person",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/SessionsTimelineQueryResponse",
+                    "description": "Cached query response"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "SessionsTimelineQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/TimelineEntry"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2813,6 +2896,27 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "TimelineEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/EventType"
+                    },
+                    "type": "array"
+                },
+                "recording_duration_s": {
+                    "description": "Duration of the recording in seconds.",
+                    "type": "number"
+                },
+                "sessionId": {
+                    "description": "Session ID. None means out-of-session events",
+                    "type": "string"
+                }
+            },
+            "required": ["events"],
+            "type": "object"
+        },
         "TrendsFilter": {
             "additionalProperties": false,
             "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
@@ -2983,36 +3087,58 @@
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
-            "required": ["dateRange", "properties"],
+            "required": ["properties"],
             "type": "object"
         },
-        "WebOverviewStatsQuery": {
+        "WebOverviewItem": {
+            "additionalProperties": false,
+            "properties": {
+                "changeFromPreviousPct": {
+                    "type": "number"
+                },
+                "isIncreaseBad": {
+                    "type": "boolean"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["unit", "duration_s", "percentage"],
+                    "type": "string"
+                },
+                "previous": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "kind"],
+            "type": "object"
+        },
+        "WebOverviewQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "kind": {
-                    "const": "WebOverviewStatsQuery",
+                    "const": "WebOverviewQuery",
                     "type": "string"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
                 "response": {
-                    "$ref": "#/definitions/WebOverviewStatsQueryResponse"
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
-        "WebOverviewStatsQueryResponse": {
+        "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
                 "hogql": {
                     "type": "string"
                 },
@@ -3026,17 +3152,15 @@
                     "type": "string"
                 },
                 "results": {
-                    "items": {},
+                    "items": {
+                        "$ref": "#/definitions/WebOverviewItem"
+                    },
                     "type": "array"
                 },
                 "timings": {
                     "items": {
                         "$ref": "#/definitions/QueryTiming"
                     },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {},
                     "type": "array"
                 }
             },
@@ -3076,7 +3200,7 @@
                     "$ref": "#/definitions/WebStatsTableQueryResponse"
                 }
             },
-            "required": ["breakdownBy", "dateRange", "kind", "properties"],
+            "required": ["breakdownBy", "kind", "properties"],
             "type": "object"
         },
         "WebStatsTableQueryResponse": {
@@ -3133,7 +3257,7 @@
                     "$ref": "#/definitions/WebTopClicksQueryResponse"
                 }
             },
-            "required": ["dateRange", "kind", "properties"],
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebTopClicksQueryResponse": {

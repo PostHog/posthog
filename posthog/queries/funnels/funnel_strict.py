@@ -18,7 +18,6 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         """
 
     def get_step_counts_query(self):
-
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()

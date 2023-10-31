@@ -1,6 +1,6 @@
 import { kea, path, connect, selectors, events } from 'kea'
 import api from 'lib/api'
-import { GroupType } from '~/types'
+import { GroupType, GroupTypeIndex } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { groupsModelType } from './groupsModelType'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -19,7 +19,7 @@ export const groupsModel = kea<groupsModelType>([
         values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
     }),
     loaders(({ values }) => ({
-        groupTypes: [
+        groupTypesRaw: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
@@ -38,14 +38,24 @@ export const groupsModel = kea<groupsModelType>([
         ],
     })),
     selectors({
+        groupTypes: [
+            (s) => [s.groupTypesRaw],
+            (groupTypesRaw) =>
+                new Map<GroupTypeIndex, GroupType>(
+                    groupTypesRaw.map((groupType) => [groupType.group_type_index, groupType])
+                ),
+        ],
+        groupTypesLoading: [(s) => [s.groupTypesRawLoading], (groupTypesRawLoading) => groupTypesRawLoading],
+
         showGroupsOptions: [
             (s) => [s.groupsAccessStatus, s.groupsEnabled, s.groupTypes],
-            (status, enabled, groupTypes) => status !== GroupsAccessStatus.Hidden || (enabled && groupTypes.length > 0),
+            (status, enabled, groupTypes) =>
+                status !== GroupsAccessStatus.Hidden || (enabled && Array.from(groupTypes.values()).length > 0),
         ],
         groupsTaxonomicTypes: [
             (s) => [s.groupTypes],
             (groupTypes): TaxonomicFilterGroupType[] => {
-                return groupTypes.map(
+                return Array.from(groupTypes.values()).map(
                     (groupType: GroupType) =>
                         `${TaxonomicFilterGroupType.GroupsPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
                 )
@@ -54,7 +64,7 @@ export const groupsModel = kea<groupsModelType>([
         groupNamesTaxonomicTypes: [
             (s) => [s.groupTypes],
             (groupTypes): TaxonomicFilterGroupType[] => {
-                return groupTypes.map(
+                return Array.from(groupTypes.values()).map(
                     (groupType: GroupType) =>
                         `${TaxonomicFilterGroupType.GroupNamesPrefix}_${groupType.group_type_index}` as unknown as TaxonomicFilterGroupType
                 )
@@ -64,11 +74,18 @@ export const groupsModel = kea<groupsModelType>([
             (s) => [s.groupTypes],
             (groupTypes) =>
                 (groupTypeIndex: number | null | undefined, deferToUserWording: boolean = false): Noun => {
-                    if (groupTypeIndex != undefined && groupTypes.length > 0 && groupTypes[groupTypeIndex]) {
-                        const groupType = groupTypes[groupTypeIndex]
-                        return {
-                            singular: groupType.name_plural || groupType.group_type,
-                            plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                    if (groupTypeIndex != undefined) {
+                        const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
+                        if (groupType) {
+                            return {
+                                singular: groupType.name_plural || groupType.group_type,
+                                plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                            }
+                        } else {
+                            return {
+                                singular: 'unknown group',
+                                plural: 'unknown groups',
+                            }
                         }
                     }
                     return deferToUserWording

@@ -113,7 +113,12 @@ class TeamRateThrottle(SimpleRateThrottle):
 
                     statsd.incr(
                         "rate_limit_exceeded",
-                        tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
+                        tags={
+                            "team_id": team_id,
+                            "scope": scope,
+                            "rate": rate,
+                            "path": path,
+                        },
                     )
                     RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
 
@@ -262,5 +267,5 @@ class AISustainedRateThrottle(UserRateThrottle):
 class UploadedMediaRateThrottle(TeamRateThrottle):
     # Throttle class that's very aggressive on a publicly accessible endpoint from the clients
     # Intended to block sustained bursts of requests, per team
-    scope = ""
+    scope = "public_upload"
     rate = "6/hour"

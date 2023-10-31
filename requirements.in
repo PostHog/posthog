@@ -30,6 +30,7 @@ django-prometheus==2.2.0
 django-redis==5.2.0
 django-statsd==2.5.2
 django-structlog==2.1.3
+django-revproxy==0.12.0
 djangorestframework==3.14.0
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
@@ -87,4 +88,4 @@ django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==0.27.8
 nh3==0.2.14
-hogql-parser==0.1.9
+hogql-parser==1.0.0
