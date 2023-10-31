@@ -466,7 +466,7 @@ export function OpenTextViz({
                         <div className="inline-flex gap-1">
                             <div className="font-semibold text-muted-alt">Open text</div>
                             <LemonDivider vertical className="my-1 mx-1" />
-                            <div className="font-semibold text-muted-alt">random responses</div>
+                            <div className="font-semibold text-muted-alt">random selection</div>
                             <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
                         </div>
                     </Tooltip>
