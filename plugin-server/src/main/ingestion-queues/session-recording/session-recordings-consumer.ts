@@ -812,6 +812,7 @@ export class SessionRecordingIngester {
                         partition: partition,
                         highestOffsetToCommit,
                         metrics,
+                        potentiallyBlockingSession: potentiallyBlockingSession?.toJSON(),
                     })
                 }
 
