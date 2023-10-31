@@ -343,7 +343,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
 @pytest.mark.parametrize("interval", ["hour", "day"])
 async def test_redshift_export_workflow(
     redshift_config,
-    redshift_connection,
+    psycopg2_connection,
     interval,
 ):
     """Test Redshift Export Workflow end-to-end."""
@@ -482,4 +482,4 @@ async def test_redshift_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_redshift(redshift_connection, redshift_config["schema"], table_name, events)
+    assert_events_in_redshift(psycopg2_connection, redshift_config["schema"], table_name, events)
