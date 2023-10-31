@@ -40,7 +40,10 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
         # We always publish as it could be that a rebalance has occured and the consumer doesn't know it should be
         # sending data to redis
-        redis.publish(SUBSCRIPTION_CHANNEL, json.dumps({"team_id": team_id, "session_id": session_id}))
+        redis.publish(
+            SUBSCRIPTION_CHANNEL,
+            json.dumps({"team_id": team_id, "session_id": session_id}),
+        )
 
         if not encoded_snapshots and attempt_count < ATTEMPT_MAX:
             logger.info(
@@ -50,7 +53,10 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
                 attempt_count=attempt_count,
             )
             # If we don't have it we could be in the process of getting it and syncing it
-            redis.publish(SUBSCRIPTION_CHANNEL, json.dumps({"team_id": team_id, "session_id": session_id}))
+            redis.publish(
+                SUBSCRIPTION_CHANNEL,
+                json.dumps({"team_id": team_id, "session_id": session_id}),
+            )
             PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER.labels(
                 team_id=team_id, session_id=session_id, attempt_count=attempt_count
             ).inc()
@@ -73,7 +79,10 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         # very broad capture to see if there are any unexpected errors
         capture_exception(
             e,
-            extras={"attempt_count": attempt_count, "operation": "get_realtime_snapshots"},
+            extras={
+                "attempt_count": attempt_count,
+                "operation": "get_realtime_snapshots",
+            },
             tags={"team_id": team_id, "session_id": session_id},
         )
         raise e

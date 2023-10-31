@@ -26,6 +26,7 @@
         --scene-padding-y: 0px;
         --scene-padding-x: 0px;
         display: flex;
+        flex-direction: column;
     }
 }
 
@@ -67,6 +68,44 @@
     border-right-width: 1px;
     background: var(--accent-3000);
     overflow-y: auto;
+}
+
+.NavbarButton {
+    position: relative;
+    .LemonButton__icon {
+        transition: color 100ms ease, transform 100ms ease;
+    }
+    &.NavbarButton--here {
+        &::after {
+            content: '•';
+            position: absolute;
+            bottom: 0.25rem;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 1.25rem;
+            line-height: 0.5625rem;
+            color: var(--default);
+        }
+        .LemonButton__icon {
+            color: var(--default);
+            transform: translateY(-0.25rem);
+        }
+    }
+    &.NavbarButton--popover {
+        &::before {
+            content: '';
+            position: absolute;
+            top: 0.1875rem;
+            right: 0.1875rem;
+            width: 0;
+            height: 0;
+            border-radius: 1px;
+            border: 0.1875rem solid transparent;
+            border-top-color: currentColor;
+            border-right-color: currentColor;
+        }
+    }
 }
 
 // Sidebar

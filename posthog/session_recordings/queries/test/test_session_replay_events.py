@@ -1,6 +1,8 @@
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -36,7 +38,6 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_get_metadata(self) -> None:
-
         metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
         assert metadata == {
             "active_seconds": 25.0,
@@ -64,6 +65,8 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_metadata_filters_by_date(self) -> None:
         metadata = SessionReplayEvents().get_metadata(
-            session_id="1", team=self.team, recording_start_time=self.base_time + relativedelta(days=2)
+            session_id="1",
+            team=self.team,
+            recording_start_time=self.base_time + relativedelta(days=2),
         )
         assert metadata is None

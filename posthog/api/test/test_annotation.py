@@ -6,14 +6,22 @@ from django.utils.timezone import now
 from rest_framework import status
 
 from posthog.models import Annotation, Organization, Team, User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context, FuzzyInt
+from posthog.test.base import (
+    APIBaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries_context,
+    FuzzyInt,
+)
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.annotation.report_user_action")
     def test_retrieving_annotation(self, mock_capture):
         Annotation.objects.create(
-            organization=self.organization, team=self.team, created_at="2020-01-04T12:00:00Z", content="hello world!"
+            organization=self.organization,
+            team=self.team,
+            created_at="2020-01-04T12:00:00Z",
+            content="hello world!",
         )
 
         # Annotation creation is not reported to PostHog because it has no created_by
@@ -89,7 +97,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         response_1 = self.client.get(f"/api/projects/{separate_team.id}/annotations/")
 
         self.assertEqual(response_1.status_code, 403)
-        self.assertEqual(response_1.json(), self.permission_denied_response("You don't have access to the project."))
+        self.assertEqual(
+            response_1.json(),
+            self.permission_denied_response("You don't have access to the project."),
+        )
 
         response_2 = self.client.get(f"/api/projects/{self.team.id}/annotations/")
 
@@ -122,7 +133,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
-            self.user, "annotation created", {"scope": "organization", "date_marker": date_marker}
+            self.user,
+            "annotation created",
+            {"scope": "organization", "date_marker": date_marker},
         )
 
     @patch("posthog.api.annotation.report_user_action")
@@ -149,13 +162,17 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture):
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         test_annotation = Annotation.objects.create(
-            organization=self.organization, team=self.team, content="hello world!", scope=Annotation.Scope.ORGANIZATION
+            organization=self.organization,
+            team=self.team,
+            content="hello world!",
+            scope=Annotation.Scope.ORGANIZATION,
         )
         mock_capture.reset_mock()  # Disregard the "annotation created" call
         self.client.force_login(self.user)
 
         response = self.client.patch(
-            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT}
+            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/",
+            {"scope": Annotation.Scope.PROJECT},
         )
         test_annotation.refresh_from_db()
 

@@ -10,16 +10,16 @@ import { useEffect } from 'react'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
-import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
+import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
 export function NotebooksTable(): JSX.Element {
     const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates } = useValues(notebooksTableLogic)
     const { loadNotebooks, setFilters } = useActions(notebooksTableLogic)
     const { meFirstMembers } = useValues(membersLogic)
-    const { setVisibility, selectNotebook } = useActions(notebookPopoverLogic)
+    const { selectNotebook } = useActions(notebookPanelLogic)
 
     useEffect(() => {
         loadNotebooks()
@@ -87,10 +87,10 @@ export function NotebooksTable(): JSX.Element {
                 action={{
                     onClick: () => {
                         selectNotebook(notebookTemplates[0].short_id)
-                        setVisibility('visible')
                     },
                     children: 'Get started',
                 }}
+                dismissKey="notebooks-preview-banner"
             >
                 <b>Welcome to the preview of Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and
                 many more PostHog prodcuts together into one place.

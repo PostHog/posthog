@@ -2,16 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import {
-    IconGauge,
-    IconBarChart,
-    IconFlag,
-    IconExperiment,
-    IconLive,
-    IconPerson,
-    IconCohort,
-    IconJournal,
-} from 'lib/lemon-ui/icons'
+import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
@@ -22,6 +13,7 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
+import { IconNotebook } from '../IconNotebook'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -31,7 +23,7 @@ const ICON_MAP = {
     events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
-    notebooks: <IconJournal />,
+    notebooks: <IconNotebook />,
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {

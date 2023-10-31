@@ -90,7 +90,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                             minimumBatchSize: 100,
                         },
                     } as SidebarCategory,
-                    ...groupTypes.map(
+                    ...Array.from(groupTypes.values()).map(
                         (groupType) =>
                             ({
                                 key: `groups-${groupType.group_type_index}`,
@@ -120,7 +120,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 Array(5)
                     .fill(null)
                     .map((_, groupTypeIndex) => (state) => {
-                        if (s.groupTypes(state).length > groupTypeIndex) {
+                        if (s.groupTypes(state)[groupTypeIndex]) {
                             groupsListLogic({ groupTypeIndex }).mount()
                             return groupsListLogic({ groupTypeIndex }).selectors.groups(state)
                         }
@@ -140,7 +140,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 Array(5)
                     .fill(null)
                     .map((_, groupTypeIndex) => (state) => {
-                        if (s.groupTypes(state).length > groupTypeIndex) {
+                        if (s.groupTypes(state)[groupTypeIndex]) {
                             groupsListLogic({ groupTypeIndex }).mount()
                             return groupsListLogic({ groupTypeIndex }).selectors.groupsLoading(state)
                         }
@@ -184,7 +184,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         searchTerm: (searchTerm) => {
             actions.setPersonsListFilters({ search: searchTerm })
             actions.loadPersons()
-            for (const { group_type_index: groupTypeIndex } of values.groupTypes) {
+            for (const { group_type_index: groupTypeIndex } of Object.values(values.groupTypes)) {
                 groupsListLogic({ groupTypeIndex }).actions.setSearch(searchTerm, false)
             }
         },

@@ -10,7 +10,14 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage.object_storage import health_check, read, write, get_presigned_url, list_objects, copy_objects
+from posthog.storage.object_storage import (
+    health_check,
+    read,
+    write,
+    get_presigned_url,
+    list_objects,
+    copy_objects,
+)
 from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"
@@ -113,7 +120,8 @@ class TestStorage(APIBaseTest):
                 write(file_name, "my content".encode("utf-8"))
 
             copied_count = copy_objects(
-                source_prefix=f"{TEST_BUCKET}/{shared_prefix}", target_prefix=f"{TEST_BUCKET}/the_destination/folder"
+                source_prefix=f"{TEST_BUCKET}/{shared_prefix}",
+                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
             )
             assert copied_count == 3
 
@@ -137,7 +145,8 @@ class TestStorage(APIBaseTest):
                 write(file_name, "my content".encode("utf-8"))
 
             copied_count = copy_objects(
-                source_prefix=f"nothing_here", target_prefix=f"{TEST_BUCKET}/the_destination/folder"
+                source_prefix=f"nothing_here",
+                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
             )
             assert copied_count == 0
 

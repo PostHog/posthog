@@ -10,7 +10,6 @@ def backfill_primary_dashboards(apps, _):
 
     team_dashboards = []
     with connection.cursor() as cursor:
-
         # Fetch a list of teams and the id of the dashboard that should be set as the primary dashboard
         # The primary dashboard should be the oldest pinned dashboard, if one exists
         # or the oldest dashboard, if no pinned dashboards exist

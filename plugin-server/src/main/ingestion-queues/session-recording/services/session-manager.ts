@@ -590,4 +590,35 @@ export class SessionManager {
             })
         })
     }
+
+    public toJSON(): Record<string, any> {
+        return {
+            isEmpty: this.isEmpty,
+            lowestOffset: this.getLowestOffset(),
+            buffer: {
+                id: this.buffer.id,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
+                sizeEstimate: this.buffer.sizeEstimate,
+                count: this.buffer.count,
+                file: this.buffer.file('jsonl'),
+                offsets: this.buffer.offsets,
+                eventsRange: this.buffer.eventsRange,
+                createdAt: this.buffer.createdAt,
+            },
+            flushBuffer: this.flushBuffer
+                ? {
+                      id: this.flushBuffer.id,
+                      oldestKafkaTimestamp: this.flushBuffer.oldestKafkaTimestamp,
+                      newestKafkaTimestamp: this.flushBuffer.newestKafkaTimestamp,
+                      sizeEstimate: this.flushBuffer.sizeEstimate,
+                      count: this.flushBuffer.count,
+                      file: this.flushBuffer.file('jsonl'),
+                      offsets: this.flushBuffer.offsets,
+                      eventsRange: this.flushBuffer.eventsRange,
+                      createdAt: this.flushBuffer.createdAt,
+                  }
+                : null,
+        }
+    }
 }

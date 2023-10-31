@@ -73,7 +73,9 @@ def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool
 
     elif rollback_condition["threshold_type"] == "insight":
         rolling_average = calculate_rolling_average(
-            rollback_condition["threshold_metric"], feature_flag.team, feature_flag.team.timezone
+            rollback_condition["threshold_metric"],
+            feature_flag.team,
+            feature_flag.team.timezone,
         )
 
         if rollback_condition["operator"] == "lt":

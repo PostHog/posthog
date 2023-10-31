@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { NotebookNodeType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -13,13 +13,31 @@ const allNotebooks = [
     {
         title: 'my amazing notebook',
         short_id: 'abc',
+        created_by: {
+            first_name: 'Ben',
+            email: 'ben@posthog.com',
+        },
     },
-    { title: 'and another amazing notebook', short_id: 'def' },
-    { title: 'an empty notebook', short_id: 'ghi' },
+    {
+        title: 'and another amazing notebook',
+        short_id: 'def',
+        created_by: {
+            first_name: 'Paul',
+            email: 'paul@posthog.com',
+        },
+    },
+    {
+        title: 'an empty notebook',
+        short_id: 'ghi',
+        created_by: {
+            first_name: 'David',
+            email: 'david@posthog.com',
+        },
+    },
 ]
 
 const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
-    useFeatureFlags([FEATURE_FLAGS.NOTEBOOKS])
+    setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/notebooks/': (req, res, ctx) => {

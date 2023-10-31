@@ -32,7 +32,7 @@ export function GroupsTabs({ activeGroupTypeIndex }: { activeGroupTypeIndex: num
                               link: urls.groups(0),
                           },
                       ]
-                    : groupTypes.map(
+                    : Array.from(groupTypes.values()).map(
                           (groupType) =>
                               ({
                                   label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),

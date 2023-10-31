@@ -4,7 +4,6 @@ from django.utils import timezone
 
 
 class Prompt(models.Model):
-
     step: models.IntegerField = models.IntegerField()
     type: models.CharField = models.CharField(max_length=200)  # tooltip, modal, etc
     title: models.CharField = models.CharField(max_length=200)

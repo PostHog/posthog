@@ -1,5 +1,11 @@
-import type { DecoratorFn } from '@storybook/react'
+import type { Decorator } from '@storybook/react'
 import MockDate from 'mockdate'
+
+declare module '@storybook/types' {
+    interface Parameters {
+        mockDate?: string | number | Date
+    }
+}
 
 /** Global story decorator that allows mocking of dates.
  *
@@ -13,7 +19,7 @@ import MockDate from 'mockdate'
  * } as ComponentMeta<typeof MyComponent>
  * ```
  */
-export const withMockDate: DecoratorFn = (Story, { parameters }) => {
+export const withMockDate: Decorator = (Story, { parameters }) => {
     if (parameters.mockDate) {
         MockDate.set(parameters.mockDate)
     } else {

@@ -8,7 +8,7 @@ from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.schema import PersonsQuery, PersonsQueryResponse
 
@@ -19,8 +19,14 @@ class PersonsQueryRunner(QueryRunner):
     query: PersonsQuery
     query_type = PersonsQuery
 
-    def __init__(self, query: PersonsQuery | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
-        super().__init__(query, team, timings)
+    def __init__(
+        self,
+        query: PersonsQuery | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[bool] = False,
+    ):
+        super().__init__(query=query, team=team, timings=timings, in_export_context=in_export_context)
         if isinstance(query, PersonsQuery):
             self.query = query
         else:
@@ -56,6 +62,21 @@ class PersonsQueryRunner(QueryRunner):
 
     def filter_conditions(self) -> List[ast.Expr]:
         where_exprs: List[ast.Expr] = []
+
+        if self.query.source:
+            source = self.query.source
+            try:
+                source_query_runner = get_query_runner(source, self.team, self.timings)
+                source_query = source_query_runner.to_persons_query()
+                where_exprs.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["id"]),
+                        op=ast.CompareOperationOp.In,
+                        right=source_query,
+                    )
+                )
+            except NotImplementedError:
+                raise ValueError(f"Queries of type '{source.kind}' are not implemented as a PersonsQuery sources.")
 
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
@@ -96,10 +117,12 @@ class PersonsQueryRunner(QueryRunner):
         return self.query.select or ["person", "id", "created_at", "person.$delete"]
 
     def query_limit(self) -> int:
-        return min(MAX_SELECT_RETURNED_ROWS, DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit)
+        return min(
+            MAX_SELECT_RETURNED_ROWS,
+            DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit,
+        )
 
     def to_query(self) -> ast.SelectQuery:
-
         with self.timings.measure("columns"):
             columns = []
             group_by = []
@@ -159,7 +182,8 @@ class PersonsQueryRunner(QueryRunner):
                         ast.OrderExpr(
                             expr=ast.Field(chain=["properties", order_property]),
                             order=cast(
-                                Literal["ASC", "DESC"], "DESC" if self.query.orderBy[0] == "person DESC" else "ASC"
+                                Literal["ASC", "DESC"],
+                                "DESC" if self.query.orderBy[0] == "person DESC" else "ASC",
                             ),
                         )
                     ]
@@ -168,11 +192,11 @@ class PersonsQueryRunner(QueryRunner):
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
             elif len(aggregations) > 0:
-                order_by = [ast.OrderExpr(expr=aggregations[0], order="DESC")]
+                order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
-                order_by = [ast.OrderExpr(expr=columns[0], order="ASC")]
+                order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
             else:
                 order_by = []
 
@@ -203,3 +227,8 @@ class PersonsQueryRunner(QueryRunner):
 
     def _refresh_frequency(self):
         return timedelta(minutes=1)
+
+    def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
+        if isinstance(node, ast.Alias):
+            return self._remove_aliases(node.expr)
+        return node

@@ -26,14 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import {
+import type {
+    DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
-    InsightQueryNode,
     InsightVizNode,
     Node,
-    QueryContext,
 } from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -86,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {
@@ -342,6 +346,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
+    session_recording_minimum_duration_milliseconds: number | null
+    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -665,16 +673,8 @@ export interface SessionRecordingSnapshotSource {
 }
 
 export interface SessionRecordingSnapshotResponse {
-    // Future interface
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
-
-    // legacy interface
-    next?: string
-    // When loaded from S3
-    blob_keys?: string[]
-    // When loaded from Clickhouse (legacy)
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -684,12 +684,10 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
-    next?: string
     blob_keys?: string[]
 }
 
 export interface SessionPlayerData {
-    pinnedCount: number
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
@@ -937,6 +935,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    FEED = 'feed',
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
@@ -1031,13 +1030,11 @@ export interface SessionRecordingType {
     /** count of all mouse activity in the recording, not just clicks */
     mouse_activity_count?: number
     start_url?: string
-    /** Count of number of playlists this recording is pinned to. **/
-    pinned_count?: number
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
     /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
+    storage?: 'object_storage_lts' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1362,7 +1359,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1371,7 +1368,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
@@ -1828,7 +1825,6 @@ export enum RecordingWindowFilter {
 }
 
 export interface EditorFilterProps {
-    query: InsightQueryNode
     insightProps: InsightLogicProps
 }
 
@@ -2113,7 +2109,6 @@ export interface Survey {
     conditions: {
         url: string
         selector: string
-        is_headless?: boolean
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
     } | null
@@ -2329,7 +2324,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    region: Region
+    region: Region | null
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -2478,9 +2473,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2488,7 +2485,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
@@ -2932,13 +2929,11 @@ export type OnlineExportContext = {
     query?: any
     body?: any
     filename?: string
-    max_limit?: number
 }
 
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    max_limit?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
@@ -3067,14 +3062,13 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: JSONContent // TODO: Type this better
+    content: JSONContent | null
     version: number
     // used to power text-based search
     text_content?: string | null
 }
 
 export enum NotebookNodeType {
-    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3084,9 +3078,14 @@ export enum NotebookNodeType {
     EarlyAccessFeature = 'ph-early-access-feature',
     Survey = 'ph-survey',
     Person = 'ph-person',
+    Group = 'ph-group',
+    Cohort = 'ph-cohort',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    PersonFeed = 'ph-person-feed',
+    Properties = 'ph-properties',
+    Map = 'ph-map',
 }
 
 export type NotebookNodeResource = {

@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
@@ -23,7 +23,7 @@ function getSessionReplayLink(): string {
 
 function getDjangoAdminLink(
     user: UserType | null,
-    cloudRegion: Region | undefined,
+    cloudRegion: Region | null | undefined,
     currentTeamId: TeamType['id'] | null
 ): string {
     if (!user || !cloudRegion) {
@@ -33,12 +33,18 @@ function getDjangoAdminLink(
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
-function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
+function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
     if (!user || !cloudRegion) {
         return ''
     }
     const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
+}
+
+const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
+    bug: 'Report a bug',
+    feedback: 'Give feedback',
+    support: 'Get support',
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -57,6 +63,7 @@ export const TARGET_AREA_TO_NAME = {
     session_replay: 'Session Replay (Recordings)',
     toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
+    web_analytics: 'Web Analytics',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -64,6 +71,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     feedback: 'Feedback',
     support: 'Support Ticket',
 }
+
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -85,6 +93,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
+    web: 'web_analytics',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -92,7 +101,12 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
+export type SupportFormLogicProps = {
+    onClose?: () => void
+}
+
 export const supportLogic = kea<supportLogicType>([
+    props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
@@ -182,7 +196,16 @@ export const supportLogic = kea<supportLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    selectors({
+        title: [
+            (s) => [s.sendSupportRequest ?? null],
+            (sendSupportRequest) =>
+                sendSupportRequest.kind
+                    ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                    : 'Leave a message with PostHog',
+        ],
+    }),
+    listeners(({ actions, props }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
                 kind,
@@ -209,6 +232,7 @@ export const supportLogic = kea<supportLogicType>([
                 zendesk_ticket_uuid +
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -267,6 +291,10 @@ export const supportLogic = kea<supportLogicType>([
                     captureException(err)
                     lemonToast.error(`There was an error sending the message.`)
                 })
+        },
+
+        closeSupportForm: () => {
+            props.onClose?.()
         },
     })),
 

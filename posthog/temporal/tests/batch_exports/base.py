@@ -1,10 +1,12 @@
 import datetime as dt
 import json
 import typing
+import uuid
 
 from asgiref.sync import sync_to_async
 
 from ee.clickhouse.materialized_columns.columns import materialize
+from posthog.batch_exports.models import BatchExportBackfill
 from posthog.temporal.workflows.clickhouse import ClickHouseClient
 
 
@@ -79,3 +81,13 @@ def to_isoformat(d: str | None) -> str | None:
     if d is None:
         return None
     return dt.datetime.fromisoformat(d).replace(tzinfo=dt.timezone.utc).isoformat()
+
+
+def fetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
+    """Fetch the BatchExportBackfills for a given BatchExport."""
+    return list(BatchExportBackfill.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
+
+
+async def afetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
+    """Fetch the BatchExportBackfills for a given BatchExport."""
+    return await sync_to_async(fetch_batch_export_backfills)(batch_export_id, limit)  # type: ignore

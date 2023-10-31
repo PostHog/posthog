@@ -31,6 +31,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -136,6 +140,100 @@
               "chain": [
                   "pdi",
                   "person_id"
+              ]
+          },
+          {
+              "key": "$group_0",
+              "type": "string"
+          },
+          {
+              "key": "group_0",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_1",
+              "type": "string"
+          },
+          {
+              "key": "group_1",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_2",
+              "type": "string"
+          },
+          {
+              "key": "group_2",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_3",
+              "type": "string"
+          },
+          {
+              "key": "group_3",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_4",
+              "type": "string"
+          },
+          {
+              "key": "group_4",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
               ]
           }
       ],
@@ -728,6 +826,10 @@
               "type": "datetime"
           },
           {
+              "key": "$session_id",
+              "type": "string"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -829,6 +931,100 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "$group_0",
+              "type": "string"
+          },
+          {
+              "key": "group_0",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_1",
+              "type": "string"
+          },
+          {
+              "key": "group_1",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_2",
+              "type": "string"
+          },
+          {
+              "key": "group_2",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_3",
+              "type": "string"
+          },
+          {
+              "key": "group_3",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "$group_4",
+              "type": "string"
+          },
+          {
+              "key": "group_4",
+              "type": "lazy_table",
+              "table": "groups",
+              "fields": [
+                  "index",
+                  "team_id",
+                  "key",
+                  "created_at",
+                  "updated_at",
+                  "properties"
+              ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
+              ]
           }
       ],
       "groups": [

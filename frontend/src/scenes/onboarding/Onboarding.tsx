@@ -13,6 +13,7 @@ import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -96,9 +97,22 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
             <SDKs
-                usersAction="loading flags"
+                usersAction="loading flags & experiments"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
-                subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                subtitle="Choose the framework where you want to use feature flags and/or run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
+                stepKey={OnboardingStepKey.SDKS}
+            />
+        </OnboardingWrapper>
+    )
+}
+
+const SurveysOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <SDKs
+                usersAction="taking surveys"
+                sdkInstructionMap={SurveysSDKInstructions}
+                subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.SDKS}
             />
         </OnboardingWrapper>
@@ -122,6 +136,7 @@ export function Onboarding(): JSX.Element | null {
         [ProductKey.PRODUCT_ANALYTICS]: ProductAnalyticsOnboarding,
         [ProductKey.SESSION_REPLAY]: SessionReplayOnboarding,
         [ProductKey.FEATURE_FLAGS]: FeatureFlagsOnboarding,
+        [ProductKey.SURVEYS]: SurveysOnboarding,
     }
     const OnboardingView = onboardingViews[product.type]
 

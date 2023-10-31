@@ -344,10 +344,23 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         Contact support to unsubscribe
                                                     </LemonButton>
                                                 )}
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                                >
+                                                    Learn how to reduce your bill
+                                                </LemonButton>
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
                                                         status="stealth"
+                                                        disabledReason={
+                                                            billing?.discount_percent === 100
+                                                                ? "You can't set a billing limit with a 100% discount"
+                                                                : null
+                                                        }
+                                                        tooltipPlacement="bottom"
                                                         onClick={() => setIsEditingBillingLimit(true)}
                                                     >
                                                         Set billing limit

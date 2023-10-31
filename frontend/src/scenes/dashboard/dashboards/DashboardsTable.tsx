@@ -90,7 +90,7 @@ export function DashboardsTable({
                             </Link>
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
-                                    <IconShare className="ml-1 text-base text-primary" />
+                                    <IconShare className="ml-1 text-base text-link" />
                                 </Tooltip>
                             )}
                             {!canEditDashboard && (

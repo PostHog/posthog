@@ -1,4 +1,5 @@
-import { kea, useActions, useValues } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { kea, useActions, useValues, path, connect, actions, reducers, selectors } from 'kea'
 import { urls } from 'scenes/urls'
 import type { eventsTabsLogicType } from './DataManagementPageTabsType'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -27,32 +28,32 @@ const tabUrls = {
     [DataManagementTab.Database]: urls.database(),
 }
 
-const eventsTabsLogic = kea<eventsTabsLogicType>({
-    path: ['scenes', 'events', 'eventsTabsLogic'],
-    connect: {
+const eventsTabsLogic = kea<eventsTabsLogicType>([
+    path(['scenes', 'events', 'eventsTabsLogic']),
+    connect({
         values: [featureFlagLogic, ['featureFlags']],
-    },
-    actions: {
+    }),
+    actions({
         setTab: (tab: DataManagementTab) => ({ tab }),
-    },
-    reducers: {
+    }),
+    reducers({
         tab: [
             DataManagementTab.EventDefinitions as DataManagementTab,
             {
                 setTab: (_, { tab }) => tab,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         showWarningsTab: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
     }),
-    urlToAction: ({ actions, values }) => {
+    actionToUrl(() => ({
+        setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
+    })),
+    urlToAction(({ actions, values }) => {
         return Object.fromEntries(
             Object.entries(tabUrls).map(([key, url]) => [
                 url,
@@ -63,8 +64,8 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
                 },
             ])
         )
-    },
-})
+    }),
+])
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
     const { showWarningsTab } = useValues(eventsTabsLogic)

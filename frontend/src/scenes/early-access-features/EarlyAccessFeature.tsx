@@ -1,5 +1,5 @@
 import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -16,13 +16,9 @@ import {
 import { urls } from 'scenes/urls'
 import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
-import { useState } from 'react'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
+import { personsLogic, PersonsLogicProps } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -31,6 +27,7 @@ import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { NotFound } from 'lib/components/NotFound'
+import { FlagSelector } from 'lib/components/FlagSelector'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -48,8 +45,13 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         isEditingFeature,
         earlyAccessFeatureMissing,
     } = useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
-        useActions(earlyAccessFeatureLogic)
+    const {
+        submitEarlyAccessFeatureRequest,
+        loadEarlyAccessFeature,
+        editFeature,
+        updateStage,
+        deleteEarlyAccessFeature,
+    } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -72,7 +74,15 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             <>
                                 <LemonButton
                                     type="secondary"
-                                    onClick={() => cancel()}
+                                    data-attr="cancel-feature"
+                                    onClick={() => {
+                                        if (isEditingFeature) {
+                                            editFeature(false)
+                                            loadEarlyAccessFeature()
+                                        } else {
+                                            router.actions.push(urls.earlyAccessFeatures())
+                                        }
+                                    }}
                                     disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
                                 >
                                     Cancel
@@ -80,6 +90,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"
+                                    data-attr="save-feature"
                                     onClick={() => {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
@@ -103,6 +114,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 children: 'Delete',
                                                 type: 'primary',
                                                 status: 'danger',
+                                                'data-attr': 'confirm-delete-feature',
                                                 onClick: () => {
                                                     // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
                                                     deleteEarlyAccessFeature(
@@ -148,7 +160,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                                 <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
-                                    <LemonButton type="secondary" onClick={() => editFeature(true)} loading={false}>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => editFeature(true)}
+                                        loading={false}
+                                        data-attr="edit-feature"
+                                    >
                                         Edit
                                     </LemonButton>
                                 )}
@@ -272,50 +289,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 )}
             </div>
         </Form>
-    )
-}
-
-interface FlagSelectorProps {
-    value: number | undefined
-    onChange: (value: any) => void
-    readOnly?: boolean
-}
-
-export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): JSX.Element {
-    const [visible, setVisible] = useState(false)
-
-    const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
-
-    const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
-        groupType: TaxonomicFilterGroupType.FeatureFlags,
-        value,
-        onChange: (_, __, item) => {
-            'id' in item && item.id && onChange(item.id)
-            setVisible(false)
-        },
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
-        optionsFromProp: undefined,
-        popoverEnabled: true,
-        selectFirstItem: true,
-        taxonomicFilterLogicKey: 'flag-selectorz',
-    }
-
-    return (
-        <Popover
-            overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
-            visible={visible}
-            placement="right-start"
-            fallbackPlacements={['bottom']}
-            onClickOutside={() => setVisible(false)}
-        >
-            {readOnly ? (
-                <div>{featureFlag.key}</div>
-            ) : (
-                <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {featureFlag.key ? featureFlag.key : 'Select flag'}
-                </LemonButton>
-            )}
-        </Popover>
     )
 }
 

@@ -10,8 +10,7 @@ import { Field as KeaField } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']

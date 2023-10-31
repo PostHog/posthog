@@ -5,7 +5,6 @@ import { SessionRecording } from './SessionRecording'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ToolbarSettings } from './ToolbarSettings'
 import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -37,8 +36,6 @@ import { ExtraTeamSettings } from './ExtraTeamSettings'
 import { WeekStartConfig } from './WeekStartConfig'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SurveySettings } from './Survey'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -78,7 +75,6 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -239,17 +235,10 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <IPCapture />
                 <LemonDivider className="my-6" />
-                <h2 className="subtitle">PostHog Toolbar</h2>
-                <p>
-                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
-                    right there on your website!
-                </p>
-                <ToolbarSettings />
-                <LemonDivider className="my-6" />
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
-                {featureFlags[FEATURE_FLAGS.SURVEYS_SITE_APP_DEPRECATION] && <SurveySettings />}
+                <SurveySettings />
                 <ExtraTeamSettings />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />

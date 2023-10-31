@@ -1,7 +1,8 @@
 import os
+
 import structlog
 
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -30,14 +31,9 @@ PARTITION_KEY_BUCKET_REPLENTISH_RATE = get_from_env(
     "PARTITION_KEY_BUCKET_REPLENTISH_RATE", type_cast=float, default=1.0
 )
 
-REPLAY_EVENT_MAX_SIZE = get_from_env("REPLAY_EVENT_MAX_SIZE", type_cast=int, default=1024 * 512)  # 512kb
-REPLAY_EVENTS_NEW_CONSUMER_RATIO = get_from_env("REPLAY_EVENTS_NEW_CONSUMER_RATIO", type_cast=float, default=0.0)
+REPLAY_RETENTION_DAYS_MIN = get_from_env("REPLAY_RETENTION_DAYS_MIN", type_cast=int, default=30)
+REPLAY_RETENTION_DAYS_MAX = get_from_env("REPLAY_RETENTION_DAYS_MAX", type_cast=int, default=90)
 
-if REPLAY_EVENTS_NEW_CONSUMER_RATIO > 1 or REPLAY_EVENTS_NEW_CONSUMER_RATIO < 0:
-    logger.critical(
-        "Environment variable REPLAY_EVENTS_NEW_CONSUMER_RATIO is not between 0 and 1. Setting to 0 to be safe."
-    )
-    REPLAY_EVENTS_NEW_CONSUMER_RATIO = 0
-
-REPLAY_RETENTION_DAYS_MIN = 30
-REPLAY_RETENTION_DAYS_MAX = 90
+NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
+NEW_ANALYTICS_CAPTURE_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_TEAM_IDS", ""))
+NEW_ANALYTICS_CAPTURE_SAMPLING_RATE = get_from_env("NEW_ANALYTICS_CAPTURE_SAMPLING_RATE", type_cast=float, default=1.0)

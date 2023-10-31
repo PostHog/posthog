@@ -69,11 +69,14 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
                 },
-                updateCurrentTeam: async (payload: Partial<TeamType>) => {
+                updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
+
                     const patchedTeam = (await api.update(`api/projects/${values.currentTeam.id}`, payload)) as TeamType
+                    breakpoint()
+
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
@@ -203,6 +206,9 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        createTeamSuccess: () => {
+            organizationLogic.actions.loadCurrentOrganization()
+        },
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)

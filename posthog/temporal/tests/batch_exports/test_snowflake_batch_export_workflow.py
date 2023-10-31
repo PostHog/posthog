@@ -89,7 +89,18 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
                 staged_files.append(f.read())
 
             if fail == "put":
-                rowset = [("test", "test.gz", 456, 0, "NONE", "GZIP", "FAILED", "Some error on put")]
+                rowset = [
+                    (
+                        "test",
+                        "test.gz",
+                        456,
+                        0,
+                        "NONE",
+                        "GZIP",
+                        "FAILED",
+                        "Some error on put",
+                    )
+                ]
 
         else:
             if fail == "copy":
@@ -186,7 +197,12 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         "https://account.snowflakecomputing.com:443/session/v1/login-request",
         json={
             "success": True,
-            "data": {"token": "test-token", "masterToken": "test-token", "code": None, "message": None},
+            "data": {
+                "token": "test-token",
+                "masterToken": "test-token",
+                "code": None,
+                "message": None,
+            },
         },
     )
     rsps.add_callback(
@@ -335,7 +351,11 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -414,7 +434,11 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -534,7 +558,11 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -633,7 +661,11 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with responses.RequestsMock(
@@ -732,7 +764,11 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(team, ba
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, insert_into_snowflake_activity_mocked, update_export_run_status],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity_mocked,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(WorkflowFailureError):
@@ -775,7 +811,11 @@ async def test_snowflake_export_workflow_handles_cancellation(team, batch_export
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
-            activities=[create_export_run, never_finish_activity, update_export_run_status],
+            activities=[
+                create_export_run,
+                never_finish_activity,
+                update_export_run_status,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await activity_environment.client.start_workflow(

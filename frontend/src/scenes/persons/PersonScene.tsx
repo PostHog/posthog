@@ -23,7 +23,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
@@ -34,6 +33,8 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import PersonFeedCanvas from './PersonFeedCanvas'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -109,6 +110,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 export function PersonScene(): JSX.Element | null {
     const {
         showCustomerSuccessDashboards,
+        feedEnabled,
         person,
         personLoading,
         currentTab,
@@ -185,6 +187,13 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 data-attr="persons-tabs"
                 tabs={[
+                    feedEnabled
+                        ? {
+                              key: PersonsTabType.FEED,
+                              label: <span data-attr="persons-feed-tab">Feed</span>,
+                              content: <PersonFeedCanvas person={person} />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="persons-properties-tab">Properties</span>,
@@ -235,7 +244,9 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                <div className="SessionRecordingPlaylistHeightWrapper">
+                                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                </div>
                             </>
                         ),
                     },

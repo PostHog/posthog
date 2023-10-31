@@ -1,7 +1,7 @@
 import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -115,7 +115,7 @@ export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (!cachedInsight || cachedInsight.filters === undefined) {
+    if (!cachedInsight || cachedInsight.filters === undefined || isEmptyObject(cachedInsight.filters)) {
         return undefined
     }
 
