@@ -7,11 +7,12 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, ChartDisplayType, EventsNode, TrendsQuery
 
 
 class TrendsQueryBuilder:
@@ -196,6 +197,8 @@ class TrendsQueryBuilder:
             ),
         )
 
+        query = self._trends_display.modify_outer_query(outer_query=query, inner_query=inner_query)
+
         if self._breakdown.enabled:
             query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
@@ -223,6 +226,11 @@ class TrendsQueryBuilder:
             query.select.append(ast.Field(chain=["breakdown_value"]))
             query.group_by.append(ast.Field(chain=["breakdown_value"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
+
+        if self._trends_display.should_wrap_inner_query():
+            query = self._trends_display.wrap_inner_query(query, self._breakdown.enabled)
+            if self._breakdown.enabled:
+                query.select.append(ast.Field(chain=["breakdown_value"]))
 
         return query
 
@@ -298,5 +306,14 @@ class TrendsQueryBuilder:
         )
 
     @cached_property
-    def _aggregation_operation(self):
+    def _aggregation_operation(self) -> AggregationOperations:
         return AggregationOperations(self.series, self.query_date_range)
+
+    @cached_property
+    def _trends_display(self) -> TrendsDisplay:
+        if self.query.trendsFilter is None or self.query.trendsFilter.display is None:
+            display = ChartDisplayType.ActionsLineGraph
+        else:
+            display = self.query.trendsFilter.display
+
+        return TrendsDisplay(display)
