@@ -25,7 +25,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now, queryCommittedOffsets, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -725,10 +725,10 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
-        const committedOffsetsByPartition = await queryCommittedOffsets(
-            this.batchConsumer,
-            this.convertTopicPartitions(Object.keys(partitions))
-        )
+        // const committedOffsetsByPartition = await queryCommittedOffsets(
+        //     this.batchConsumer,
+        //     this.convertTopicPartitions(Object.keys(partitions))
+        // )
 
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
@@ -738,15 +738,15 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
-                const committedHighOffset = committedOffsetsByPartition[partition]
+                // const committedHighOffset = committedOffsetsByPartition[partition]
 
-                if (typeof committedHighOffset !== 'number') {
-                    status.warn('🤔', 'blob_ingester_consumer - missing known committed offset for partition', {
-                        partition: partition,
-                        assignedTopicPartitions: this.assignedTopicPartitions,
-                    })
-                    return
-                }
+                // if (typeof committedHighOffset !== 'number') {
+                //     status.warn('🤔', 'blob_ingester_consumer - missing known committed offset for partition', {
+                //         partition: partition,
+                //         assignedTopicPartitions: this.assignedTopicPartitions,
+                //     })
+                //     return
+                // }
 
                 const tp = {
                     topic: this.topic,
@@ -780,7 +780,7 @@ export class SessionRecordingIngester {
                             blockingSession: potentiallyBlockingSession?.sessionId,
                             blockingSessionTeamId: potentiallyBlockingSession?.teamId,
                             partition: partition,
-                            committedHighOffset,
+                            // committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
                         })
@@ -789,23 +789,23 @@ export class SessionRecordingIngester {
                 }
 
                 // If the last known commit is ahead of the highest offset we want to commit then we don't need to do anything
-                if (committedHighOffset > highestOffsetToCommit) {
-                    if (partition === 101) {
-                        status.warn(
-                            '🤔',
-                            'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
-                            {
-                                blockingSession: potentiallyBlockingSession?.sessionId,
-                                blockingSessionTeamId: potentiallyBlockingSession?.teamId,
-                                partition: partition,
-                                committedHighOffset,
-                                lastMessageOffset: metrics.lastMessageOffset,
-                                highestOffsetToCommit,
-                            }
-                        )
-                    }
-                    return
-                }
+                // if (committedHighOffset > highestOffsetToCommit) {
+                //     if (partition === 101) {
+                //         status.warn(
+                //             '🤔',
+                //             'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
+                //             {
+                //                 blockingSession: potentiallyBlockingSession?.sessionId,
+                //                 blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                //                 partition: partition,
+                //                 committedHighOffset,
+                //                 lastMessageOffset: metrics.lastMessageOffset,
+                //                 highestOffsetToCommit,
+                //             }
+                //         )
+                //     }
+                //     return
+                // }
 
                 this.batchConsumer?.consumer.commit({
                     ...tp,

@@ -362,7 +362,7 @@ describe('ingester', () => {
             )
         })
 
-        it('should commit higher values but not lower', async () => {
+        it.skip('should commit higher values but not lower', async () => {
             await ingester.handleEachBatch([createMessage('sid1')])
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
             expect(ingester.partitionAssignments[1].lastMessageOffset).toBe(1)
@@ -449,7 +449,7 @@ describe('ingester', () => {
             )
         })
 
-        it('should not be affected by other partitions ', async () => {
+        it.skip('should not be affected by other partitions ', async () => {
             await ingester.handleEachBatch([
                 createMessage('sid1', 1),
                 createMessage('sid2', 2),
