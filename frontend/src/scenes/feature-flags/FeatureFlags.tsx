@@ -261,6 +261,7 @@ export function OverViewTab({
                                             <b>Type</b>
                                         </span>
                                         <LemonSelect
+                                            dropdownMatchSelectWidth={false}
                                             onChange={(type) => {
                                                 if (type) {
                                                     if (type === 'all') {
@@ -287,6 +288,7 @@ export function OverViewTab({
                                     <b>Status</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(status) => {
                                         if (status) {
                                             if (status === 'all') {
@@ -310,6 +312,7 @@ export function OverViewTab({
                                     <b>Created by</b>
                                 </span>
                                 <LemonSelect
+                                    dropdownMatchSelectWidth={false}
                                     onChange={(user) => {
                                         if (user) {
                                             if (user === 'any') {
