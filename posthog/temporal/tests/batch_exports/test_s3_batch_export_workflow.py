@@ -601,7 +601,7 @@ async def test_s3_export_workflow_with_s3_bucket(interval, compression, encrypti
             """Mock function to return an already initialized S3 client."""
             yield s3_client
 
-        async with await (WorkflowEnvironment.start_time_skipping()) as activity_environment:
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,

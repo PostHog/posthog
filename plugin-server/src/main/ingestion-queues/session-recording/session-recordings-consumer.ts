@@ -25,7 +25,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now, queryCommittedOffsets, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -92,6 +92,7 @@ const counterKafkaMessageReceived = new Counter({
 type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
+    offsetLag?: number
 }
 
 export interface TeamIDWithConfig {
@@ -112,8 +113,7 @@ export class SessionRecordingIngester {
     partitionAssignments: Record<number, PartitionMetrics> = {}
     partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-    latestOffsetsRefresher: BackgroundRefresher<Record<number, number>>
-    committedOffsetsRefresher: BackgroundRefresher<Record<number, number>>
+    latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
@@ -169,15 +169,15 @@ export class SessionRecordingIngester {
                 return acc
             }, {} as Record<number, number>)
         }, 5000)
-
-        this.committedOffsetsRefresher = new BackgroundRefresher(async () => {
-            return await queryCommittedOffsets(this.batchConsumer, this.assignedTopicPartitions)
-        }, 5000)
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {
-        return Object.keys(this.partitionAssignments).map((partition) => ({
-            partition: parseInt(partition),
+        return this.convertTopicPartitions(Object.keys(this.partitionAssignments))
+    }
+
+    private convertTopicPartitions(partitions: (number | string)[]): TopicPartition[] {
+        return partitions.map((partition) => ({
+            partition: typeof partition === 'string' ? parseInt(partition) : partition,
             topic: this.topic,
         }))
     }
@@ -408,8 +408,9 @@ export class SessionRecordingIngester {
                                 const highOffset = offsetsByPartition[partition]
 
                                 if (highOffset) {
+                                    metrics.offsetLag = highOffset - metrics.lastMessageOffset
                                     // NOTE: This is an important metric used by the autoscaler
-                                    gaugeLag.set({ partition }, Math.max(0, highOffset - metrics.lastMessageOffset))
+                                    gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
                                 }
                             }
 
@@ -683,8 +684,8 @@ export class SessionRecordingIngester {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,
-            const referenceTime = this.partitionAssignments[sessionManager.partition]?.lastMessageTimestamp
-            if (!referenceTime) {
+            const { lastMessageTimestamp, offsetLag } = this.partitionAssignments[sessionManager.partition] || {}
+            if (!lastMessageTimestamp) {
                 status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                     partition: sessionManager.partition,
                 })
@@ -692,7 +693,7 @@ export class SessionRecordingIngester {
             }
 
             const flushPromise = sessionManager
-                .flushIfSessionBufferIsOld(referenceTime)
+                .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
                 .catch((err) => {
                     status.error(
                         '🚽',
@@ -726,7 +727,10 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
-        const committedOffsetsByPartition = await this.committedOffsetsRefresher.refresh()
+        // const committedOffsetsByPartition = await queryCommittedOffsets(
+        //     this.batchConsumer,
+        //     this.convertTopicPartitions(Object.keys(partitions))
+        // )
 
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
@@ -736,7 +740,15 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
-                const committedHighOffset = committedOffsetsByPartition[partition]
+                // const committedHighOffset = committedOffsetsByPartition[partition]
+
+                // if (typeof committedHighOffset !== 'number') {
+                //     status.warn('🤔', 'blob_ingester_consumer - missing known committed offset for partition', {
+                //         partition: partition,
+                //         assignedTopicPartitions: this.assignedTopicPartitions,
+                //     })
+                //     return
+                // }
 
                 const tp = {
                     topic: this.topic,
@@ -770,7 +782,7 @@ export class SessionRecordingIngester {
                             blockingSession: potentiallyBlockingSession?.sessionId,
                             blockingSessionTeamId: potentiallyBlockingSession?.teamId,
                             partition: partition,
-                            committedHighOffset,
+                            // committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
                         })
@@ -779,22 +791,31 @@ export class SessionRecordingIngester {
                 }
 
                 // If the last known commit is ahead of the highest offset we want to commit then we don't need to do anything
-                if (committedHighOffset > highestOffsetToCommit) {
-                    if (partition === 101) {
-                        status.warn(
-                            '🤔',
-                            'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
-                            {
-                                blockingSession: potentiallyBlockingSession?.sessionId,
-                                blockingSessionTeamId: potentiallyBlockingSession?.teamId,
-                                partition: partition,
-                                committedHighOffset,
-                                lastMessageOffset: metrics.lastMessageOffset,
-                                highestOffsetToCommit,
-                            }
-                        )
-                    }
-                    return
+                // if (committedHighOffset > highestOffsetToCommit) {
+                //     if (partition === 101) {
+                //         status.warn(
+                //             '🤔',
+                //             'blob_ingester_consumer - last known commit was higher than the highestOffsetToCommit',
+                //             {
+                //                 blockingSession: potentiallyBlockingSession?.sessionId,
+                //                 blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                //                 partition: partition,
+                //                 committedHighOffset,
+                //                 lastMessageOffset: metrics.lastMessageOffset,
+                //                 highestOffsetToCommit,
+                //             }
+                //         )
+                //     }
+                //     return
+                // }
+
+                if (partition === 101) {
+                    status.info('🤔', 'blob_ingester_consumer - committing offset', {
+                        partition: partition,
+                        highestOffsetToCommit,
+                        metrics,
+                        potentiallyBlockingSession: potentiallyBlockingSession?.toJSON(),
+                    })
                 }
 
                 this.batchConsumer?.consumer.commit({

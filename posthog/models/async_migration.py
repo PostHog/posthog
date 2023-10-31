@@ -33,7 +33,7 @@ class AsyncMigration(models.Model):
         null=False, blank=False, default=MigrationStatus.NotStarted
     )
 
-    current_operation_index: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(
+    current_operation_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         null=False, blank=False, default=0
     )
     current_query_id: models.CharField = models.CharField(max_length=100, null=False, blank=False, default="")
