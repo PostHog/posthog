@@ -16,6 +16,14 @@ from datetime import timedelta
 
 
 def before_send_transaction(event, hint):
+    for exception in event.get("exception", {}).get("values", []):
+        for frame in exception.get("stacktrace", {}).get("frames", []):
+            args = frame.get("vars", {}).get("args", {})
+            if isinstance(args, dict):
+                for key in args.keys():
+                    if "sensitive" in key:
+                        frame["vars"]["args"][key] = "[Filtered]"
+
     url_string = event.get("request", {}).get("url")
     if url_string and "decide" in url_string:
         DECIDE_SAMPLE_RATE = 0.00001  # 0.001%
