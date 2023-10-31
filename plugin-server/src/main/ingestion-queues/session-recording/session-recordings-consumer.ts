@@ -308,8 +308,6 @@ export class SessionRecordingIngester {
             teamIdWithConfig = await getTeamFn(token)
         }
 
-        messagesParsedCounter.label(token).inc()
-
         // NB `==` so we're comparing undefined and null
         if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
             eventDroppedCounter
