@@ -388,7 +388,7 @@ async def test_bigquery_export_workflow(
     )
 
     with freeze_time(TEST_TIME) as frozen_time:
-        async with await (WorkflowEnvironment.start_time_skipping()) as activity_environment:
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.TEMPORAL_TASK_QUEUE,

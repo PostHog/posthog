@@ -12,7 +12,7 @@ class Role(UUIDModel):
         related_name="roles",
         related_query_name="role",
     )
-    feature_flags_access_level: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(
+    feature_flags_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         choices=OrganizationResourceAccess.AccessLevel.choices,
     )

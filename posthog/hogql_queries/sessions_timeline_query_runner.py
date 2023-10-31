@@ -160,9 +160,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             formal_session_id,
             informal_session_id,
             recording_duration_s,
-        ) in reversed(
-            query_result.results[: self.EVENT_LIMIT]
-        ):  # The last result is a marker of more results
+        ) in reversed(query_result.results[: self.EVENT_LIMIT]):  # The last result is a marker of more results
             entry_id = str(formal_session_id or informal_session_id)
             if entry_id not in timeline_entries_map:
                 timeline_entries_map[entry_id] = TimelineEntry(

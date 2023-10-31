@@ -86,9 +86,6 @@ CAPTURE_TIME_TO_SEE_DATA = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_
 # Whether kea should be act in verbose mode
 KEA_VERBOSE_LOGGING = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
 
-# MapLibre Style URL to configure map tile source
-MAPLIBRE_STYLE_URL = get_from_env("MAPLIBRE_STYLE_URL", optional=True)
-
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
