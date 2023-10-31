@@ -25,7 +25,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, now, queryCommittedOffsets, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -112,7 +112,8 @@ export class SessionRecordingIngester {
     partitionAssignments: Record<number, PartitionMetrics> = {}
     partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-    offsetsRefresher: BackgroundRefresher<Record<number, number>>
+    latestOffsetsRefresher: BackgroundRefresher<Record<number, number>>
+    committedOffsetsRefresher: BackgroundRefresher<Record<number, number>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
@@ -156,7 +157,7 @@ export class SessionRecordingIngester {
             }
         })
 
-        this.offsetsRefresher = new BackgroundRefresher(async () => {
+        this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
                     queryWatermarkOffsets(this.batchConsumer, partition)
@@ -167,6 +168,10 @@ export class SessionRecordingIngester {
                 acc[partition] = highOffset
                 return acc
             }, {} as Record<number, number>)
+        }, 5000)
+
+        this.committedOffsetsRefresher = new BackgroundRefresher(async () => {
+            return await queryCommittedOffsets(this.batchConsumer, this.assignedTopicPartitions)
         }, 5000)
     }
 
@@ -377,14 +382,6 @@ export class SessionRecordingIngester {
                 }
 
                 await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.refreshOffsets`,
-                    func: async () => {
-                        // Refresh what the actual committed offsets are - we can drop all messages that are below this as well as only committing higher
-                        await this.offsetsRefresher.refresh()
-                    },
-                })
-
-                await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         for (const message of messages) {
@@ -407,7 +404,7 @@ export class SessionRecordingIngester {
                                     })
                                     .set(now() - timestamp)
 
-                                const offsetsByPartition = await this.offsetsRefresher.get()
+                                const offsetsByPartition = await this.latestOffsetsRefresher.get()
                                 const highOffset = offsetsByPartition[partition]
 
                                 if (highOffset) {
@@ -605,7 +602,7 @@ export class SessionRecordingIngester {
         if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
             await this.partitionLocker.claim(topicPartitions)
         }
-        await this.offsetsRefresher.refresh()
+        await this.latestOffsetsRefresher.refresh()
     }
 
     async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
@@ -677,7 +674,7 @@ export class SessionRecordingIngester {
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
                 // TODO: If the above works, all sessions are removed. Can we drop?
-                await this.offsetsRefresher.refresh()
+                await this.latestOffsetsRefresher.refresh()
             },
         })
     }
@@ -729,7 +726,7 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
-        const offsetsByPartition = await this.offsetsRefresher.get()
+        const committedOffsetsByPartition = await this.committedOffsetsRefresher.refresh()
 
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
@@ -739,7 +736,7 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
-                const committedHighOffset = offsetsByPartition[partition]
+                const committedHighOffset = committedOffsetsByPartition[partition]
 
                 const tp = {
                     topic: this.topic,

@@ -1,7 +1,7 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
@@ -32,6 +32,7 @@ async function deleteKeysWithPrefix(hub: Hub) {
 }
 
 const mockQueryWatermarkOffsets = jest.fn()
+const mockCommittedOffsetsFn = jest.fn()
 const mockCommit = jest.fn()
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
@@ -47,6 +48,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     commitSync: mockCommit,
                     commit: mockCommit,
                     queryWatermarkOffsets: mockQueryWatermarkOffsets,
+                    committed: mockCommittedOffsetsFn,
                 },
             })
         ),
@@ -76,7 +78,17 @@ describe('ingester', () => {
         mockOffsets = {}
         mockCommit.mockImplementation((tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
         mockQueryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
-            cb(null, { highOffset: mockCommittedOffsets[partition] ?? 1, lowOffset: 0 })
+            cb(null, { highOffset: mockOffsets[partition] ?? 1, lowOffset: 0 })
+        })
+
+        mockCommittedOffsetsFn.mockImplementation((topicPartitions: TopicPartition[], timeout, cb) => {
+            const tpos: TopicPartitionOffset[] = topicPartitions.map((tp) => ({
+                topic: tp.topic,
+                partition: tp.partition,
+                offset: mockCommittedOffsets[tp.partition] ?? 1,
+            }))
+
+            cb(null, tpos)
         })
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
@@ -108,7 +120,6 @@ describe('ingester', () => {
 
     const commitAllOffsets = async () => {
         // Simulate a background refresh for testing
-        await ingester.offsetsRefresher.refresh()
         await ingester.commitAllOffsets(ingester.partitionAssignments, Object.values(ingester.sessions))
     }
 
