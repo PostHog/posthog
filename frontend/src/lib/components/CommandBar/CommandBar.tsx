@@ -16,7 +16,7 @@ const CommandBarContainer = forwardRef<HTMLDivElement, { children?: React.ReactN
     ref
 ): JSX.Element {
     return (
-        <div className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden shadow-xl flex flex-col" ref={ref}>
+        <div className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col" ref={ref}>
             {children}
         </div>
     )
