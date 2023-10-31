@@ -377,6 +377,14 @@ export class SessionRecordingIngester {
                 }
 
                 await runInstrumentedFunction({
+                    statsKey: `recordingingester.handleEachBatch.refreshOffsets`,
+                    func: async () => {
+                        // Refresh what the actual committed offsets are - we can drop all messages that are below this as well as only committing higher
+                        await this.offsetsRefresher.refresh()
+                    },
+                })
+
+                await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         for (const message of messages) {
@@ -773,8 +781,8 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                // If the last known commit is more than or equal to the highest offset we want to commit then we don't need to do anything
-                if (committedHighOffset >= highestOffsetToCommit) {
+                // If the last known commit is ahead of the highest offset we want to commit then we don't need to do anything
+                if (committedHighOffset > highestOffsetToCommit) {
                     if (partition === 101) {
                         status.warn(
                             '🤔',

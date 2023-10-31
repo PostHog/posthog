@@ -1,3 +1,4 @@
+// eslint-disable-next-line simple-import-sort/imports
 import { randomUUID } from 'crypto'
 import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message } from 'node-rdkafka'
@@ -10,6 +11,7 @@ import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
+import { TopicPartitionOffset } from 'kafkajs'
 
 const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 
@@ -30,10 +32,8 @@ async function deleteKeysWithPrefix(hub: Hub) {
     await hub.redisPool.release(redisClient)
 }
 
+const mockQueryWatermarkOffsets = jest.fn()
 const mockCommit = jest.fn()
-const mockQueryWatermarkOffsets = jest.fn((_1, _2, cb) => {
-    cb(null, { highOffset: 0, lowOffset: 0 })
-})
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -64,6 +64,7 @@ describe('ingester', () => {
     let team: Team
     let teamToken = ''
     let nextOffset: number
+    let mockCommittedOffsets = {}
 
     beforeAll(async () => {
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
@@ -71,6 +72,12 @@ describe('ingester', () => {
     })
 
     beforeEach(async () => {
+        // The below mocks simulate committing to kafka and querying the offsets
+        mockCommittedOffsets = {}
+        mockCommit.mockImplementation((tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
+        mockQueryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
+            cb(null, { highOffset: mockCommittedOffsets[partition] ?? 0, lowOffset: 0 })
+        })
         ;[hub, closeHub] = await createHub()
         team = await getFirstTeam(hub)
         teamToken = team.api_token
@@ -101,6 +108,8 @@ describe('ingester', () => {
     })
 
     const commitAllOffsets = async () => {
+        // Simulate a background refresh for testing
+        await ingester.offsetsRefresher.refresh()
         await ingester.commitAllOffsets(ingester.partitionAssignments, Object.values(ingester.sessions))
     }
 
@@ -323,7 +332,6 @@ describe('ingester', () => {
             await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')])
             expect(ingester.partitionAssignments[1]).toMatchObject({
                 lastMessageOffset: 2,
-                lastKnownCommit: 0,
             })
 
             await commitAllOffsets()
@@ -384,7 +392,6 @@ describe('ingester', () => {
 
             expect(ingester.partitionAssignments[1]).toMatchObject({
                 lastMessageOffset: 4,
-                lastKnownCommit: 0,
             })
 
             // No offsets are below the blocking one
