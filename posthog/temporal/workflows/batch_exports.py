@@ -31,20 +31,24 @@ SELECT_QUERY_TEMPLATE = Template(
     SELECT $fields
     FROM events
     WHERE
-        -- These 'timestamp' checks are a heuristic to exploit the sort key.
-        -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
-        -- As a side-effect, this heuristic will discard historical loads older than 2 days.
-        timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
-        AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-        AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
+        COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
         $exclude_events
         $include_events
+        $timestamp_predicate
     $order_by
     $format
     """
 )
+
+TIMESTAMP_PREDICATE = """
+-- These 'timestamp' checks are a heuristic to exploit the sort key.
+-- Ideally, we need a schema that serves our needs, i.e. with a sort key on the coalesce(inserted_at, _timestamp) field used for batch exports.
+-- As a side-effect, this heuristic will discard historical loads older than 2 days.
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
+"""
 
 
 async def get_rows_count(
@@ -78,6 +82,7 @@ async def get_rows_count(
         format="",
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
+        timestamp_predicate=TIMESTAMP_PREDICATE,
     )
 
     count = await client.read_query(
@@ -139,7 +144,23 @@ def get_results_iterator(
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
     include_person_properties: bool = False,
+    add_timestamp_predicate: bool = True,
 ) -> typing.Generator[dict[str, typing.Any], None, None]:
+    """Iterator over rows to be batch exported from events table in ClickHouse.
+
+    Args:
+        team_id: The ID of the team we are batch exporting events for.
+        interval_start: The start of the batch period we are exporting.
+        interval_end: The end of the batch period we are exporting.
+        exclude_events: Iterable of event names to exclude from the export.
+        include_events: Iterable of event names to include from the export.
+        include_person_properties: Whether to include person properties in the query.
+            Some destinations require this for backwards compatibility, but if not required,
+            disable it for better performance.
+        add_timestamp_predicate: Whether to include a predicate to filter out by timestamp.
+            Required to make proper use of the sort key, but with a low event volume we can
+            get away with ommitting this and supporting export of historical events.
+    """
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -163,6 +184,7 @@ def get_results_iterator(
         format="FORMAT ArrowStream",
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
+        timestamp_predicate=TIMESTAMP_PREDICATE if add_timestamp_predicate is True else "",
     )
 
     for batch in client.stream_query_as_arrow(

@@ -135,6 +135,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            # Heuristic: Should be fast to sort 10k events.
+            add_timestamp_predicate=True if count <= 10000 else False,
         )
         table_schema = [
             bigquery.SchemaField("uuid", "STRING"),
