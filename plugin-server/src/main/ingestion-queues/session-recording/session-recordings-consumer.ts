@@ -112,8 +112,7 @@ export class SessionRecordingIngester {
     partitionAssignments: Record<number, PartitionMetrics> = {}
     partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-    latestOffsetsRefresher: BackgroundRefresher<Record<number, number>>
-    committedOffsetsRefresher: BackgroundRefresher<Record<number, number>>
+    latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 
@@ -169,15 +168,15 @@ export class SessionRecordingIngester {
                 return acc
             }, {} as Record<number, number>)
         }, 5000)
-
-        this.committedOffsetsRefresher = new BackgroundRefresher(async () => {
-            return await queryCommittedOffsets(this.batchConsumer, this.assignedTopicPartitions)
-        }, 5000)
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {
-        return Object.keys(this.partitionAssignments).map((partition) => ({
-            partition: parseInt(partition),
+        return this.convertTopicPartitions(Object.keys(this.partitionAssignments))
+    }
+
+    private convertTopicPartitions(partitions: (number | string)[]): TopicPartition[] {
+        return partitions.map((partition) => ({
+            partition: typeof partition === 'string' ? parseInt(partition) : partition,
             topic: this.topic,
         }))
     }
@@ -726,7 +725,10 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
-        const committedOffsetsByPartition = await this.committedOffsetsRefresher.refresh()
+        const committedOffsetsByPartition = await queryCommittedOffsets(
+            this.batchConsumer,
+            this.convertTopicPartitions(Object.keys(partitions))
+        )
 
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
@@ -737,6 +739,14 @@ export class SessionRecordingIngester {
                  */
                 const partition = parseInt(p)
                 const committedHighOffset = committedOffsetsByPartition[partition]
+
+                if (typeof committedHighOffset !== 'number') {
+                    status.warn('🤔', 'blob_ingester_consumer - missing known committed offset for partition', {
+                        partition: partition,
+                        assignedTopicPartitions: this.assignedTopicPartitions,
+                    })
+                    return
+                }
 
                 const tp = {
                     topic: this.topic,
