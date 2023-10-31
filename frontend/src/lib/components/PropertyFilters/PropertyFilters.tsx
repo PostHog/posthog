@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -7,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+import clsx from 'clsx'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -15,7 +16,7 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    style?: CSSProperties
+    className?: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hogQLTable?: string
     showNestedArrow?: boolean
@@ -38,7 +39,7 @@ export function PropertyFilters({
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
     hogQLTable,
-    style = {},
+    className = '',
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
@@ -60,7 +61,7 @@ export function PropertyFilters({
     }, [propertyFilters])
 
     return (
-        <div className="PropertyFilters" style={style}>
+        <div className={clsx('PropertyFilters', className)}>
             {showNestedArrow && !disablePopover && <div className="PropertyFilters__prefix">{<>&#8627;</>}</div>}
             <div className="PropertyFilters__content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>

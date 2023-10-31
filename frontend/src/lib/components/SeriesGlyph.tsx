@@ -10,6 +10,7 @@ interface SeriesGlyphProps {
 
 export function SeriesGlyph({ className, style, children, variant }: SeriesGlyphProps): JSX.Element {
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <div className={`graph-series-glyph ${variant || ''} ${className}`} style={style}>
             {children}
         </div>

@@ -14,12 +14,8 @@ type BillingGaugeItemProps = {
 
 const BillingGaugeItem = ({ width, className, tooltip, top, value }: BillingGaugeItemProps): JSX.Element => {
     return (
-        <div
-            className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${className}`}
-            style={{
-                width: width,
-            }}
-        >
+        // eslint-disable-next-line react/forbid-dom-props
+        <div className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${className}`} style={{ width: width }}>
             <div className="absolute right-0 w-px h-full bg-bg-light" />
             <Tooltip title={value.toLocaleString()} placement={'right'}>
                 <div

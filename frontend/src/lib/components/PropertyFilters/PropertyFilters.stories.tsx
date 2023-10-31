@@ -38,7 +38,7 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
+                className="mb-0"
                 showNestedArrow
                 eventNames={[]}
             />
@@ -48,7 +48,7 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
+                className="mb-0"
                 eventNames={[]}
                 disablePopover={true}
             />

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import { CSSProperties, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
@@ -13,7 +13,6 @@ export interface ProfilePictureProps {
     email?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
-    style?: CSSProperties
     className?: string
     title?: string
     index?: number
@@ -25,7 +24,6 @@ export function ProfilePicture({
     email,
     size = 'lg',
     showName,
-    style,
     className,
     index,
     title,
@@ -64,7 +62,6 @@ export function ProfilePicture({
                 src={gravatarUrl}
                 title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                 alt=""
-                style={style}
             />
         )
     } else {
@@ -72,7 +69,7 @@ export function ProfilePicture({
             type === 'bot' ? (
                 <IconRobot className={clsx(pictureClass, 'p-0.5')} />
             ) : (
-                <span className={pictureClass} style={style}>
+                <span className={pictureClass}>
                     <Lettermark
                         name={combinedNameAndEmail}
                         index={index}

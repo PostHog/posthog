@@ -107,7 +107,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
+                    <div key={groupType} className={clsx('mt-2', groupType === openTab ? 'block' : 'hidden')}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

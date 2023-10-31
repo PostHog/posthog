@@ -74,6 +74,7 @@ function VirtualTableHeader<RecordType>({
     return (
         <div className="resizable-virtual-table-header">
             {!!expandable && (
+                // eslint-disable-next-line react/forbid-dom-props
                 <div className="left-spacer" style={{ width: expandable?.columnWidth || ANTD_EXPAND_BUTTON_WIDTH }} />
             )}
             {columns.map(({ title, width, widthConstraints }, index) => {
