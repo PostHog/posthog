@@ -89,7 +89,7 @@ class AggregationOperations:
             else:
                 raise NotImplementedError()
 
-        return parse_expr("count(e.uuid)")
+        return parse_expr("count(e.uuid)")  # All "count per actor" get replaced during query orchestration
 
     def requires_query_orchestration(self) -> bool:
         math_to_return_true = [
