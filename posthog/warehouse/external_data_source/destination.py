@@ -18,7 +18,7 @@ def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestinati
         "configuration": {
             "format": {"format_type": "Parquet", "compression_codec": "UNCOMPRESSED"},
             "destinationType": "s3",
-            "s3_bucket_region": "us-east-1",
+            "s3_bucket_region": settings.AIRBYTE_BUCKET_REGION,
             "access_key_id": settings.AIRBYTE_BUCKET_KEY,
             "secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "s3_bucket_name": "databeach-hackathon",

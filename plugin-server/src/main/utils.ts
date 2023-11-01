@@ -17,6 +17,8 @@ interface FunctionInstrumentation<T> {
 const logTime = (startTime: number, statsKey: string, error?: any) => {
     status.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
         error,
+        statsKey,
+        type: 'instrumented_function_time_log',
     })
 }
 
