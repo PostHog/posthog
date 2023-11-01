@@ -160,6 +160,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPricingModalOpen,
         toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
+        setSurveyResponse,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
@@ -337,6 +338,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         fullWidth
                                                         onClick={() => {
                                                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
+                                                            setSurveyResponse(product.type, '$survey_response_1')
                                                         }}
                                                     >
                                                         Unsubscribe

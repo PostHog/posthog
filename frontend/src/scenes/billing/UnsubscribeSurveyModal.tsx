@@ -5,11 +5,11 @@ import { BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
-    const { surveyID, surveyResponseValue } = useValues(billingProductLogic({ product }))
-    const { setSurveyResponseValue, setSurveyID, reportSurveySent } = useActions(billingProductLogic({ product }))
+    const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
+    const { setSurveyResponse, setSurveyID, reportSurveySent } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
 
-    const textAreaNotEmpty = surveyResponseValue.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
     return (
         <LemonModal
             onClose={() => {
@@ -20,8 +20,10 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
             <div className="flex flex-col">
                 <LemonTextArea
                     placeholder={'Start typing...'}
-                    value={surveyResponseValue}
-                    onChange={setSurveyResponseValue}
+                    value={surveyResponse['$survey_response']}
+                    onChange={(value) => {
+                        setSurveyResponse(value, '$survey_response')
+                    }}
                 />
                 <div className="flex justify-between pt-2 gap-8">
                     <LemonButton
@@ -35,7 +37,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                         type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                         status={textAreaNotEmpty ? 'primary' : 'muted'}
                         onClick={() => {
-                            reportSurveySent(surveyID, surveyResponseValue)
+                            reportSurveySent(surveyID, surveyResponse)
                             deactivateProduct(product.type)
                         }}
                     >

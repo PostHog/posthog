@@ -24,11 +24,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
         toggleIsPlanComparisonModalOpen: true,
-        setSurveyResponseValue: (surveyResponseValue: string) => ({ surveyResponseValue }),
+        setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
-        reportSurveySent: (surveyID: string, surveyResponseValue: string) => ({
+        reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
             surveyID,
-            surveyResponseValue,
+            surveyResponse,
         }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
     }),
@@ -63,10 +63,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 toggleIsPlanComparisonModalOpen: (state) => !state,
             },
         ],
-        surveyResponseValue: [
-            '',
+        surveyResponse: [
+            {},
             {
-                setSurveyResponseValue: (_, { surveyResponseValue }) => surveyResponseValue,
+                setSurveyResponse: (state, { surveyResponse, key }) => {
+                    return { ...state, [key]: surveyResponse }
+                },
             },
         ],
         unsubscribeReasonSurvey: [
@@ -199,10 +201,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             })
             actions.setSurveyID(surveyID)
         },
-        reportSurveySent: ({ surveyID, surveyResponseValue }) => {
+        reportSurveySent: ({ surveyID, surveyResponse }) => {
             posthog.capture('survey sent', {
                 $survey_id: surveyID,
-                $survey_response: surveyResponseValue,
+                ...surveyResponse,
             })
             actions.setSurveyID('')
         },
