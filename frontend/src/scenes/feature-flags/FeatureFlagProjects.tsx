@@ -63,7 +63,7 @@ export function CopyFeatureFlagModal({
                             <LemonSelect
                                 value={currentOrganization?.teams?.[0].id}
                                 options={
-                                    currentOrganization?.teams?.map((org) => ({ value: org.id, label: org.name })) || []
+                                    currentOrganization?.teams?.map((team) => ({ value: team.id, label: team.name })) || []
                                 }
                                 className="min-w-40"
                             />
