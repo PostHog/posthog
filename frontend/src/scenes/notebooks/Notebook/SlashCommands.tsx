@@ -326,7 +326,7 @@ order by count() desc
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range, getPos, onClose, query }: SlashCommandsProps,
+    { mode = 'slash', range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -489,7 +489,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
 export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
     function SlashCommandsPopover(
-        { visible, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
+        { visible = true, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
         ref
     ): JSX.Element | null {
         return (
@@ -522,7 +522,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props: { ...props, visible: true, mode: 'slash' },
+                                props,
                                 editor: props.editor,
                             })
                         },
