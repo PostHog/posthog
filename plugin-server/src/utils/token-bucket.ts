@@ -74,4 +74,6 @@ export const ConfiguredLimiter: Limiter = new Limiter(
 
 export const OverflowWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
 
+export const MessageSizeTooLargeWarningLimiter: Limiter = new Limiter(1, 1.0 / 300)
+
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

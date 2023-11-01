@@ -27,6 +27,7 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -237,10 +238,12 @@ export class EventsProcessor {
                 // Some messages end up significantly larger than the original
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
-                        eventUuid: uuid,
-                        distinctId: distinctId,
-                    })
+                    if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
+                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                            eventUuid: uuid,
+                            distinctId: distinctId,
+                        })
+                    }
                 } else {
                     throw error
                 }
