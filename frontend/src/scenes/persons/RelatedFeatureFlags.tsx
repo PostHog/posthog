@@ -83,6 +83,8 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <div style={{ wordBreak: 'break-word' }}>
                         {featureFlag.active && featureFlag.value
                             ? capitalizeFirstLetter(featureFlag.value.toString())
+                            : !featureFlag.active
+                            ? 'False'
                             : '--'}
                     </div>
                 )
@@ -184,7 +186,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
-                        <b>Status</b>
+                        <b>Flag status</b>
                     </span>
                     <LemonSelect
                         onChange={(status) => {
