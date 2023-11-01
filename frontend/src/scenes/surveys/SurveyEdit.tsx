@@ -924,12 +924,14 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col items-center h-full w-full sticky top-0 pt-8" style={{ maxWidth: 320 }}>
-                <SurveyFormAppearance
-                    activePreview={selectedQuestion || 0}
-                    survey={survey}
-                    setActivePreview={(preview) => setSelectedQuestion(preview)}
-                />
+            <div className="px-4">
+                <div className="flex flex-col items-center h-full sticky top-0 pt-8">
+                    <SurveyFormAppearance
+                        activePreview={selectedQuestion || 0}
+                        survey={survey}
+                        setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    />
+                </div>
             </div>
         </div>
     )

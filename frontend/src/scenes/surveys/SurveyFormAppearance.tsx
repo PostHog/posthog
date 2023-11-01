@@ -18,7 +18,7 @@ export function SurveyFormAppearance({
     const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
     return (
-        <>
+        <div className="SurveyFormAppearance">
             {survey.type !== SurveyType.API ? (
                 <>
                     {showThankYou ? (
@@ -69,6 +69,6 @@ export function SurveyFormAppearance({
                     <SurveyAPIEditor survey={survey} />
                 </div>
             )}
-        </>
+        </div>
     )
 }
