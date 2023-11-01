@@ -24,7 +24,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
-    message_size_too_large: 'Discarded message exceeding 1MB limit',
+    message_size_too_large: 'Discarded event exceeding 1MB limit',
 }
 
 const WARNING_TYPE_RENDERER = {
