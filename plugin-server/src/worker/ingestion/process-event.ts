@@ -239,6 +239,7 @@ export class EventsProcessor {
                 if (error instanceof MessageSizeTooLarge) {
                     await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
                         eventUuid: uuid,
+                        distinctId: distinctId,
                     })
                 } else {
                     throw error

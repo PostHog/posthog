@@ -74,7 +74,8 @@ test.concurrent('consumer produces ingest warnings for messages over 1MB', async
         const [message] = warningMessages.filter((message: KafkaMessage) => {
             if (message.value) {
                 const payload = JSON.parse(message.value.toString())
-                return JSON.parse(payload.details).eventUuid === personEventUuid
+                const details = JSON.parse(payload.details)
+                return details.eventUuid === personEventUuid && details.distinctId === distinctId
             }
         })
         expect(message).toBeDefined()
