@@ -259,59 +259,16 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
         )
 
-        try:
-            await workflow.execute_activity(
-                insert_into_bigquery_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[
-                        # Raised on missing permissions.
-                        "Forbidden",
-                        # Invalid token.
-                        "RefreshError",
-                        # Usually means the dataset or project doesn't exist.
-                        "NotFound",
-                    ],
-                ),
-            )
-
-        except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                logger.error("BigQuery BatchExport was cancelled.")
-                update_inputs.status = "Cancelled"
-            else:
-                logger.exception("BigQuery BatchExport failed.", exc_info=e.cause)
-                update_inputs.status = "Failed"
-
-            update_inputs.latest_error = str(e.cause)
-            raise
-
-        except Exception as e:
-            logger.exception("BigQuery BatchExport failed with an unexpected exception.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = "An unexpected error has ocurred"
-            raise
-
-        else:
-            logger.info(
-                "Successfully finished BigQuery export batch %s - %s",
-                data_interval_start,
-                data_interval_end,
-            )
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_bigquery_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # Raised on missing permissions.
+                "Forbidden",
+                # Invalid token.
+                "RefreshError",
+                # Usually means the dataset or project doesn't exist.
+                "NotFound",
+            ],
+            update_inputs=update_inputs,
+        )

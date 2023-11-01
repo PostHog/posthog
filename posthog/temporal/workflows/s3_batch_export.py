@@ -530,39 +530,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             kms_key_id=inputs.kms_key_id,
         )
 
-        except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                logger.error("S3 BatchExport was cancelled.")
-                update_inputs.status = "Cancelled"
-            else:
-                logger.exception("S3 BatchExport failed.", exc_info=e.cause)
-                update_inputs.status = "Failed"
-
-            update_inputs.latest_error = str(e.cause)
-            raise
-
-        except Exception as e:
-            logger.exception("S3 BatchExport failed with an unexpected error.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = "An unexpected error has ocurred"
-            raise
-
-        else:
-            logger.info(
-                "Successfully finished S3 export batch %s - %s",
-                data_interval_start,
-                data_interval_end,
-            )
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_s3_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # S3 parameter validation failed.
+                "ParamValidationError",
+                # This error usually indicates credentials are incorrect or permissions are missing.
+                "ClientError",
+            ],
+            update_inputs=update_inputs,
+        )
