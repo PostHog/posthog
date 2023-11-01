@@ -39,6 +39,8 @@ export function ProjectHomepage(): JSX.Element {
     const topListContainerRef = useRef<HTMLDivElement | null>(null)
     const [topListContainerWidth] = useSize(topListContainerRef)
 
+    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+
     const headerButtons = (
         <>
             <LemonButton
@@ -50,70 +52,62 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            <NewInsightButton dataAttr="project-home-new-insight" />
+            {!has3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
         </>
     )
 
     return (
         <div className="project-homepage">
-            {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                <>
-                    <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
-                    <div
-                        ref={topListContainerRef}
-                        className={
-                            topListContainerWidth && topListContainerWidth < 600
-                                ? 'top-list-container-vertical'
-                                : 'top-list-container-horizontal'
-                        }
-                    >
-                        <div className="top-list">
-                            <RecentInsights />
-                        </div>
-                        <div className="spacer" />
-                        <div className="top-list">
-                            <NewlySeenPersons />
-                        </div>
-                        <div className="spacer" />
-                        <div className="top-list">
-                            <RecentRecordings />
-                        </div>
-                    </div>
-                </>
-            )}
+            <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+            <div
+                ref={topListContainerRef}
+                className={
+                    topListContainerWidth && topListContainerWidth < 600
+                        ? 'top-list-container-vertical'
+                        : 'top-list-container-horizontal'
+                }
+            >
+                <div className="top-list">
+                    <RecentInsights />
+                </div>
+                <div className="spacer" />
+                <div className="top-list">
+                    <NewlySeenPersons />
+                </div>
+                <div className="spacer" />
+                <div className="top-list">
+                    <RecentRecordings />
+                </div>
+            </div>
             {currentTeam?.primary_dashboard ? (
                 <>
-                    {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                        <>
-                            <div className="homepage-dashboard-header">
-                                <div className="dashboard-title-container">
-                                    {!dashboard && <LemonSkeleton className="w-20" />}
-                                    {dashboard?.name && (
-                                        <>
-                                            <IconCottage className="mr-2 text-warning text-2xl" />
-                                            <Link
-                                                className="font-semibold text-xl text-default"
-                                                to={urls.dashboard(dashboard.id)}
-                                            >
-                                                {dashboard?.name}
-                                            </Link>
-                                        </>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        data-attr="project-home-change-dashboard"
-                                        onClick={showSceneDashboardChoiceModal}
+                    <div className="homepage-dashboard-header">
+                        <div className="dashboard-title-container">
+                            {!dashboard && <LemonSkeleton className="w-20" />}
+                            {dashboard?.name && (
+                                <>
+                                    <IconCottage className="mr-2 text-warning text-2xl" />
+                                    <Link
+                                        className="font-semibold text-xl text-default"
+                                        to={urls.dashboard(dashboard.id)}
                                     >
-                                        Change dashboard
-                                    </LemonButton>
-                                    {featureFlags[FEATURE_FLAGS.POSTHOG_3000] && headerButtons}
-                                </div>
-                            </div>
-                            <LemonDivider className="my-4" />
-                        </>
-                    )}
+                                        {dashboard?.name}
+                                    </Link>
+                                </>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="secondary"
+                                size={has3000 ? 'small' : undefined}
+                                data-attr="project-home-change-dashboard"
+                                onClick={showSceneDashboardChoiceModal}
+                            >
+                                Change dashboard
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider className={has3000 ? 'mt-3 mb-4' : 'my-4'} />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}
