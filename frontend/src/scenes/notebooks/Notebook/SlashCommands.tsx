@@ -24,7 +24,7 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathTy
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
@@ -47,12 +47,12 @@ type SlashCommandConditionalProps =
 type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
     decorationNode?: any
+    onClose?: () => void
 }
 
 type SlashCommandsPopoverProps = SlashCommandsProps & {
     visible: boolean
     children?: JSX.Element
-    onClickOutside?: () => void
 }
 
 type SlashCommandsRef = {
@@ -326,11 +326,10 @@ order by count() desc
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range, getPos, query }: SlashCommandsProps,
+    { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
-    const { setSlashCommandsPopoverVisible } = useActions(notebookLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
@@ -369,7 +368,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             const partialCommand = await command(chain, position)
             partialCommand.run()
 
-            setSlashCommandsPopoverVisible(false)
+            onClose?.()
         }
     }
 
@@ -490,17 +489,17 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
 export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
     function SlashCommandsPopover(
-        { visible, decorationNode, children, onClickOutside, ...props }: SlashCommandsPopoverProps,
+        { visible, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
         ref
     ): JSX.Element | null {
         return (
             <Popover
                 placement="right-start"
                 fallbackPlacements={['left-start', 'right-end']}
-                overlay={<SlashCommands ref={ref} {...props} />}
+                overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
                 referenceElement={decorationNode}
                 visible={visible}
-                onClickOutside={onClickOutside}
+                onClickOutside={onClose}
             >
                 {children}
             </Popover>

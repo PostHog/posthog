@@ -3,25 +3,23 @@ import { InsertionSuggestion } from './InsertionSuggestion'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import { LemonButton } from '@posthog/lemon-ui'
 import { NotebookEditor } from '../Notebook/utils'
-import { useActions, useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
+import { useState } from 'react'
 
 const Component = ({ editor }: { editor: NotebookEditor }): JSX.Element => {
-    const { slashCommandsPopoverVisible } = useValues(notebookLogic)
-    const { setSlashCommandsPopoverVisible } = useActions(notebookLogic)
+    const [visible, setVisible] = useState<boolean>(false)
 
     return (
         <SlashCommandsPopover
             mode="add"
-            visible={slashCommandsPopoverVisible}
+            visible={visible}
             getPos={editor?.getCurrentPosition}
-            onClickOutside={() => setSlashCommandsPopoverVisible(false)}
+            onClose={() => setVisible(false)}
         >
             <LemonButton
                 size="small"
                 icon={<IconPlus />}
                 className="NotebookFloatingButton__plus ml-1"
-                onClick={() => setSlashCommandsPopoverVisible(true)}
+                onClick={() => setVisible(true)}
             />
         </SlashCommandsPopover>
     )

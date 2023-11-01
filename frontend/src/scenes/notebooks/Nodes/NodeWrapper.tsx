@@ -6,7 +6,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
     IconClose,
@@ -60,8 +60,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId, containerSize, slashCommandsPopoverVisible } = useValues(mountedNotebookLogic)
-    const { unregisterNodeLogic, setSlashCommandsPopoverVisible } = useActions(notebookLogic)
+    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
+    const { unregisterNodeLogic } = useActions(notebookLogic)
+    const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -233,7 +234,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         mode="add"
                                         getPos={() => getPos() + 1}
                                         visible={slashCommandsPopoverVisible}
-                                        onClickOutside={() => setSlashCommandsPopoverVisible(false)}
+                                        onClose={() => setSlashCommandsPopoverVisible(false)}
                                     >
                                         <LemonButton
                                             size="xsmall"
