@@ -204,7 +204,7 @@ export class EventPipelineRunner {
             // for a reason that we control and that is transient.
             return true
         }
-        // TODO: Disalow via env of errors we're going to put into DLQ instead of taking Kafka lag
+        // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
         return false
     }
 
