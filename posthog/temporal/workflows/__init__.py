@@ -22,6 +22,7 @@ from posthog.temporal.workflows.postgres_batch_export import (
 )
 from posthog.temporal.workflows.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
+    insert_into_redshift_activity,
 )
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportWorkflow,
@@ -54,6 +55,7 @@ ACTIVITIES: Sequence[Callable] = [
     get_schedule_frequency,
     insert_into_bigquery_activity,
     insert_into_postgres_activity,
+    insert_into_redshift_activity,
     insert_into_s3_activity,
     insert_into_snowflake_activity,
     noop_activity,
