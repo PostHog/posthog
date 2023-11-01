@@ -130,6 +130,7 @@ const WARNING_TYPE_RENDERER = {
     message_size_too_large: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
+            distinctId: string
         }
         return (
             <>
