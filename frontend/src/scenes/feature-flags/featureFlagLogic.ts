@@ -219,6 +219,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        closeProjectsModal: true,
+        openProjectsModal: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -463,6 +465,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as number | null,
             {
                 setTotalUsers: (_, { count }) => count,
+            },
+        ],
+        isProjectsModalOpen: [
+            false,
+            {
+                openProjectsModal: () => true,
+                closeProjectsModal: () => false,
             },
         ],
     }),

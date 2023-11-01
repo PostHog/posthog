@@ -66,6 +66,7 @@ import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import FeatureFlagProjects from './FeatureFlagProjects'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -199,6 +200,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Projects',
+            key: FeatureFlagsTab.PROJECTS,
+            content: <FeatureFlagProjects />,
         })
     }
 
