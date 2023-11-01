@@ -219,7 +219,7 @@ class TrendsBreakdown:
 
         if len(_params["values"]) == 0:
             # If there are no breakdown values, we are sure that there's no relevant events, so instead of adjusting
-            # a "real" SELECT for this, we only include the below fake SELECT.
+            # a "real" SELECT for this, we only include the below dummy SELECT.
             # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
             # See https://github.com/PostHog/posthog/pull/5674 for context.
             return (

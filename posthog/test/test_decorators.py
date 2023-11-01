@@ -18,7 +18,7 @@ from posthog.api import router
 factory = APIRequestFactory()
 
 
-class SampleViewSet(GenericViewSet):
+class DummyViewSet(GenericViewSet):
     def list(self, request):
         data = self.calculate_with_filters(request)
         return Response(data)
@@ -32,12 +32,12 @@ class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
         cache.clear()
 
-        router.register(r"sample", SampleViewSet, "sample")
+        router.register(r"dummy", DummyViewSet, "dummy")
 
         super().setUp()
 
     def test_returns_fresh_result(self) -> None:
-        response = self.client.get(f"/api/sample").json()
+        response = self.client.get(f"/api/dummy").json()
 
         assert response["result"] == "bla"
         assert response["is_cached"] is False
@@ -45,38 +45,38 @@ class TestCachedByFiltersDecorator(APIBaseTest):
 
     def test_returns_cached_result(self) -> None:
         # cache the result
-        self.client.get(f"/api/sample").json()
+        self.client.get(f"/api/dummy").json()
 
-        response = self.client.get(f"/api/sample").json()
+        response = self.client.get(f"/api/dummy").json()
 
         assert response["result"] == "bla"
         assert response["is_cached"] is True
 
     def test_cache_bypass_with_refresh_param(self) -> None:
         # cache the result
-        self.client.get(f"/api/sample").json()
+        self.client.get(f"/api/dummy").json()
 
-        response = self.client.get(f"/api/sample", data={"refresh": "true"}).json()
+        response = self.client.get(f"/api/dummy", data={"refresh": "true"}).json()
 
         assert response["is_cached"] is False
 
     def test_cache_bypass_with_invalidation_key_param(self) -> None:
         # cache the result
-        self.client.get(f"/api/sample").json()
+        self.client.get(f"/api/dummy").json()
 
-        response = self.client.get(f"/api/sample", data={"cache_invalidation_key": "abc"}).json()
+        response = self.client.get(f"/api/dummy", data={"cache_invalidation_key": "abc"}).json()
 
         assert response["is_cached"] is False
 
     def test_discards_stale_response(self) -> None:
         with freeze_time("2023-02-08T12:05:23Z"):
             # cache the result
-            self.client.get(f"/api/sample").json()
+            self.client.get(f"/api/dummy").json()
 
         with freeze_time("2023-02-10T12:00:00Z"):
             # we don't need to add filters, since -7d with a
             # daily interval is the default
-            response = self.client.get(f"/api/sample").json()
+            response = self.client.get(f"/api/dummy").json()
             assert response["is_cached"] is False
 
 

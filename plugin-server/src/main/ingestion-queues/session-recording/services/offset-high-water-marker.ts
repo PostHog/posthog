@@ -73,7 +73,7 @@ export class OffsetHighWaterMarker {
         const watermarks = await this.getWaterMarks(tp)
 
         if (offset <= (watermarks[id] ?? -1)) {
-            // COHERENCE CHECK: We don't want to add an offset that is less than or equal to the current offset
+            // SANITY CHECK: We don't want to add an offset that is less than or equal to the current offset
             return
         }
 

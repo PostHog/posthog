@@ -51,7 +51,7 @@ class DataGenerator:
                 version=0,
             )
         for pid in pids:
-            create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use fake number for id
+            create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})

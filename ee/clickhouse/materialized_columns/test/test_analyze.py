@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.SAMPLE_QUERIES = [
+        self.DUMMY_QUERIES = [
             (
                 f"""
                 SELECT JSONExtractString(e.properties, 'event_prop')
@@ -71,10 +71,10 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
 
     def test_query_class(self):
         with self.settings(MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME=3000):
-            event_query = Query(*self.SAMPLE_QUERIES[0])
-            person_query = Query(*self.SAMPLE_QUERIES[1])
-            person_on_events_query = Query(*self.SAMPLE_QUERIES[2])
-            group_on_events_query = Query(*self.SAMPLE_QUERIES[3])
+            event_query = Query(*self.DUMMY_QUERIES[0])
+            person_query = Query(*self.DUMMY_QUERIES[1])
+            person_on_events_query = Query(*self.DUMMY_QUERIES[2])
+            group_on_events_query = Query(*self.DUMMY_QUERIES[3])
 
             self.assertTrue(event_query.is_valid)
             self.assertTrue(person_query.is_valid)

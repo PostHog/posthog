@@ -3,7 +3,7 @@ import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
-import { createPosthog, MockedPostHog } from '../src/worker/vm/extensions/posthog'
+import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetKafka } from './helpers/kafka'
 import { pluginConfig39 } from './helpers/plugins'
@@ -21,7 +21,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 describe('e2e ingestion timeout', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let posthog: MockedPostHog
+    let posthog: DummyPostHog
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)

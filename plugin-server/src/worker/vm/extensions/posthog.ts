@@ -17,7 +17,7 @@ interface InternalData {
     uuid: string
 }
 
-export interface MockedPostHog {
+export interface DummyPostHog {
     capture(event: string, properties?: Record<string, any>): Promise<void>
     api: ApiExtension
 }
@@ -47,7 +47,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     })
 }
 
-export function createPosthog(hub: Hub, pluginConfig: PluginConfig): MockedPostHog {
+export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
     return {
