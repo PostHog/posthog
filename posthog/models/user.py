@@ -276,9 +276,9 @@ class User(AbstractUser, UUIDClassicModel):
             .count()
         )
 
-        current_organization_membership: OrganizationMembership = (
-            self.organization.memberships.filter(user=self).first() or None
-        )
+        current_organization_membership = None
+        if self.organization:
+            current_organization_membership = self.organization.memberships.filter(user=self).first()
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
