@@ -651,6 +651,9 @@ class WebStatsBreakdown(str, Enum):
     Browser = "Browser"
     OS = "OS"
     DeviceType = "DeviceType"
+    Country = "Country"
+    Region = "Region"
+    City = "City"
 
 
 class WebStatsTableQueryResponse(BaseModel):
