@@ -168,7 +168,9 @@ export interface HogQLQuery extends DataNode {
 }
 
 export interface HogQLNotice {
+    /**  @asType integer */
     start?: number
+    /**  @asType integer */
     end?: number
     message: string
     fix?: string
