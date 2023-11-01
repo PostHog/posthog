@@ -13,7 +13,7 @@ def sync_resources():
     resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
 
     for resource in resources:
-        _sync_resource(resource.pk)
+        _sync_resource.delay(resource.pk)
 
 
 @app.task(ignore_result=True)

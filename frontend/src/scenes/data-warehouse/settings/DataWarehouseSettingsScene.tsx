@@ -15,7 +15,7 @@ export const scene: SceneExport = {
 
 const StatusTagSetting = {
     running: 'default',
-    success: 'primary',
+    succeeded: 'primary',
     error: 'danger',
 }
 
