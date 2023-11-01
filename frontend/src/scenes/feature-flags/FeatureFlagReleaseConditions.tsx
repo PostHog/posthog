@@ -78,8 +78,8 @@ export function FeatureFlagReleaseConditions({
             <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
                             <div>
                                 {group.properties?.length ? (
@@ -100,9 +100,9 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
+                        </div>
                         {!readOnly && (
-                            <Row>
+                            <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
                                     status="muted"
@@ -117,9 +117,9 @@ export function FeatureFlagReleaseConditions({
                                         onClick={() => removeConditionSet(index)}
                                     />
                                 )}
-                            </Row>
+                            </div>
                         )}
-                    </Row>
+                    </div>
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
@@ -328,8 +328,8 @@ export function FeatureFlagReleaseConditions({
             <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
-                    <Row align="middle" justify="space-between">
-                        <Row align="middle">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
                             <div>
                                 {group.properties?.length ? (
                                     <>
@@ -344,8 +344,8 @@ export function FeatureFlagReleaseConditions({
                                     </>
                                 )}
                             </div>
-                        </Row>
-                    </Row>
+                        </div>
+                    </div>
                     <LemonDivider className="my-3" />
 
                     {(group.properties?.length || 0) > 0 && (
@@ -363,7 +363,7 @@ export function FeatureFlagReleaseConditions({
                             <LemonDivider className="my-3" />
                         </>
                     )}
-                    <Row justify="space-between" align="middle">
+                    <div className="flex items-center justify-between">
                         <div />
                         <LemonButton
                             aria-label="more"
@@ -378,7 +378,7 @@ export function FeatureFlagReleaseConditions({
                         >
                             View Early Access Feature
                         </LemonButton>
-                    </Row>
+                    </div>
                 </div>
             </Col>
         )
