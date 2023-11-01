@@ -36,6 +36,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
                 onChange: props.taxonomicOnChange,
                 eventNames: props.eventNames,
+                propertyAllowList: props.propertyAllowList,
             }),
             ['taxonomicGroups'],
             propertyDefinitionsModel,

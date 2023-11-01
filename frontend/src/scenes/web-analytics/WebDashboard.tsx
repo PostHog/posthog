@@ -23,6 +23,26 @@ const Filters = (): JSX.Element => {
                     propertyFilters={webAnalyticsFilters}
                     pageKey={'web-analytics'}
                     eventNames={['$pageview', '$pageleave', '$autocapture']}
+                    propertyAllowList={{
+                        [TaxonomicFilterGroupType.EventProperties]: [
+                            '$pathname',
+                            '$host',
+                            '$browser',
+                            '$os',
+                            '$device_type',
+                            '$geoip_country_code',
+                            '$geoip_subdivision_1_code',
+                            '$geoip_city_name',
+                            // initial properties should be replaced with the client session versions
+                            '$initial_pathname',
+                            '$initial_referrer',
+                            '$initial_utm_source',
+                            '$initial_utm_campaign',
+                            '$initial_utm_medium',
+                            '$initial_utm_term',
+                            '$initial_utm_content',
+                        ],
+                    }}
                 />
             </div>
             <div className={'bg-border h-px w-full mt-2'} />
