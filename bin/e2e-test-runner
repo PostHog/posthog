@@ -4,12 +4,14 @@ set -e
 SKIP_MIGRATE=false
 SKIP_RECREATE_DATABASE=false
 SKIP_SETUP_DEV=false
+SKIP_RUN_SERVER=false
 
 HELP_TEXT=$(cat << EOF
   use --skip-all-setup to only run Cypress
   use --skip-recreate-db to skip dropping and creating databases
   use --skip-migrate-db to skip running DB migrations
   use --skip-setup-dev to skip running django setup_dev command
+  use --skip-run-server to skip running django server
 EOF
 )
 
@@ -43,6 +45,11 @@ do
     if [ "$var" == "--skip-setup-dev" ]; then
       SKIP_SETUP_DEV=true
       echo "skipping django setup dev command"
+    fi
+
+    if [ "$var" == "--skip-run-server" ]; then
+      SKIP_RUN_SERVER=true
+      echo "skipping django server run command"
     fi
 done
 
@@ -92,6 +99,11 @@ setupDev() {
   python manage.py setup_dev &
 }
 
+runServer() {
+  echo "~~~~~~~~~~~~~ running django server ~~~~~~~~~~~~~"
+  python manage.py runserver 8080
+}
+
 nc -z localhost 9092 || ( echo -e "\033[0;31mKafka isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
 wget -nv -t1 --spider 'http://localhost:8123/' || ( echo -e "\033[0;31mClickhouse isn't running. Please run\n\tdocker compose -f docker-compose.dev.yml up zookeeper kafka clickhouse db redis.\nI'll wait while you do that.\033[0m" ; bin/check_kafka_clickhouse_up )
 
@@ -103,4 +115,6 @@ $SKIP_SETUP_DEV || setupDev
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 pnpm dlx cypress open --config-file cypress.e2e.config.ts &
-python manage.py runserver 8080
+
+$SKIP_RUN_SERVER || runServer
+
