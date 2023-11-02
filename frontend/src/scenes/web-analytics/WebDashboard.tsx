@@ -33,14 +33,13 @@ const Filters = (): JSX.Element => {
                             '$geoip_country_code',
                             '$geoip_subdivision_1_code',
                             '$geoip_city_name',
-                            // initial properties should be replaced with the client session versions
-                            '$initial_pathname',
-                            '$initial_referrer',
-                            '$initial_utm_source',
-                            '$initial_utm_campaign',
-                            '$initial_utm_medium',
-                            '$initial_utm_term',
-                            '$initial_utm_content',
+                            '$client_session_initial_pathname',
+                            '$client_session_initial_referring_host',
+                            '$client_session_initial_utm_source',
+                            '$client_session_initial_utm_campaign',
+                            '$client_session_initial_utm_medium',
+                            '$client_session_initial_utm_content',
+                            '$client_session_initial_utm_term',
                         ],
                     }}
                 />
