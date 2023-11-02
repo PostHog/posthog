@@ -499,8 +499,10 @@ sqlparse==0.4.4
     #   django
 statshog==1.0.6
     # via -r requirements.in
-structlog==21.2.0
-    # via django-structlog
+structlog==23.2.0
+    # via
+    #   -r requirements.in
+    #   django-structlog
 temporalio==1.1.0
     # via -r requirements.in
 tenacity==6.1.0
