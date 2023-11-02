@@ -1,13 +1,11 @@
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { Breadcrumb, Group } from '~/types'
+import { Group } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 export interface GroupsPaginatedResponse {
     next: string | null
@@ -69,15 +67,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
             (groupTypeIndex, aggregationLabel): Noun =>
                 groupTypeIndex === -1 ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
         ],
-        breadcrumbs: [
-            (s, p) => [s.groupTypeName, p.groupTypeIndex],
-            (groupTypeName, groupTypeIndex): Breadcrumb[] => [
-                {
-                    name: capitalizeFirstLetter(groupTypeName.plural),
-                    path: urls.groups(groupTypeIndex),
-                },
-            ],
-        ],
     }),
     listeners(({ actions }) => ({
         setSearch: async ({ debounce }, breakpoint) => {
@@ -87,9 +76,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             actions.loadGroups()
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadGroups()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadGroups()
+    }),
 ])

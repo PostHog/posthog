@@ -14,7 +14,6 @@ import {
     IconLive,
     IconMessages,
     IconOpenInApp,
-    IconPerson,
     IconPinOutline,
     IconPipeline,
     IconPlus,
@@ -221,10 +220,10 @@ function Pages(): JSX.Element {
                         to={urls.eventDefinitions()}
                     />
                     <PageButton
-                        icon={<IconPerson />}
-                        identifier={Scene.Persons}
+                        icon={<IconCohort />}
+                        identifier={Scene.PersonsManagement}
                         to={urls.persons()}
-                        title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
+                        title={`Persons${showGroupsOptions ? ', cohorts & groups' : ' & cohorts'}`}
                     />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
@@ -238,7 +237,6 @@ function Pages(): JSX.Element {
                             highlight="beta"
                         />
                     </FlaggedFeature>
-                    <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>

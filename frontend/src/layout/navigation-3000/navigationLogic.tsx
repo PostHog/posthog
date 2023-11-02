@@ -19,7 +19,6 @@ import {
     IconHome,
     IconLive,
     IconPeople,
-    IconPerson,
     IconPieChart,
     IconRewindPlay,
     IconTestTube,
@@ -27,7 +26,6 @@ import {
     IconToolbar,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
-import { cohortsSidebarLogic } from './sidebars/cohorts'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
@@ -295,18 +293,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: isUsingSidebar ? undefined : urls.eventDefinitions(),
                         },
                         {
-                            identifier: Scene.Persons,
-                            label: 'Persons and groups',
-                            icon: <IconPerson />,
+                            identifier: Scene.PersonsManagement,
+                            label: 'Persons, cohorts and groups',
+                            icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
-                        },
-                        {
-                            identifier: Scene.Cohorts,
-                            label: 'Cohorts',
-                            icon: <IconPeople />,
-                            logic: isUsingSidebar ? cohortsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.cohorts(),
                         },
                     ],
                     [

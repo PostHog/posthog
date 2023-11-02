@@ -2,7 +2,7 @@ import { LemonButton, LemonDivider, LemonDropdownProps, Popover } from '@posthog
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 
 export type SidebarChangeNoticeProps = {
@@ -68,11 +68,11 @@ export function SidebarChangeNotice({ identifier, children }: SidebarChangeNotic
             showArrow
             overlay={
                 <div className="max-w-50">
-                    {notices.map((notice) => (
-                        <>
+                    {notices.map((notice, i) => (
+                        <Fragment key={i}>
                             {notice.description}
                             <LemonDivider />
-                        </>
+                        </Fragment>
                     ))}
 
                     <div className="flex justify-end">
