@@ -6,6 +6,7 @@
 #
 aiohttp>=3.8.4
 aioboto3==11.1
+aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
 amqp==5.1.1
 boto3==1.26.76
