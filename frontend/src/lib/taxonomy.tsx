@@ -1,4 +1,5 @@
 import { KeyMapping, PropertyFilterValue } from '~/types'
+import { Link } from './lemon-ui/Link'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -673,7 +674,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
-                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <Link to="https://posthog.com/docs/user-guides/sessions">our documentation.</Link>
                     <br /> <br />
                     Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
                 </span>
@@ -738,6 +739,41 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $exception: {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
+        },
+        $client_session_initial_referring_host: {
+            label: 'Referrer Host',
+            description: 'Host that the user came from. (First-touch, session-scoped)',
+            examples: ['google.com', 'facebook.com'],
+        },
+        $client_session_initial_pathname: {
+            label: 'Initial Path',
+            description: 'Path that the user started their session on. (First-touch, session-scoped)',
+            examples: ['/register', '/some/landing/page'],
+        },
+        $client_session_initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $client_session_initial_utm_campaign: {
+            label: 'Initial UTM Campaign',
+            description: 'UTM Campaign. (First-touch, session-scoped)',
+            examples: ['feature launch', 'discount'],
+        },
+        $client_session_initial_utm_medium: {
+            label: 'Initial UTM Medium',
+            description: 'UTM Medium. (First-touch, session-scoped)',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $client_session_initial_utm_content: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['bottom link', 'second button'],
+        },
+        $client_session_initial_utm_term: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['free goodies'],
         },
     },
     element: {
