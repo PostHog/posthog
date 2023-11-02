@@ -16,7 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.person import PersonSerializer
+from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -62,7 +62,7 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 class SessionRecordingSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
-    person = PersonSerializer(required=False)
+    person = MinimalPersonSerializer(required=False)
 
     class Meta:
         model = SessionRecording
