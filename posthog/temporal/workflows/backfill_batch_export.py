@@ -20,9 +20,9 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
     create_batch_export_backfill_model,
-    get_batch_exports_logger,
     update_batch_export_backfill_model_status,
 )
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 class HeartbeatDetails(typing.NamedTuple):
@@ -284,10 +284,9 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
-        logger = get_batch_exports_logger(inputs=inputs)
-        logger.info(
-            "Starting Backfill for BatchExport %s: %s - %s",
-            inputs.batch_export_id,
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id)
+        await logger.info(
+            "Starting Backfill for BatchExport: %s - %s",
             inputs.start_at,
             inputs.end_at,
         )
@@ -348,16 +347,16 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                logger.error("Backfill was cancelled.")
+                await logger.error("Backfill was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                logger.exception("Backfill failed.", exc_info=e.cause)
+                await logger.exception("Backfill failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             raise
 
         except Exception as e:
-            logger.exception("Backfill failed with an unexpected error.", exc_info=e)
+            await logger.exception("Backfill failed with an unexpected error.", exc_info=e)
             update_inputs.status = "Failed"
             raise
 
