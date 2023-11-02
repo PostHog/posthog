@@ -1,6 +1,6 @@
 import { captureException, captureMessage } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -160,7 +160,7 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.batchConsumer, partition)
+                    queryWatermarkOffsets(this.connectedBatchConsumer, partition)
                 )
             )
 
@@ -171,8 +171,14 @@ export class SessionRecordingIngester {
         }, 5000)
     }
 
+    private get connectedBatchConsumer(): KafkaConsumer | undefined {
+        // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
+        const consumer = this.batchConsumer?.consumer
+        return consumer && consumer.isConnected() ? consumer : undefined
+    }
+
     private get assignedTopicPartitions(): TopicPartition[] {
-        return this.batchConsumer?.consumer.assignments() ?? []
+        return this.connectedBatchConsumer?.assignments() ?? []
     }
 
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
@@ -503,6 +509,10 @@ export class SessionRecordingIngester {
              * e.g. round-robin and cooperative strategies will assign partitions differently
              */
 
+            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
+                return
+            }
+
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
                 return this.scheduleWork(this.onRevokePartitions(topicPartitions))
             }
@@ -758,7 +768,7 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                this.batchConsumer?.consumer.commit({
+                this.connectedBatchConsumer?.commit({
                     ...tp,
                     // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
                     // for some reason you commit the next offset you expect to read and not the one you actually have
