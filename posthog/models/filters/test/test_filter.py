@@ -3,6 +3,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional, cast
 
 from django.db.models import Q
+from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
@@ -806,6 +807,91 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                 & ~Q(group_properties__some_prop=None)
             ),
         )
+
+    def test_person_relative_date_parsing(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"created_at": "2021-04-04T12:00:00Z"},
+        )
+        filter = Filter(
+            data={
+                "properties": [
+                    {"key": "created_at", "value": "2d", "type": "person", "operator": "is_relative_date_after"}
+                ]
+            }
+        )
+
+        with self.assertNumQueries(1), freeze_time("2021-04-06T10:00:00"):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
+    def test_person_relative_date_parsing_with_override_property(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"created_at": "2021-04-04T12:00:00Z"},
+        )
+        filter = Filter(
+            data={
+                "properties": [
+                    {"key": "created_at", "value": "2m", "type": "person", "operator": "is_relative_date_after"}
+                ]
+            }
+        )
+
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(
+                    properties_to_Q(
+                        filter.property_groups.flat, override_property_values={"created_at": "2022-10-06T10:00:00Z"}
+                    )
+                )
+                .exists()
+            )
+        self.assertFalse(matched_person)
+
+    def test_person_relative_date_parsing_with_invalid_date(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"created_at": "2021-04-04T12:00:00Z"},
+        )
+        filter = Filter(
+            data={
+                "properties": [
+                    {"key": "created_at", "value": ["2m", "3d"], "type": "person", "operator": "is_relative_date_after"}
+                ]
+            }
+        )
+
+        with self.assertRaises(TypeError):
+            properties_to_Q(filter.property_groups.flat)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {"key": "created_at", "value": "bazinga", "type": "person", "operator": "is_relative_date_after"}
+                ]
+            }
+        )
+
+        with self.assertRaises(TypeError):
+            properties_to_Q(filter.property_groups.flat)
 
     def _filter_with_date_range(
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None

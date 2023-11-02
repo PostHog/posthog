@@ -10,7 +10,8 @@ from typing import (
     Union,
     cast,
 )
-
+from zoneinfo import ZoneInfo
+from dateutil.relativedelta import relativedelta
 from dateutil import parser
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
@@ -143,6 +144,9 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             return False
 
     if operator == "gt":
+        # TODO: We can do type conversion here too, first check if type is a number, then convert to number??
+        # OR, introduce numeric operators like gt_num, lt_num, etc.???
+        # I do like the latter, because it's more explicit, gets rid of all random confusion everywhere.
         return type(override_value) == type(value) and override_value > value
 
     if operator == "gte":
@@ -154,21 +158,25 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     if operator == "lte":
         return type(override_value) == type(value) and override_value <= value
 
-    if operator in ["is_date_before", "is_date_after"]:
+    if operator in ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"]:
         try:
-            parsed_date = parser.parse(str(value))
-            parsed_date = convert_to_datetime_aware(parsed_date)
+            if operator in ["is_relative_date_before", "is_relative_date_after"]:
+                parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
+                # TODO: what to do about time zones? - infer from saved property value?
+            else:
+                parsed_date = parser.parse(str(value))
+                parsed_date = convert_to_datetime_aware(parsed_date)
         except Exception:
             return False
 
         if isinstance(override_value, datetime.datetime):
             override_date = convert_to_datetime_aware(override_value)
-            if operator == "is_date_before":
+            if operator in ("is_date_before", "is_relative_date_before"):
                 return override_date < parsed_date
             else:
                 return override_date > parsed_date
         elif isinstance(override_value, datetime.date):
-            if operator == "is_date_before":
+            if operator in ("is_date_before", "is_relative_date_before"):
                 return override_value < parsed_date.date()
             else:
                 return override_value > parsed_date.date()
@@ -176,7 +184,7 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             try:
                 override_date = parser.parse(override_value)
                 override_date = convert_to_datetime_aware(override_date)
-                if operator == "is_date_before":
+                if operator in ("is_date_before", "is_relative_date_before"):
                     return override_date < parsed_date
                 else:
                     return override_date > parsed_date
@@ -298,9 +306,16 @@ def property_to_Q(
             negated=True,
         )
 
-    if property.operator in ("is_date_after", "is_date_before"):
-        effective_operator = "gt" if property.operator == "is_date_after" else "lt"
-        return Q(**{f"{column}__{property.key}__{effective_operator}": value})
+    if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
+        effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
+        # TODO: defend against invalid date formats?
+        effective_value = (
+            relative_date_parse_for_feature_flag_matching(value).isoformat()
+            if property.operator in ("is_relative_date_before", "is_relative_date_after")
+            else value
+        )
+        # TODO: what to do about time zones? - infer from saved property value?
+        return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
     if property.operator == "is_not":
         # is_not is inverse of exact
@@ -381,3 +396,28 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
         or value is True
         or value is False
     )
+
+
+def relative_date_parse_for_feature_flag_matching(value: str) -> datetime.datetime:
+    regex = r"(?P<number>[0-9]+)(?P<type>[a-z])"
+    match = re.search(regex, value)
+    parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
+    if match:
+        number = int(match.group("number"))
+        type = match.group("type")
+        if type == "h":
+            parsed_dt = parsed_dt - relativedelta(hours=number)
+        elif type == "d":
+            parsed_dt = parsed_dt - relativedelta(days=number)
+        elif type == "w":
+            parsed_dt = parsed_dt - relativedelta(weeks=number)
+        elif type == "m":
+            parsed_dt = parsed_dt - relativedelta(months=number)
+        elif type == "y":
+            parsed_dt = parsed_dt - relativedelta(years=number)
+        else:
+            raise ValueError(f"Invalid relative date format: {value}")
+
+        return parsed_dt
+    else:
+        raise ValueError(f"Invalid relative date format: {value}")

@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
+from freezegun import freeze_time
 import pytest
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -4138,6 +4139,166 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
+
+    def test_numeric_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "number": 30,
+            },
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": 100,
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        # with self.settings(DEBUG=True):
+        #     from django.db import connection, reset_queries
+        #     reset_queries()
+        #     self.match_flag(feature_flag2, "307")
+        #     print(connection.queries[2]["sql"])
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+    @freeze_time("2022-05-01")
+    def test_relative_date_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "date_1": "2022-04-30",
+                "date_2": "2022-03-01",
+                "date_3": "2022-04-30T12:00:00-10:00",
+            },
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_1",
+                                "value": "6h",
+                                "operator": "is_relative_date_before",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_3",
+                                "value": "2d",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_3",
+                                "value": "2h",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        # TODO: OHHH: Just having the right type from the frontend will be good enough??
+        # i.e. send as integer/float!!
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2021-01-04"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2023-01-04"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T08:01:00-10:00"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
 
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
