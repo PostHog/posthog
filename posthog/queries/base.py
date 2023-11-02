@@ -142,6 +142,7 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         except re.error:
             return False
 
+    # TODO: Use the input property to determine what to compare against!!
     if operator == "gt":
         return type(override_value) == type(value) and override_value > value
 
