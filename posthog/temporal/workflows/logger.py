@@ -11,18 +11,18 @@ from django.conf import settings
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 
-async def bind_batch_exports_logger(team_id: int, export_destination: str) -> structlog.stdlib.AsyncBoundLogger:
+async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> structlog.stdlib.AsyncBoundLogger:
     """Return a logger for BatchExports."""
     if not structlog.is_configured():
         await configure_logger()
 
     logger = structlog.get_logger()
 
-    return logger.bind(team=team_id, destination=export_destination)
+    return logger.bind(team=team_id, destination=destination)
 
 
 async def configure_logger():
-    queue = asyncio.Queue(maxsize=-1)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=-1)
     put_in_queue = PutInQueueProcessor(queue)
 
     structlog.configure(
@@ -69,13 +69,13 @@ class PutInQueueProcessor:
     def __init__(self, queue: asyncio.Queue):
         self.queue = queue
 
-    def __call__(self, logger: logging.Logger, method_name: str, event_dict: structlog.typing.EventDict):
+    def __call__(self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict):
         self.queue.put_nowait(event_dict)
 
         return event_dict
 
 
-def add_batch_export_context(logger: logging.Logger, method_name: str, event_dict: structlog.typing.EventDict):
+def add_batch_export_context(logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict):
     """A StructLog processor to populate event dict with batch export context variables.
 
     More specifically, the batch export context variables are coming from Temporal:

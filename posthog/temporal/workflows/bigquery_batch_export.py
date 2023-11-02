@@ -17,12 +17,12 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 def load_jsonl_file_to_bigquery_table(jsonl_file, table, table_schema, bigquery_client):
@@ -98,9 +98,9 @@ def bigquery_client(inputs: BigQueryInsertInputs):
 @activity.defn
 async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
     """Activity streams data from ClickHouse to BigQuery."""
-    logger = get_batch_exports_logger(inputs=inputs)
-    logger.info(
-        "Running BigQuery export batch %s - %s",
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
+    await logger.info(
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -119,14 +119,14 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
         )
 
         if count == 0:
-            logger.info(
+            await logger.info(
                 "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        logger.info("BatchExporting %s rows to BigQuery", count)
+        await logger.info("BatchExporting %s rows to BigQuery", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -173,7 +173,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     jsonl_file.write_records_to_jsonl([row])
 
                     if jsonl_file.tell() > settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES:
-                        logger.info(
+                        await logger.info(
                             "Copying %s records of size %s bytes to BigQuery",
                             jsonl_file.records_since_last_reset,
                             jsonl_file.bytes_since_last_reset,
@@ -187,7 +187,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                         jsonl_file.reset()
 
                 if jsonl_file.tell() > 0:
-                    logger.info(
+                    await logger.info(
                         "Copying %s records of size %s bytes to BigQuery",
                         jsonl_file.records_since_last_reset,
                         jsonl_file.bytes_since_last_reset,
@@ -214,9 +214,9 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="BigQuery")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
+        await logger.info(
             "Starting BigQuery export batch %s - %s",
             data_interval_start,
             data_interval_end,

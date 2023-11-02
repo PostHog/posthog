@@ -16,12 +16,12 @@ from posthog.temporal.workflows.batch_exports import (
     UpdateBatchExportRunStatusInputs,
     create_export_run,
     execute_batch_export_insert_activity,
-    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.logger import bind_batch_exports_logger
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -98,9 +98,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    logger = get_batch_exports_logger(inputs=inputs)
-    logger.info(
-        "Running Snowflake export batch %s - %s",
+    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
+    await logger.info(
+        "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
@@ -119,14 +119,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         )
 
         if count == 0:
-            logger.info(
+            await logger.info(
                 "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        logger.info("BatchExporting %s rows to Snowflake", count)
+        await logger.info("BatchExporting %s rows", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -183,7 +183,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     except json.JSONDecodeError:
-                        logger.info(
+                        await logger.info(
                             "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
                         )
                         # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -219,7 +219,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.tell()
                         and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
                     ):
-                        logger.info("Uploading to Snowflake")
+                        await logger.info("Uploading to Snowflake")
 
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
@@ -294,10 +294,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
-        logger = get_batch_exports_logger(inputs=inputs)
+        logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        logger.info(
-            "Starting Snowflake export batch %s - %s",
+        await logger.info(
+            "Starting export batch %s - %s",
             data_interval_start,
             data_interval_end,
         )
