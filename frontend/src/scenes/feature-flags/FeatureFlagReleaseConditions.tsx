@@ -18,7 +18,7 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { cohortsModel } from '~/models/cohortsModel'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import clsx from 'clsx'
 
@@ -126,10 +126,10 @@ export function FeatureFlagReleaseConditions({
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
                             your product or website.{' '}
-                            <a href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags" target="_blank">
+                            <Link to="https://posthog.com/docs/integrate/client/js#bootstrapping-flags" target="_blank">
                                 {' '}
                                 Learn more about how to make feature flags available instantly.
-                            </a>
+                            </Link>
                         </LemonBanner>
                     )}
 
@@ -159,15 +159,14 @@ export function FeatureFlagReleaseConditions({
                                         ) : null}
 
                                         {property.type === 'cohort' ? (
-                                            <a
-                                                href={urls.cohort(property.value)}
+                                            <Link
+                                                to={urls.cohort(property.value)}
                                                 target="_blank"
-                                                rel="noopener"
                                                 className="simple-tag tag-light-blue text-primary-alt display-value"
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||
                                                     `ID ${property.value}`}
-                                            </a>
+                                            </Link>
                                         ) : (
                                             [
                                                 ...(Array.isArray(property.value) ? property.value : [property.value]),

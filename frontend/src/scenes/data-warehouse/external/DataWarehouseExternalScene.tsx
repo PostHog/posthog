@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -43,11 +43,11 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 caption={
                     <div>
                         These are external data sources you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
+                        </Link>
                         . Connect your own tables from S3 to query data from outside posthog.{' '}
-                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
+                        <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }
             />
