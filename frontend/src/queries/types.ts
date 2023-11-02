@@ -15,6 +15,7 @@ export interface QueryContext {
     emptyStateHeading?: string
     emptyStateDetail?: string
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
+    onDataPointClick?: (record: unknown) => void
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

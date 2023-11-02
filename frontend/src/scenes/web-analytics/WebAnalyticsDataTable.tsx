@@ -195,9 +195,15 @@ export const WebStatsTableTile = ({
                 onClick: () => onClick(breakdownValue),
             }
         }
+
+        const onDataPointClick = (record: unknown): void => {
+            console.log({ record })
+        }
+
         return {
             ...webAnalyticsDataTableQueryContext,
             rowProps,
+            onDataPointClick,
         }
     }, [onClick])
 
