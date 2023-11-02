@@ -14,7 +14,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 async def bind_batch_exports_logger(
     team_id: int, destination: str | None = None
 ) -> structlog.types.FilteringBoundLogger:
-    """Return a logger for BatchExports."""
+    """Return a bound logger for BatchExports."""
     if not structlog.is_configured():
         await configure_logger()
 
@@ -32,9 +32,18 @@ async def configure_logger(
 ) -> tuple:
     """Configure a StructLog logger for batch exports.
 
+    Configuring the logger involves:
+    * Setting up processors.
+    * Spawning a task to listen for Kafka logs.
+    * Spawning a task to shutdown gracefully on worker shutdown.
+
     Args:
+        logger_factory: Optionally, override the logger_factory.
+        extra_processors: Optionally, add any processors at the end of the chain.
         queue: Optionally, bring your own log queue.
         producer: Optionally, bring your own Kafka producer.
+        cache_logger_on_first_use: Set whether to cache logger for performance.
+            Should always be True except in tests.
     """
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
     put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
@@ -82,7 +91,7 @@ async def configure_logger(
 class PutInBatchExportsLogQueueProcessor:
     """A StructLog processor that puts event_dict into a queue.
 
-    The idea is that any event_dicts can be processed later by any queue listeners.
+    We format event_dict as a message to be sent to Kafka by a queue listener.
     """
 
     def __init__(self, queue: asyncio.Queue):
@@ -91,6 +100,11 @@ class PutInBatchExportsLogQueueProcessor:
     def __call__(
         self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
     ) -> structlog.types.EventDict:
+        """Put a message into the queue, if we have all the necessary details.
+
+        Always return event_dict so that processors that come later in the chain can do
+        their own thing.
+        """
         try:
             message_dict = {
                 "instance_id": event_dict["workflow_run_id"],
@@ -234,7 +248,11 @@ class KafkaLogProducerFromQueue:
         )
 
     async def listen_and_produce(self):
-        """Listen to messages in queue and produce them to Kafka as they come."""
+        """Listen to messages in queue and produce them to Kafka as they come.
+
+        This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
+        to have messages.
+        """
         await self.producer.start()
 
         try:
