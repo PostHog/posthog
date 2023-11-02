@@ -11,7 +11,9 @@ from django.conf import settings
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 
-async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> structlog.stdlib.BoundLogger:
+async def bind_batch_exports_logger(
+    team_id: int, destination: str | None = None
+) -> structlog.types.FilteringBoundLogger:
     """Return a logger for BatchExports."""
     if not structlog.is_configured():
         await configure_logger()
