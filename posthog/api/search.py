@@ -17,7 +17,7 @@ class SearchViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def list(self, request: Request, **kw) -> HttpResponse:
-        query = request.GET.get("q", "").strip()
+        query = process_query(request.GET.get("q", "").strip())
         counts = {}
 
         # empty queryset to union things onto it
@@ -42,11 +42,13 @@ def process_query(query: str):
     """
     query = re.sub(UNSAFE_CHARACTERS, " ", query).strip()
     query = re.sub(r"\s+", " & ", query)  # combine words with &
+    if len(query) == 0:
+        return None
     query += ":*"  # prefix match last word
     return query
 
 
-def class_queryset(klass: type[Model], team: Team, query: str):
+def class_queryset(klass: type[Model], team: Team, query: str | None):
     """Builds a queryset for the class."""
     type = class_to_type(klass)
     values = ["type", "result_id", "name"]
@@ -60,7 +62,7 @@ def class_queryset(klass: type[Model], team: Team, query: str):
         qs = qs.annotate(result_id=Cast("pk", CharField()))
 
     if query:
-        qs = qs.annotate(rank=SearchRank(SearchVector("name"), SearchQuery(process_query(query), search_type="raw")))
+        qs = qs.annotate(rank=SearchRank(SearchVector("name"), SearchQuery(query, search_type="raw")))
         qs = qs.filter(rank__gt=0.05)
         qs = qs.order_by("-rank")
         values.append("rank")

@@ -38,6 +38,15 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.json()["counts"]["dashboard"], 3)
         self.assertEqual(response.json()["counts"]["feature_flag"], 3)
 
+    def test_search_with_fully_invalid_query(self):
+        response = self.client.get("/api/projects/@current/search?q=%3E")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 6)
+        self.assertEqual(response.json()["counts"]["action"], 0)
+        self.assertEqual(response.json()["counts"]["dashboard"], 3)
+        self.assertEqual(response.json()["counts"]["feature_flag"], 3)
+
     def test_entities_from_other_teams(self):
         other_team = Team.objects.create(organization=self.organization)
         Dashboard.objects.create(name="permissions", team=self.team, created_by=self.user)
@@ -60,14 +69,16 @@ class TestSearch(APIBaseTest):
         ("some te", "some & te:*", "'some' & 'te':*"),
         ("we", "we:*", "'we':*"),
         ("a'&|!<>():b", "a & b:*", "'a' & 'b':*"),
+        ("!", None, None),
     ],
 )
 def test_process_query(query, expected, dbresult):
     processed_query = process_query(query)
     assert processed_query == expected
 
-    cursor = connection.cursor()
-    cursor.execute("SELECT tsquery(%s);", (processed_query,))
-    result = cursor.fetchall()
+    if dbresult is not None:
+        cursor = connection.cursor()
+        cursor.execute("SELECT tsquery(%s);", (processed_query,))
+        result = cursor.fetchall()
 
-    assert result[0][0] == dbresult
+        assert result[0][0] == dbresult
