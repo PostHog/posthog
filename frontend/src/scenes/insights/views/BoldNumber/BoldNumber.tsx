@@ -13,7 +13,7 @@ import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
-import { LemonRow } from '@posthog/lemon-ui'
+import { LemonRow, Link } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -174,7 +174,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 ) : previousValue === null || !showPersonsModal ? (
                     'previous period'
                 ) : (
-                    <a
+                    <Link
                         onClick={() => {
                             if (previousPeriodSeries.persons?.url) {
                                 openPersonsModal({
@@ -185,7 +185,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                         }}
                     >
                         previous period
-                    </a>
+                    </Link>
                 )}
             </span>
         </LemonRow>

@@ -11,6 +11,7 @@ import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
+import { Link } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: ConfirmOrganization,
@@ -29,13 +30,13 @@ export function ConfirmOrganization(): JSX.Element {
                     <strong>
                         Trying to join an existing organization? <br />
                         {!showNewOrgWarning && (
-                            <a
+                            <Link
                                 onClick={() => {
                                     setShowNewOrgWarning(true)
                                 }}
                             >
                                 Read more
-                            </a>
+                            </Link>
                         )}
                     </strong>
                 </p>
@@ -92,25 +93,25 @@ export function ConfirmOrganization(): JSX.Element {
 
             <div className="text-center terms-and-conditions-text mt-4 text-muted">
                 By creating an account, you agree to our{' '}
-                <a href={`https://posthog.com/terms`} target="_blank" rel="noopener">
-                    Terms of Service
-                </a>{' '}
+                <Link to={`https://posthog.com/terms`} target="_blank">
+                    Terms of Service
+                </Link>{' '}
                 and{' '}
-                <a href={`https://posthog.com/privacy`} target="_blank" rel="noopener">
-                    Privacy Policy
-                </a>
+                <Link to={`https://posthog.com/privacy`} target="_blank">
+                    Privacy Policy
+                </Link>
                 .
             </div>
             <LemonDivider thick dashed className="my-6" />
             <div className="text-center terms-and-conditions-text mt-4 text-muted">
                 Have questions?{' '}
-                <a href={`https://posthog.com/support`} target="_blank" rel="noopener">
+                <Link to={`https://posthog.com/support`} target="_blank">
                     Visit support
-                </a>{' '}
+                </Link>{' '}
                 or{' '}
-                <a href={`https://posthog.com/docs`} target="_blank" rel="noopener">
+                <Link to={`https://posthog.com/docs`} target="_blank">
                     read our documentation
-                </a>
+                </Link>
                 .
             </div>
         </BridgePage>

@@ -13,6 +13,7 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { Link } from '@posthog/lemon-ui'
 
 interface PersonsProps {
     cohort?: CohortType['id']
@@ -82,8 +83,8 @@ export function PersonsScene({
                                             <>
                                                 Exporting by CSV is limited to 10,000 users.
                                                 <br />
-                                                To export more, please use <a href={apiDocsURL}>the API</a>. Do you want
-                                                to export by CSV?
+                                                To export more, please use <Link to={apiDocsURL}>the API</Link>. Do you
+                                                want to export by CSV?
                                             </>
                                         }
                                         onConfirm={() => triggerExport(exporterProps[0])}

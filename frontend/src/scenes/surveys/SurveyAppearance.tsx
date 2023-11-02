@@ -1,5 +1,5 @@
 import './SurveyAppearance.scss'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
@@ -318,9 +318,9 @@ export function BaseAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -528,9 +528,9 @@ export function SurveyRatingAppearance({
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
-                            <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            <Link to="https://posthog.com" target="_blank" className="footer-branding">
                                 Survey by {posthogLogoSVG}
-                            </a>
+                            </Link>
                         )}
                     </div>
                 </div>
@@ -616,9 +616,9 @@ export function SurveyMultipleChoiceAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -668,9 +668,9 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
-                    <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                    <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
-                    </a>
+                    </Link>
                 )}
             </div>
         </div>

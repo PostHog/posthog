@@ -13,6 +13,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <>
+            {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href={href}
                 className="w-full text-primary-alt bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
