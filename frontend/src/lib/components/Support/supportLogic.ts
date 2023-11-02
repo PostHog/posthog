@@ -12,6 +12,7 @@ import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import * as Sentry from '@sentry/react'
+import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -110,6 +111,7 @@ export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -212,6 +214,8 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
                 message: '',
             })
+
+            actions.openSidePanel(SidePanelTab.Feedback)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
