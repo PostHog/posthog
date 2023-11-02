@@ -46,11 +46,11 @@ const shouldForcePageLoad = (input: any): boolean => {
 }
 
 const isPostHogDomain = (url: string): boolean => {
-    return /https:\/\/((app|eu)\.)?posthog\.com/.test(url)
+    return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
 const isPostHogComDomain = (url: string): boolean => {
-    return /https:\/\/(www\.)?posthog\.com/.test(url)
+    return /^https:\/\/(www\.)?posthog\.com/.test(url)
 }
 
 /**
