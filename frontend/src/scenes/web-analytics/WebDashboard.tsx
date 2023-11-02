@@ -14,7 +14,7 @@ const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     return (
-        <div className="sticky top-0 bg-white z-20 pt-2">
+        <div className="sticky top-0 z-20 pt-2">
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <PropertyFilters
