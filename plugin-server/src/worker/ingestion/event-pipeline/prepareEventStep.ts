@@ -7,7 +7,6 @@ import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
-
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         // TODO: make that metric name more generic when transitionning to prometheus
