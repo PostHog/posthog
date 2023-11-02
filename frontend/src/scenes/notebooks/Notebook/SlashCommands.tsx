@@ -362,8 +362,15 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
     const execute = async (command: SlashCommandsItem['command']): Promise<void> => {
         if (editor) {
+            const selectedNode = editor.getSelectedNode()
+            const isTextNode = selectedNode != null && selectedNode.isText
             const position = mode === 'slash' ? range.from : getPos()
-            const chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+            const chain =
+                mode === 'slash'
+                    ? editor.deleteRange(range)
+                    : isTextNode
+                    ? editor.chain()
+                    : editor.chain().insertContentAt(position, { type: 'paragraph' })
 
             const partialCommand = await command(chain, position)
             partialCommand.run()
