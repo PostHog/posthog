@@ -532,12 +532,14 @@ export class SessionRecordingIngester {
         if (this.partitionLockInterval) {
             clearInterval(this.partitionLockInterval)
         }
+
+        const assignedPartitions = this.assignedTopicPartitions
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
 
         // Simulate a revoke command to try and flush all sessions
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
-        void this.scheduleWork(this.onRevokePartitions(this.assignedTopicPartitions))
+        void this.scheduleWork(this.onRevokePartitions(assignedPartitions))
         void this.scheduleWork(this.realtimeManager.unsubscribe())
         void this.scheduleWork(this.replayEventsIngester.stop())
         void this.scheduleWork(this.consoleLogsIngester.stop())
