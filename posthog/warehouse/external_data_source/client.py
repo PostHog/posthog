@@ -23,6 +23,6 @@ def send_request(path, method, params=None, payload=None):
     response_payload = response.json()
 
     if not response.ok:
-        raise ValueError(response_payload["message"])
+        raise ValueError(response_payload["detail"])
 
     return response_payload

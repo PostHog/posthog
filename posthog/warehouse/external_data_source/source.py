@@ -70,7 +70,7 @@ def create_stripe_source(payload: StripeSourcePayload, workspace_id: str) -> Ext
 
 
 def _create_source(payload: Dict) -> ExternalDataSource:
-    response = send_request(AIRBYTE_SOURCE_URL, payload=payload)
+    response = send_request(AIRBYTE_SOURCE_URL, method="POST", payload=payload)
     return ExternalDataSource(
         source_id=response["sourceId"],
         name=response["name"],
@@ -80,4 +80,4 @@ def _create_source(payload: Dict) -> ExternalDataSource:
 
 
 def delete_source(source_id):
-    send_request(AIRBYTE_SOURCE_URL + "/" + source_id)
+    send_request(AIRBYTE_SOURCE_URL + "/" + source_id, method="DELETE")

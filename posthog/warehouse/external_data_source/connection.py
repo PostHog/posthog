@@ -21,7 +21,7 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
         "destinationId": destination_id,
     }
 
-    response = send_request(AIRBYTE_CONNECTION_URL, payload=payload)
+    response = send_request(AIRBYTE_CONNECTION_URL, method="POST", payload=payload)
 
     update_connection_stream(response["connectionId"])
 
@@ -44,22 +44,22 @@ def update_connection_stream(connection_id: str):
         "namespaceFormat": None,
     }
 
-    send_request(connection_id_url, payload=payload)
+    send_request(connection_id_url, method="PATCH", payload=payload)
 
 
 def delete_connection(connection_id: str) -> None:
-    send_request(AIRBYTE_CONNECTION_URL + "/" + connection_id)
+    send_request(AIRBYTE_CONNECTION_URL + "/" + connection_id, method="DELETE")
 
 
 # Fire and forget
 def start_sync(connection_id: str):
     payload = {"jobType": "sync", "connectionId": connection_id}
-    send_request(AIRBYTE_JOBS_URL, payload=payload)
+    send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
 
 
 def retrieve_sync(connection_id: str):
     params = {"connectionId": connection_id, "limit": 1}
-    response = send_request(AIRBYTE_JOBS_URL, params=params)
+    response = send_request(AIRBYTE_JOBS_URL, method="GET", params=params)
 
     data = response.get("data", [])
     if not data:

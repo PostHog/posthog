@@ -24,7 +24,7 @@ def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestinati
         "workspaceId": workspace_id,
     }
 
-    response = send_request(AIRBYTE_DESTINATION_URL, payload=payload)
+    response = send_request(AIRBYTE_DESTINATION_URL, method="POST", payload=payload)
 
     return ExternalDataDestination(
         destination_id=response["destinationId"],
@@ -32,4 +32,4 @@ def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestinati
 
 
 def delete_destination(destination_id: str) -> None:
-    send_request(AIRBYTE_DESTINATION_URL + "/" + destination_id)
+    send_request(AIRBYTE_DESTINATION_URL + "/" + destination_id, method="DELETE")
