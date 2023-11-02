@@ -562,17 +562,14 @@ describe('ingester', () => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
             const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
-            await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
+            mockAssignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
             await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
 
             expect(
                 Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
 
-            const rebalancePromises = [
-                ingester.onRevokePartitions([createTP(2), createTP(3)]),
-                otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
-            ]
+            const rebalancePromises = [ingester.onRevokePartitions([createTP(2), createTP(3)])]
 
             // Should immediately be removed from the tracked sessions
             expect(
@@ -581,6 +578,7 @@ describe('ingester', () => {
 
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
+            mockAssignments.mockImplementation(() => [createTP(2), createTP(3)])
             await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
             await Promise.all(rebalancePromises)
 
@@ -632,7 +630,6 @@ describe('ingester', () => {
     describe('stop()', () => {
         const setup = async (): Promise<void> => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-            await ingester.onAssignPartitions([createTP(1)])
             await ingester.handleEachBatch(partitionMsgs1)
         }
 

@@ -619,7 +619,7 @@ export class SessionRecordingIngester {
         // Reset all metrics for the revoked partitions
         topicPartitions.forEach((topicPartition: TopicPartition) => {
             const partition = topicPartition.partition
-            partitionsToDrop[partition] = this.partitionMetrics[partition]
+            partitionsToDrop[partition] = this.partitionMetrics[partition] ?? {}
             delete this.partitionMetrics[partition]
 
             // Revoke the high water mark for this partition so we are essentially "reset"
@@ -711,6 +711,7 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
+        console.log(partitions)
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
                 /**
