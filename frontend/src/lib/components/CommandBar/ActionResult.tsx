@@ -18,7 +18,7 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
     // const { scrolling } = useValues(searchBarLogic)
     // const { onMouseEnterResult, onMouseLeaveResult, openResult, setScrolling } = useActions(searchBarLogic)
 
-    // const ref = useRef<HTMLDivElement | null>(null)
+    const ref = useRef<HTMLDivElement | null>(null)
 
     // useLayoutEffect(() => {
     //     if (keyboardFocused) {
@@ -60,20 +60,11 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
             // onClick={() => {
             //     openResult(resultIndex)
             // }}
-            // ref={ref}
+            ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
                 <span className="text-muted-3000 text-xs">{result.source.scope}</span>
-
                 <span className="text-text-3000">{result.display}</span>
-                {/* <span className="text-trace-3000 text-xs">
-                    {location.host}
-                    <span className="text-muted-3000">{urlForResult(result)}</span>
-                </span> */}
-                {/* <div key={command.index} className="flex">
-                    <command.icon className="" />
-                    <div className="">{command.display}</div>
-                </div> */}
             </div>
         </div>
     )

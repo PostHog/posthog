@@ -9,7 +9,7 @@ import { searchBarLogic } from './searchBarLogic'
 import SearchResult, { SearchResultSkeleton } from './SearchResult'
 
 const ActionResults = (): JSX.Element => {
-    // const { filterSearchResults, searchResponseLoading, activeResultIndex, keyboardResultIndex, maxIndex } =
+    // const { activeResultIndex, keyboardResultIndex, maxIndex } =
     //     useValues(searchBarLogic)
     // const { onArrowUp, onArrowDown, openResult } = useActions(searchBarLogic)
     const { searchResults } = useValues(actionBarLogic)
@@ -35,14 +35,14 @@ const ActionResults = (): JSX.Element => {
         <div className="grow overscroll-none overflow-y-auto">
             {searchResults?.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center p-3">
-                    <h3 className="mb-0 text-xl">No results</h3>
-                    <p className="opacity-75 mb-0">This doesn't happen often, but we're stumped!</p>
+                    <h3 className="mb-0 text-xl">No commands</h3>
+                    <p className="opacity-75 mb-0">Sorry, there isn't a matching action.</p>
                     <DetectiveHog height={150} width={150} />
                 </div>
             )}
-            {searchResults?.map((result, index) => (
+            {searchResults?.map((result: CommandResultDisplayable, index: number) => (
                 <ActionResult
-                    key={`${result.type}_${result.result_id}`}
+                    key={`command_result_${result.index}`}
                     result={result}
                     resultIndex={index}
                     // focused={index === activeResultIndex}
