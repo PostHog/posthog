@@ -160,12 +160,19 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.connectedBatchConsumer, partition)
+                    queryWatermarkOffsets(this.connectedBatchConsumer, partition).catch((err) => {
+                        // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
+                        // as it is currently only used for reporting lag.
+                        captureException(err)
+                        return [undefined, undefined]
+                    })
                 )
             )
 
             return results.reduce((acc, [partition, highOffset]) => {
-                acc[partition] = highOffset
+                if (partition && highOffset !== undefined) {
+                    acc[partition] = highOffset
+                }
                 return acc
             }, {} as Record<number, number>)
         }, 5000)
