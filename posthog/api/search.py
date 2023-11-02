@@ -1,6 +1,7 @@
 import re
+from typing import Any
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
-from django.db.models import Model, Value, CharField, F
+from django.db.models import Model, Value, CharField, F, QuerySet
 from django.db.models.functions import Cast
 from django.http import HttpResponse
 from rest_framework import viewsets
@@ -53,7 +54,7 @@ def class_queryset(klass: type[Model], team: Team, query: str | None):
     type = class_to_type(klass)
     values = ["type", "result_id", "name"]
 
-    qs = klass.objects.filter(team=team)
+    qs: QuerySet[Any] = klass.objects.filter(team=team)
     qs = qs.annotate(type=Value(type, output_field=CharField()))
 
     if type == "insight":
