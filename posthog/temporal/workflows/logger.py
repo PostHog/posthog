@@ -11,37 +11,52 @@ from django.conf import settings
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 
-async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> structlog.stdlib.AsyncBoundLogger:
+async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> structlog.stdlib.BoundLogger:
     """Return a logger for BatchExports."""
     if not structlog.is_configured():
         await configure_logger()
 
     logger = structlog.get_logger()
 
-    return logger.bind(team=team_id, destination=destination)
+    return logger.new(team_id=team_id, destination=destination)
 
 
-async def configure_logger():
-    queue: asyncio.Queue = asyncio.Queue(maxsize=-1)
-    put_in_queue = PutInQueueProcessor(queue)
+async def configure_logger(
+    logger_factory=structlog.PrintLoggerFactory,
+    extra_processors: list[structlog.types.Processor] | None = None,
+    queue: asyncio.Queue | None = None,
+    producer: aiokafka.AIOKafkaProducer | None = None,
+    cache_logger_on_first_use: bool = True,
+) -> tuple:
+    """Configure a StructLog logger for batch exports.
+
+    Args:
+        queue: Optionally, bring your own log queue.
+        producer: Optionally, bring your own Kafka producer.
+    """
+    log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
+    put_in_queue = PutInBatchExportsLogQueueProcessor(log_queue)
+
+    base_processors: list[structlog.types.Processor] = [
+        structlog.processors.add_log_level,
+        structlog.processors.format_exc_info,
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        add_batch_export_context,
+        put_in_queue,
+        structlog.processors.EventRenamer("msg"),
+        structlog.processors.JSONRenderer(),
+    ]
+    extra_processors_to_add = extra_processors if extra_processors is not None else []
 
     structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.processors.add_log_level,
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.format_exc_info,
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
-            add_batch_export_context,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            put_in_queue,
-            structlog.processors.KeyValueRenderer(),
-        ],
-        wrapper_class=structlog.stdlib.AsyncBoundLogger,
-        cache_logger_on_first_use=True,
+        processors=base_processors + extra_processors_to_add,
+        logger_factory=logger_factory(),
+        cache_logger_on_first_use=cache_logger_on_first_use,
     )
-    task = asyncio.create_task(KafkaLogProducerFromQueue(queue=queue, topic=KAFKA_LOG_ENTRIES).listen_and_produce())
+    listen_task = asyncio.create_task(
+        KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer).listen_and_produce()
+    )
 
     async def worker_shutdown_handler():
         """Gracefully handle a Temporal Worker shutting down.
@@ -52,15 +67,17 @@ async def configure_logger():
         """
         await temporalio.activity.wait_for_worker_shutdown()
 
-        await queue.join()
-        task.cancel()
+        await log_queue.join()
+        listen_task.cancel()
 
-        await asyncio.wait([task])
+        await asyncio.wait([listen_task])
 
-    asyncio.create_task(worker_shutdown_handler())
+    worker_shutdown_handler_task = asyncio.create_task(worker_shutdown_handler())
+
+    return (listen_task, worker_shutdown_handler_task)
 
 
-class PutInQueueProcessor:
+class PutInBatchExportsLogQueueProcessor:
     """A StructLog processor that puts event_dict into a queue.
 
     The idea is that any event_dicts can be processed later by any queue listeners.
@@ -69,8 +86,25 @@ class PutInQueueProcessor:
     def __init__(self, queue: asyncio.Queue):
         self.queue = queue
 
-    def __call__(self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict):
-        self.queue.put_nowait(event_dict)
+    def __call__(
+        self, logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
+    ) -> structlog.types.EventDict:
+        try:
+            message_dict = {
+                "instance_id": event_dict["workflow_run_id"],
+                "level": event_dict["level"],
+                "log_source": event_dict["log_source"],
+                "log_source_id": event_dict["log_source_id"],
+                "message": event_dict["event"],
+                "team_id": event_dict["team_id"],
+                "timestamp": event_dict["timestamp"],
+            }
+        except KeyError:
+            # We don't have the required keys to ingest this log.
+            # This could be because we are running outside an Activity/Workflow context.
+            return event_dict
+
+        self.queue.put_nowait(json.dumps(message_dict).encode("utf-8"))
 
         return event_dict
 
@@ -101,7 +135,7 @@ def add_batch_export_context(logger: logging.Logger, method_name: str, event_dic
 
     if workflow_type == "backfill-batch-export":
         # This works because the WorkflowID is made up like f"{batch_export_id}-Backfill-{data_interval_end}"
-        log_source_id = workflow_id.split("Backfill")[0]
+        log_source_id = workflow_id.split("-Backfill")[0]
         log_source = "batch_exports_backfill"
     else:
         # This works because the WorkflowID is made up like f"{batch_export_id}-{data_interval_end}"
@@ -185,16 +219,17 @@ class KafkaLogProducerFromQueue:
         producer: aiokafka.AIOKafkaProducer | None = None,
     ):
         self.queue = queue
+        self.topic = topic
+        self.key = key
         self.producer = (
             producer
             if producer is not None
             else aiokafka.AIOKafkaProducer(
                 bootstrap_servers=settings.KAFKA_HOSTS,
-                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTE1XT",
+                acks="all",
             )
         )
-        self.topic = topic
-        self.key = key
 
     async def listen_and_produce(self):
         """Listen to messages in queue and produce them to Kafka as they come."""
@@ -202,21 +237,9 @@ class KafkaLogProducerFromQueue:
 
         try:
             while True:
-                event_dict = await self.queue.get()
+                msg = await self.queue.get()
 
-                data = {
-                    "instance_id": event_dict["workflow_run_id"],
-                    "level": event_dict["level"],
-                    "log_source": event_dict["log_source"],
-                    "log_source_id": event_dict["log_source_id"],
-                    "message": event_dict["event"],
-                    "team_id": event_dict["team"],
-                    "timestamp": event_dict["timestamp"],
-                }
-
-                kafka_message = json.dumps(data).encode("utf-8")
-
-                await self.producer.send_and_wait(self.topic, kafka_message, key=self.key)
+                await self.producer.send_and_wait(self.topic, msg, key=self.key)
 
                 self.queue.task_done()
 
