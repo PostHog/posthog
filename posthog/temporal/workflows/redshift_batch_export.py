@@ -119,7 +119,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
             fields.
     """
     logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
-    await logger.info(
+    await logger.ainfo(
         "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -139,14 +139,14 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         )
 
         if count == 0:
-            await logger.info(
+            await logger.ainfo(
                 "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        await logger.info("BatchExporting %s rows", count)
+        await logger.ainfo("BatchExporting %s rows", count)
 
         results_iterator = get_results_iterator(
             client=client,
@@ -227,7 +227,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Redshift."""
         logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Redshift")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        await logger.info("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
+        await logger.ainfo("Starting Redshift export batch %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,

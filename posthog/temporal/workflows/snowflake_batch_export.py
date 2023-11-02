@@ -101,7 +101,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
     logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
-    await logger.info(
+    await logger.ainfo(
         "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -121,14 +121,14 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         )
 
         if count == 0:
-            await logger.info(
+            await logger.ainfo(
                 "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        await logger.info("BatchExporting %s rows", count)
+        await logger.ainfo("BatchExporting %s rows", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -193,7 +193,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     except json.JSONDecodeError:
-                        await logger.info(
+                        await logger.ainfo(
                             "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
                         )
                         # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -230,7 +230,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.tell()
                         and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
                     ):
-                        await logger.info("Uploading to Snowflake")
+                        await logger.ainfo("Uploading to Snowflake")
 
                         # Flush the file to make sure everything is written
                         flush_to_snowflake(local_results_file, rows_in_file)
@@ -306,8 +306,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="Snowflake")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        await logger.info(
-            "Starting export batch %s - %s",
+        await logger.ainfo(
+            "Starting batch export %s - %s",
             data_interval_start,
             data_interval_end,
         )
