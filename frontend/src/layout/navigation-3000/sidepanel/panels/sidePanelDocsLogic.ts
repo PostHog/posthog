@@ -3,6 +3,8 @@ import { SidePanelTab, sidePanelLogic } from '../sidePanelLogic'
 
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 
+const posthogComDomain = 'https://posthog.com'
+
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     connect({
@@ -20,7 +22,9 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
                 openDocsPage: (_, { urlOrPath }) => {
                     let path = urlOrPath
                     if (urlOrPath.includes('posthog.com')) {
-                        path = urlOrPath.split('posthog.com')[1]
+                        if (urlOrPath.indexOf(posthogComDomain) === 0) {
+                            path = urlOrPath.substring(posthogComDomain.length)
+                        }
                     }
 
                     return path[0] === '/' ? path : `/${path}`
