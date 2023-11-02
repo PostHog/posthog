@@ -3,6 +3,8 @@ import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
+import { UUID } from '../../../utils/utils'
+import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
 export const tokenOrTeamPresentCounter = new Counter({
@@ -23,6 +25,8 @@ export async function populateTeamDataStep(
      * For these, we trust the team_id field value.
      */
 
+    const { db } = runner.hub
+
     // Collect statistics on the shape of events we are ingesting.
     tokenOrTeamPresentCounter
         .labels({
@@ -30,6 +34,7 @@ export async function populateTeamDataStep(
             token_present: event.token ? 'true' : 'false',
         })
         .inc()
+
     // statsd copy as prometheus is currently not supported in worker threads.
     runner.hub.statsd?.increment('ingestion_event_hasauthinfo', {
         team_id_present: event.team_id ? 'true' : 'false',
@@ -38,6 +43,14 @@ export async function populateTeamDataStep(
 
     // If a team_id is present (event captured from an app), trust it and return the event as is.
     if (event.team_id) {
+        // Check for an invalid UUID, which should be blocked by capture, when team_id is present
+        if (!UUID.validateString(event.uuid, false)) {
+            await captureIngestionWarning(db, event.team_id, 'skipping_event_invalid_uuid', {
+                eventUuid: JSON.stringify(event.uuid),
+            })
+            throw new Error(`Not a valid UUID: "${event.uuid}"`)
+        }
+
         return event as PluginEvent
     }
 
@@ -67,6 +80,14 @@ export async function populateTeamDataStep(
             .inc()
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'true' })
         return null
+    }
+
+    // Check for an invalid UUID, which should be blocked by capture, when team_id is present
+    if (!UUID.validateString(event.uuid, false)) {
+        await captureIngestionWarning(db, team.id, 'skipping_event_invalid_uuid', {
+            eventUuid: JSON.stringify(event.uuid),
+        })
+        throw new Error(`Not a valid UUID: "${event.uuid}"`)
     }
 
     event = {
