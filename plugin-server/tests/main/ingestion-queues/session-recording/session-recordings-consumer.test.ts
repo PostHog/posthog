@@ -34,6 +34,7 @@ const mockQueryWatermarkOffsets = jest.fn()
 const mockCommittedOffsetsFn = jest.fn()
 const mockCommit = jest.fn()
 const mockAssignments = jest.fn()
+const mockIsConnected = jest.fn(() => true)
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -50,6 +51,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     queryWatermarkOffsets: mockQueryWatermarkOffsets,
                     committed: mockCommittedOffsetsFn,
                     assignments: mockAssignments,
+                    isConnected: mockIsConnected,
                 },
             })
         ),
