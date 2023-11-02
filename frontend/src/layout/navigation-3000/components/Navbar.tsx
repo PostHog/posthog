@@ -44,6 +44,7 @@ export function Navbar(): JSX.Element {
                                         title={item.label}
                                         identifier={item.identifier}
                                         icon={item.icon}
+                                        tag={item.tag}
                                         to={'to' in item ? item.to : undefined}
                                         onClick={
                                             'logic' in item

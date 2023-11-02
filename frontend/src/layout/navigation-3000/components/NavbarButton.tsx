@@ -7,12 +7,14 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { navigation3000Logic } from '../navigationLogic'
+import { LemonTag } from '@posthog/lemon-ui'
 
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
     title?: string
     shortTitle?: string
+    tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
     persistentTooltip?: boolean
@@ -22,7 +24,7 @@ export interface NavbarButtonProps {
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, shortTitle, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, shortTitle, title, tag, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isNavCollapsed } = useValues(navigation3000Logic)
@@ -34,6 +36,32 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
 
     if (!isUsingNewNav) {
         buttonProps.active = here
+    }
+
+    let content: JSX.Element | string | undefined
+    if (!isUsingNewNav && !isNavCollapsed) {
+        content = shortTitle || title
+        if (tag) {
+            if (tag === 'alpha') {
+                content = (
+                    <>
+                        {content}
+                        <LemonTag type="completion" size="small" className="ml-2">
+                            ALPHA
+                        </LemonTag>
+                    </>
+                )
+            } else if (tag === 'beta') {
+                content = (
+                    <>
+                        {content}
+                        <LemonTag type="warning" size="small" className="ml-2">
+                            BETA
+                        </LemonTag>
+                    </>
+                )
+            }
+        }
     }
 
     return (
@@ -56,7 +84,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     fullWidth
                     {...buttonProps}
                 >
-                    {!isUsingNewNav && !isNavCollapsed ? shortTitle || title : null}
+                    {content}
                 </LemonButton>
             </Tooltip>
         </li>

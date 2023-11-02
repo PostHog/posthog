@@ -324,7 +324,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Persons,
-                            label: 'Persons and groups',
+                            label: 'People and groups',
                             icon: <IconPerson />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),
@@ -343,6 +343,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: isUsingSidebar ? annotationsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.annotations(),
                         },
+                        {
+                            identifier: Scene.ToolbarLaunch,
+                            label: 'Toolbar',
+                            icon: <IconToolbar />,
+                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
+                        },
                     ],
                     [
                         {
@@ -358,6 +365,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Web analytics',
                                   icon: <IconPieChart />,
                                   to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         {
@@ -366,6 +374,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconServer />,
                             to: urls.dataWarehouse(),
                             featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
+                            tag: 'beta' as const,
                         },
                         {
                             identifier: Scene.Replay,
@@ -398,13 +407,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
-                        },
-                        {
-                            identifier: Scene.ToolbarLaunch,
-                            label: 'Toolbar',
-                            icon: <IconToolbar />,
-                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
                     ].filter(isNotNil),
                     [
