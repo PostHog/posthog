@@ -40,13 +40,15 @@
             "request": "launch",
             "console": "integratedTerminal",
             "internalConsoleOptions": "neverOpen",
-            "disableOptimisticBPs": true,
-            "program": "${workspaceFolder}/node_modules/.bin/jest",
+            "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
             "cwd": "${workspaceFolder}",
-            "args": ["--runInBand", "--forceExit", "--watchAll=false"],
-            "env": {
-                "DATABASE_URL": "postgres://localhost:5432/test_posthog"
-            }
+            "args": [
+                "${workspaceRoot}/node_modules/.bin/jest",
+                "--runInBand",
+                "--watchAll=false",
+                "./tests/main/process-event.test.ts",
+                "--testNamePattern='validates UUID passed in eventUUID'"
+            ]
         }
     ]
 }
