@@ -10,17 +10,7 @@ import { BarStatus } from './types'
 import './index.scss'
 import SearchBar from './SearchBar'
 import { LemonModal } from '@posthog/lemon-ui'
-
-const CommandBarContainer = forwardRef<HTMLDivElement, { children?: React.ReactNode }>(function CommandBarContainer(
-    { children },
-    ref
-): JSX.Element {
-    return (
-        <div className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col" ref={ref}>
-            {children}
-        </div>
-    )
-})
+import ActionBar from './ActionBar'
 
 function CommandBar(): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -44,9 +34,9 @@ function CommandBar(): JSX.Element | null {
 
     return (
         <LemonModal isOpen={barStatus !== BarStatus.HIDDEN} simple closable={false} width={800}>
-            <CommandBarContainer ref={containerRef}>
-                <SearchBar />
-            </CommandBarContainer>
+            <div className="w-full h-160 max-w-lg bg-bg-3000 rounded overflow-hidden flex flex-col" ref={containerRef}>
+                {barStatus === BarStatus.SHOW_SEARCH ? <SearchBar /> : <ActionBar />}
+            </div>
         </LemonModal>
     )
 }
