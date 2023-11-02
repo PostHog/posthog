@@ -2459,26 +2459,40 @@ test('long event name substr', async () => {
     expect(event.event?.length).toBe(200)
 })
 
-test('throws with bad uuid', async () => {
-    await expect(
-        eventsProcessor.processEvent(
-            'xxx',
-            { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
+describe('validates UUID passed in eventUuid', () => {
+    test('throws with invalid uuid string', async () => {
+        await processEvent(
+            'i_am_a_distinct_id',
+            '',
+            '',
+            {
+                event: 'E',
+                properties: { price: 299.99, name: 'AirPods Pro', distinct_id: 'distinct_id1' },
+            } as any as PluginEvent,
             team.id,
-            DateTime.utc(),
+            now,
             'this is not an uuid'
         )
-    ).rejects.toEqual(new Error('Not a valid UUID: "this is not an uuid"'))
 
-    await expect(
-        eventsProcessor.processEvent(
+        // expect((await hub.db.fetchEvents()).length).toBe(1)
+        const [event] = await hub.db.fetchEvents()
+        expect(event.event).toEqual('Not a valid UUID: "this is not an uuid"')
+    })
+    test('throws with null value in eventUUID', async () => {
+        await processEvent(
             'xxx',
+            '',
+            '',
             { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
             team.id,
             DateTime.utc(),
             null as any
         )
-    ).rejects.toEqual(new Error('Not a valid UUID: "null"'))
+
+        expect((await hub.db.fetchEvents()).length).toBe(1)
+        const [event] = await hub.db.fetchEvents()
+        expect(event.event).toEqual('Not a valid UUID: "null"')
+    })
 })
 
 test('any event can do $set on props (user exists)', async () => {
