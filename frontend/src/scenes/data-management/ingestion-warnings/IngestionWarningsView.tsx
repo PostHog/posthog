@@ -136,7 +136,7 @@ const WARNING_TYPE_RENDERER = {
             <>
                 Discarded event for distinct_id{' '}
                 <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> that exceeded 1MB in
-                size after processing: <code>{details.eventUuid}</code>
+                size after processing (event uuid: <code>{details.eventUuid}</code>)
             </>
         )
     },
