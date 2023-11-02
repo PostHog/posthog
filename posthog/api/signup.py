@@ -402,7 +402,7 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
 def process_social_domain_jit_provisioning_signup(
     email: str, full_name: str, user: Optional[User] = None
 ) -> Optional[User]:
-    # Check if the user is on a whitelisted domain
+    # Check if the user is on a allowed domain
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)

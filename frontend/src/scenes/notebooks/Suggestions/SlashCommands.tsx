@@ -1,12 +1,16 @@
 import { IconPlus } from 'lib/lemon-ui/icons'
-import { InsertionSuggestion } from './InsertionSuggestion'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import { LemonButton } from '@posthog/lemon-ui'
-import { NotebookEditor } from '../Notebook/utils'
 import { useState } from 'react'
 
-const Component = ({ editor }: { editor: NotebookEditor }): JSX.Element => {
+const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
+
+    const onClick = (): void => {
+        editor.focus()
+        setVisible(true)
+    }
 
     return (
         <SlashCommandsPopover
@@ -19,7 +23,7 @@ const Component = ({ editor }: { editor: NotebookEditor }): JSX.Element => {
                 size="small"
                 icon={<IconPlus />}
                 className="NotebookFloatingButton__plus ml-1"
-                onClick={() => setVisible(true)}
+                onClick={onClick}
             />
         </SlashCommandsPopover>
     )
