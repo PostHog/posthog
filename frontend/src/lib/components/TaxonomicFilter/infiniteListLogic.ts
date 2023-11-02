@@ -112,6 +112,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         searchQuery,
                         excludedProperties,
                         listGroupType,
+                        propertyAllowList,
                     } = values
 
                     if (!remoteEndpoint) {
@@ -124,6 +125,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         limit,
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
+                        properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
                     }
 
                     const start = performance.now()
@@ -215,6 +217,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
+        propertyAllowList: [(s) => [s.group], (group) => group?.propertyAllowList],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
         hasRenderFunction: [(s) => [s.group], (group) => !!group?.render],
         isExpandable: [
