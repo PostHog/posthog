@@ -43,7 +43,6 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     return {
         isDragging,
         elementProps: {
-            draggable: true,
             onDragStart: (e: any) => {
                 setIsDragging(true)
                 startDropMode()
