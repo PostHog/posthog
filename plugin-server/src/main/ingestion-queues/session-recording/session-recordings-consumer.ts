@@ -533,6 +533,7 @@ export class SessionRecordingIngester {
             clearInterval(this.partitionLockInterval)
         }
 
+        // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         await this.batchConsumer?.stop()
