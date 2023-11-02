@@ -598,7 +598,15 @@ export function LineGraph_({
                     ticks: {
                         ...tickOptions,
                         precision,
-                        ...(inSurveyView ? { padding: 10 } : {}),
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                      weight: '600',
+                                  },
+                              }
+                            : {}),
                     },
                     grid: inSurveyView ? { display: false } : gridOptions,
                 },

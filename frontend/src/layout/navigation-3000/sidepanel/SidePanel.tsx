@@ -9,7 +9,6 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { IconNotebook, IconQuestion, IconInfo } from '@posthog/icons'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelSupport } from './panels/SidePanelSupport'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
@@ -30,15 +29,9 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
     },
 }
 
-export function SidePanel(): JSX.Element {
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelLogic)
+export function SidePanel(): JSX.Element | null {
+    const { selectedTab, sidePanelOpen, enabledTabs } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelLogic)
-
-    const docsEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
-
-    const enabledTabs = docsEnabled
-        ? Object.keys(SidePanelTabs)
-        : Object.keys(SidePanelTabs).filter((tab) => tab !== SidePanelTab.Docs)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -58,6 +51,10 @@ export function SidePanel(): JSX.Element {
 
     const { desiredWidth, isResizeInProgress } = useValues(resizerLogic(resizerLogicProps))
 
+    if (!enabledTabs.length) {
+        return null
+    }
+
     return (
         <div
             className={clsx(
@@ -75,7 +72,7 @@ export function SidePanel(): JSX.Element {
             <div className="SidePanel3000__bar">
                 <div className="rotate-90 flex items-center gap-1 px-2">
                     {Object.entries(SidePanelTabs)
-                        .filter(([tab]) => enabledTabs.includes(tab))
+                        .filter(([tab]) => enabledTabs.includes(tab as SidePanelTab))
                         .map(([tab, { label, Icon }]) => (
                             <LemonButton
                                 key={tab}

@@ -57,12 +57,12 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'h1',
+        title: 'h2',
         icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'h1',
+        title: 'h3',
         icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },

@@ -168,7 +168,9 @@ export interface HogQLQuery extends DataNode {
 }
 
 export interface HogQLNotice {
+    /**  @asType integer */
     start?: number
+    /**  @asType integer */
     end?: number
     message: string
     fix?: string
@@ -619,6 +621,9 @@ export enum WebStatsBreakdown {
     Browser = 'Browser',
     OS = 'OS',
     DeviceType = 'DeviceType',
+    Country = 'Country',
+    Region = 'Region',
+    City = 'City',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
