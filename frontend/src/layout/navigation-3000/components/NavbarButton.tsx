@@ -4,10 +4,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { navigation3000Logic } from '../navigationLogic'
 import { LemonTag } from '@posthog/lemon-ui'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface NavbarButtonProps {
     identifier: string
@@ -26,20 +25,20 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     NavbarButtonProps
 >(({ identifier, shortTitle, title, tag, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isNavCollapsed } = useValues(navigation3000Logic)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-    const isUsingNewNav = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
     const here = aliasedActiveScene === identifier
+    const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
 
     if (!isUsingNewNav) {
         buttonProps.active = here
     }
 
     let content: JSX.Element | string | undefined
-    if (!isUsingNewNav && !isNavCollapsed) {
+    if (!isNavCollapsedActually) {
         content = shortTitle || title
         if (tag) {
             if (tag === 'alpha') {
@@ -67,7 +66,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     return (
         <li className="w-full">
             <Tooltip
-                title={isUsingNewNav ? (here ? `${title} (you are here)` : title) : null}
+                title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
                 placement="right"
                 delayMs={0}
                 visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
