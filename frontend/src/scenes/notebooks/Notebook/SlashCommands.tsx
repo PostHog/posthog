@@ -326,7 +326,7 @@ order by count() desc
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode = 'slash', range, getPos, onClose, query }: SlashCommandsProps,
+    { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -362,7 +362,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
     const execute = async (command: SlashCommandsItem['command']): Promise<void> => {
         if (editor) {
-            const position = mode === 'slash' ? range : getPos()
+            const position = mode === 'slash' ? range.from : getPos()
             const chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
 
             const partialCommand = await command(chain, position)
@@ -522,7 +522,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props,
+                                props: { ...props, mode: 'slash' },
                                 editor: props.editor,
                             })
                         },
