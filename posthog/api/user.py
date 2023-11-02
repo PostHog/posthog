@@ -469,7 +469,8 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
-        raise_if_user_provided_url_unsafe(webhook)
+        if not settings.DEBUG:
+            raise_if_user_provided_url_unsafe(webhook)
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:
