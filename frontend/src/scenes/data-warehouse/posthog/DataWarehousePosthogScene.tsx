@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -32,9 +32,9 @@ export function DataWarehousePosthogScene(): JSX.Element {
                 caption={
                     <div>
                         These are the database tables you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
+                        </Link>
                         .
                     </div>
                 }

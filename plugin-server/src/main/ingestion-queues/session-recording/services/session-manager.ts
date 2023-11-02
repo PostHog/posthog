@@ -17,12 +17,12 @@ import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { bufferFileDir, convertToPersistedMessage, getLagMultipler, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
-const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
+export const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 const S3_UPLOAD_WARN_TIME_SECONDS = 2 * 60 * 1000
 
 const counterS3FilesWritten = new Counter({
@@ -212,15 +212,18 @@ export class SessionManager {
         return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, partitionLag = 0): Promise<void> {
         if (this.destroying) {
             return
         }
 
+        const lagMultiplier = getLagMultipler(partitionLag)
+
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
         const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
         const flushThresholdMemoryMs =
-            flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+            flushThresholdJitteredMs *
+            (lagMultiplier < 1 ? lagMultiplier : this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER)
 
         const logContext: Record<string, any> = {
             ...this.logContext(),
@@ -589,5 +592,36 @@ export class SessionManager {
                 resolve()
             })
         })
+    }
+
+    public toJSON(): Record<string, any> {
+        return {
+            isEmpty: this.isEmpty,
+            lowestOffset: this.getLowestOffset(),
+            buffer: {
+                id: this.buffer.id,
+                oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+                newestKafkaTimestamp: this.buffer.newestKafkaTimestamp,
+                sizeEstimate: this.buffer.sizeEstimate,
+                count: this.buffer.count,
+                file: this.buffer.file('jsonl'),
+                offsets: this.buffer.offsets,
+                eventsRange: this.buffer.eventsRange,
+                createdAt: this.buffer.createdAt,
+            },
+            flushBuffer: this.flushBuffer
+                ? {
+                      id: this.flushBuffer.id,
+                      oldestKafkaTimestamp: this.flushBuffer.oldestKafkaTimestamp,
+                      newestKafkaTimestamp: this.flushBuffer.newestKafkaTimestamp,
+                      sizeEstimate: this.flushBuffer.sizeEstimate,
+                      count: this.flushBuffer.count,
+                      file: this.flushBuffer.file('jsonl'),
+                      offsets: this.flushBuffer.offsets,
+                      eventsRange: this.flushBuffer.eventsRange,
+                      createdAt: this.flushBuffer.createdAt,
+                  }
+                : null,
+        }
     }
 }

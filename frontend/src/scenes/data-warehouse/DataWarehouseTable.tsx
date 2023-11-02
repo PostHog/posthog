@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field } from 'lib/forms/Field'
@@ -61,12 +61,12 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                 caption={
                     <div>
                         External tables are supported through object storage systems like S3.{' '}
-                        <a
-                            href="https://posthog.com/docs/data/data-warehouse#step-1-creating-a-bucket-in-s3"
+                        <Link
+                            to="https://posthog.com/docs/data/data-warehouse#step-1-creating-a-bucket-in-s3"
                             target="_blank"
                         >
                             Learn how to set up your data
-                        </a>
+                        </Link>
                     </div>
                 }
             />

@@ -29,12 +29,7 @@ import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    NotebookNodeAttributes,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    NotebookNodeSettings,
-} from '../Notebook/utils'
+import { NotebookNodeAttributes, NotebookNodeProps, CustomNotebookNodeAttributes } from '../Notebook/utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
@@ -72,13 +67,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         getPos,
         attributes,
         updateAttributes,
-        settings = null,
+        Settings = null,
     } = props
 
     useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, editingNodeId } = useValues(mountedNotebookLogic)
+    const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic } = useActions(notebookLogic)
 
     const logicProps: NotebookNodeLogicProps = {
@@ -191,7 +186,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                                 {isEditable ? (
                                                     <>
-                                                        {settings ? (
+                                                        {Settings ? (
                                                             <LemonButton
                                                                 onClick={() => toggleEditing()}
                                                                 size="small"
@@ -210,6 +205,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 ) : null}
                                             </div>
                                         </div>
+
+                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
+                                            <div className="NotebookNode__settings">
+                                                <Settings
+                                                    key={nodeId}
+                                                    attributes={attributes}
+                                                    updateAttributes={updateAttributes}
+                                                />
+                                            </div>
+                                        ) : null}
+
                                         <div
                                             ref={contentRef}
                                             className={clsx(
@@ -271,7 +277,6 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
-    settings?: NotebookNodeSettings
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
 

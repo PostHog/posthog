@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
@@ -20,12 +20,9 @@ export function DataAttributes(): JSX.Element {
         <>
             <p>
                 Specify a comma-separated list of{' '}
-                <a
-                    href="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes"
-                    rel="noreferrer noopener"
-                >
+                <Link to="https://developer.mozilla.org/en-US/docs/Learn/HTML/Howto/Use_data_attributes">
                     data attributes
-                </a>{' '}
+                </Link>{' '}
                 used in your app. For example: <code>data-attr, data-custom-id, data-myref-*</code>. These attributes
                 will be used when using the toolbar and defining actions to match unique elements on your pages. You can
                 use <code>*</code> as a wildcard.

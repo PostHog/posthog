@@ -244,10 +244,10 @@ class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    end: Optional[float] = None
+    end: Optional[int] = None
     fix: Optional[str] = None
     message: str
-    start: Optional[float] = None
+    start: Optional[int] = None
 
 
 class InCohortVia(str, Enum):
@@ -651,6 +651,9 @@ class WebStatsBreakdown(str, Enum):
     Browser = "Browser"
     OS = "OS"
     DeviceType = "DeviceType"
+    Country = "Country"
+    Region = "Region"
+    City = "City"
 
 
 class WebStatsTableQueryResponse(BaseModel):

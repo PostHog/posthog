@@ -70,12 +70,12 @@ function Header({
                         {!hideEdit &&
                             isViewable &&
                             (hasTaxonomyFeatures ? (
-                                <a onClick={onEdit}>Edit</a>
+                                <Link onClick={onEdit}>Edit</Link>
                             ) : (
                                 <Tooltip title="Creating and editing definitions require a premium license">
-                                    <a onClick={onEdit} className="definition-popover-disabled-button">
+                                    <Link onClick={onEdit} className="definition-popover-disabled-button">
                                         Edit
-                                    </a>
+                                    </Link>
                                 </Tooltip>
                             ))}
                         {!hideView && isViewable && (
