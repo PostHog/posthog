@@ -14,7 +14,6 @@ import {
     IconFilter,
     IconLink,
     IconPlus,
-    IconPlusMini,
     IconUnfoldLess,
     IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
@@ -253,7 +252,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             status="primary"
-                                            icon={x.icon ?? <IconPlusMini />}
+                                            icon={x.icon ?? <IconPlus />}
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 x.onClick()
