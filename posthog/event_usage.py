@@ -209,7 +209,6 @@ def report_user_organization_membership_level_changed(
         user.distinct_id,
         "membership level changed",
         properties={
-            "organization_id": str(organization.id),
             "new_level": new_level,
             "previous_level": previous_level,
         },
