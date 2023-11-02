@@ -44,6 +44,8 @@ from posthog.temporal.workflows.clickhouse import ClickHouseClient
 
 TEST_TIME = dt.datetime.utcnow()
 
+pytestmark = [pytest.mark.asyncio_event_loop, pytest.mark.asyncio]
+
 
 def assert_events_in_bigquery(client, table_id, dataset_id, events, bq_ingested_timestamp):
     """Assert provided events written to a given BigQuery table."""
@@ -121,7 +123,6 @@ def bigquery_client() -> bigquery.Client:
     reason="Google credentials not set in environment",
 )
 @pytest.mark.django_db
-@pytest.mark.asyncio
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     activity_environment, bigquery_client, bigquery_config
 ):
@@ -271,7 +272,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     reason="Google credentials not set in environment",
 )
 @pytest.mark.django_db
-@pytest.mark.asyncio
 @pytest.mark.parametrize("interval", ["hour", "day"])
 async def test_bigquery_export_workflow(
     bigquery_config,
@@ -480,7 +480,6 @@ async def batch_export(team):
 
 
 @pytest.mark.django_db
-@pytest.mark.asyncio
 async def test_bigquery_export_workflow_handles_insert_activity_errors(team, batch_export):
     """Test that BigQuery Export Workflow can gracefully handle errors when inserting BigQuery data."""
     workflow_id = str(uuid4())
@@ -525,7 +524,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(team, bat
 
 
 @pytest.mark.django_db
-@pytest.mark.asyncio
 async def test_bigquery_export_workflow_handles_cancellation(team, batch_export):
     """Test that BigQuery Export Workflow can gracefully handle cancellations when inserting BigQuery data."""
     workflow_id = str(uuid4())
@@ -561,6 +559,7 @@ async def test_bigquery_export_workflow_handles_cancellation(team, batch_export)
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+
             await asyncio.sleep(5)
             await handle.cancel()
 

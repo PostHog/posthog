@@ -78,7 +78,6 @@ async def configure_logger(
         """
         await temporalio.activity.wait_for_worker_shutdown()
 
-        await log_queue.join()
         listen_task.cancel()
 
         await asyncio.wait([listen_task])

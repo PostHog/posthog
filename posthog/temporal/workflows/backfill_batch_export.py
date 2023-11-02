@@ -285,7 +285,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillBatchExportInputs) -> None:
         """Workflow implementation to backfill a BatchExport."""
         logger = await bind_batch_exports_logger(team_id=inputs.team_id)
-        await logger.ainfo(
+        logger.info(
             "Starting Backfill for BatchExport: %s - %s",
             inputs.start_at,
             inputs.end_at,
@@ -347,16 +347,16 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
 
         except temporalio.exceptions.ActivityError as e:
             if isinstance(e.cause, temporalio.exceptions.CancelledError):
-                await logger.aerror("Backfill was cancelled.")
+                logger.error("Backfill was cancelled.")
                 update_inputs.status = "Cancelled"
             else:
-                await logger.aexception("Backfill failed.", exc_info=e.cause)
+                logger.exception("Backfill failed.", exc_info=e.cause)
                 update_inputs.status = "Failed"
 
             raise
 
         except Exception as e:
-            await logger.aexception("Backfill failed with an unexpected error.", exc_info=e)
+            logger.exception("Backfill failed with an unexpected error.", exc_info=e)
             update_inputs.status = "Failed"
             raise
 
