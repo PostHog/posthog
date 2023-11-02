@@ -69,6 +69,7 @@ describe('insightNavLogic', () => {
                             {
                                 event: '$pageview',
                                 kind: 'EventsNode',
+                                math: 'total',
                                 name: '$pageview',
                             },
                         ],
@@ -176,8 +177,14 @@ describe('insightNavLogic', () => {
                 },
             }
 
-            it('is initialized with null', async () => {
-                await expectLogic(logic).toMatchValues({ queryPropertyCache: null })
+            it('is initialized on mount', async () => {
+                await expectLogic(logic).toMatchValues({
+                    queryPropertyCache: {
+                        ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
+                        commonFilter: {},
+                        filterTestAccounts: true,
+                    },
+                })
             })
 
             it('stores query updates', async () => {
