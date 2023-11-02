@@ -7,7 +7,6 @@ import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { useActions } from 'kea'
 import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
