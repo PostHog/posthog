@@ -1,4 +1,4 @@
-import { kea, path, connect, selectors, events } from 'kea'
+import { kea, path, connect, selectors, afterMount } from 'kea'
 import api from 'lib/api'
 import { GroupType, GroupTypeIndex } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -105,7 +105,7 @@ export const groupsModel = kea<groupsModelType>([
             }
         },
     })),
-    events(({ actions }) => ({
-        afterMount: actions.loadAllGroupTypes,
-    })),
+    afterMount(({ actions }) => {
+        actions.loadAllGroupTypes()
+    }),
 ])

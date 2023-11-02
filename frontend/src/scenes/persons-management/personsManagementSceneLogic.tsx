@@ -12,6 +12,15 @@ import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
+import { Groups } from 'scenes/groups/Groups'
+
+export type PersonsManagementTab = {
+    key: string
+    url: string
+    label: string
+    content: any
+    buttons?: any
+}
 
 export type PersonsManagementTabs = Record<
     string,
@@ -21,30 +30,32 @@ export type PersonsManagementTabs = Record<
 export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect({
-        values: [groupsModel, ['groupTypes', 'groupsAccessStatus']],
+        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupsAccessStatus', 'aggregationLabel']],
     }),
     actions({
-        setTab: (tab: string) => ({ tab }),
+        setTabKey: (tabKey: string) => ({ tabKey }),
     }),
     reducers({
-        tab: [
+        tabKey: [
             'persons' as string,
             {
-                setTab: (_, { tab }) => tab,
+                setTabKey: (_, { tabKey }) => tabKey,
             },
         ],
     }),
     selectors({
         tabs: [
             (s) => [s.groupTabs],
-            (groupTabs): PersonsManagementTabs => {
-                return {
-                    persons: {
+            (groupTabs): PersonsManagementTab[] => {
+                return [
+                    {
+                        key: 'persons',
                         url: urls.persons(),
                         label: 'Persons',
                         content: <Persons />,
                     },
-                    cohorts: {
+                    {
+                        key: 'cohorts',
                         url: urls.cohorts(),
                         label: 'Cohorts',
                         content: <Cohorts />,
@@ -59,68 +70,84 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                         ),
                     },
                     ...groupTabs,
-                    // ...(showGroupsIntroductionPage
-                    //     ?
-                    //         {
-                    //             label: 'Groups',
-                    //             content: <p>Yo</p>
-                    //             url: urls.groups(0),
-                    //         },
+                ]
+            },
+        ],
 
-                    //     : groupTypes.values()).map(
-                    //           (groupType) =>
-                    //               ({
-                    //                   label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                    //                   key: groupType.group_type_index,
-                    //                   link: urls.groups(groupType.group_type_index),
-                    //               } as LemonTab<number>)
-                    //       )),
-                }
+        activeTab: [
+            (s) => [s.tabs, s.tabKey],
+            (tabs, tabKey): PersonsManagementTab | null => {
+                return tabs.find((x) => x.key === tabKey) ?? null
             },
         ],
 
         groupTabs: [
-            (s) => [s.groupTypes, s.groupsAccessStatus],
-            (groupTypes, groupsAccessStatus): PersonsManagementTabs => {
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
+            (groupTypes, groupsAccessStatus, aggregationLabel): PersonsManagementTab[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
                     GroupsAccessStatus.NoAccess,
                 ].includes(groupsAccessStatus)
 
-                console.log({ groupTypes, groupsAccessStatus, showGroupsIntroductionPage })
-                return {}
+                const groupTabs: PersonsManagementTab[] = [
+                    ...(showGroupsIntroductionPage
+                        ? [
+                              {
+                                  key: 'groups-intro',
+                                  label: 'Groups',
+                                  url: urls.groups(0),
+                                  content: <Groups groupTypeIndex={0} />,
+                              },
+                          ]
+                        : Array.from(groupTypes.values()).map((groupType) => ({
+                              key: `groups-${groupType.group_type_index}`,
+                              label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                              url: urls.groups(groupType.group_type_index),
+                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
+                          }))),
+                ]
+
+                return groupTabs
             },
         ],
         breadcrumbs: [
-            (s) => [s.tabs, s.tab],
-            (tabs, tab): Breadcrumb[] => {
+            (s) => [s.tabs, s.activeTab],
+            (tabs, activeTab): Breadcrumb[] => {
                 return [
                     {
-                        name: `Persons`,
-                        path: tabs.persons.url,
+                        name: `People`,
+                        path: tabs[0].url,
                     },
-                    {
-                        name: capitalizeFirstLetter(tab),
-                        path: tabs[tab].url,
-                    },
+                    activeTab
+                        ? {
+                              name: activeTab.label,
+                              path: activeTab.url,
+                          }
+                        : {
+                              name: 'Loading...',
+                          },
                 ]
             },
         ],
     }),
     actionToUrl(({ values }) => ({
-        setTab: ({ tab }) => values.tabs[tab]?.url || values.tabs.persons.url,
+        setTabKey: ({ tabKey }) => {
+            // TODO: Fix that groups are not always ready...
+            return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
+        },
     })),
-    urlToAction(({ actions, values }) => {
-        return Object.fromEntries(
-            Object.entries(values.tabs).map(([key, tab]) => [
-                tab.url,
-                () => {
-                    if (values.tab !== key) {
-                        actions.setTab(key)
-                    }
-                },
-            ])
-        )
+    urlToAction(({ actions }) => {
+        return {
+            [urls.persons()]: () => {
+                actions.setTabKey('persons')
+            },
+            [urls.cohorts()]: () => {
+                actions.setTabKey('cohorts')
+            },
+            [urls.groups(':key')]: ({ key }) => {
+                actions.setTabKey(`groups-${key}`)
+            },
+        }
     }),
 ])

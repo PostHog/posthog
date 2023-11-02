@@ -1,19 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneExport } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { personsManagementSceneLogic } from './personsManagementSceneLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export function PersonsManagementScene(): JSX.Element {
-    const { tabs, tab } = useValues(personsManagementSceneLogic)
-    const { setTab } = useActions(personsManagementSceneLogic)
+    const { tabs, activeTab, tabKey } = useValues(personsManagementSceneLogic)
+    const { setTabKey } = useActions(personsManagementSceneLogic)
     const { showGroupsOptions } = useValues(groupsModel)
 
-    const lemonTabs: LemonTab<string>[] = Object.entries(tabs).map(([key, tab]) => ({
-        key: key,
-        label: <span data-attr={`persons-management-${key}-tab`}>{tab.label}</span>,
+    const lemonTabs: LemonTab<string>[] = tabs.map((tab) => ({
+        key: tab.key,
+        label: <span data-attr={`persons-management-${tab.key}-tab`}>{tab.label}</span>,
         content: tab.content,
     }))
 
@@ -24,10 +24,10 @@ export function PersonsManagementScene(): JSX.Element {
                 caption={`A catalog of your product's end users, lists of users who have something in common to use in analytics or feature flags${
                     showGroupsOptions ? ' and groups' : ''
                 }.`}
-                buttons={tabs[tab].buttons}
+                buttons={activeTab?.buttons}
             />
 
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
+            <LemonTabs activeKey={tabKey} onChange={(t) => setTabKey(t)} tabs={lemonTabs} />
         </>
     )
 }

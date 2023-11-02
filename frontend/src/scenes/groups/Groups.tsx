@@ -2,13 +2,11 @@ import { useActions, useValues } from 'kea'
 import { Group, PropertyDefinitionType } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { SceneExport } from 'scenes/sceneTypes'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -18,22 +16,14 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-export const scene: SceneExport = {
-    component: Groups,
-    logic: groupsListLogic,
-    paramsToProps: ({ params: { groupTypeIndex } }) => ({
-        groupTypeIndex: parseInt(groupTypeIndex),
-    }),
-}
-
-export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JSX.Element {
+export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
     const {
         groupTypeName: { singular, plural },
         groups,
         groupsLoading,
         search,
-    } = useValues(groupsListLogic)
-    const { loadGroups, setSearch } = useActions(groupsListLogic)
+    } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { loadGroups, setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     if (groupTypeIndex === undefined) {
@@ -47,7 +37,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
     ) {
         return (
             <>
-                <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
                 <GroupsIntroduction access={groupsAccessStatus} />
             </>
         )
@@ -76,7 +65,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
 
     return (
         <>
-            <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
             <LemonInput
                 type="search"
                 placeholder={`Search for ${plural}`}
