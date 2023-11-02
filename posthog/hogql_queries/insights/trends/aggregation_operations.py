@@ -62,9 +62,9 @@ class AggregationOperations:
         elif self.series.math == "dau":
             return parse_expr("count(DISTINCT e.person_id)")
         elif self.series.math == "weekly_active":
-            return ast.Field(chain=["counts"])  # This gets replaced when doing query orchestration
+            return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
         elif self.series.math == "monthly_active":
-            return ast.Field(chain=["counts"])  # This gets replaced when doing query orchestration
+            return ast.Placeholder(field="replaced")  # This gets replaced when doing query orchestration
         elif self.series.math == "unique_session":
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
