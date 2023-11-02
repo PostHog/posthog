@@ -113,6 +113,31 @@ const statusWarn = (reason: string, extra?: Record<string, any>) => {
     })
 }
 
+async function readTokenFromHeaders(
+    headers: MessageHeader[] | undefined,
+    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+) {
+    const tokenHeader = headers?.find((header: MessageHeader) => {
+        // each header in the array is an object of key to value
+        // because it's possible to have multiple headers with the same key
+        // but, we don't support that. the first truthy match we find is the one we use
+        return header.token
+    })?.token
+
+    const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
+
+    let teamIdWithConfig: TeamIDWithConfig | null = null
+
+    if (token) {
+        const teams = await teamsRefresher.get()
+        teamIdWithConfig = {
+            teamId: teams[token]?.teamId || null,
+            consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+        }
+    }
+    return { token, teamIdWithConfig }
+}
+
 export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
@@ -268,8 +293,12 @@ export class SessionRecordingIngester {
         // If it is recoverable, we probably want to retry?
     }
 
-    public parseKafkaMessage(message: Message, teamIdWithConfig: TeamIDWithConfig): IncomingRecordingMessage | void {
-        if (!message.value || !message.timestamp || teamIdWithConfig.teamId === null) {
+    public async parseKafkaMessage(
+        message: Message,
+        teamIdWithConfig: TeamIDWithConfig | null,
+        getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
+    ): Promise<IncomingRecordingMessage | void> {
+        if (!message.value || !message.timestamp) {
             // Typing says this can happen but in practice it shouldn't
             return statusWarn('message value, timestamp, or team is empty', {
                 partition: message.partition,
@@ -294,6 +323,39 @@ export class SessionRecordingIngester {
             status.warn('🙈', 'Received non-snapshot message, ignoring')
             return
         }
+
+        // TODO this mechanism is deprecated for blobby ingestion, we should remove it
+        // once we're happy that the new mechanism is working
+        if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
+            return statusWarn('no_token', { partition: message.partition, offset: message.offset })
+        }
+
+        if (teamIdWithConfig == null) {
+            const token = messagePayload.token
+
+            if (token) {
+                teamIdWithConfig = await getTeamFn(token)
+            }
+        }
+
+        // NB `==` so we're comparing undefined and null
+        if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'token_fallback_team_missing_or_disabled',
+                })
+                .inc()
+
+            return statusWarn('token_fallback_team_missing_or_disabled', {
+                token: messagePayload.token,
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+                partition: message.partition,
+                offset: message.offset,
+            })
+        }
+        // end of deprecated mechanism
 
         const invalidEvents: any[] = []
         const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
@@ -395,38 +457,7 @@ export class SessionRecordingIngester {
                                 gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
                             }
 
-                            const tokenHeader = headers?.find((header: MessageHeader) => {
-                                // header is an object of key to value, in an array of that
-                                // I guess because it's possible to have multiple headers with the same key
-                                // we don't support that. the first truthy match we find is the one we use
-                                return header.token
-                            })?.token
-
-                            if (!tokenHeader) {
-                                eventDroppedCounter
-                                    .labels({
-                                        event_type: 'session_recordings_blob_ingestion',
-                                        drop_cause: 'token_missing',
-                                    })
-                                    .inc()
-
-                                return statusWarn('token_missing', {
-                                    partition,
-                                    offset,
-                                })
-                            }
-
-                            const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader.toString()
-
-                            let teamIdWithConfig: TeamIDWithConfig | null = null
-
-                            if (token) {
-                                const teams = await this.teamsRefresher.get()
-                                teamIdWithConfig = {
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }
-                            }
+                            const { token, teamIdWithConfig } = await readTokenFromHeaders(headers, this.teamsRefresher)
 
                             // NB `==` so we're comparing undefined and null
                             if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
@@ -442,7 +473,12 @@ export class SessionRecordingIngester {
                                 })
                             }
 
-                            const recordingMessage = this.parseKafkaMessage(message, teamIdWithConfig)
+                            const recordingMessage = await this.parseKafkaMessage(message, teamIdWithConfig, (token) =>
+                                this.teamsRefresher.get().then((teams) => ({
+                                    teamId: teams[token]?.teamId || null,
+                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                }))
+                            )
 
                             if (recordingMessage) {
                                 recordingMessages.push(recordingMessage)
