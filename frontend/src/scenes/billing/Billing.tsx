@@ -68,7 +68,9 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists, please
+                    {
+                        'There was an issue retrieving your current billing information. If this message persists, please '
+                    }
                     {preflight?.cloud ? (
                         <Link onClick={() => openSupportForm('bug', 'billing')}>submit a bug report</Link>
                     ) : (

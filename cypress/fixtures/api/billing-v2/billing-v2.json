@@ -976,7 +976,7 @@
             "image_url": "https://posthog.com/images/product/product-icons/session-replay.svg",
             "icon_key": "IconRewindPlay",
             "docs_url": "https://posthog.com/docs/session-replay",
-            "subscribed": false,
+            "subscribed": true,
             "plans": [
                 {
                     "plan_key": "free-20230117",

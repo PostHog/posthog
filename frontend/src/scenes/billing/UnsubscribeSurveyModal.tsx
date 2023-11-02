@@ -21,6 +21,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                 <h3 className="mt-2 mb-4">{`Why are you unsubscribing from ${product.name}?`}</h3>
                 <div className="flex flex-col gap-3.5">
                     <LemonTextArea
+                        data-attr="unsubscribe-reason-survey-textarea"
                         placeholder={'Start typing...'}
                         value={surveyResponse['$survey_response']}
                         onChange={(value) => {

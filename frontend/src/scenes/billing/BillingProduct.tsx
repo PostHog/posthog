@@ -337,8 +337,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         status="stealth"
                                                         fullWidth
                                                         onClick={() => {
-                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                                             setSurveyResponse(product.type, '$survey_response_1')
+                                                            reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                                                         }}
                                                     >
                                                         Unsubscribe
@@ -562,6 +562,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
                     <div
+                        data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
                             product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
                         }`}
