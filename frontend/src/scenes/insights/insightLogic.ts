@@ -30,7 +30,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
+import { extractObjectDiffKeys, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
@@ -727,18 +727,6 @@ export const insightLogic = kea<insightLogicType>([
     events(({ props, actions }) => ({
         afterMount: () => {
             if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
-                return
-            }
-
-            const insight = findInsightFromMountedLogic(
-                props.dashboardItemId as string | InsightShortId,
-                props.dashboardId
-            )
-            if (insight) {
-                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                if (insight?.result) {
-                    actions.reportInsightViewed(insight, insight.filters || {})
-                }
                 return
             }
 
