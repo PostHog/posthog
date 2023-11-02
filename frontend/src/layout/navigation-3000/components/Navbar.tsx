@@ -129,6 +129,7 @@ export function Navbar(): JSX.Element {
                 containerRef={containerRef}
                 closeThreshold={100}
                 onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
+                onDoubleClick={() => toggleNavCollapsed()}
             />
         </nav>
     )
