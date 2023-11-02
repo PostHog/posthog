@@ -354,13 +354,6 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
-        // 1. For partitions we are assigned: Refresh the session water marks so that we can drop any sessions that have already been consumed
-        // 2. For partitions we are assigned: Refresh the persistent water marks so that we can drop all past the commit point
-        // 3. Consume things, ignoring all sessions that are below the thresholds
-        // 4. Flush all sessions that are ready to be flushed, dropping any that are fully below the thresholds
-        // 5. Commit all things higher than the persistent water marks
-
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
             logExecutionTime: true,
@@ -369,13 +362,6 @@ export class SessionRecordingIngester {
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
                 const recordingMessages: IncomingRecordingMessage[] = []
-
-                await runInstrumentedFunction({
-                    statsKey: `recordingingester.handleEachBatch.refreshWaterMarks`,
-                    func: async () => {
-                        console.log('should refresh', assignedPartitions)
-                    },
-                })
 
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
@@ -632,12 +618,11 @@ export class SessionRecordingIngester {
 
         // Reset all metrics for the revoked partitions
         topicPartitions.forEach((topicPartition: TopicPartition) => {
-            // TODO: Remove this
             const partition = topicPartition.partition
             partitionsToDrop[partition] = this.partitionMetrics[partition]
             delete this.partitionMetrics[partition]
 
-            // TODO: This won't be necessary
+            // Revoke the high water mark for this partition so we are essentially "reset"
             this.sessionHighWaterMarker.revoke(topicPartition)
             this.persistentHighWaterMarker.revoke(topicPartition)
         })
@@ -782,16 +767,6 @@ export class SessionRecordingIngester {
                     return
                 }
 
-                // TODO: Validate this number
-                // if (
-                //     await this.persistentHighWaterMarker.isBelowHighWaterMark(
-                //         tp,
-                //         KAFKA_CONSUMER_GROUP_ID,
-                //         highestOffsetToCommit
-                //     )
-                // ) {
-                //     return
-                // }
                 this.batchConsumer?.consumer.commit({
                     ...tp,
                     // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
