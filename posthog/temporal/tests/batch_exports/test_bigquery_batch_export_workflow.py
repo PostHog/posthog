@@ -34,6 +34,8 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 TEST_TIME = dt.datetime.utcnow()
 
+pytestmark = [pytest.mark.asyncio_event_loop, pytest.mark.asyncio]
+
 
 def assert_events_in_bigquery(
     client, table_id, dataset_id, events, bq_ingested_timestamp, exclude_events: list[str] | None = None
@@ -439,6 +441,7 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
+
             await asyncio.sleep(5)
             await handle.cancel()
 

@@ -607,23 +607,23 @@ async def execute_batch_export_insert_activity(
         )
     except exceptions.ActivityError as e:
         if isinstance(e.cause, exceptions.CancelledError):
-            await logger.error("BatchExport was cancelled.")
+            logger.error("BatchExport was cancelled.")
             update_inputs.status = "Cancelled"
         else:
-            await logger.exception("BatchExport failed.", exc_info=e.cause)
+            logger.exception("BatchExport failed.", exc_info=e.cause)
             update_inputs.status = "Failed"
 
         update_inputs.latest_error = str(e.cause)
         raise
 
     except Exception as e:
-        await logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
+        logger.exception("BatchExport failed with an unexpected error.", exc_info=e)
         update_inputs.status = "Failed"
         update_inputs.latest_error = "An unexpected error has ocurred"
         raise
 
     else:
-        await logger.info(
+        logger.info(
             "Successfully finished exporting batch %s - %s", inputs.data_interval_start, inputs.data_interval_end
         )
 
