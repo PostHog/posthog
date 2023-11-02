@@ -15,64 +15,70 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
             onClose={() => {
                 setSurveyID('')
             }}
-            title={`Let us know why you're unsubscribing from ${product.name}`}
             width={'max(40vw)'}
         >
-            <div className="flex flex-col gap-2">
-                <LemonTextArea
-                    placeholder={'Start typing...'}
-                    value={surveyResponse['$survey_response']}
-                    onChange={(value) => {
-                        setSurveyResponse(value, '$survey_response')
-                    }}
-                />
-                <LemonBanner type="info">
-                    <p>
-                        {'Need to control your costs? '}
-                        <Link
-                            to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
-                            target="_blank"
-                        >
-                            Learn about ways to reduce your bill
-                        </Link>
-                        {`${product.type !== 'session_replay' ? ' or ' : ', '}`}
-                        <Link to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill" target="_blank">
-                            chat with support
-                        </Link>
+            <div>
+                <h3 className="mt-2 mb-4">{`Why are you unsubscribing from ${product.name}?`}</h3>
+                <div className="flex flex-col gap-3.5">
+                    <LemonTextArea
+                        placeholder={'Start typing...'}
+                        value={surveyResponse['$survey_response']}
+                        onChange={(value) => {
+                            setSurveyResponse(value, '$survey_response')
+                        }}
+                    />
+                    <LemonBanner type="info">
+                        <p>
+                            {'Need to control your costs? Learn about ways to '}
+                            <Link
+                                to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                                target="_blank"
+                            >
+                                reduce your bill
+                            </Link>
+                            {`${product.type !== 'session_replay' ? ' or ' : ', '}`}
+                            <Link
+                                to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
+                                target="_blank"
+                            >
+                                chat with support
+                            </Link>
 
-                        {product.type === 'session_replay' && (
-                            <>
-                                {', or '}
-                                <Link
-                                    to="mailto:sales@posthog.com?subject=Joining%session%replay%controls%20beta"
-                                    target="_blank"
-                                >
-                                    join our beta for tuning recording volume with sampling and minimum duration
-                                </Link>
-                            </>
-                        )}
-                    </p>
-                </LemonBanner>
-                <div className="flex justify-end gap-8">
-                    <LemonButton
-                        type="tertiary"
-                        status="muted"
-                        onClick={() => {
-                            setSurveyID('')
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type={textAreaNotEmpty ? 'primary' : 'tertiary'}
-                        status={textAreaNotEmpty ? 'primary' : 'muted'}
-                        onClick={() => {
-                            reportSurveySent(surveyID, surveyResponse)
-                            deactivateProduct(product.type)
-                        }}
-                    >
-                        Unsubscribe
-                    </LemonButton>
+                            {product.type === 'session_replay' && (
+                                <>
+                                    {', or '}
+                                    <Link
+                                        to="mailto:sales@posthog.com?subject=Joining%session%replay%controls%20beta"
+                                        target="_blank"
+                                    >
+                                        join our beta
+                                    </Link>
+                                    {' for tuning recording volume with sampling and minimum duration.'}
+                                </>
+                            )}
+                        </p>
+                    </LemonBanner>
+                    <div className="flex justify-end gap-4">
+                        <LemonButton
+                            type="tertiary"
+                            status="muted"
+                            onClick={() => {
+                                setSurveyID('')
+                            }}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type={textAreaNotEmpty ? 'primary' : 'tertiary'}
+                            status={textAreaNotEmpty ? 'primary' : 'muted'}
+                            onClick={() => {
+                                reportSurveySent(surveyID, surveyResponse)
+                                deactivateProduct(product.type)
+                            }}
+                        >
+                            Unsubscribe
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
         </LemonModal>
