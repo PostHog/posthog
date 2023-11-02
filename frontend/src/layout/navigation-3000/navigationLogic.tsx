@@ -57,6 +57,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     actions({
         hideSidebar: true,
         showSidebar: (newNavbarItemId?: string) => ({ newNavbarItemId }),
+        toggleNavCollapsed: (override?: boolean) => ({ override }),
         toggleSidebar: true,
         setSidebarWidth: (width: number) => ({ width }),
         setSidebarOverslide: (overslide: number) => ({ overslide }),
@@ -90,6 +91,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 toggleSidebar: (isSidebarShown) => !isSidebarShown,
             },
         ],
+        isNavCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+
         sidebarWidth: [
             DEFAULT_SIDEBAR_WIDTH_PX,
             { persist: true },

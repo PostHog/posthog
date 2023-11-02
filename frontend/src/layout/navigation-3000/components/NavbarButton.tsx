@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { navigation3000Logic } from '../navigationLogic'
 
 export interface NavbarButtonProps {
     identifier: string
@@ -24,6 +25,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
 >(({ identifier, shortTitle, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
 
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
@@ -54,7 +56,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     fullWidth
                     {...buttonProps}
                 >
-                    {!isUsingNewNav ? shortTitle || title : null}
+                    {!isUsingNewNav && !isNavCollapsed ? shortTitle || title : null}
                 </LemonButton>
             </Tooltip>
         </li>
