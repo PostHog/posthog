@@ -142,10 +142,6 @@ module.exports = {
                         element: 'Select',
                         message: 'use <LemonSelect> instead',
                     },
-                    {
-                        element: 'a',
-                        message: 'use <Link> instead',
-                    },
                 ],
             },
         ],
@@ -188,6 +184,10 @@ module.exports = {
                     {
                         element: 'ReactMarkdown',
                         message: 'use <LemonMarkdown> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
                     },
                 ],
             },

@@ -102,21 +102,23 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     value = property.value
     override_value = override_property_values[key]
 
-    if operator == "exact":
-        parsed_value = property._parse_value(value)
-        if is_truthy_property_value(parsed_value):
-            # Do boolean handling, such that passing in "true" or "True" as override value is equivalent
-            truthy = parsed_value in (True, [True], "true", ["true"])
-            return str(override_value).lower() == str(truthy).lower()
+    if operator in ("exact", "is_not"):
 
-        if isinstance(value, list):
-            return str(override_value).lower() in [str(val).lower() for val in value]
-        return str(value).lower() == str(override_value).lower()
+        def compute_exact_match(value: ValueT, override_value: Any) -> bool:
+            parsed_value = property._parse_value(value)
+            if is_truthy_or_falsy_property_value(parsed_value):
+                # Do boolean handling, such that passing in "true" or "True" or "false" or "False" as override value is equivalent
+                truthy = parsed_value in (True, [True], "true", ["true"], "True", ["True"])
+                return str(override_value).lower() == str(truthy).lower()
 
-    if operator == "is_not":
-        if isinstance(value, list):
-            return override_value not in value
-        return value != override_value
+            if isinstance(value, list):
+                return str(override_value).lower() in [str(val).lower() for val in value]
+            return str(value).lower() == str(override_value).lower()
+
+        if operator == "exact":
+            return compute_exact_match(value, override_value)
+        else:
+            return not compute_exact_match(value, override_value)
 
     if operator == "is_set":
         return key in override_property_values
@@ -195,8 +197,8 @@ def empty_or_null_with_value_q(
         value_as_given = Property._parse_value(value)
         value_as_coerced_to_number = Property._parse_value(value, convert_to_number=True)
         # TRICKY: Don't differentiate between 'true' and '"true"' when database matching (one is boolean, other is string)
-        if is_truthy_property_value(value_as_given):
-            truthy = value_as_given in (True, [True], "true", ["true"])
+        if is_truthy_or_falsy_property_value(value_as_given):
+            truthy = value_as_given in (True, [True], "true", ["true"], "True", ["True"])
             target_filter = lookup_q(f"{column}__{key}", truthy) | lookup_q(f"{column}__{key}", str(truthy).lower())
         elif value_as_given == value_as_coerced_to_number:
             target_filter = lookup_q(f"{column}__{key}", value_as_given)
@@ -280,8 +282,6 @@ def property_to_Q(
 
     column = "group_properties" if property.type == "group" else "properties"
 
-    if property.operator == "is_not":
-        return Q(~lookup_q(f"{column}__{property.key}", value) | ~Q(**{f"{column}__has_key": property.key}))
     if property.operator == "is_set":
         return Q(**{f"{column}__{property.key}__isnull": False})
     if property.operator == "is_not_set":
@@ -301,6 +301,10 @@ def property_to_Q(
     if property.operator in ("is_date_after", "is_date_before"):
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         return Q(**{f"{column}__{property.key}__{effective_operator}": value})
+
+    if property.operator == "is_not":
+        # is_not is inverse of exact
+        return empty_or_null_with_value_q(column, property.key, "exact", value, negated=True)
 
     # NOTE: existence clause necessary when overall clause is negated
     return empty_or_null_with_value_q(column, property.key, property.operator, property.value)
@@ -370,6 +374,10 @@ def properties_to_Q(
     )
 
 
-def is_truthy_property_value(value: Any) -> bool:
+def is_truthy_or_falsy_property_value(value: Any) -> bool:
     # Does not resolve 0 and 1 as true, but does resolve the strings as true
-    return value in ("true", ["true"], [True], [False], "false", ["false"]) or value is True or value is False
+    return (
+        value in ("true", ["true"], [True], [False], "false", ["false"], "True", ["True"], "False", ["False"])
+        or value is True
+        or value is False
+    )
