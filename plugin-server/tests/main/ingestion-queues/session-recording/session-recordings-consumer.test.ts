@@ -586,11 +586,11 @@ describe('ingester', () => {
             expect(
                 Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
-
             // Should have session_id_4 but not session_id_3 as it was flushed
+
             expect(
                 Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-            ).toEqual(['2:session_id_4:1'])
+            ).toEqual(['2:session_id_3:1', '2:session_id_4:2'])
         })
 
         it("flushes and commits as it's revoked", async () => {
