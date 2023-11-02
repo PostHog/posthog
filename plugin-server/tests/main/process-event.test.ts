@@ -2459,39 +2459,44 @@ test('long event name substr', async () => {
     expect(event.event?.length).toBe(200)
 })
 
-describe('validates UUID passed in eventUuid', () => {
-    test('throws with invalid uuid string', async () => {
-        await processEvent(
-            'i_am_a_distinct_id',
-            '',
-            '',
-            {
-                event: 'E',
-                properties: { price: 299.99, name: 'AirPods Pro', distinct_id: 'distinct_id1' },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            'this is not an uuid'
-        )
+describe('validates eventUuid', () => {
+    test('invalid uuid string returns an error', async () => {
+        const pluginEvent: PluginEvent = {
+            distinct_id: 'i_am_a_distinct_id',
+            site_url: '',
+            team_id: team.id,
+            timestamp: DateTime.utc().toISO(),
+            now: now.toUTC().toISO(),
+            ip: '',
+            uuid: 'i_am_not_a_uuid',
+            event: 'eVeNt',
+            properties: { price: 299.99, name: 'AirPods Pro' },
+        }
 
-        // expect((await hub.db.fetchEvents()).length).toBe(1)
-        const [event] = await hub.db.fetchEvents()
-        expect(event.event).toEqual('Not a valid UUID: "this is not an uuid"')
+        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent)
+
+        expect(result.error).toBeDefined()
+        expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
     })
-    test('throws with null value in eventUUID', async () => {
-        await processEvent(
-            'xxx',
-            '',
-            '',
-            { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
-            team.id,
-            DateTime.utc(),
-            null as any
-        )
+    test('null value in eventUUID returns an error', async () => {
+        const pluginEvent: PluginEvent = {
+            distinct_id: 'i_am_a_distinct_id',
+            site_url: '',
+            team_id: team.id,
+            timestamp: DateTime.utc().toISO(),
+            now: now.toUTC().toISO(),
+            ip: '',
+            uuid: null as any,
+            event: 'eVeNt',
+            properties: { price: 299.99, name: 'AirPods Pro' },
+        }
 
-        expect((await hub.db.fetchEvents()).length).toBe(1)
-        const [event] = await hub.db.fetchEvents()
-        expect(event.event).toEqual('Not a valid UUID: "null"')
+        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent)
+
+        expect(result.error).toBeDefined()
+        expect(result.error).toEqual('Not a valid UUID: "null"')
     })
 })
 
