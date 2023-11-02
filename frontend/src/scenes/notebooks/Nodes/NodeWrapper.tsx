@@ -33,6 +33,7 @@ import { NotebookNodeAttributes, NotebookNodeProps, CustomNotebookNodeAttributes
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
+import posthog from 'posthog-js'
 
 // TODO: fix the typing of string to NotebookNodeType
 const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -300,6 +301,12 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 })
             }, 0)
         }
+
+        useEffect(() => {
+            if (props.node.attrs.nodeId === null) {
+                posthog.capture('notebook node added', { node_type: props.node.type.name })
+            }
+        }, [props.node.attrs.nodeId])
 
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
