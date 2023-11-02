@@ -1,26 +1,14 @@
-import requests
-from django.conf import settings
 from posthog.warehouse.models.external_data_workspace import ExternalDataWorkspace
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_WORKSPACE_URL = "https://api.airbyte.io/api/v1/workspaces"
 
 
 def create_workspace(team_id: int):
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
-
     payload = {"name": "Team " + team_id}
+    response = send_request(AIRBYTE_WORKSPACE_URL, payload=payload)
 
-    headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {token}"}
-
-    response = requests.post(AIRBYTE_WORKSPACE_URL, json=payload, headers=headers)
-    response_payload = response.json()
-
-    if not response.ok:
-        raise ValueError(response_payload["message"])
-
-    return response_payload["workspaceId"]
+    return response["workspaceId"]
 
 
 def get_or_create_workspace(team_id: int):

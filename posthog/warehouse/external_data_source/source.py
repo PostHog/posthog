@@ -1,9 +1,8 @@
-import requests
-from django.conf import settings
 from posthog.models.utils import UUIDT
 from pydantic import BaseModel, field_validator
 from typing import Dict, Optional
 import datetime as dt
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_SOURCE_URL = "https://api.airbyte.com/v1/sources"
 
@@ -71,32 +70,14 @@ def create_stripe_source(payload: StripeSourcePayload, workspace_id: str) -> Ext
 
 
 def _create_source(payload: Dict) -> ExternalDataSource:
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
-
-    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
-
-    response = requests.post(AIRBYTE_SOURCE_URL, json=payload, headers=headers)
-    response_payload = response.json()
-    if not response.ok:
-        raise ValueError(response_payload["message"])
-
+    response = send_request(AIRBYTE_SOURCE_URL, payload=payload)
     return ExternalDataSource(
-        source_id=response_payload["sourceId"],
-        name=response_payload["name"],
-        source_type=response_payload["sourceType"],
-        workspace_id=response_payload["workspaceId"],
+        source_id=response["sourceId"],
+        name=response["name"],
+        source_type=response["sourceType"],
+        workspace_id=response["workspaceId"],
     )
 
 
 def delete_source(source_id):
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to delete a source.")
-    headers = {"authorization": f"Bearer {token}"}
-
-    response = requests.delete(AIRBYTE_SOURCE_URL + "/" + source_id, headers=headers)
-
-    if not response.ok:
-        raise ValueError(response.json()["message"])
+    send_request(AIRBYTE_SOURCE_URL + "/" + source_id)

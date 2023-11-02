@@ -1,6 +1,6 @@
-import requests
 from django.conf import settings
 from pydantic import BaseModel
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_DESTINATION_URL = "https://api.airbyte.com/v1/destinations"
 
@@ -10,10 +10,6 @@ class ExternalDataDestination(BaseModel):
 
 
 def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestination:
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
-
     payload = {
         "configuration": {
             "format": {"format_type": "Parquet", "compression_codec": "UNCOMPRESSED"},
@@ -27,26 +23,13 @@ def create_destination(team_id: int, workspace_id: str) -> ExternalDataDestinati
         "name": f"S3/{team_id}",
         "workspaceId": workspace_id,
     }
-    headers = {"accept": "application/json", "content-type": "application/json", "authorization": f"Bearer {token}"}
 
-    response = requests.post(AIRBYTE_DESTINATION_URL, json=payload, headers=headers)
-    response_payload = response.json()
-
-    if not response.ok:
-        raise ValueError(response_payload["message"])
+    response = send_request(AIRBYTE_DESTINATION_URL, payload=payload)
 
     return ExternalDataDestination(
-        destination_id=response_payload["destinationId"],
+        destination_id=response["destinationId"],
     )
 
 
 def delete_destination(destination_id: str) -> None:
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to delete a destiantion.")
-    headers = {"authorization": f"Bearer {token}"}
-
-    response = requests.delete(AIRBYTE_DESTINATION_URL + "/" + destination_id, headers=headers)
-
-    if not response.ok:
-        raise ValueError(response.json()["message"])
+    send_request(AIRBYTE_DESTINATION_URL + "/" + destination_id)
