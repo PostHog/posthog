@@ -12,7 +12,7 @@ from typing import (
 )
 
 from dateutil import parser
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, Value
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
@@ -29,10 +29,10 @@ from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
-F = TypeVar("F", Filter, PathFilter)
+FilterType = TypeVar("FilterType", Filter, PathFilter)
 
 
-def determine_compared_filter(filter: F) -> F:
+def determine_compared_filter(filter: FilterType) -> FilterType:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(
@@ -207,7 +207,25 @@ def empty_or_null_with_value_q(
                 f"{column}__{key}", value_as_coerced_to_number
             )
     else:
-        target_filter = Q(**{f"{column}__{key}__{operator}": value})
+        if isinstance(value, list):
+            raise TypeError(f"empty_or_null_with_value_q: Operator {operator} does not support list values")
+
+        parsed_value = None
+        if operator in ("gt", "gte", "lt", "lte"):
+            try:
+                parsed_value = float(value)
+            except (ValueError, TypeError):
+                pass
+
+        if parsed_value is not None:
+            # When we can coerce given value to a number, check whether the value in DB is a number
+            # and do a numeric comparison. Otherwise, do a string comparison.
+            target_filter = Q(
+                Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{key}_type": Value("string")})
+                | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{key}_type": Value("number")})
+            )
+        else:
+            target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 

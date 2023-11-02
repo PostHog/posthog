@@ -4139,6 +4139,186 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
 
+    def test_numeric_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24"},
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100b2c",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "3.1x00b2c",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5 = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.15",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.1200",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+
+        feature_flag6 = self.create_feature_flag(
+            key="random6",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.206.0",
+                                "operator": "lt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        # TODO: Add tests for the group query case.
+        # with self.settings(DEBUG=True):
+        #     from django.db import connection, reset_queries
+
+        #     with connection.cursor() as cursor:
+        #         cursor.execute(f"""SELECT ("posthog_person"."properties" -> 'version'), ("posthog_person"."properties" -> 'version') > '1.05',
+        #                          JSONB_TYPEOF("posthog_person"."properties" -> 'string_number'), JSONB_TYPEOF("posthog_person"."properties" -> 'number')
+        #         FROM "posthog_person" INNER JOIN "posthog_persondistinctid" ON
+        #                        ("posthog_person"."id" = "posthog_persondistinctid"."person_id") WHERE
+        #                        ("posthog_persondistinctid"."distinct_id" = '307' AND "posthog_persondistinctid"."team_id" = {self.team.id} AND "posthog_person"."team_id" = {self.team.id})
+        #                        """)
+        #         print(cursor.fetchall())
+        #         reset_queries()
+        #     reset_queries()
+        #     match = self.match_flag(feature_flag5, "307")
+        #     print('match value is: ', match)
+        #     print(connection.queries[2]["sql"])
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag4, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # even though we can parse as a number, only do string comparison
+        self.assertEqual(
+            self.match_flag(feature_flag5, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag6, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
     person: Person
