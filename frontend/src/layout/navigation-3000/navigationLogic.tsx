@@ -98,7 +98,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 toggleNavCollapsed: (state, { override }) => override ?? !state,
             },
         ],
-
         sidebarWidth: [
             DEFAULT_SIDEBAR_WIDTH_PX,
             { persist: true },
@@ -378,7 +377,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Replay,
-                            label: 'Session Replay',
+                            label: 'Session replay',
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
