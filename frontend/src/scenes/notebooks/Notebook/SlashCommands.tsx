@@ -360,19 +360,20 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const execute = async (command: SlashCommandsItem['command']): Promise<void> => {
+    const execute = async (item: SlashCommandsItem): Promise<void> => {
         if (editor) {
             const selectedNode = editor.getSelectedNode()
-            const isTextNode = selectedNode != null && selectedNode.isText
-            const position = mode === 'slash' ? range.from : getPos()
-            const chain =
-                mode === 'slash'
-                    ? editor.deleteRange(range)
-                    : isTextNode
-                    ? editor.chain()
-                    : editor.chain().insertContentAt(position, { type: 'paragraph' })
+            const isTextNode = selectedNode === null || selectedNode.isText
+            const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
 
-            const partialCommand = await command(chain, position)
+            const position = mode === 'slash' ? range.from : getPos()
+            let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+
+            if (!isTextNode && isTextCommand) {
+                chain = chain.insertContentAt(position, { type: 'paragraph' })
+            }
+
+            const partialCommand = await item.command(chain, position)
             partialCommand.run()
 
             onClose?.()
@@ -381,9 +382,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 
     const onPressEnter = async (): Promise<void> => {
         const command =
-            selectedIndex === -1
-                ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                : filteredSlashCommands[selectedIndex].command
+            selectedIndex === -1 ? TEXT_CONTROLS[selectedHorizontalIndex] : filteredSlashCommands[selectedIndex]
 
         await execute(command)
     }
@@ -455,7 +454,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => await execute(item.command)}
+                        onClick={async () => await execute(item)}
                         icon={item.icon}
                     />
                 ))}
@@ -470,7 +469,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => await execute(item.command)}
+                    onClick={async () => await execute(item)}
                 >
                     {item.title}
                 </LemonButton>
