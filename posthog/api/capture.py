@@ -169,7 +169,7 @@ def log_event(
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:

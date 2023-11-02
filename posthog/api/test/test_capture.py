@@ -1446,7 +1446,8 @@ class TestCapture(BaseTest):
         ):
             self._send_session_recording_event(event_data=large_data_array)
             calls = kafka_produce.call_args_list
-            assert calls[0] == ("wat", "am", "I", "doing")
+            assert calls == 2
+            # assert calls[0] == ("wat", "am", "I", "doing")
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
