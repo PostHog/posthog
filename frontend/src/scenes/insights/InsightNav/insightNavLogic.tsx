@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { InsightLogicProps, InsightType, ActionFilter } from '~/types'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -240,6 +240,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             }
         },
     })),
+    afterMount(({ values, actions }) => {
+        if (values.query && isInsightVizNode(values.query)) {
+            actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
+        }
+    }),
 ])
 
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
