@@ -14,7 +14,12 @@ import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 export const actionBarLogic = kea([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
     connect({
-        actions: [commandBarLogic, ['hideCommandBar'], commandPaletteLogic, ['showPalette', 'hidePalette', 'setInput']],
+        actions: [
+            commandBarLogic,
+            ['hideCommandBar'],
+            commandPaletteLogic,
+            ['showPalette', 'hidePalette', 'setInput', 'executeResult'],
+        ],
         values: [commandPaletteLogic, ['commandRegistrations', 'commandSearchResults', 'commandSearchResultsGrouped']],
     }),
     actions({
@@ -25,7 +30,7 @@ export const actionBarLogic = kea([
         // onMouseEnterResult: (index: number) => ({ index }),
         // onMouseLeaveResult: true,
         // setScrolling: (scrolling: boolean) => ({ scrolling }),
-        // openResult: (index: number) => ({ index }),
+        openResult: (index: number) => ({ index }),
     }),
     loaders({
         searchResponse: [
@@ -93,12 +98,14 @@ export const actionBarLogic = kea([
         setSearchQuery: ({ query }) => {
             actions.setInput(query)
         },
-        // openResult: ({ index }) => {
-        //     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        //     const result = values.searchResults![index]
-        //     router.actions.push(urlForResult(result))
-        //     actions.hideCommandBar()
-        // },
+        openResult: ({ index }) => {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            const result = values.searchResults![index]
+            actions.executeResult(result)
+        },
+        hidePalette: () => {
+            actions.hideCommandBar()
+        },
     })),
     afterMount(({ actions }) => {
         actions.setSearchQuery('')

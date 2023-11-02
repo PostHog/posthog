@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { resultTypeToName } from './constants'
-import { searchBarLogic, urlForResult } from './searchBarLogic'
+import { actionBarLogic } from './actionBarLogic'
 import { SearchResult as SearchResultType } from './types'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
@@ -15,8 +15,13 @@ type SearchResultProps = {
 }
 
 const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchResultProps): JSX.Element => {
-    // const { scrolling } = useValues(searchBarLogic)
-    // const { onMouseEnterResult, onMouseLeaveResult, openResult, setScrolling } = useActions(searchBarLogic)
+    // const { scrolling } = useValues(actionBarLogic)
+    const {
+        // onMouseEnterResult,
+        // onMouseLeaveResult,
+        openResult,
+        // setScrolling,
+    } = useActions(actionBarLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -57,9 +62,9 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
             //     }
             //     onMouseLeaveResult()
             // }}
-            // onClick={() => {
-            //     openResult(resultIndex)
-            // }}
+            onClick={() => {
+                openResult(resultIndex)
+            }}
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
