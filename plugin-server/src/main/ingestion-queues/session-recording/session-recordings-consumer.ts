@@ -538,8 +538,6 @@ export class SessionRecordingIngester {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
-            // NOTE: We have to set it to undefined here to make sure nothing tries to use it anymore
-            this.batchConsumer = undefined
             await this.stop()
         })
     }
