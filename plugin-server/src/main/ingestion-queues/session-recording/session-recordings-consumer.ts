@@ -366,6 +366,11 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
+        status.info('🔁', `blob_ingester_consumer - handling batch`, {
+            size: messages.length,
+            partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+            assignedPartitions: this.assignedTopicPartitions.map((x) => x.partition),
+        })
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
             logExecutionTime: true,
