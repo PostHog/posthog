@@ -73,7 +73,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": "timestamp",
                 "errors": [
                     {
-                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '(', '<'}",
                         "start": 0,
                         "end": 9,
                         "fix": None,
@@ -142,8 +142,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
         metadata = self._select(query)
         self.assertEqual(
-            metadata.dict(),
-            metadata.dict()
+            metadata.model_dump(),
+            metadata.model_dump()
             | {
                 "isValid": True,
                 "inputExpr": None,

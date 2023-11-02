@@ -84,7 +84,7 @@ export function AggregationSelect({
     if (needsUpgradeForGroups || canStartUsingGroups) {
         optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
     } else {
-        groupTypes.forEach((groupType) => {
+        Array.from(groupTypes.values()).forEach((groupType) => {
             baseValues.push(`$group_${groupType.group_type_index}`)
             optionSections[0].options.push({
                 value: `$group_${groupType.group_type_index}`,

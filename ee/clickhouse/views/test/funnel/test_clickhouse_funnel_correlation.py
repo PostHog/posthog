@@ -17,7 +17,7 @@ from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.team import Team
 from posthog.test.base import BaseTest, _create_event, _create_person
-from posthog.test.test_journeys import journeys_for, update_or_create_person
+from posthog.test.test_journeys import journeys_for
 
 
 @pytest.mark.clickhouse_only
@@ -506,15 +506,20 @@ class FunnelCorrelationTest(BaseTest):
         with freeze_time("2020-01-01"):
             self.client.force_login(self.user)
 
-            update_or_create_person(
+            _create_person(
                 distinct_ids=["Person 1"],
                 team_id=self.team.pk,
                 properties={"$browser": "1"},
             )
-            update_or_create_person(
+            _create_person(
                 distinct_ids=["Person 2"],
                 team_id=self.team.pk,
                 properties={"$browser": "1"},
+            )
+            _create_person(
+                distinct_ids=["Person 3"],
+                team_id=self.team.pk,
+                properties={},
             )
 
             events = {
@@ -534,7 +539,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            journeys_for(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team, create_people=False)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from itertools import chain
 from typing import List, Optional, Dict, Tuple, Type
 from posthog.hogql import ast
 from posthog.hogql.base import ConstantType
@@ -139,6 +140,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "not": HogQLFunctionMeta("not", 1, 1),
     # type conversions
     "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
+    "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
     "toDate": HogQLFunctionMeta(
@@ -726,6 +728,10 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
 }
+
+ALL_EXPOSED_FUNCTION_NAMES = [
+    name for name in chain(HOGQL_CLICKHOUSE_FUNCTIONS.keys(), HOGQL_AGGREGATIONS.keys()) if not name.startswith("_")
+]
 
 # TODO: Make the below details part of function meta
 # Functions where we use a -OrNull variant by default

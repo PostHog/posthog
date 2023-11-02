@@ -41,7 +41,7 @@
                 list-style-type: decimal;
             }
 
-            ul {
+            > ul {
                 list-style-type: disc;
             }
 
@@ -138,7 +138,7 @@
         }
     }
 
-    &--compact {
+    &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
             max-width: 800px;
         }

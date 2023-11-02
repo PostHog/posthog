@@ -186,7 +186,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.client.get(f'/api/projects/{self.team.id}/session_recordings?console_logs=["warn", "error"]')
 
         assert len(mock_summary_lister.call_args_list) == 1
-        filter_passed_to_mock: (SessionRecordingsFilter) = mock_summary_lister.call_args_list[0].kwargs["filter"]
+        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
 
     @snapshot_postgres_queries

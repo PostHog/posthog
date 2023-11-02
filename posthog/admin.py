@@ -217,7 +217,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_sample_rate",
                     "session_recording_minimum_duration_milliseconds",
                     "session_recording_linked_flag",
-                    "updateCurrentTeam({ capture_console_log_opt_in: checked })" "data_attributes",
+                    "data_attributes",
                     "session_recording_version",
                     "access_control",
                     "inject_web_apps",

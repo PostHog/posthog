@@ -188,6 +188,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
+    [NodeKind.InsightPersonsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.DataTableNode]: {
         name: 'Data table',
         description: 'Slice and dice your data in a table',
@@ -228,6 +234,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Internal PostHog performance data',
         description: 'View performance data about a session in PostHog itself in a trace/waterfall view',
         icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.SessionsTimelineQuery]: {
+        name: 'Sessions',
+        description: 'Sessions timeline query',
+        icon: InsightsTrendsIcon,
         inMenu: true,
     },
     [NodeKind.HogQLQuery]: {

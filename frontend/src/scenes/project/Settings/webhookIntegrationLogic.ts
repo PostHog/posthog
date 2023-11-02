@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, selectors, listeners } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -10,9 +11,9 @@ function adjustDiscordWebhook(webhookUrl: string): string {
     return webhookUrl.replace(/\/*(?:posthog|slack)?\/?$/, '/slack')
 }
 
-export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
-    path: ['scenes', 'project', 'Settings', 'webhookIntegrationLogic'],
-    loaders: ({ actions }) => ({
+export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>([
+    path(['scenes', 'project', 'Settings', 'webhookIntegrationLogic']),
+    loaders(({ actions }) => ({
         testedWebhook: [
             null as string | null,
             {
@@ -46,8 +47,14 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
                 },
             },
         ],
+    })),
+    selectors({
+        loading: [
+            (s) => [s.testedWebhookLoading, teamLogic.selectors.currentTeamLoading],
+            (testedWebhookLoading: boolean, currentTeamLoading: boolean) => testedWebhookLoading || currentTeamLoading,
+        ],
     }),
-    listeners: () => ({
+    listeners(() => ({
         testWebhookSuccess: async ({ testedWebhook }) => {
             if (testedWebhook) {
                 teamLogic.actions.updateCurrentTeam({ slack_incoming_webhook: testedWebhook })
@@ -56,11 +63,5 @@ export const webhookIntegrationLogic = kea<webhookIntegrationLogicType>({
         testWebhookFailure: ({ error }) => {
             lemonToast.error(capitalizeFirstLetter(error))
         },
-    }),
-    selectors: {
-        loading: [
-            (s) => [s.testedWebhookLoading, teamLogic.selectors.currentTeamLoading],
-            (testedWebhookLoading: boolean, currentTeamLoading: boolean) => testedWebhookLoading || currentTeamLoading,
-        ],
-    },
-})
+    })),
+])

@@ -2,7 +2,6 @@ from typing import Dict, List, Tuple
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.breakdown_values import BreakdownValues
 from posthog.hogql_queries.insights.trends.utils import (
     get_properties_chain,
@@ -173,15 +172,8 @@ class Breakdown:
 
     @cached_property
     def _properties_chain(self):
-        if self.is_session_type:
-            return self._breakdown_session.session_duration_property_chain()
-
         return get_properties_chain(
             breakdown_type=self.query.breakdown.breakdown_type,
             breakdown_field=self.query.breakdown.breakdown,
             group_type_index=self.query.breakdown.breakdown_group_type_index,
         )
-
-    @cached_property
-    def _breakdown_session(self):
-        return BreakdownSession(self.query_date_range)

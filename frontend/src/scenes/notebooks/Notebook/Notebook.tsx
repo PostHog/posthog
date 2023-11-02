@@ -17,6 +17,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookColumnRight } from './NotebookColumnRight'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -35,7 +36,7 @@ export function Notebook({
     const logic = notebookLogic(logicProps)
     const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
         useValues(logic)
-    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent } = useActions(logic)
+    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     useEffect(() => {
@@ -74,6 +75,15 @@ export function Notebook({
         }
     }, [editor])
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
+
+    useEffect(() => {
+        setContainerSize(size as 'small' | 'medium')
+    }, [size])
+
     // TODO - Render a special state if the notebook is empty
 
     if (conflictWarningVisible) {
@@ -91,8 +101,10 @@ export function Notebook({
                     'Notebook',
                     !isExpanded && 'Notebook--compact',
                     mode && `Notebook--${mode}`,
+                    size === 'small' && `Notebook--single-column`,
                     isEditable && 'Notebook--editable'
                 )}
+                ref={ref}
             >
                 {isTemplate && (
                     <LemonBanner

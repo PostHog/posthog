@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
 import type { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -9,26 +10,22 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
-export const membersLogic = kea<membersLogicType>({
-    path: ['scenes', 'organization', 'Settings', 'membersLogic'],
-    connect: {
+export const membersLogic = kea<membersLogicType>([
+    path(['scenes', 'organization', 'Settings', 'membersLogic']),
+    connect({
         values: [userLogic, ['user']],
-    },
-    actions: {
+    }),
+    actions({
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
         }),
         postRemoveMember: (userUuid: string) => ({ userUuid }),
-    },
-    reducers: {
-        search: ['', { setSearch: (_, { search }) => search }],
-    },
-    loaders: ({ values, actions }) => ({
+    }),
+    loaders(({ values, actions }) => ({
         members: {
             __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
@@ -45,8 +42,11 @@ export const membersLogic = kea<membersLogicType>({
                 return values.members.filter((thisMember) => thisMember.user.id !== member.user.id)
             },
         },
+    })),
+    reducers({
+        search: ['', { setSearch: (_, { search }) => search }],
     }),
-    selectors: {
+    selectors({
         meFirstMembers: [
             (s) => [s.members, s.user],
             (members, user) => {
@@ -73,8 +73,8 @@ export const membersLogic = kea<membersLogicType>({
             (members, membersFuse, search) =>
                 search ? membersFuse.search(search).map((result) => result.item) : members,
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         changeMemberAccessLevel: async ({ member, level }) => {
             await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
             lemonToast.success(
@@ -93,8 +93,8 @@ export const membersLogic = kea<membersLogicType>({
                 location.reload()
             }
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: actions.loadMembers,
-    }),
-})
+    })),
+])
