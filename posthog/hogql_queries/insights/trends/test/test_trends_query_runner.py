@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 from freezegun import freeze_time
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
 
 from posthog.schema import (
@@ -9,9 +10,12 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
+    CountPerActorMathType,
     DateRange,
     EventsNode,
     IntervalType,
+    PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
@@ -33,7 +37,7 @@ class Series:
 class SeriesTestData:
     distinct_id: str
     events: List[Series]
-    properties: Dict[str, str]
+    properties: Dict[str, str | int]
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -42,13 +46,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: List[SeriesTestData]):
         person_result = []
-        properties_to_create = []
+        properties_to_create: Dict[str, str] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
-            for key in person.properties:
+            for key, value in person.properties.items():
                 if key not in properties_to_create:
-                    properties_to_create.append(key)
+                    if isinstance(value, str):
+                        type = "String"
+                    elif isinstance(value, bool):
+                        type = "Boolean"
+                    elif isinstance(value, int):
+                        type = "Numeric"
+                    else:
+                        type = "String"
+                    properties_to_create[key] = type
 
             with freeze_time(first_timestamp):
                 person_result.append(
@@ -71,8 +83,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         properties=person.properties,
                     )
 
-        for prop in properties_to_create:
-            PropertyDefinition.objects.create(team=self.team, name=prop)
+        for key, value in properties_to_create.items():
+            PropertyDefinition.objects.create(team=self.team, name=key, property_type=value)
 
         return person_result
 
@@ -102,7 +114,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Chrome"},
+                    properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
                 ),
                 SeriesTestData(
                     distinct_id="p2",
@@ -118,7 +130,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                             ],
                         ),
                     ],
-                    properties={"$browser": "Firefox"},
+                    properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
                 ),
                 SeriesTestData(
                     distinct_id="p3",
@@ -126,7 +138,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
                         Series(event="$pageleave", timestamps=["2020-01-13T12:00:00Z"]),
                     ],
-                    properties={"$browser": "Edge"},
+                    properties={"$browser": "Edge", "prop": 30, "bool_field": True},
                 ),
                 SeriesTestData(
                     distinct_id="p4",
@@ -134,7 +146,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
                         Series(event="$pageleave", timestamps=["2020-01-16T12:00:00Z"]),
                     ],
-                    properties={"$browser": "Safari"},
+                    properties={"$browser": "Safari", "prop": 40, "bool_field": False},
                 ),
             ]
         )
@@ -412,6 +424,140 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["count"] == 2
         assert response.results[3]["count"] == 1
 
+    def test_trends_breakdowns_boolean(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="bool_field"),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert breakdown_labels == ["false", "true"]
+
+        assert response.results[0]["label"] == f"$pageview - false"
+        assert response.results[1]["label"] == f"$pageview - true"
+
+        assert response.results[0]["count"] == 3
+        assert response.results[1]["count"] == 7
+
+    def test_trends_breakdowns_histogram(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.event,
+                breakdown="prop",
+                breakdown_histogram_bin_count=4,
+            ),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 5
+        assert breakdown_labels == [
+            '["",""]',
+            "[10.0,17.5]",
+            "[17.5,25.0]",
+            "[25.0,32.5]",
+            "[32.5,40.01]",
+        ]
+
+        assert response.results[0]["label"] == '$pageview - ["",""]'
+        assert response.results[1]["label"] == "$pageview - [10.0,17.5]"
+        assert response.results[2]["label"] == "$pageview - [17.5,25.0]"
+        assert response.results[3]["label"] == "$pageview - [25.0,32.5]"
+        assert response.results[4]["label"] == "$pageview - [32.5,40.01]"
+
+        assert response.results[0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[1]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[2]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[3]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+
+    def test_trends_breakdowns_cohort(self):
+        self._create_test_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort.pk]),
+        )
+
+        assert len(response.results) == 1
+
+        assert response.results[0]["label"] == f"$pageview - cohort"
+        assert response.results[0]["count"] == 6
+        assert response.results[0]["data"] == [
+            0,
+            0,
+            1,
+            1,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+        ]
+
+    def test_trends_breakdowns_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.hogql, breakdown="properties.$browser"),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
+        assert response.results[0]["label"] == f"$pageview - Chrome"
+        assert response.results[1]["label"] == f"$pageview - Edge"
+        assert response.results[2]["label"] == f"$pageview - Firefox"
+        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 1
+        assert response.results[2]["count"] == 2
+        assert response.results[3]["count"] == 1
+
     def test_trends_breakdowns_and_compare(self):
         self._create_test_events()
 
@@ -458,6 +604,112 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2]["compare"] is True
         assert response.results[3]["compare"] is True
         assert response.results[4]["compare"] is True
+
+    def test_trends_breakdown_and_aggregation_query_orchestration(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math=PropertyMathType.sum, math_property="prop")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 4
+        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
+        assert response.results[0]["label"] == f"$pageview - Chrome"
+        assert response.results[1]["label"] == f"$pageview - Edge"
+        assert response.results[2]["label"] == f"$pageview - Firefox"
+        assert response.results[3]["label"] == f"$pageview - Safari"
+
+        assert response.results[0]["data"] == [
+            0,
+            0,
+            10,
+            10,
+            10,
+            0,
+            10,
+            0,
+            10,
+            0,
+            10,
+            0,
+        ]
+        assert response.results[1]["data"] == [
+            0,
+            0,
+            0,
+            30,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+        assert response.results[2]["data"] == [
+            20,
+            0,
+            0,
+            20,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+        assert response.results[3]["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            40,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+
+    def test_trends_aggregation_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math="hogql", math_hogql="sum(properties.prop)")],
+            None,
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [
+            20,
+            0,
+            10,
+            60,
+            10,
+            0,
+            50,
+            0,
+            10,
+            0,
+            10,
+            0,
+        ]
 
     def test_trends_aggregation_total(self):
         self._create_test_events()
@@ -518,3 +770,148 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 1, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4]
+
+    def test_trends_aggregation_unique(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math=BaseMathType.unique_session)],
+            None,
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
+
+    def test_trends_aggregation_property_sum(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math=PropertyMathType.sum, math_property="prop")],
+            None,
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [
+            20,
+            0,
+            10,
+            60,
+            10,
+            0,
+            50,
+            0,
+            10,
+            0,
+            10,
+            0,
+        ]
+
+    def test_trends_aggregation_property_avg(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math=PropertyMathType.avg, math_property="prop")],
+            None,
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [
+            20,
+            0,
+            10,
+            20,
+            10,
+            0,
+            25,
+            0,
+            10,
+            0,
+            10,
+            0,
+        ]
+
+    def test_trends_aggregation_per_actor_max(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview", math=CountPerActorMathType.max_count_per_actor)],
+            None,
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [
+            1,
+            0,
+            1,
+            1,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+        ]
+
+    def test_trends_display_aggregate(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BoldNumber),
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == []
+        assert response.results[0]["days"] == []
+        assert response.results[0]["count"] == 0
+        assert response.results[0]["aggregated_value"] == 10
+
+    def test_trends_display_cumulative(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraphCumulative),
+            None,
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["data"] == [
+            1,
+            1,
+            2,
+            5,
+            6,
+            6,
+            8,
+            8,
+            9,
+            9,
+            10,
+            10,
+        ]

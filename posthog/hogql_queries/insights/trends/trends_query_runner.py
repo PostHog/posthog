@@ -373,7 +373,7 @@ class TrendsQueryRunner(QueryRunner):
         )
         return field_type == "Boolean"
 
-    def _convert_boolean(self, value: any):
+    def _convert_boolean(self, value: Any):
         bool_map = {1: "true", 0: "false", "": ""}
         return bool_map.get(value) or value
 
@@ -390,7 +390,7 @@ class TrendsQueryRunner(QueryRunner):
             group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
         ).property_type
 
-    def _query_to_filter(self) -> Dict[str, any]:
+    def _query_to_filter(self) -> Dict[str, Any]:
         filter_dict = {
             "insight": "TRENDS",
             "properties": self.query.properties,
