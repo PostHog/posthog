@@ -30,22 +30,23 @@ const PH_CURRENT_INSTANCE = 'ph_current_instance'
 
 const REDIRECT_TIMEOUT = 2500
 
-const SUBDOMAIN_TO_NAME = {
-    eu: 'EU',
-    app: 'US',
-} as const
-
-export function cleanedCookieSubdomain(loggedInInstance: string | null): string | null {
+export function cleanedCookieSubdomain(loggedInInstance: string | null): 'EU' | 'US' | null {
     try {
         // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
         const url = loggedInInstance?.replace(/"/g, '')
         if (!url) {
             return null
         }
-
-        const parsedURL = new URL(url)
-        const host = parsedURL.host
-        return url ? host.split('.')[0] : null
+        // convert to URL, so that we can be sure we're dealing with a valid URL
+        const hostname = new URL(url).hostname
+        switch (hostname) {
+            case 'app.posthog.com':
+                return 'US'
+            case 'eu.posthog.com':
+                return 'EU'
+            default:
+                return null
+        }
     } catch (e) {
         // let's not allow errors in this code break the log-in page 🤞
         captureException(e, { extra: { loggedInInstance } })
@@ -63,10 +64,6 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         return // not logged into another subdomain
     }
 
-    if (!SUBDOMAIN_TO_NAME[loggedInSubdomain]) {
-        return // not logged into a valid subdomain
-    }
-
     const loggedIntoOtherSubdomain = loggedInSubdomain !== currentSubdomain
 
     if (loggedIntoOtherSubdomain) {
@@ -82,20 +79,17 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
             window.location.assign(newUrl.href)
         }
 
-        lemonToast.info(
-            `Redirecting to your logged-in account in the Cloud ${SUBDOMAIN_TO_NAME[loggedInSubdomain]} region`,
-            {
-                button: {
-                    label: 'Cancel',
-                    action: () => {
-                        cancelClicked = true
-                    },
+        lemonToast.info(`Redirecting to your logged-in account in the Cloud ${loggedInSubdomain} region`, {
+            button: {
+                label: 'Cancel',
+                action: () => {
+                    cancelClicked = true
                 },
-                onClose: closeToastAction,
-                // we want to force the user to click the cancel button as otherwise the default close will still redirect
-                closeButton: false,
-                autoClose: REDIRECT_TIMEOUT,
-            }
-        )
+            },
+            onClose: closeToastAction,
+            // we want to force the user to click the cancel button as otherwise the default close will still redirect
+            closeButton: false,
+            autoClose: REDIRECT_TIMEOUT,
+        })
     }
 }
