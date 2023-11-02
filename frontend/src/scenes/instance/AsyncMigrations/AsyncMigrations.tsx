@@ -24,6 +24,7 @@ import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -73,7 +74,7 @@ export function AsyncMigrations(): JSX.Element {
             return (
                 <>
                     <div className="row-name">
-                        <a href={link}>{asyncMigration.name}</a>
+                        <Link to={link}>{asyncMigration.name}</Link>
                     </div>
                     <div className="row-description">{asyncMigration.description}</div>
                 </>
@@ -285,9 +286,9 @@ export function AsyncMigrations(): JSX.Element {
                                 <p>Manage async migrations in your instance.</p>
                                 <p>
                                     Read about async migrations on our{' '}
-                                    <a href="https://posthog.com/docs/self-host/configure/async-migrations/overview">
+                                    <Link to="https://posthog.com/docs/self-host/configure/async-migrations/overview">
                                         dedicated docs page
-                                    </a>
+                                    </Link>
                                     .
                                 </p>
                             </>

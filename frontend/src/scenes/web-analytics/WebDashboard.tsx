@@ -2,13 +2,13 @@ import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
 import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import { webAnalyticsDataTableQueryContext, WebStatsTableTile } from 'scenes/web-analytics/WebAnalyticsDataTable'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 const Filters = (): JSX.Element => {
     const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
@@ -22,6 +22,7 @@ const Filters = (): JSX.Element => {
                     onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
                     propertyFilters={webAnalyticsFilters}
                     pageKey={'web-analytics'}
+                    eventNames={['$pageview', '$pageleave', '$autocapture']}
                 />
             </div>
             <div className={'bg-border h-px w-full mt-2'} />

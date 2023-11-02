@@ -3,7 +3,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
+import { InsightShortId, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { EventsQuery } from '~/queries/schema'
@@ -437,6 +437,11 @@ export const routes: Record<string, Scene> = {
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.pipeline()]: Scene.Pipeline,
+    // One entry for every available tab
+    ...Object.values(PipelineTabs).reduce((acc, tab) => {
+        acc[urls.pipeline(tab)] = Scene.Pipeline
+        return acc
+    }, {} as Record<string, Scene>),
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,

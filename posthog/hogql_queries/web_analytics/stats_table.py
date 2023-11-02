@@ -55,6 +55,8 @@ LEFT OUTER JOIN
     {bounce_rate_query} AS bounce_rate
 ON
     counts.breakdown_value = bounce_rate.breakdown_value
+WHERE
+    {where_breakdown}
 ORDER BY
     "context.columns.views" DESC
 LIMIT 10
@@ -63,6 +65,7 @@ LIMIT 10
                 placeholders={
                     "counts_query": counts_query,
                     "bounce_rate_query": bounce_rate_query,
+                    "where_breakdown": self.where_breakdown(),
                 },
                 backend="cpp",
             )
@@ -87,41 +90,89 @@ LIMIT 10
     def counts_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return parse_expr("properties.$pathname")
+                return ast.Field(chain=["properties", "$pathname"])
             case WebStatsBreakdown.InitialPage:
-                return parse_expr("properties.$set_once.$initial_pathname")
+                return ast.Field(chain=["properties", "$client_session_initial_pathname"])
             case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("properties.$set_once.$initial_referring_domain")
+                return ast.Field(chain=["properties", "$client_session_initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("properties.$set_once.$initial_utm_source")
+                return ast.Field(chain=["properties", "$client_session_initial_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("properties.$set_once.$initial_utm_campaign")
+                return ast.Field(chain=["properties", "$client_session_initial_utm_campaign"])
+            case WebStatsBreakdown.InitialUTMMedium:
+                return ast.Field(chain=["properties", "$client_session_initial_utm_medium"])
+            case WebStatsBreakdown.InitialUTMTerm:
+                return ast.Field(chain=["properties", "$client_session_initial_utm_term"])
+            case WebStatsBreakdown.InitialUTMContent:
+                return ast.Field(chain=["properties", "$client_session_initial_utm_content"])
             case WebStatsBreakdown.Browser:
-                return parse_expr("properties.$browser")
+                return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
-                return parse_expr("properties.$os")
+                return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.DeviceType:
-                return parse_expr("properties.$device_type")
+                return ast.Field(chain=["properties", "$device_type"])
+            case WebStatsBreakdown.Country:
+                return ast.Field(chain=["properties", "$geoip_country_code"])
+            case WebStatsBreakdown.Region:
+                return parse_expr(
+                    "tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name)"
+                )
+            case WebStatsBreakdown.City:
+                return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def bounce_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return parse_expr("any(properties.$set_once.$initial_pathname)")
+                # use initial pathname for bounce rate
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_pathname"])])
             case WebStatsBreakdown.InitialPage:
-                return parse_expr("any(properties.$set_once.$initial_pathname)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_pathname"])])
             case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("any(properties.$set_once.$initial_referring_domain)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_referring_domain"])])
             case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("any(properties.$set_once.$initial_utm_source)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_source"])])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("any(properties.$set_once.$initial_utm_campaign)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])])
+            case WebStatsBreakdown.InitialUTMMedium:
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_medium"])])
+            case WebStatsBreakdown.InitialUTMTerm:
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_term"])])
+            case WebStatsBreakdown.InitialUTMContent:
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$initial_utm_content"])])
             case WebStatsBreakdown.Browser:
-                return parse_expr("any(properties.$browser)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$browser"])])
             case WebStatsBreakdown.OS:
-                return parse_expr("any(properties.$os)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$os"])])
             case WebStatsBreakdown.DeviceType:
-                return parse_expr("any(properties.$device_type)")
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$device_type"])])
+            case WebStatsBreakdown.Country:
+                return ast.Call(name="any", args=[ast.Field(chain=["properties", "$geoip_country_code"])])
+            case WebStatsBreakdown.Region:
+                return parse_expr(
+                    "any(tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name))"
+                )
+            case WebStatsBreakdown.City:
+                return parse_expr("any(tuple(properties.$geoip_country_code, properties.$geoip_city_name))")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
+
+    def where_breakdown(self):
+        match self.query.breakdownBy:
+            case WebStatsBreakdown.Region:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.City:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.InitialUTMSource:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMMedium:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMTerm:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMContent:
+                return parse_expr("TRUE")  # actually show null values
+            case _:
+                return parse_expr('"context.columns.breakdown_value" IS NOT NULL')

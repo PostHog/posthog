@@ -1,9 +1,9 @@
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
-import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { status } from '../../../utils/status'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
@@ -30,39 +30,38 @@ export const maxDefined = (...args: (number | undefined)[]): number | undefined 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 export const queryWatermarkOffsets = (
-    batchConsumer: BatchConsumer | undefined,
+    kafkaConsumer: KafkaConsumer | undefined,
     partition: number
 ): Promise<[number, number]> => {
     return new Promise<[number, number]>((resolve, reject) => {
-        if (!batchConsumer) {
+        if (!kafkaConsumer) {
             return reject('Not connected')
         }
-        batchConsumer.consumer.queryWatermarkOffsets(
-            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-            partition,
-            (err, offsets) => {
-                if (err) {
-                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                    return reject(err)
-                }
 
-                resolve([partition, offsets.highOffset])
+        kafkaConsumer.queryWatermarkOffsets(KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, partition, (err, offsets) => {
+            if (err) {
+                captureException(err)
+                status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                return reject(err)
             }
-        )
+
+            resolve([partition, offsets.highOffset])
+        })
     })
 }
 
 export const queryCommittedOffsets = (
-    batchConsumer: BatchConsumer | undefined,
+    kafkaConsumer: KafkaConsumer | undefined,
     topicPartitions: TopicPartition[]
 ): Promise<Record<number, number>> => {
     return new Promise<Record<number, number>>((resolve, reject) => {
-        if (!batchConsumer) {
+        if (!kafkaConsumer) {
             return reject('Not connected')
         }
 
-        batchConsumer.consumer.committed(topicPartitions, 10000, (err, offsets) => {
+        kafkaConsumer.committed(topicPartitions, 10000, (err, offsets) => {
             if (err) {
+                captureException(err)
                 status.error('🔥', 'Failed to query kafka committed offsets', err)
                 return reject(err)
             }

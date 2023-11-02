@@ -216,7 +216,7 @@ export function Editor(): JSX.Element {
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
-                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -256,9 +256,10 @@ export function Editor(): JSX.Element {
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
-            {_editor && <InlineMenu editor={_editor} />}
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </EditorContent>
         </>
     )
 }
