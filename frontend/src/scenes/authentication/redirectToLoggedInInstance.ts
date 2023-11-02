@@ -23,6 +23,7 @@
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { getCookie } from 'lib/api'
+import { captureException } from '@sentry/react'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
@@ -35,15 +36,21 @@ const SUBDOMAIN_TO_NAME = {
 } as const
 
 export function cleanedCookieSubdomain(loggedInInstance: string | null): string | null {
-    // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
-    const url = loggedInInstance?.replace(/"/g, '')
-    if (!url) {
+    try {
+        // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
+        const url = loggedInInstance?.replace(/"/g, '')
+        if (!url) {
+            return null
+        }
+
+        const parsedURL = new URL(url)
+        const host = parsedURL.host
+        return url ? host.split('.')[0] : null
+    } catch (e) {
+        // let's not allow errors in this code break the log-in page 🤞
+        captureException(e, { extra: { loggedInInstance } })
         return null
     }
-
-    const parsedURL = new URL(url)
-    const host = parsedURL.host
-    return url ? host.split('.')[0] : null
 }
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
