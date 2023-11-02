@@ -139,7 +139,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
-            (propertyAllowList) => propertyAllowList ?? {},
+            (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
         ],
         taxonomicGroups: [
             (s) => [
@@ -206,8 +206,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
                             is_feature_flag: false,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                            propertyAllowList,
-                            properties: propertyAllowList[TaxonomicFilterGroupType.EventProperties]
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
                         }).url,
@@ -217,7 +216,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       event_names: eventNames,
                                       is_feature_flag: false,
                                       filter_by_event_names: true,
-                                      properties: propertyAllowList[TaxonomicFilterGroupType.EventProperties]
+                                      properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
                                           ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                           : undefined,
                                   }).url
@@ -232,7 +231,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
-                        propertyAllowList: propertyAllowList[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {

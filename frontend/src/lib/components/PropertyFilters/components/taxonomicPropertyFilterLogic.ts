@@ -11,7 +11,11 @@ import {
 } from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
@@ -37,7 +41,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 onChange: props.taxonomicOnChange,
                 eventNames: props.eventNames,
                 propertyAllowList: props.propertyAllowList,
-            }),
+            } as TaxonomicFilterLogicProps),
             ['taxonomicGroups'],
             propertyDefinitionsModel,
             ['describeProperty'],
