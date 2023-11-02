@@ -30,7 +30,9 @@ const PH_CURRENT_INSTANCE = 'ph_current_instance'
 
 const REDIRECT_TIMEOUT = 2500
 
-export function cleanedCookieSubdomain(loggedInInstance: string | null): 'EU' | 'US' | null {
+type Subdomain = 'eu' | 'app'
+
+export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdomain | null {
     try {
         // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
         const url = loggedInInstance?.replace(/"/g, '')
@@ -41,9 +43,9 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): 'EU' | 
         const hostname = new URL(url).hostname
         switch (hostname) {
             case 'app.posthog.com':
-                return 'US'
+                return 'app'
             case 'eu.posthog.com':
-                return 'EU'
+                return 'eu'
             default:
                 return null
         }
@@ -51,6 +53,15 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): 'EU' | 
         // let's not allow errors in this code break the log-in page 🤞
         captureException(e, { extra: { loggedInInstance } })
         return null
+    }
+}
+
+function regionFromSubdomain(subdomain: Subdomain): 'EU' | 'US' {
+    switch (subdomain) {
+        case 'app':
+            return 'US'
+        case 'eu':
+            return 'EU'
     }
 }
 
@@ -79,17 +90,20 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
             window.location.assign(newUrl.href)
         }
 
-        lemonToast.info(`Redirecting to your logged-in account in the Cloud ${loggedInSubdomain} region`, {
-            button: {
-                label: 'Cancel',
-                action: () => {
-                    cancelClicked = true
+        lemonToast.info(
+            `Redirecting to your logged-in account in the Cloud ${regionFromSubdomain(loggedInSubdomain)} region`,
+            {
+                button: {
+                    label: 'Cancel',
+                    action: () => {
+                        cancelClicked = true
+                    },
                 },
-            },
-            onClose: closeToastAction,
-            // we want to force the user to click the cancel button as otherwise the default close will still redirect
-            closeButton: false,
-            autoClose: REDIRECT_TIMEOUT,
-        })
+                onClose: closeToastAction,
+                // we want to force the user to click the cancel button as otherwise the default close will still redirect
+                closeButton: false,
+                autoClose: REDIRECT_TIMEOUT,
+            }
+        )
     }
 }
