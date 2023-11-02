@@ -1,8 +1,11 @@
 from pydantic import BaseModel
 from posthog.warehouse.external_data_source.client import send_request
+import structlog
 
 AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
+
+logger = structlog.get_logger(__name__)
 
 
 class ExternalDataConnection(BaseModel):
@@ -54,7 +57,13 @@ def delete_connection(connection_id: str) -> None:
 # Fire and forget
 def start_sync(connection_id: str):
     payload = {"jobType": "sync", "connectionId": connection_id}
-    send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
+
+    try:
+        send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
+    except Exception as e:
+        logger.exception(
+            f"Sync Resource failed with an unexpected exception for connection id: {connection_id}", exc_info=e
+        )
 
 
 def retrieve_sync(connection_id: str):
