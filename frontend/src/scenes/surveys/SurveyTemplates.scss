@@ -1,6 +1,7 @@
 @import '../../styles/mixins';
 
 .SurveyTemplateContainer {
+    flex: 1;
     display: flex;
     align-items: center;
     border: 1px solid var(--border);

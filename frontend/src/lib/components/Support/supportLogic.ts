@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
@@ -12,6 +12,7 @@ import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import * as Sentry from '@sentry/react'
+import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -41,6 +42,12 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
     return `Sentry: ${link}`
 }
 
+const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
+    bug: 'Report a bug',
+    feedback: 'Give feedback',
+    support: 'Get support',
+}
+
 export const TARGET_AREA_TO_NAME = {
     app_performance: 'App Performance',
     apps: 'Apps',
@@ -65,6 +72,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     feedback: 'Feedback',
     support: 'Support Ticket',
 }
+
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -94,10 +102,16 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
+export type SupportFormLogicProps = {
+    onClose?: () => void
+}
+
 export const supportLogic = kea<supportLogicType>([
+    props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -184,13 +198,24 @@ export const supportLogic = kea<supportLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    selectors({
+        title: [
+            (s) => [s.sendSupportRequest ?? null],
+            (sendSupportRequest) =>
+                sendSupportRequest.kind
+                    ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                    : 'Leave a message with PostHog',
+        ],
+    }),
+    listeners(({ actions, props }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
                 kind,
                 target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
                 message: '',
             })
+
+            actions.openSidePanel(SidePanelTab.Feedback)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
@@ -270,6 +295,10 @@ export const supportLogic = kea<supportLogicType>([
                     captureException(err)
                     lemonToast.error(`There was an error sending the message.`)
                 })
+        },
+
+        closeSupportForm: () => {
+            props.onClose?.()
         },
     })),
 

@@ -3,7 +3,6 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: calc(var(--resizer-width) / 2 * -1);
     width: var(--resizer-width);
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
@@ -41,6 +40,16 @@
             background: var(--text-3000);
             opacity: 0;
         }
+    }
+
+    &--left {
+        left: 0px;
+        transform: translateX(calc(var(--resizer-width) / 2 * -1));
+    }
+
+    &--right {
+        right: 0px;
+        transform: translateX(calc(var(--resizer-width) / 2 * +1));
     }
 
     &:hover .Resizer__handle::after,

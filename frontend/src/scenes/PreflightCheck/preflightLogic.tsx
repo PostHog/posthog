@@ -253,6 +253,12 @@ export const preflightLogic = kea<preflightLogicType>([
                 }))
             },
         ],
+        isCloudOrDev: [
+            (s) => [s.preflight],
+            (preflight): boolean | undefined => {
+                return preflight?.cloud || preflight?.is_debug
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         handlePreflightFinished: () => {

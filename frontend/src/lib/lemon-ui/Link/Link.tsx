@@ -42,6 +42,10 @@ const shouldForcePageLoad = (input: any): boolean => {
     return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
 }
 
+const isPostHogDomain = (url: string): boolean => {
+    return /https:\/\/((app|eu)\.)?posthog\.com'/.test(url)
+}
+
 /**
  * Link
  *
@@ -95,14 +99,17 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
         }
 
+        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+
         return to ? (
+            // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
                 className={clsx('Link', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? to : '#'}
                 target={target}
-                rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+                rel={target === '_blank' ? rel : undefined}
                 {...props}
                 {...draggableProps}
             >

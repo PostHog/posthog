@@ -8,7 +8,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -263,14 +263,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         hasKeyChanged && id !== 'new' ? (
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will
-                                                <a
-                                                    href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                <Link
+                                                    to={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
                                                     target="_blank"
-                                                    rel="noopener"
+                                                    targetBlankIcon
                                                 >
                                                     {' '}
-                                                    affect the persistence of your flag <IconOpenInNew />
-                                                </a>
+                                                    affect the persistence of your flag
+                                                </Link>
                                             </span>
                                         ) : undefined
                                     }

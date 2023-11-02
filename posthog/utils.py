@@ -344,9 +344,6 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    if settings.MAPLIBRE_STYLE_URL:
-        context["js_maplibre_style_url"] = settings.MAPLIBRE_STYLE_URL
-
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,

@@ -1,4 +1,5 @@
 import { KeyMapping, PropertyFilterValue } from '~/types'
+import { Link } from './lemon-ui/Link'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -71,7 +72,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
-
+        $raw_user_agent: {
+            label: 'Raw User Agent',
+            description:
+                'PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.',
+            examples: ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)'],
+        },
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -668,7 +674,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
-                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <Link to="https://posthog.com/docs/user-guides/sessions">our documentation.</Link>
                     <br /> <br />
                     Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
                 </span>

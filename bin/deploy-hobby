@@ -2,6 +2,10 @@
 
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+# Automatically restart without asking.
+# this gets around needrestart command halting for user input
+export RESTART_MODE=l
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 export SENTRY_DSN="${SENTRY_DSN:-'https://public@sentry.example.com/1'}"
 
