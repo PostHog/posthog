@@ -127,7 +127,7 @@ export function Navbar(): JSX.Element {
             <Resizer
                 placement={'right'}
                 containerRef={containerRef}
-                closeThreshold={200}
+                closeThreshold={100}
                 onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
             />
         </nav>
