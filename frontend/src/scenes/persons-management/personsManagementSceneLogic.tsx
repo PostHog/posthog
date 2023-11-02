@@ -4,10 +4,10 @@ import { urls } from 'scenes/urls'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { Breadcrumb } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
-import { Persons } from './tabs/Persons'
 import { groupsModel } from '~/models/groupsModel'
+import { Persons } from './tabs/Persons'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -21,7 +21,7 @@ export type PersonsManagementTabs = Record<
 export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>([
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect({
-        values: [groupsAccessLogic, ['groupsAccessStatus'], groupsModel, ['groupTypes']],
+        values: [groupsModel, ['groupTypes', 'groupsAccessStatus']],
     }),
     actions({
         setTab: (tab: string) => ({ tab }),
