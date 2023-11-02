@@ -711,7 +711,6 @@ export class SessionRecordingIngester {
         partitions: Record<number, PartitionMetrics>,
         blockingSessions: SessionManager[]
     ): Promise<void> {
-        console.log(partitions)
         await Promise.all(
             Object.entries(partitions).map(async ([p, metrics]) => {
                 /**
@@ -720,15 +719,6 @@ export class SessionRecordingIngester {
                  * OR the latest offset we have consumed for that partition
                  */
                 const partition = parseInt(p)
-                // const committedHighOffset = committedOffsetsByPartition[partition]
-
-                // if (typeof committedHighOffset !== 'number') {
-                //     status.warn('🤔', 'blob_ingester_consumer - missing known committed offset for partition', {
-                //         partition: partition,
-                //         assignedTopicPartitions: this.assignedTopicPartitions,
-                //     })
-                //     return
-                // }
 
                 const tp = {
                     topic: this.topic,
