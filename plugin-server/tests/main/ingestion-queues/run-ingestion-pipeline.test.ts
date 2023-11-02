@@ -5,6 +5,7 @@ import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { UUIDT } from '../../../src/utils/utils'
 import { runEventPipeline } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
 
@@ -57,7 +58,7 @@ describe('workerTasks.runEventPipeline()', () => {
                 properties: {},
                 site_url: 'https://example.com',
                 now: new Date().toISOString(),
-                uuid: 'uuid',
+                uuid: new UUIDT().toString(),
             })
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
