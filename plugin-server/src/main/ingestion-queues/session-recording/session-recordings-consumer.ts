@@ -668,8 +668,6 @@ export class SessionRecordingIngester {
                 }
 
                 await Promise.allSettled(sessionsToDrop.map((x) => x.destroy()))
-                // TODO: If the above works, all sessions are removed. Can we drop?
-                await this.latestOffsetsRefresher.refresh()
             },
         })
     }
