@@ -396,6 +396,13 @@ class FeatureFlagMatcher:
                     annotate_query = True
                     nonlocal person_query
 
+                    property_list = Filter(data=condition).property_groups.flat
+                    properties_with_math_operators = [
+                        key_and_field_for_property(prop)
+                        for prop in property_list
+                        if prop.operator in ["gt", "lt", "gte", "lte"]
+                    ]
+
                     if len(condition.get("properties", {})) > 0:
                         # Feature Flags don't support OR filtering yet
                         target_properties = self.property_value_overrides
@@ -405,19 +412,12 @@ class FeatureFlagMatcher:
                                 {},
                             )
 
-                        property_list = Filter(data=condition).property_groups.flat
                         expr = properties_to_Q(
                             property_list,
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
                             using_database=DATABASE_FOR_FLAG_MATCHING,
                         )
-
-                        properties_with_math_operators = [
-                            key_and_field_for_property(prop)
-                            for prop in property_list
-                            if prop.operator in ["gt", "lt", "gte", "lte"]
-                        ]
 
                         # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.
                         # In that case, the expression is either an explicit True or explicit False, or multiple conditions.
@@ -443,7 +443,7 @@ class FeatureFlagMatcher:
                             # These need to come in before the expr so they're available to use inside the expr.
                             # Same holds for the group queries below.
                             type_property_annotations = {
-                                prop_key: JSONType(F(prop_field))
+                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
                                 for prop_key, prop_field in properties_with_math_operators
                             }
                             person_query = person_query.annotate(
@@ -465,7 +465,7 @@ class FeatureFlagMatcher:
                                 group_fields,
                             ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
                             type_property_annotations = {
-                                prop_key: JSONType(F(prop_field))
+                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
                                 for prop_key, prop_field in properties_with_math_operators
                             }
                             group_query = group_query.annotate(
@@ -905,12 +905,6 @@ def parse_exception_for_error_message(err: Exception):
             reason = "query_wait_timeout"
 
     return reason
-
-
-class JSONType(Func):
-    function = "JSONB_TYPEOF"
-    template = "%(function)s(%(expressions)s)"
-    output_field = CharField()
 
 
 def key_and_field_for_property(property: Property) -> Tuple[str, str]:
