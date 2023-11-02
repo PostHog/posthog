@@ -1,7 +1,6 @@
 from posthog.models.utils import UUIDModel, CreatedMetaFields, sane_repr
 from django.db import models
 from posthog.models.team import Team
-from posthog.warehouse.models.external_data_workspace import ExternalDataWorkspace
 
 
 class ExternalDataSource(CreatedMetaFields, UUIDModel):
@@ -14,8 +13,5 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     status: models.CharField = models.CharField(max_length=400)
     source_type: models.CharField = models.CharField(max_length=128, choices=Type.choices)
     are_tables_created: models.BooleanField = models.BooleanField(default=False)
-    workspace: models.ForeignKey = models.ForeignKey(
-        ExternalDataWorkspace, on_delete=models.CASCADE, blank=True, null=True
-    )
 
     __repr__ = sane_repr("source_id")

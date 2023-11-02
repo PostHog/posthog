@@ -51,16 +51,16 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         account_id = request.data["account_id"]
         client_secret = request.data["client_secret"]
 
-        workspace = get_or_create_workspace(self.team_id)
+        workspace_id = get_or_create_workspace(self.team_id)
 
         stripe_payload = StripeSourcePayload(
             account_id=account_id,
             client_secret=client_secret,
         )
-        new_source = create_stripe_source(stripe_payload, workspace.workspace_id)
+        new_source = create_stripe_source(stripe_payload, workspace_id)
 
         try:
-            new_destination = create_destination(self.team_id, workspace.workspace_id)
+            new_destination = create_destination(self.team_id, workspace_id)
         except Exception as e:
             delete_source(new_source.source_id)
             raise e
@@ -78,7 +78,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="running",
             source_type="Stripe",
-            workspace=workspace,
         )
 
         start_sync(new_connection.connection_id)
