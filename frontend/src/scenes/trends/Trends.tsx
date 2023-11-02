@@ -72,21 +72,23 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {breakdown && loadMoreBreakdownUrl && (
-                <div className="my-4 flex flex-col items-center">
-                    <div className="text-muted mb-2">
-                        For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+            {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
+                breakdown &&
+                loadMoreBreakdownUrl && (
+                    <div className="my-4 flex flex-col items-center">
+                        <div className="text-muted mb-2">
+                            For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                        </div>
+                        <LemonButton
+                            onClick={loadMoreBreakdownValues}
+                            loading={breakdownValuesLoading}
+                            size="small"
+                            type="secondary"
+                        >
+                            Load more breakdown values
+                        </LemonButton>
                     </div>
-                    <LemonButton
-                        onClick={loadMoreBreakdownValues}
-                        loading={breakdownValuesLoading}
-                        size="small"
-                        type="secondary"
-                    >
-                        Load more breakdown values
-                    </LemonButton>
-                </div>
-            )}
+                )}
         </>
     )
 }
