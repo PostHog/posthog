@@ -587,7 +587,7 @@ export class SessionRecordingIngester {
                     gaugeLag.set({ partition }, Math.max(0, metrics.offsetLag))
                 }
             } else {
-                this.partitionMetrics[partition] = {}
+                delete this.partitionMetrics[partition]
                 // Clear all metrics
                 gaugeLag.remove({ partition })
                 gaugeLagMilliseconds.remove({ partition })
