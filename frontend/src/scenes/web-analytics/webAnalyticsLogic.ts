@@ -2,7 +2,14 @@ import { actions, connect, kea, listeners, path, reducers, selectors, sharedList
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import { NodeKind, QuerySchema, WebAnalyticsPropertyFilters, WebStatsBreakdown } from '~/queries/schema'
-import { EventPropertyFilter, HogQLPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 import { isNotNil } from 'lib/utils'
 
 export interface WebTileLayout {
@@ -49,6 +56,13 @@ export enum PathTab {
     INITIAL_PATH = 'INITIAL_PATH',
 }
 
+export enum GeographyTab {
+    MAP = 'MAP',
+    COUNTRIES = 'COUNTRIES',
+    REGIONS = 'REGIONS',
+    CITIES = 'CITIES',
+}
+
 export const initialWebAnalyticsFilter = [] as WebAnalyticsPropertyFilters
 
 const setOncePropertyNames = ['$initial_pathname', '$initial_referrer', '$initial_utm_source', '$initial_utm_campaign']
@@ -71,6 +85,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setPathTab: (tab: string) => ({
             tab,
         }),
+        setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
     reducers({
@@ -177,6 +192,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setPathTab: (_, { tab }) => tab,
             },
         ],
+        geographyTab: [
+            GeographyTab.COUNTRIES as string,
+            {
+                setGeographyTab: (_, { tab }) => tab,
+            },
+        ],
         dateFrom: [
             '-7d' as string | null,
             {
@@ -192,8 +213,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
     selectors(({ actions }) => ({
         tiles: [
-            (s) => [s.webAnalyticsFilters, s.pathTab, s.deviceTab, s.sourceTab, s.dateFrom, s.dateTo],
-            (webAnalyticsFilters, pathTab, deviceTab, sourceTab, dateFrom, dateTo): WebDashboardTile[] => {
+            (s) => [s.webAnalyticsFilters, s.pathTab, s.deviceTab, s.sourceTab, s.geographyTab, s.dateFrom, s.dateTo],
+            (
+                webAnalyticsFilters,
+                pathTab,
+                deviceTab,
+                sourceTab,
+                geographyTab,
+                dateFrom,
+                dateTo
+            ): WebDashboardTile[] => {
                 const dateRange = {
                     date_from: dateFrom,
                     date_to: dateTo,
@@ -384,35 +413,88 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     //         },
                     //     },
                     // },
-                    // {
-                    //     title: 'World Map (Unique Users)',
-                    //     layout: {
-                    //         colSpan: 6,
-                    //     },
-                    //     query: {
-                    //         kind: NodeKind.InsightVizNode,
-                    //         source: {
-                    //             kind: NodeKind.TrendsQuery,
-                    //             breakdown: {
-                    //                 breakdown: '$geoip_country_code',
-                    //                 breakdown_type: 'person',
-                    //             },
-                    //             dateRange,
-                    //             series: [
-                    //                 {
-                    //                     event: '$pageview',
-                    //                     kind: NodeKind.EventsNode,
-                    //                     math: BaseMathType.UniqueUsers,
-                    //                 },
-                    //             ],
-                    //             trendsFilter: {
-                    //                 display: ChartDisplayType.WorldMap,
-                    //             },
-                    //             filterTestAccounts: true,
-                    //             properties: webAnalyticsFilters,
-                    //         },
-                    //     },
-                    // },
+                    {
+                        layout: {
+                            colSpan: 6,
+                        },
+                        activeTabId: geographyTab,
+                        setTabId: actions.setGeographyTab,
+                        tabs: [
+                            {
+                                id: GeographyTab.MAP,
+                                title: 'World Map',
+                                linkText: 'Map',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        breakdown: {
+                                            breakdown: '$geoip_country_code',
+                                            breakdown_type: 'person',
+                                        },
+                                        dateRange,
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueUsers,
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            display: ChartDisplayType.WorldMap,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                },
+                            },
+                            {
+                                id: GeographyTab.COUNTRIES,
+                                title: 'Top Countries',
+                                linkText: 'Countries',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.Country,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
+                                id: GeographyTab.REGIONS,
+                                title: 'Top Regions',
+                                linkText: 'Regions',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.Region,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
+                                id: GeographyTab.CITIES,
+                                title: 'Top Cities',
+                                linkText: 'Cities',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.City,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                        ],
+                    },
                 ]
             },
         ],

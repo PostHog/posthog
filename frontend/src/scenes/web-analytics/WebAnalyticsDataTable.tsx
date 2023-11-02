@@ -5,6 +5,7 @@ import { useActions } from 'kea'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { useCallback, useMemo } from 'react'
 import { Query } from '~/queries/Query/Query'
+import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -42,6 +43,12 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>OS</>
         case WebStatsBreakdown.DeviceType:
             return <>Device Type</>
+        case WebStatsBreakdown.Country:
+            return <>Country</>
+        case WebStatsBreakdown.Region:
+            return <>Region</>
+        case WebStatsBreakdown.City:
+            return <>City</>
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -53,11 +60,47 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    if (typeof value !== 'string') {
-        return null
+    const { breakdownBy } = source
+
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Country:
+            if (typeof value === 'string') {
+                const countryCode = value
+                return (
+                    <>
+                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode}
+                    </>
+                )
+            }
+            break
+        case WebStatsBreakdown.Region:
+            if (Array.isArray(value)) {
+                const [countryCode, regionCode, regionName] = value
+                return (
+                    <>
+                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} -{' '}
+                        {regionName || regionCode}
+                    </>
+                )
+            }
+            break
+        case WebStatsBreakdown.City:
+            if (Array.isArray(value)) {
+                const [countryCode, cityName] = value
+                return (
+                    <>
+                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
+                    </>
+                )
+            }
+            break
     }
 
-    return <BreakdownValueCellInner value={value} />
+    if (typeof value === 'string') {
+        return <>{value}</>
+    } else {
+        return null
+    }
 }
 
 export const webStatsBreakdownToPropertyName = (breakdownBy: WebStatsBreakdown): string => {
@@ -78,13 +121,15 @@ export const webStatsBreakdownToPropertyName = (breakdownBy: WebStatsBreakdown):
             return '$os'
         case WebStatsBreakdown.DeviceType:
             return '$device_type'
+        case WebStatsBreakdown.Country:
+            return '$geoip_country_code'
+        case WebStatsBreakdown.Region:
+            return '$geoip_subdivision_1_code'
+        case WebStatsBreakdown.City:
+            return '$geoip_city_name'
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
-}
-
-const BreakdownValueCellInner = ({ value }: { value: string }): JSX.Element => {
-    return <span>{value}</span>
 }
 
 export const webAnalyticsDataTableQueryContext: QueryContext = {
@@ -130,7 +175,7 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            const breakdownValue = getBreakdownValue(record)
+            const breakdownValue = getBreakdownValue(record, breakdownBy)
             if (breakdownValue === undefined) {
                 return {}
             }
@@ -147,7 +192,7 @@ export const WebStatsTableTile = ({
     return <Query query={query} readOnly={true} context={context} />
 }
 
-const getBreakdownValue = (record: unknown): string | undefined => {
+const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | undefined => {
     if (typeof record !== 'object' || !record || !('result' in record)) {
         return undefined
     }
@@ -157,6 +202,25 @@ const getBreakdownValue = (record: unknown): string | undefined => {
     }
     // assume that the first element is the value
     const breakdownValue = result[0]
+
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Country:
+            if (Array.isArray(breakdownValue)) {
+                return breakdownValue[0]
+            }
+            break
+        case WebStatsBreakdown.Region:
+            if (Array.isArray(breakdownValue)) {
+                return breakdownValue[1]
+            }
+            break
+        case WebStatsBreakdown.City:
+            if (Array.isArray(breakdownValue)) {
+                return breakdownValue[1]
+            }
+            break
+    }
+
     if (typeof breakdownValue !== 'string') {
         return undefined
     }

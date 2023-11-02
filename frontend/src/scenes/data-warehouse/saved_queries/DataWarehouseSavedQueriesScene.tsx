@@ -1,4 +1,4 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -49,9 +49,9 @@ export function DataWarehouseSavedQueriesScene(): JSX.Element {
                 caption={
                     <div>
                         These are the saved views you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
+                        </Link>
                         . Views can be used as tables in other queries.
                     </div>
                 }

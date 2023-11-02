@@ -1,4 +1,5 @@
 import { KeyMapping, PropertyFilterValue } from '~/types'
+import { Link } from './lemon-ui/Link'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -673,7 +674,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
-                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <Link to="https://posthog.com/docs/user-guides/sessions">our documentation.</Link>
                     <br /> <br />
                     Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
                 </span>

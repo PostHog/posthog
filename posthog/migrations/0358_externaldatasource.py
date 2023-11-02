@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0356_add_replay_cost_control"),
+        ("posthog", "0357_add_redshift_batch_export_destination"),
     ]
 
     operations = [
