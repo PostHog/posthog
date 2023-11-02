@@ -1,9 +1,11 @@
+import collections.abc
 import contextlib
 import datetime as dt
 import json
 from dataclasses import dataclass
 
 import psycopg2
+import psycopg2.extensions
 from django.conf import settings
 from psycopg2 import sql
 from temporalio import activity, exceptions, workflow
@@ -26,7 +28,7 @@ from posthog.temporal.workflows.clickhouse import get_client
 
 
 @contextlib.contextmanager
-def postgres_connection(inputs):
+def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.connection]:
     """Manage a Postgres connection."""
     connection = psycopg2.connect(
         user=inputs.user,
@@ -52,8 +54,22 @@ def postgres_connection(inputs):
         connection.close()
 
 
-def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name: str, schema_columns):
-    """Execute a COPY FROM query with given connection to copy contents of tsv_file."""
+def copy_tsv_to_postgres(
+    tsv_file,
+    postgres_connection: psycopg2.extensions.connection,
+    schema: str,
+    table_name: str,
+    schema_columns: list[str],
+):
+    """Execute a COPY FROM query with given connection to copy contents of tsv_file.
+
+    Arguments:
+        tsv_file: A file-like object to interpret as TSV to copy its contents.
+        postgres_connection: A connection to Postgres as setup by psycopg2.
+        schema: An existing schema where to create the table.
+        table_name: The name of the table to create.
+        schema_columns: A list of column names.
+    """
     tsv_file.seek(0)
 
     with postgres_connection.cursor() as cursor:
@@ -67,9 +83,47 @@ def copy_tsv_to_postgres(tsv_file, postgres_connection, schema: str, table_name:
         )
 
 
+Field = tuple[str, str]
+Fields = collections.abc.Iterable[Field]
+
+
+def create_table_in_postgres(
+    postgres_connection: psycopg2.extensions.connection, schema: str | None, table_name: str, fields: Fields
+) -> None:
+    """Create a table in a Postgres database if it doesn't exist already.
+
+    Arguments:
+        postgres_connection: A connection to Postgres as setup by psycopg2.
+        schema: An existing schema where to create the table.
+        table_name: The name of the table to create.
+        fields: An iterable of (name, type) tuples representing the fields of the table.
+    """
+    if schema:
+        table_identifier = sql.Identifier(schema, table_name)
+    else:
+        table_identifier = sql.Identifier(table_name)
+
+    with postgres_connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL(
+                """
+                CREATE TABLE IF NOT EXISTS {table} (
+                    {fields}
+                )
+                """
+            ).format(
+                table=table_identifier,
+                fields=sql.SQL(",").join(
+                    sql.SQL("{field} {type}").format(field=sql.Identifier(field), type=sql.SQL(field_type))
+                    for field, field_type in fields
+                ),
+            )
+        )
+
+
 @dataclass
 class PostgresInsertInputs:
-    """Inputs for Postgres."""
+    """Inputs for Postgres insert activity."""
 
     team_id: int
     user: str
@@ -128,31 +182,24 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             include_events=inputs.include_events,
         )
         with postgres_connection(inputs) as connection:
-            with connection.cursor() as cursor:
-                if inputs.schema:
-                    table_identifier = sql.Identifier(inputs.schema, inputs.table_name)
-                else:
-                    table_identifier = sql.Identifier(inputs.table_name)
-
-                result = cursor.execute(
-                    sql.SQL(
-                        """
-                        CREATE TABLE IF NOT EXISTS {} (
-                            "uuid" VARCHAR(200),
-                            "event" VARCHAR(200),
-                            "properties" JSONB,
-                            "elements" JSONB,
-                            "set" JSONB,
-                            "set_once" JSONB,
-                            "distinct_id" VARCHAR(200),
-                            "team_id" INTEGER,
-                            "ip" VARCHAR(200),
-                            "site_url" VARCHAR(200),
-                            "timestamp" TIMESTAMP WITH TIME ZONE
-                        )
-                        """
-                    ).format(table_identifier)
-                )
+            create_table_in_postgres(
+                connection,
+                schema=inputs.schema,
+                table_name=inputs.table_name,
+                fields=[
+                    ("uuid", "VARCHAR(200)"),
+                    ("event", "VARCHAR(200)"),
+                    ("properties", "JSONB"),
+                    ("elements", "JSONB"),
+                    ("set", "JSONB"),
+                    ("set_once", "JSONB"),
+                    ("distinct_id", "VARCHAR(200)"),
+                    ("team_id", "INTEGER"),
+                    ("ip", "VARCHAR(200)"),
+                    ("site_url", "VARCHAR(200)"),
+                    ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+                ],
+            )
 
         schema_columns = [
             "uuid",

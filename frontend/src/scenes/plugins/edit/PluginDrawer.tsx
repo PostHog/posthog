@@ -18,6 +18,7 @@ import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
+import { Link } from '@posthog/lemon-ui'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -163,9 +164,9 @@ export function PluginDrawer(): JSX.Element {
                                     <div className="flex items-center">
                                         <PluginTags plugin={editingPlugin} />
                                         {editingPlugin.url && (
-                                            <a href={editingPlugin.url}>
+                                            <Link to={editingPlugin.url}>
                                                 <i>⤷ Learn more</i>
-                                            </a>
+                                            </Link>
                                         )}
                                     </div>
                                     <div className="flex items-center">

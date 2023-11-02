@@ -55,6 +55,8 @@ LEFT OUTER JOIN
     {bounce_rate_query} AS bounce_rate
 ON
     counts.breakdown_value = bounce_rate.breakdown_value
+WHERE
+    {where_breakdown}
 ORDER BY
     "context.columns.views" DESC
 LIMIT 10
@@ -63,6 +65,7 @@ LIMIT 10
                 placeholders={
                     "counts_query": counts_query,
                     "bounce_rate_query": bounce_rate_query,
+                    "where_breakdown": self.where_breakdown(),
                 },
                 backend="cpp",
             )
@@ -102,6 +105,14 @@ LIMIT 10
                 return parse_expr("properties.$os")
             case WebStatsBreakdown.DeviceType:
                 return parse_expr("properties.$device_type")
+            case WebStatsBreakdown.Country:
+                return parse_expr("properties.$geoip_country_code")
+            case WebStatsBreakdown.Region:
+                return parse_expr(
+                    "tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name)"
+                )
+            case WebStatsBreakdown.City:
+                return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
@@ -123,5 +134,26 @@ LIMIT 10
                 return parse_expr("any(properties.$os)")
             case WebStatsBreakdown.DeviceType:
                 return parse_expr("any(properties.$device_type)")
+            case WebStatsBreakdown.Country:
+                return parse_expr("any(properties.$geoip_country_code)")
+            case WebStatsBreakdown.Region:
+                return parse_expr(
+                    "any(tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name))"
+                )
+            case WebStatsBreakdown.City:
+                return parse_expr("any(tuple(properties.$geoip_country_code, properties.$geoip_city_name))")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
+
+    def where_breakdown(self):
+        match self.query.breakdownBy:
+            case WebStatsBreakdown.Region:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.City:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.InitialUTMSource:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return parse_expr("TRUE")  # actually show null values
+            case _:
+                return parse_expr('"context.columns.breakdown_value" IS NOT NULL')

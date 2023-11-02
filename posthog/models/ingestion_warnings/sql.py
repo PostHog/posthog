@@ -44,7 +44,8 @@ KAFKA_INGESTION_WARNINGS_TABLE_SQL = lambda: INGESTION_WARNINGS_TABLE_BASE_SQL.f
     extra_fields="",
 )
 
-INGESTION_WARNINGS_MV_TABLE_SQL = lambda: """
+INGESTION_WARNINGS_MV_TABLE_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -58,9 +59,10 @@ _offset,
 _partition
 FROM {database}.kafka_ingestion_warnings
 """.format(
-    target_table="ingestion_warnings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table="ingestion_warnings",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 # This table is responsible for writing to sharded_ingestion_warnings based on a sharding key.
