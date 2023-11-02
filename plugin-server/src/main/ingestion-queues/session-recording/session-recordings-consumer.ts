@@ -113,7 +113,6 @@ export class SessionRecordingIngester {
     consoleLogsIngester: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
     partitionMetrics: Record<number, PartitionMetrics> = {}
-    partitionLockInterval: NodeJS.Timer | null = null
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
@@ -522,16 +521,14 @@ export class SessionRecordingIngester {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
             status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
+            // NOTE: We have to set it to undefined here to make sure nothing tries to use it anymore
+            this.batchConsumer = undefined
             await this.stop()
         })
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
         status.info('🔁', 'blob_ingester_consumer - stopping')
-
-        if (this.partitionLockInterval) {
-            clearInterval(this.partitionLockInterval)
-        }
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions

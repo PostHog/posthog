@@ -1,3 +1,4 @@
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { TopicPartition } from 'node-rdkafka'
 import path from 'path'
@@ -37,11 +38,13 @@ export const queryWatermarkOffsets = (
         if (!batchConsumer) {
             return reject('Not connected')
         }
+
         batchConsumer.consumer.queryWatermarkOffsets(
             KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             partition,
             (err, offsets) => {
                 if (err) {
+                    captureException(err)
                     status.error('🔥', 'Failed to query kafka watermark offsets', err)
                     return reject(err)
                 }
@@ -63,6 +66,7 @@ export const queryCommittedOffsets = (
 
         batchConsumer.consumer.committed(topicPartitions, 10000, (err, offsets) => {
             if (err) {
+                captureException(err)
                 status.error('🔥', 'Failed to query kafka committed offsets', err)
                 return reject(err)
             }
