@@ -325,7 +325,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
     except IndexError:
         # This is the error we expect when no details as the sequence will be empty.
         interval_start = inputs.data_interval_start
-        await logger.adebug(
+        logger.debug(
             "Did not receive details from previous activity Excecution. Export will start from the beginning %s",
             interval_start,
         )
@@ -333,12 +333,12 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
         # We still start from the beginning, but we make a point to log unexpected errors.
         # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
         interval_start = inputs.data_interval_start
-        await logger.awarning(
+        logger.warning(
             "Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning %s",
             interval_start,
         )
     else:
-        await logger.ainfo(
+        logger.info(
             "Received details from previous activity. Export will attempt to resume from %s",
             interval_start,
         )
@@ -348,7 +348,7 @@ async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tupl
             # Even if we receive details we cannot resume a brotli compressed upload as we have lost the compressor state.
             interval_start = inputs.data_interval_start
 
-            await logger.ainfo(
+            logger.info(
                 f"Export will start from the beginning as we are using brotli compression: %s",
                 interval_start,
             )
@@ -369,7 +369,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     files.
     """
     logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
-    await logger.ainfo(
+    logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,
         inputs.data_interval_end,
@@ -389,14 +389,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
         if count == 0:
-            await logger.ainfo(
+            logger.info(
                 "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        await logger.ainfo("BatchExporting %s rows to S3", count)
+        logger.info("BatchExporting %s rows to S3", count)
 
         s3_upload, interval_start = await initialize_and_resume_multipart_upload(inputs)
 
@@ -422,7 +422,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
             await activity.wait_for_worker_shutdown()
-            await logger.awarn(
+            logger.warn(
                 f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}",
             )
             activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
@@ -495,7 +495,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        await logger.ainfo("Starting batch export %s - %s", data_interval_start, data_interval_end)
+        logger.info("Starting batch export %s - %s", data_interval_start, data_interval_end)
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
