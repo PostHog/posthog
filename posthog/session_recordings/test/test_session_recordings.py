@@ -180,7 +180,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 30,
                 False,
                 user.pk,
-                10,  # limited from 1000 because we don't need that many
+                10,  # limited from 12 because we don't need that many
             ),
         ]
 
