@@ -3,6 +3,7 @@ import { billingProductLogic } from './billingProductLogic'
 import { useActions, useValues } from 'kea'
 import { BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
+import posthog from 'posthog-js'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
@@ -14,6 +15,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
         <LemonModal
             onClose={() => {
                 setSurveyID('')
+                posthog.capture('survey dismissed', {
+                    $survey_id: surveyID,
+                })
             }}
             width={'max(40vw)'}
         >
@@ -65,6 +69,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             status="muted"
                             onClick={() => {
                                 setSurveyID('')
+                                posthog.capture('survey dismissed', {
+                                    $survey_id: surveyID,
+                                })
                             }}
                         >
                             Cancel
