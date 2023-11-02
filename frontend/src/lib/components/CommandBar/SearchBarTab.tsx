@@ -6,7 +6,7 @@ import { ResultTypeWithAll } from './types'
 
 type SearchBarTabProps = {
     type: ResultTypeWithAll
-    isFirst: boolean
+    isFirst?: boolean
     active: boolean
     count?: number | null
 }

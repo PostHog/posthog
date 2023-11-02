@@ -86,7 +86,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
     }),
     listeners(({ values, actions }) => ({
         openResult: ({ index }) => {
-            const result = values.searchResults[index]
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            const result = values.searchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
         },
