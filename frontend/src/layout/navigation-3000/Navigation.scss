@@ -37,6 +37,7 @@
     border-right: 1px solid transparent; // This is just for sizing, the visible border is on the content
     box-sizing: content-box;
     z-index: var(--z-main-nav);
+    user-select: none;
 
     .LemonButton {
         min-height: 2.25rem !important; // Reduce minimum height
