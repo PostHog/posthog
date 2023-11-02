@@ -258,43 +258,51 @@ export const supportLogic = kea<supportLogicType>([
                     },
                 },
             }
-            await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
-                method: 'POST',
-                body: JSON.stringify(payload, undefined, 4),
-                headers: { 'Content-Type': 'application/json' },
-            })
-                .then((res) => res.json())
-                .then((res) => {
-                    const zendesk_ticket_id = res.request.id
-                    const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
-                    const properties = {
-                        zendesk_ticket_uuid,
-                        kind,
-                        target_area,
-                        message,
-                        zendesk_ticket_id,
-                        zendesk_ticket_link,
-                    }
-                    posthog.capture('support_ticket', properties)
-                    Sentry.captureMessage('User submitted Zendesk ticket', {
-                        tags: {
-                            zendesk_ticket_uuid,
-                            zendesk_ticket_link,
-                            support_request_kind: kind,
-                            support_request_area: target_area,
-                            team_id: teamLogic.values.currentTeamId,
-                        },
-                        extra: properties,
-                        level: 'log',
+
+            try {
+                const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
+                    method: 'POST',
+                    body: JSON.stringify(payload, undefined, 4),
+                    headers: { 'Content-Type': 'application/json' },
+                })
+                if (!response.ok) {
+                    const error = new Error(`There was an error creating the support ticket with zendesk.`)
+                    captureException(error, {
+                        extra: { response, payload },
                     })
-                    lemonToast.success(
-                        "Got the message! If we have follow-up information for you, we'll reply via email."
-                    )
-                })
-                .catch((err) => {
-                    captureException(err)
                     lemonToast.error(`There was an error sending the message.`)
+                    return
+                }
+
+                const json = await response.json()
+
+                const zendesk_ticket_id = json.request.id
+                const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
+                const properties = {
+                    zendesk_ticket_uuid,
+                    kind,
+                    target_area,
+                    message,
+                    zendesk_ticket_id,
+                    zendesk_ticket_link,
+                }
+                posthog.capture('support_ticket', properties)
+                Sentry.captureMessage('User submitted Zendesk ticket', {
+                    tags: {
+                        zendesk_ticket_uuid,
+                        zendesk_ticket_link,
+                        support_request_kind: kind,
+                        support_request_area: target_area,
+                        team_id: teamLogic.values.currentTeamId,
+                    },
+                    extra: properties,
+                    level: 'log',
                 })
+                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+            } catch (e) {
+                captureException(e)
+                lemonToast.error(`There was an error sending the message.`)
+            }
         },
 
         closeSupportForm: () => {
