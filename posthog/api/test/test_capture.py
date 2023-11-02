@@ -1439,6 +1439,15 @@ class TestCapture(BaseTest):
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_session_recording_event(event_data=large_data_array)
+            calls = kafka_produce.call_args_list
+            assert calls[0] == ("wat", "am", "I", "doing")
+
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
         self,
