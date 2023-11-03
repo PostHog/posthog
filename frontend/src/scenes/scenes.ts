@@ -98,7 +98,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.PersonsManagement]: {
         projectBased: true,
-        name: 'Persons, Cohorts & Groups',
+        name: 'Persons & Groups',
     },
     [Scene.Action]: {
         projectBased: true,
@@ -106,7 +106,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Group]: {
         projectBased: true,
-        name: 'Persons, Cohorts & Groups',
+        name: 'Persons & Groups',
     },
     [Scene.Pipeline]: {
         projectBased: true,

@@ -2,7 +2,7 @@ import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { Fragment, useState } from 'react'
+import React, { Fragment, useState } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 
 export type SidebarChangeNoticeProps = {
@@ -94,12 +94,17 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
 export function SidebarChangeNoticeTooltip({
     identifier,
     children,
-}: SidebarChangeNoticeTooltipProps): JSX.Element | null {
+}: SidebarChangeNoticeTooltipProps): React.ReactNode | null {
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+
+    if (!notices.length) {
+        return children
+    }
 
     return (
         <Tooltip
             visible={true}
+            placement="right"
             overlay={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
             {children}
