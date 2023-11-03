@@ -6,6 +6,7 @@ import {
     FilterType,
     InsightShortId,
     ReplayTabs,
+    PipelineTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
@@ -93,7 +94,8 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipeline: (): string => '/pipeline',
+    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}`,
+    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}/new`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -109,11 +111,11 @@ export const urls = {
     surveys: (): string => '/surveys',
     survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
-    dataWarehouse: (): string => '/warehouse',
-    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
+    dataWarehouse: (): string => '/data-warehouse',
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
+    dataWarehouseSettings: (): string => '/data-warehouse/settings',
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,

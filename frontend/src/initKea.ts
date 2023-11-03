@@ -13,7 +13,7 @@ import { formsPlugin } from 'kea-forms'
 Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
-const ERROR_FILTER_WHITELIST = [
+const ERROR_FILTER_ALLOW_LIST = [
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -79,7 +79,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                 // Toast if it's a fetch error or a specific API update error
                 if (
-                    !ERROR_FILTER_WHITELIST.includes(actionKey) &&
+                    !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                         (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                 ) {

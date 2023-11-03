@@ -28,6 +28,7 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
     const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
 
     return (
+        // eslint-disable-next-line react/forbid-elements
         <a className="block" href={loginUrl}>
             {children}
         </a>

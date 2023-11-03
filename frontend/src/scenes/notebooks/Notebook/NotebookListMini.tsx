@@ -9,7 +9,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 export type NotebookListMiniProps = {
     selectedNotebookId?: string
     onSelectNotebook: (notebook: NotebookListItemType) => void
-    onNewNotebook?: () => void
 }
 
 export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {

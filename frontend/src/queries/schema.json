@@ -1452,7 +1452,7 @@
             "additionalProperties": false,
             "properties": {
                 "end": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "fix": {
                     "type": "string"
@@ -1461,7 +1461,7 @@
                     "type": "string"
                 },
                 "start": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["message"],
@@ -3174,9 +3174,15 @@
                 "InitialReferringDomain",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
+                "InitialUTMMedium",
+                "InitialUTMTerm",
+                "InitialUTMContent",
                 "Browser",
                 "OS",
-                "DeviceType"
+                "DeviceType",
+                "Country",
+                "Region",
+                "City"
             ],
             "type": "string"
         },

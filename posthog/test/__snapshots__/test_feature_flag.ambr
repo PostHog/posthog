@@ -1,3 +1,94 @@
+# name: TestFeatureFlagMatcher.test_coercion_of_booleans_with_is_not_operator
+  '
+  SELECT NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
+               OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+              AND "posthog_person"."properties" ? 'disabled'
+              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_0",
+             NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
+                   OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                  AND "posthog_person"."properties" ? 'disabled'
+                  AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_1",
+                 NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
+                       OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                      AND "posthog_person"."properties" ? 'disabled'
+                      AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_2",
+                     NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
+                           OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                          AND "posthog_person"."properties" ? 'disabled'
+                          AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_3",
+                         NOT ((("posthog_person"."properties" -> 'disabled') = 'false'
+                               OR ("posthog_person"."properties" -> 'disabled') = '"false"')
+                              AND "posthog_person"."properties" ? 'disabled'
+                              AND NOT (("posthog_person"."properties" -> 'disabled') = 'null')) AS "flag_X_condition_4",
+                             NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
+                                   OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                  AND "posthog_person"."properties" ? 'string_disabled'
+                                  AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_5",
+                                 NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
+                                       OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                      AND "posthog_person"."properties" ? 'string_disabled'
+                                      AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_6",
+                                     NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
+                                           OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                          AND "posthog_person"."properties" ? 'string_disabled'
+                                          AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_7",
+                                         NOT ((("posthog_person"."properties" -> 'string_disabled') = 'false'
+                                               OR ("posthog_person"."properties" -> 'string_disabled') = '"false"')
+                                              AND "posthog_person"."properties" ? 'string_disabled'
+                                              AND NOT (("posthog_person"."properties" -> 'string_disabled') = 'null')) AS "flag_X_condition_8"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_coercion_of_strings_and_numbers_with_is_not_operator
+  '
+  SELECT (NOT ((("posthog_person"."properties" -> 'Organizer Id') IN ('"307"')
+                OR ("posthog_person"."properties" -> 'Organizer Id') IN ('307'))
+               AND "posthog_person"."properties" ? 'Organizer Id'
+               AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') IN ('307')
+                   AND "posthog_person"."properties" ? 'Organizer Id'
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
+          AND NOT ((("posthog_person"."properties" -> 'Organizer Id') = '"307"'
+                    OR ("posthog_person"."properties" -> 'Organizer Id') = '307')
+                   AND "posthog_person"."properties" ? 'Organizer Id'
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') = '307'
+                   AND "posthog_person"."properties" ? 'Organizer Id'
+                   AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null'))) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_coercion_of_strings_and_numbers_with_is_not_operator.1
+  '
+  SELECT NOT ((("posthog_person"."properties" -> 'Distinct Id') IN ('"307"')
+               OR ("posthog_person"."properties" -> 'Distinct Id') IN ('307'))
+              AND "posthog_person"."properties" ? 'Distinct Id'
+              AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0",
+             NOT (("posthog_person"."properties" -> 'Distinct Id') IN ('307')
+                  AND "posthog_person"."properties" ? 'Distinct Id'
+                  AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_1",
+                 NOT ((("posthog_person"."properties" -> 'Distinct Id') = '"307"'
+                       OR ("posthog_person"."properties" -> 'Distinct Id') = '307')
+                      AND "posthog_person"."properties" ? 'Distinct Id'
+                      AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_2",
+                     NOT (("posthog_person"."properties" -> 'Distinct Id') = '307'
+                          AND "posthog_person"."properties" ? 'Distinct Id'
+                          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_3"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
 # name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type
   '
   SELECT "posthog_team"."id",
@@ -47,7 +138,8 @@
          "posthog_team"."event_names_with_usage",
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical"
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
