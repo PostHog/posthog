@@ -4,11 +4,7 @@ import uuid
 import temporalio.client
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-)
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.batch_exports.service import sync_batch_export
 
 
@@ -47,3 +43,13 @@ def fetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> lis
 async def afetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportRun]:
     """Async fetch the BatchExportRuns for a given BatchExport."""
     return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore
+
+
+def fetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
+    """Fetch the BatchExportBackfills for a given BatchExport."""
+    return list(BatchExportBackfill.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
+
+
+async def afetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
+    """Fetch the BatchExportBackfills for a given BatchExport."""
+    return await sync_to_async(fetch_batch_export_backfills)(batch_export_id, limit)  # type: ignore
