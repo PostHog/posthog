@@ -45,7 +45,7 @@ def _sync_resource(resource_id):
             "credential": credential,
             "name": "stripe_customers",
             "format": "Parquet",
-            "url_pattern": f"{settings.AIRBYTE_BUCKET_URL}/{resource.team.pk}/customers/*.parquet",
+            "url_pattern": f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/airbyte/{resource.team.pk}/customers/*.parquet",
             "team_id": resource.team.pk,
         }
 
