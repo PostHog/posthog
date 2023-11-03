@@ -126,6 +126,7 @@ export function Navbar(): JSX.Element {
                 </div>
             </div>
             <Resizer
+                logicKey="navbar"
                 placement={'right'}
                 containerRef={containerRef}
                 closeThreshold={100}

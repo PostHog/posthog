@@ -63,7 +63,7 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
             onMouseLeave={onInspectorLeave}
             ref={ref}
         >
-            <Resizer placement="left" containerRef={ref} />
+            <Resizer logicKey="player-inspector" placement="left" containerRef={ref} />
             <PlayerInspectorControls />
             <PlayerInspectorList />
             <PlayerInspectorPreview />
