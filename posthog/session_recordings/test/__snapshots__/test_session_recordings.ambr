@@ -586,8 +586,8 @@
          "posthog_sessionrecording"."start_url",
          "posthog_sessionrecording"."storage_version"
   FROM "posthog_sessionrecording"
-  WHERE ("posthog_sessionrecording"."session_id" IN ('test_get_session_recordings-1-c5f7584b-e7ae-470f-b76f-032e5d13a7d1',
-                                                     'test_get_session_recordings-2-28b9c1ae-312a-405d-9ebe-0d0aca058318')
+  WHERE ("posthog_sessionrecording"."session_id" IN ('test_get_session_recordings-1-ebf1b8ee-fd67-4da8-bb96-46e1eeeb1da6',
+                                                     'test_get_session_recordings-2-5fa869a6-aff2-490a-804a-d52d0fb43c55')
          AND "posthog_sessionrecording"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
