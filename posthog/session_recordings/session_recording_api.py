@@ -62,21 +62,27 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
-    def __init__(self, timings_dict, name):
-        self.timings_dict = timings_dict
+    # Class level dictionary to store timings
+    timings_dict = {}
+
+    def __call__(self, name):
         self.name = name
+        return self
 
     def __enter__(self):
         # timings are assumed to be in milliseconds when reported
         # but are gathered by time.perf_counter which is fractional seconds 🫠
         # so each value is multiplied by 1000 at collection
         self.start_time = time.perf_counter() * 1000
-        return self.timings_dict
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         end_time = time.perf_counter() * 1000
         elapsed_time = end_time - self.start_time
-        self.timings_dict[self.name] = elapsed_time
+        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
+
+    @classmethod
+    def get_all_timings(cls):
+        return cls.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -485,9 +491,9 @@ def list_recordings(
     more_recordings_available = False
     team = context["get_team"]()
 
-    timings = {}
+    timer = ServerTimingsGathered()
 
-    with ServerTimingsGathered(timings, "load_recordings_from_clickhouse"):
+    with timer("load_recordings_from_clickhouse"):
         if all_session_ids:
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
@@ -530,7 +536,7 @@ def list_recordings(
         SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
     )
 
-    with ServerTimingsGathered(timings, "load_persons"):
+    with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings])
         person_distinct_ids = (
@@ -539,7 +545,7 @@ def list_recordings(
             .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
         )
 
-    with ServerTimingsGathered(timings, "process_persons"):
+    with timer("process_persons"):
         distinct_id_to_person = {}
         for person_distinct_id in person_distinct_ids:
             distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
@@ -553,5 +559,5 @@ def list_recordings(
 
     return (
         {"results": results, "has_next": more_recordings_available, "version": 3},
-        timings,
+        timer.get_all_timings(),
     )
