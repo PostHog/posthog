@@ -38,7 +38,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     insert_into_s3_activity,
 )
 
-pytestmark = [pytest.mark.asyncio]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
@@ -195,7 +195,6 @@ async def assert_events_in_s3(
     assert json_data == expected_events
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_s3_activity_puts_data_into_s3(
@@ -334,7 +333,6 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -460,7 +458,6 @@ async def s3_client(bucket_name, s3_key_prefix):
     "S3_TEST_BUCKET" not in os.environ or not check_valid_credentials(),
     reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
-@pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -577,7 +574,6 @@ async def test_s3_export_workflow_with_s3_bucket(
     )
 
 
-@pytest.mark.django_db
 async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     clickhouse_client,
     minio_client,
@@ -660,7 +656,6 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     )
 
 
-@pytest.mark.django_db
 async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     clickhouse_client, minio_client, bucket_name, compression, interval, s3_batch_export, s3_key_prefix, ateam
 ):
@@ -736,7 +731,6 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     )
 
 
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     "s3_key_prefix",
     [
@@ -831,7 +825,6 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     await assert_events_in_s3(minio_client, bucket_name, expected_key_prefix, events, compression)
 
 
-@pytest.mark.django_db
 async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
     """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
 
@@ -881,7 +874,6 @@ async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch
         assert run.latest_error == "ValueError: A useful error message"
 
 
-@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, interval):
     """Test that S3 Export Workflow can gracefully handle cancellations when inserting S3 data.
@@ -1089,7 +1081,6 @@ def test_get_s3_key(inputs, expected):
     assert result == expected
 
 
-@pytest.mark.django_db
 async def test_insert_into_s3_activity_heartbeats(
     clickhouse_client, ateam, bucket_name, s3_batch_export, minio_client, activity_environment, s3_key_prefix
 ):
