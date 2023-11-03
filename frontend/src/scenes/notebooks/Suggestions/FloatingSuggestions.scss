@@ -7,13 +7,4 @@
     z-index: var(--z-popover);
     position: absolute;
     left: 0;
-
-    .NotebookFloatingButton__plus {
-        border-radius: 1rem;
-        min-width: 2rem;
-
-        .LemonButton__icon {
-            margin: 0 auto;
-        }
-    }
 }
