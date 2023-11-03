@@ -41,8 +41,8 @@ export const queryWatermarkOffsets = (
 
         kafkaConsumer.queryWatermarkOffsets(
             KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-            timeout,
             partition,
+            timeout,
             (err, offsets) => {
                 if (err) {
                     captureException(err)
