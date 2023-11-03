@@ -144,9 +144,6 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
             return False
 
     if operator == "gt":
-        # TODO: We can do type conversion here too, first check if type is a number, then convert to number??
-        # OR, introduce numeric operators like gt_num, lt_num, etc.???
-        # I do like the latter, because it's more explicit, gets rid of all random confusion everywhere.
         return type(override_value) == type(value) and override_value > value
 
     if operator == "gte":
@@ -162,11 +159,13 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         try:
             if operator in ["is_relative_date_before", "is_relative_date_after"]:
                 parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
-                # TODO: what to do about time zones? - infer from saved property value?
             else:
                 parsed_date = parser.parse(str(value))
                 parsed_date = convert_to_datetime_aware(parsed_date)
         except Exception:
+            return False
+
+        if not parsed_date:
             return False
 
         if isinstance(override_value, datetime.datetime):
@@ -309,12 +308,15 @@ def property_to_Q(
     if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
         effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
         # TODO: defend against invalid date formats?
-        effective_value = (
-            relative_date_parse_for_feature_flag_matching(value).isoformat()
-            if property.operator in ("is_relative_date_before", "is_relative_date_after")
-            else value
-        )
-        # TODO: what to do about time zones? - infer from saved property value?
+        effective_value = value
+        if property.operator in ("is_relative_date_before", "is_relative_date_after"):
+            relative_date = relative_date_parse_for_feature_flag_matching(value)
+            if relative_date:
+                effective_value = relative_date.isoformat()
+            else:
+                # Return no data for invalid relative dates
+                return Q(pk=-1)
+
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
     if property.operator == "is_not":
@@ -398,7 +400,7 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
     )
 
 
-def relative_date_parse_for_feature_flag_matching(value: str) -> datetime.datetime:
+def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
     regex = r"(?P<number>[0-9]+)(?P<type>[a-z])"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
@@ -416,8 +418,8 @@ def relative_date_parse_for_feature_flag_matching(value: str) -> datetime.dateti
         elif type == "y":
             parsed_dt = parsed_dt - relativedelta(years=number)
         else:
-            raise ValueError(f"Invalid relative date format: {value}")
+            return None
 
         return parsed_dt
     else:
-        raise ValueError(f"Invalid relative date format: {value}")
+        return None

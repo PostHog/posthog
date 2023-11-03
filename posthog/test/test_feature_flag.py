@@ -1,4 +1,5 @@
 import concurrent.futures
+from datetime import datetime
 from typing import cast
 from unittest.mock import patch
 
@@ -4140,66 +4141,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
 
-    def test_numeric_operator(self):
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["307"],
-            properties={
-                "number": 30,
-            },
-        )
-
-        feature_flag1 = self.create_feature_flag(
-            key="random1",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "number",
-                                "value": 100,
-                                "operator": "gt",
-                                "type": "person",
-                            },
-                        ]
-                    }
-                ]
-            },
-        )
-
-        feature_flag2 = self.create_feature_flag(
-            key="random2",
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "number",
-                                "value": "100",
-                                "operator": "gt",
-                                "type": "person",
-                            },
-                        ]
-                    }
-                ]
-            },
-        )
-
-        # with self.settings(DEBUG=True):
-        #     from django.db import connection, reset_queries
-        #     reset_queries()
-        #     self.match_flag(feature_flag2, "307")
-        #     print(connection.queries[2]["sql"])
-
-        self.assertEqual(
-            self.match_flag(feature_flag1, "307"),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
-        )
-        self.assertEqual(
-            self.match_flag(feature_flag2, "307"),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
-        )
-
     @freeze_time("2022-05-01")
     def test_relative_date_operator(self):
         Person.objects.create(
@@ -4209,6 +4150,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "date_1": "2022-04-30",
                 "date_2": "2022-03-01",
                 "date_3": "2022-04-30T12:00:00-10:00",
+                "date_invalid": "2022-3443",
             },
         )
 
@@ -4266,20 +4208,108 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        # TODO: OHHH: Just having the right type from the frontend will be good enough??
-        # i.e. send as integer/float!!
+        feature_flag4_invalid_prop = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_invalid",
+                                "value": "2h",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5_invalid_flag = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "date_1",
+                                "value": "bazinga",
+                                "operator": "is_relative_date_after",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
 
         self.assertEqual(
             self.match_flag(feature_flag1, "307"),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
+
         self.assertEqual(
             self.match_flag(feature_flag2, "307"),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
+
+        # now move current date to 2022-05-02
+        with freeze_time("2022-05-02T08:00:00-10:00"):
+            self.assertEqual(
+                self.match_flag(feature_flag2, "307"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
         self.assertEqual(
             self.match_flag(feature_flag3, "307"),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        # :TRICKY: String matching means invalid props can be appropriately targeted
+        self.assertEqual(
+            self.match_flag(feature_flag4_invalid_prop, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # invalid flags never return True
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # try matching all together, invalids don't interfere with regular flags
+        self.assertEqual(
+            FeatureFlagMatcher(
+                [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
+                "307",
+            ).get_matches(),
+            (
+                {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random3": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random4": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random5": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                },
+                {},
+                False,
+            ),
         )
 
         # confirm it works with overrides as well, which are computed locally
@@ -4298,6 +4328,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(
             self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # test with invalid date
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"date_1": "bazinga"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30T07:59:00-10:00"}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": "2022-04-30"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag5_invalid_flag, "307", property_value_overrides={"date_1": datetime.now()}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
 

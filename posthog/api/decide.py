@@ -167,7 +167,7 @@ def get_decide(request: HttpRequest):
                 else:
                     distinct_id = str(distinct_id)
 
-                property_overrides = {"$distinct_id": distinct_id}
+                property_overrides = {}
                 geoip_enabled = process_bool(data.get("geoip_disable")) is False
 
                 if geoip_enabled:
