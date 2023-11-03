@@ -55,7 +55,6 @@ const tabs: Record<
                         <IconInfo />
                     </Tooltip>
                 }
-                data-attr="data-management-actions-tab"
             >
                 Actions
             </TitleWithIcon>
@@ -71,7 +70,6 @@ const tabs: Record<
                         <IconInfo />
                     </Tooltip>
                 }
-                data-attr="data-management-event-properties-tab"
             >
                 Properties
             </TitleWithIcon>
