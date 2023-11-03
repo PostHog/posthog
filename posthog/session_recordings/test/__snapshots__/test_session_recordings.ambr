@@ -18,9 +18,9 @@
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2023-10-13 21:11:30'
+    AND s.min_first_timestamp >= '2023-10-13 21:28:53'
     AND s.min_first_timestamp >= '2023-10-27 00:00:00'
-    AND s.max_last_timestamp <= '2023-11-03 21:11:30'
+    AND s.max_last_timestamp <= '2023-11-03 21:28:53'
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -616,8 +616,8 @@
          "posthog_sessionrecording"."start_url",
          "posthog_sessionrecording"."storage_version"
   FROM "posthog_sessionrecording"
-  WHERE ("posthog_sessionrecording"."session_id" IN ('test_get_session_recordings-1-c179610d-ee32-4c9d-bd99-2f4454af2ae5',
-                                                     'test_get_session_recordings-2-ea7ab163-28c4-4e23-8500-2e6f50703847')
+  WHERE ("posthog_sessionrecording"."session_id" IN ('test_get_session_recordings-1-b897d3f2-3f0a-4be5-9c77-9193e9bb8457',
+                                                     'test_get_session_recordings-2-ee0dbcfe-82fb-419b-b97a-ed3be304ee9b')
          AND "posthog_sessionrecording"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
