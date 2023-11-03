@@ -144,7 +144,9 @@ def list_recordings_response(
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
-    response.headers["Server-Timing"] = ", ".join(f"{key};dur={round(duration)}" for key, duration in timings.items())
+    response.headers["Server-Timing"] = ", ".join(
+        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+    )
     return response
 
 
@@ -539,14 +541,16 @@ def list_recordings(
 
     finish_serializing = time.perf_counter()
 
+    timings = {
+        "load_recordings_from_clickhouse": finish_loading_session_recordings - start_loading_session_recordings,
+        "sorting_session_ids": finish_sorting_session_ids - finish_loading_session_recordings,
+        "updating_viewed_status": finish_updating_viewed_status - finish_sorting_session_ids,
+        "load_persons": finish_loading_persons - finish_updating_viewed_status,
+        "process_persons": finish_processing_persons - finish_loading_persons,
+        "serialize": finish_serializing - finish_processing_persons,
+    }
+
     return (
         {"results": results, "has_next": more_recordings_available, "version": 3},
-        {
-            "load_recordings_from_clickhouse": finish_loading_session_recordings - start_loading_session_recordings,
-            "sorting_session_ids": finish_sorting_session_ids - finish_loading_session_recordings,
-            "updating_viewed_status": finish_updating_viewed_status - finish_sorting_session_ids,
-            "load_persons": finish_loading_persons - finish_updating_viewed_status,
-            "process_persons": finish_processing_persons - finish_loading_persons,
-            "serialize": finish_serializing - finish_processing_persons,
-        },
+        timings,
     )
