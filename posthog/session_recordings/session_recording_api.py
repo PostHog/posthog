@@ -144,8 +144,10 @@ def list_recordings_response(
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
+    # timings are assumed to be in milliseconds
+    # but are gathered by time.perf_counter which is fractional seconds 🫠
     response.headers["Server-Timing"] = ", ".join(
-        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+        f"{key};dur={round(duration * 1000, ndigits=2)}" for key, duration in timings.items()
     )
     return response
 
