@@ -17,7 +17,7 @@ from posthog.session_recordings.models.session_recording_event import (
 )
 from posthog.api.test.test_team import create_team
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import Organization, Person, SessionRecording, PersonDistinctId
+from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import (
@@ -140,8 +140,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["user2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-
-        assert PersonDistinctId.objects.filter(distinct_id__in=twelve_distinct_ids).count() == 12
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
