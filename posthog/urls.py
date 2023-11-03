@@ -41,6 +41,7 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
 from posthog.api.prompt import prompt_webhook
 from posthog.api.survey import surveys
+from posthog.api.organization_feature_flag import OrganizationFeatureFlagView
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from .utils import render_template
@@ -168,6 +169,10 @@ urlpatterns = [
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
+    path(
+        "api/organizations/<uuid:organization_id>/feature_flags/<str:feature_flag_key>",
+        OrganizationFeatureFlagView.as_view(),
+    ),
     path(
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
