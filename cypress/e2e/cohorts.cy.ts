@@ -1,6 +1,11 @@
 describe('Cohorts', () => {
+    const goToCohorts = (): void => {
+        cy.clickNavMenu('personsmanagement')
+        cy.get('[data-attr=persons-management-cohorts-tab]').click()
+    }
+
     beforeEach(() => {
-        cy.clickNavMenu('cohorts')
+        goToCohorts()
     })
 
     it('Cohorts new and list', () => {
@@ -34,7 +39,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr=success-toast]').contains('Cohort saved').should('exist')
 
         // back to cohorts
-        cy.clickNavMenu('cohorts')
+        goToCohorts()
         cy.get('tbody').contains('Test Cohort')
         cy.get('h2').should('not.have.text', 'Create your first cohort')
 
@@ -69,7 +74,7 @@ describe('Cohorts', () => {
         // delete cohort
         cy.get('[data-attr="more-button"]').click()
         cy.get('.Popover__content').contains('Delete cohort').click()
-        cy.clickNavMenu('cohorts')
+        goToCohorts()
         cy.get('tbody').should('not.have.text', 'Test Cohort (dynamic copy) (static copy)')
     })
 })

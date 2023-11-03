@@ -128,6 +128,10 @@ export function Annotations(): JSX.Element {
 
     return (
         <>
+            <p>
+                Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
+                metrics.
+            </p>
             <div data-attr={'annotations-content'}>
                 {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                     <div className="mt-4">
