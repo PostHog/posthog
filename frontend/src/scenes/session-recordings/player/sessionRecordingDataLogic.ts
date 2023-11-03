@@ -384,7 +384,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                 ],
                                 orderBy: ['timestamp ASC'],
                                 limit: 1000000,
-                                personId: String(person.id),
                                 after: start.subtract(BUFFER_MS, 'ms').format(),
                                 before: end.add(BUFFER_MS, 'ms').format(),
                                 properties: [properties],
