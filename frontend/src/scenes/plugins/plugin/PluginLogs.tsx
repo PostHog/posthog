@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { pluralize } from 'lib/utils'
-import { PluginLogEntry, PluginLogEntryType } from '../../../types'
+import { PluginLogEntryType } from '../../../types'
 import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
@@ -30,33 +29,29 @@ function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     return <span style={{ color }}>{type}</span>
 }
 
-const columns: ResizableColumnType<PluginLogEntry>[] = [
+const columns: LemonTableColumns<Record<string, any>> = [
     {
         title: 'Timestamp',
         key: 'timestamp',
         dataIndex: 'timestamp',
-        span: 3,
         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
     },
     {
         title: 'Source',
-        key: 'source',
         dataIndex: 'source',
-        span: 1,
-    } as ResizableColumnType<PluginLogEntry>,
+        key: 'source',
+    },
     {
         title: 'Type',
         key: 'type',
         dataIndex: 'type',
-        span: 1,
         render: PluginLogEntryTypeDisplay,
-    } as ResizableColumnType<PluginLogEntry>,
+    },
     {
         title: 'Message',
         key: 'message',
         dataIndex: 'message',
-        span: 6,
-    } as ResizableColumnType<PluginLogEntry>,
+    },
 ]
 
 export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
@@ -104,14 +99,14 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                     ? `Load ${pluralize(pluginLogsBackground.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
-            <ResizableTable
+
+            <LemonTable
                 dataSource={pluginLogs}
                 columns={columns}
                 loading={pluginLogsLoading}
                 size="small"
                 className="ph-no-capture"
                 rowKey="id"
-                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!pluginLogs.length && (
