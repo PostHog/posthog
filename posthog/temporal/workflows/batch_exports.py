@@ -712,7 +712,7 @@ async def execute_batch_export_insert_activity(
     non_retryable_error_types: list[str],
     update_inputs: UpdateBatchExportRunStatusInputs,
     start_to_close_timeout_seconds: int = 3600,
-    heartbeat_timeout_seconds: int = 120,
+    heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 10,
     initial_retry_interval_seconds: int = 10,
     maximum_retry_interval_seconds: int = 120,
@@ -747,7 +747,7 @@ async def execute_batch_export_insert_activity(
             activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
-            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds),
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
     except exceptions.ActivityError as e:
