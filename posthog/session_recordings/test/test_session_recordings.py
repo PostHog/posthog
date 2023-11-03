@@ -125,9 +125,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     def test_get_session_recordings(self):
+        twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
+
         user = Person.objects.create(
             team=self.team,
-            distinct_ids=["user"],
+            distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
         user2 = Person.objects.create(
@@ -137,9 +139,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
-        self.create_snapshot("user", session_id_one, base_time)
-        self.create_snapshot("user", session_id_one, base_time + relativedelta(seconds=10))
-        self.create_snapshot("user", session_id_one, base_time + relativedelta(seconds=30))
+        self.create_snapshot("user_one_0", session_id_one, base_time)
+        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
+        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
         session_id_two = f"test_get_session_recordings-2-{uuid.uuid4()}"
         self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
@@ -147,37 +149,44 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
+        results_ = response_data["results"]
+        assert results_ is not None
+
         assert [
             (
                 r["id"],
-                r["distinct_id"],
                 parse(r["start_time"]),
                 parse(r["end_time"]),
                 r["recording_duration"],
                 r["viewed"],
                 r["person"]["id"],
+                len(r["person"]["distinct_ids"]),
             )
-            for r in response_data["results"]
+            for r in results_
         ] == [
             (
                 session_id_two,
-                "user2",
                 base_time + relativedelta(seconds=20),
                 base_time + relativedelta(seconds=20),
                 0,
                 False,
                 user2.pk,
+                1,
             ),
             (
                 session_id_one,
-                "user",
                 base_time,
                 base_time + relativedelta(seconds=30),
                 30,
                 False,
                 user.pk,
+                10,  # limited from 12 because we don't need that many
             ),
         ]
+
+        # user distinct id varies because we're adding more than one
+        assert results_[0]["distinct_id"] == "user2"
+        assert results_[1]["distinct_id"] in twelve_distinct_ids
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):

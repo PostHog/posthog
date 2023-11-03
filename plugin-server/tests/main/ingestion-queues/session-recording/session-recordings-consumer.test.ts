@@ -33,6 +33,8 @@ async function deleteKeysWithPrefix(hub: Hub) {
 const mockQueryWatermarkOffsets = jest.fn()
 const mockCommittedOffsetsFn = jest.fn()
 const mockCommit = jest.fn()
+const mockAssignments = jest.fn()
+const mockIsConnected = jest.fn(() => true)
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -48,6 +50,8 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     commit: mockCommit,
                     queryWatermarkOffsets: mockQueryWatermarkOffsets,
                     committed: mockCommittedOffsetsFn,
+                    assignments: mockAssignments,
+                    isConnected: mockIsConnected,
                 },
             })
         ),
@@ -97,12 +101,7 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
 
-        // Our tests will use multiple partitions so we assign them to begin with
-        await ingester.onAssignPartitions([createTP(1), createTP(2)])
-        expect(ingester.partitionAssignments).toMatchObject({
-            '1': {},
-            '2': {},
-        })
+        mockAssignments.mockImplementation(() => [createTP(1), createTP(2)])
     })
 
     afterEach(async () => {
@@ -119,7 +118,7 @@ describe('ingester', () => {
 
     const commitAllOffsets = async () => {
         // Simulate a background refresh for testing
-        await ingester.commitAllOffsets(ingester.partitionAssignments, Object.values(ingester.sessions))
+        await ingester.commitAllOffsets(ingester.partitionMetrics, Object.values(ingester.sessions))
     }
 
     const createMessage = (session_id: string, partition = 1) => {
@@ -181,7 +180,7 @@ describe('ingester', () => {
         await ingester.consume(event)
         expect(ingester.sessions[`1-${sessionId}`]).toBeDefined()
         // Force the flush
-        ingester.partitionAssignments[event.metadata.partition] = {
+        ingester.partitionMetrics[event.metadata.partition] = {
             lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
         }
 
@@ -342,7 +341,7 @@ describe('ingester', () => {
     describe('offset committing', () => {
         it('should commit offsets in simple cases', async () => {
             await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid1')])
-            expect(ingester.partitionAssignments[1]).toMatchObject({
+            expect(ingester.partitionMetrics[1]).toMatchObject({
                 lastMessageOffset: 2,
             })
 
@@ -364,7 +363,7 @@ describe('ingester', () => {
         it.skip('should commit higher values but not lower', async () => {
             await ingester.handleEachBatch([createMessage('sid1')])
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
-            expect(ingester.partitionAssignments[1].lastMessageOffset).toBe(1)
+            expect(ingester.partitionMetrics[1].lastMessageOffset).toBe(1)
             await commitAllOffsets()
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
@@ -402,7 +401,7 @@ describe('ingester', () => {
             await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
             await commitAllOffsets()
 
-            expect(ingester.partitionAssignments[1]).toMatchObject({
+            expect(ingester.partitionMetrics[1]).toMatchObject({
                 lastMessageOffset: 4,
             })
 
@@ -565,17 +564,14 @@ describe('ingester', () => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
             const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
-            await ingester.onAssignPartitions([createTP(1), createTP(2), createTP(3)])
+            mockAssignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
             await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
 
             expect(
                 Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['1:session_id_1:1', '1:session_id_2:1', '2:session_id_3:1', '2:session_id_4:1'])
 
-            const rebalancePromises = [
-                ingester.onRevokePartitions([createTP(2), createTP(3)]),
-                otherIngester.onAssignPartitions([createTP(2), createTP(3)]),
-            ]
+            const rebalancePromises = [ingester.onRevokePartitions([createTP(2), createTP(3)])]
 
             // Should immediately be removed from the tracked sessions
             expect(
@@ -584,6 +580,7 @@ describe('ingester', () => {
 
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
+            mockAssignments.mockImplementation(() => [createTP(2), createTP(3)])
             await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
             await Promise.all(rebalancePromises)
 
@@ -591,11 +588,11 @@ describe('ingester', () => {
             expect(
                 Object.values(ingester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
             ).toEqual(['1:session_id_1:1', '1:session_id_2:1'])
-
             // Should have session_id_4 but not session_id_3 as it was flushed
+
             expect(
                 Object.values(otherIngester.sessions).map((x) => `${x.partition}:${x.sessionId}:${x.buffer.count}`)
-            ).toEqual(['2:session_id_4:1'])
+            ).toEqual(['2:session_id_3:1', '2:session_id_4:2'])
         })
 
         it("flushes and commits as it's revoked", async () => {
@@ -635,7 +632,6 @@ describe('ingester', () => {
     describe('stop()', () => {
         const setup = async (): Promise<void> => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
-            await ingester.onAssignPartitions([createTP(1)])
             await ingester.handleEachBatch(partitionMsgs1)
         }
 

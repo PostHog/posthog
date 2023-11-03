@@ -17,7 +17,7 @@ import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     filterForQuery,
-    filterPropertyForQuery,
+    filterKeyForQuery,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -202,7 +202,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateQuerySource({ breakdown: { ...values.breakdown, ...breakdown } } as Partial<TrendsQuery>)
         },
         updateInsightFilter: ({ insightFilter }) => {
-            const filterProperty = filterPropertyForQuery(values.localQuerySource)
+            const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
             })

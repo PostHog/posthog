@@ -37,6 +37,12 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>UTM Source</>
         case WebStatsBreakdown.InitialUTMCampaign:
             return <>UTM Campaign</>
+        case WebStatsBreakdown.InitialUTMMedium:
+            return <>UTM Medium</>
+        case WebStatsBreakdown.InitialUTMTerm:
+            return <>UTM Term</>
+        case WebStatsBreakdown.InitialUTMContent:
+            return <>UTM Content</>
         case WebStatsBreakdown.Browser:
             return <>Browser</>
         case WebStatsBreakdown.OS:
@@ -108,13 +114,19 @@ export const webStatsBreakdownToPropertyName = (breakdownBy: WebStatsBreakdown):
         case WebStatsBreakdown.Page:
             return '$pathname'
         case WebStatsBreakdown.InitialPage:
-            return '$initial_pathname'
+            return '$client_session_initial_pathname'
         case WebStatsBreakdown.InitialReferringDomain:
-            return '$initial_referrer'
+            return '$client_session_initial_referring_host'
         case WebStatsBreakdown.InitialUTMSource:
-            return '$initial_utm_source'
+            return '$client_session_initial_utm_source'
         case WebStatsBreakdown.InitialUTMCampaign:
-            return '$initial_utm_campaign'
+            return '$client_session_initial_utm_campaign'
+        case WebStatsBreakdown.InitialUTMMedium:
+            return '$client_session_initial_utm_medium'
+        case WebStatsBreakdown.InitialUTMContent:
+            return '$client_session_initial_utm_content'
+        case WebStatsBreakdown.InitialUTMTerm:
+            return '$client_session_initial_utm_term'
         case WebStatsBreakdown.Browser:
             return '$browser'
         case WebStatsBreakdown.OS:
