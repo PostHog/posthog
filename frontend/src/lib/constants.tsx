@@ -151,6 +151,7 @@ export const FEATURE_FLAGS = {
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
+    DATA_WAREHOUSE_EXTERNAL_LINK: 'data-warehouse-external-link', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
@@ -171,6 +172,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     SIDE_PANEL_DOCS: 'side-panel-docs', // owner: #noteforce-3000
+    MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
