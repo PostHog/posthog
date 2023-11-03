@@ -8,8 +8,7 @@ from django.conf import settings
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Subquery, OuterRef, IntegerField
-from django.contrib.postgres.aggregates import ArrayAgg
+from django.db.models import OuterRef, Subquery, Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -543,18 +542,23 @@ def list_recordings(
         # persons can have an effectively unbounded number of distinct ids
         # we are only going to return ten
         # so, we don't need to load them all
+        # Create a subquery to fetch the limited distinct IDs for each person.
         limited_distinct_ids_subquery = (
-            PersonDistinctId.objects.filter(person=OuterRef("pk"))
-            .order_by("id")
-            .values("distinct_id")[:10]
-            .annotate(ids_array=ArrayAgg("distinct_id"))
-            .values("ids_array")
+            PersonDistinctId.objects.filter(person=OuterRef("person")).order_by("id").values("distinct_id")[:10]
         )
 
+        # Fetch the PersonDistinctId objects we want to prefetch using the sub-queries.
+        limited_distinct_ids = PersonDistinctId.objects.filter(
+            distinct_id__in=Subquery(limited_distinct_ids_subquery.values("distinct_id")), team=team
+        )
+
+        # Now, prefetch these limited distinct IDs when fetching the PersonDistinctId objects.
         person_distinct_ids = (
             PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
             .select_related("person")
-            .annotate(limited_distinct_ids=Subquery(limited_distinct_ids_subquery, output_field=IntegerField()))
+            .prefetch_related(
+                Prefetch("person__persondistinctid_set", queryset=limited_distinct_ids, to_attr="distinct_ids_cache")
+            )
         )
 
     with timer("process_persons"):
