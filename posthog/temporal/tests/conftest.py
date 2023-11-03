@@ -1,13 +1,22 @@
+import asyncio
+import random
+
 import pytest
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.temporal.client import connect
+from posthog.temporal.workflows.clickhouse import ClickHouseClient
 
 
 @pytest.fixture
 def organization():
     """A test organization."""
-    org = Organization.objects.create(name="TempHog")
+    name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
+    org = Organization.objects.create(name=name)
     org.save()
 
     yield org
@@ -18,7 +27,8 @@ def organization():
 @pytest.fixture
 def team(organization):
     """A test team."""
-    team = Team.objects.create(organization=organization, name="TempHog-1")
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = Team.objects.create(organization=organization, name=name)
     team.save()
 
     yield team
@@ -26,7 +36,62 @@ def team(organization):
     team.delete()
 
 
+@pytest_asyncio.fixture
+async def aorganization():
+    name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
+    org = await sync_to_async(Organization.objects.create)(name=name)  # type: ignore
+
+    yield org
+
+    await sync_to_async(org.delete)()  # type: ignore
+
+
+@pytest_asyncio.fixture
+async def ateam(aorganization):
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)  # type: ignore
+
+    yield team
+
+    await sync_to_async(team.delete)()  # type: ignore
+
+
 @pytest.fixture
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(scope="module")
+def clickhouse_client():
+    """Provide a ClickHouseClient to use in tests."""
+    client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    yield client
+
+
+@pytest.fixture(scope="module")
+def event_loop():
+    loop = asyncio.get_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest_asyncio.fixture(scope="module")
+async def temporal_client():
+    """Provide a temporalio.client.Client to use in tests."""
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    yield client
