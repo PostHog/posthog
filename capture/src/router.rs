@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{billing_limits::BillingLimiter, capture, redis::Client, sink, time::TimeSource};
@@ -47,7 +47,8 @@ pub fn router<
     // and reverse proxies might send funky headers.
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(Any)
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
         .allow_origin(AllowOrigin::mirror_request());
 
     let router = Router::new()
