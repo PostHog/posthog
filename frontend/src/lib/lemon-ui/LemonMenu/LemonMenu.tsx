@@ -131,6 +131,22 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
 
     const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
+    if (sectionsOrItems.length === 0) {
+        return (
+            <LemonMenuItemButton
+                item={{
+                    active: false,
+                    onClick: () => {},
+                    label: '-',
+                    disabledReason: 'No options available for selection.',
+                }}
+                size={buttonSize}
+                tooltipPlacement={tooltipPlacement}
+                ref={itemsRef?.current?.[0]}
+            />
+        )
+    }
+
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
             sections={sectionsOrItems as LemonMenuSection[]}

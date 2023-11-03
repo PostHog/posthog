@@ -121,11 +121,10 @@ export function LemonSelect<T extends string | number | boolean | null>({
 
     const activeLeaf = allLeafOptions.find((o) => o.value === value)
     const isClearButtonShown = allowClear && !!value
-    const isItemsEmpty = items.length === 0
 
     return (
         <LemonMenu
-            items={!isItemsEmpty ? items : [{ active: false, label: 'No Value', custom: true, onClick: () => {} }]}
+            items={items}
             tooltipPlacement={optionTooltipPlacement}
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
@@ -144,7 +143,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
                 status="stealth"
-                aria-disabled={isItemsEmpty}
                 {...buttonProps}
             >
                 <span>
