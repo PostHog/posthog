@@ -79,7 +79,7 @@ describe('ingester', () => {
         mockConsumer.commit.mockImplementation(
             (tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset)
         )
-        mockConsumer.queryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
+        mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout, cb) => {
             cb(null, { highOffset: mockOffsets[partition] ?? 1, lowOffset: 0 })
         })
 
@@ -106,7 +106,7 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
 
-        mockConsumer.assignments.mockImplementation(() => [createTP(1), createTP(2)])
+        mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
     })
 
     afterEach(async () => {
@@ -681,6 +681,21 @@ describe('ingester', () => {
                 offset: 14,
                 partition: 1,
                 topic: 'session_recording_snapshot_item_events_test',
+            })
+        })
+    })
+
+    describe('lag reporting', () => {
+        it('should return the latest offsets', async () => {
+            mockConsumer.queryWatermarkOffsets.mockImplementation((topic, partition, timeout, cb) => {
+                cb(null, { highOffset: 1000 + partition, lowOffset: 0 })
+            })
+
+            const results = await ingester.latestOffsetsRefresher.get()
+
+            expect(results).toEqual({
+                0: 1000,
+                1: 1001,
             })
         })
     })
