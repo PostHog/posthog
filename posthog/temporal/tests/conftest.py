@@ -100,7 +100,11 @@ async def temporal_client():
 
 @pytest_asyncio.fixture()
 async def workflows(request):
-    """Provide a temporalio.client.Client to use in tests."""
+    """Return Temporal workflows to initialize a test worker.
+
+    By default (no parametrization), we return all available workflows. Optionally,
+    with @pytest.mark.parametrize it is possible to customize which workflows the worker starts with.
+    """
     try:
         return request.param
     except AttributeError:
@@ -111,7 +115,11 @@ async def workflows(request):
 
 @pytest_asyncio.fixture()
 async def activities(request):
-    """Provide a temporalio.client.Client to use in tests."""
+    """Return Temporal activities to initialize a test worker.
+
+    By default (no parametrization), we return all available activities. Optionally,
+    with @pytest.mark.parametrize it is possible to customize which activities the worker starts with.
+    """
     try:
         return request.param
     except AttributeError:
