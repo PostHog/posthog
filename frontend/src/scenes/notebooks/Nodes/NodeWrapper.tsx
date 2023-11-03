@@ -38,6 +38,7 @@ import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import posthog from 'posthog-js'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -293,6 +294,12 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 })
             }, 0)
         }
+
+        useEffect(() => {
+            if (props.node.attrs.nodeId === null) {
+                posthog.capture('notebook node added', { node_type: props.node.type.name })
+            }
+        }, [props.node.attrs.nodeId])
 
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
             ...props,
