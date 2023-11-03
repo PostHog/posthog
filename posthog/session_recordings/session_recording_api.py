@@ -541,7 +541,7 @@ def list_recordings(
 
     finish_serializing = time.perf_counter() * 1000
 
-    # timings are assumed to be in milliseconds
+    # timings are assumed to be in milliseconds when reported
     # but are gathered by time.perf_counter which is fractional seconds 🫠
     # so each value is multiplied by 1000 at collection
     timings = {
