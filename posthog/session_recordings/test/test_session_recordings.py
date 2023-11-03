@@ -31,6 +31,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     FuzzyInt,
     _create_event,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -124,6 +125,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
         )
 
+    @snapshot_postgres_queries
+    @snapshot_clickhouse_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 

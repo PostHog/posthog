@@ -8,7 +8,8 @@ from django.conf import settings
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Prefetch
+from django.db.models import Subquery, OuterRef, IntegerField
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -518,10 +519,21 @@ def list_recordings(
 
     # Get the related persons for all the recordings
     distinct_ids = sorted([x.distinct_id for x in recordings])
+    # persons can have an effectively unbounded number of distinct ids
+    # we are only going to return ten
+    # so, we don't need to load them all
+    limited_distinct_ids_subquery = (
+        PersonDistinctId.objects.filter(person=OuterRef("pk"))
+        .order_by("id")
+        .values("distinct_id")[:10]
+        .annotate(ids_array=ArrayAgg("distinct_id"))
+        .values("ids_array")
+    )
+
     person_distinct_ids = (
         PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
         .select_related("person")
-        .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
+        .annotate(limited_distinct_ids=Subquery(limited_distinct_ids_subquery, output_field=IntegerField()))
     )
 
     finish_loading_persons = time.perf_counter()
