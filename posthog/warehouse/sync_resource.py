@@ -13,11 +13,11 @@ def sync_resources():
     resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
 
     for resource in resources:
-        _sync_resource.delay(resource.pk)
+        sync_resource.delay(resource.pk)
 
 
 @app.task(ignore_result=True)
-def _sync_resource(resource_id):
+def sync_resource(resource_id):
     resource = ExternalDataSource.objects.get(pk=resource_id)
 
     try:
@@ -32,6 +32,7 @@ def _sync_resource(resource_id):
         logger.error(f"Data Warehouse: No jobs found for connection: {resource.connection_id}")
         resource.status = "error"
         resource.save()
+        return
 
     if job["status"] == "succeeded":
         resource = ExternalDataSource.objects.get(pk=resource_id)
