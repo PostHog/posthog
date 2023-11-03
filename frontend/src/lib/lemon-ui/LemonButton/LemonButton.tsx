@@ -63,7 +63,7 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
-    size?: 'small' | 'medium' | 'large'
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
 }
