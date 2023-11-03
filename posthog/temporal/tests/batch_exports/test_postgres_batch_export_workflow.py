@@ -278,7 +278,7 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"])
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_postgres_export_workflow(
     clickhouse_client,
