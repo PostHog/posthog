@@ -21,10 +21,13 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             {
                 openDocsPage: (_, { urlOrPath }) => {
                     let path = urlOrPath
-                    if (urlOrPath.includes('posthog.com')) {
-                        if (urlOrPath.indexOf(POSTHOG_COM_DOMAIN) === 0) {
-                            path = urlOrPath.substring(POSTHOG_COM_DOMAIN.length)
+                    try {
+                        const url = new URL(urlOrPath)
+                        if (url.origin === POSTHOG_COM_DOMAIN) {
+                            path = url.pathname + url.search
                         }
+                    } catch (e) {
+                        // not a valid URL, continue
                     }
 
                     return path[0] === '/' ? path : `/${path}`
