@@ -4274,24 +4274,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        # TODO: Add tests for the group query case.
-        # with self.settings(DEBUG=True):
-        #     from django.db import connection, reset_queries
-
-        #     with connection.cursor() as cursor:
-        #         cursor.execute(f"""SELECT ("posthog_person"."properties" -> 'version'), ("posthog_person"."properties" -> 'version') > '1.05',
-        #                          JSONB_TYPEOF("posthog_person"."properties" -> 'string_number'), JSONB_TYPEOF("posthog_person"."properties" -> 'number')
-        #         FROM "posthog_person" INNER JOIN "posthog_persondistinctid" ON
-        #                        ("posthog_person"."id" = "posthog_persondistinctid"."person_id") WHERE
-        #                        ("posthog_persondistinctid"."distinct_id" = '307' AND "posthog_persondistinctid"."team_id" = {self.team.id} AND "posthog_person"."team_id" = {self.team.id})
-        #                        """)
-        #         print(cursor.fetchall())
-        #         reset_queries()
-        #     reset_queries()
-        #     match = self.match_flag(feature_flag5, "307")
-        #     print('match value is: ', match)
-        #     print(connection.queries[2]["sql"])
-
         self.assertEqual(
             self.match_flag(feature_flag1, "307"),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -4317,6 +4299,287 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(
             self.match_flag(feature_flag6, "307"),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+    def test_numeric_operator_with_groups_and_person_flags(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24"},
+        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+
+        Group.objects.create(
+            team=self.team,
+            group_type_index=0,
+            group_key="foo",
+            group_properties={"name": "foo.inc", "number": 50, "string_number": "50"},
+            version=1,
+        )
+        Group.objects.create(
+            team=self.team,
+            group_type_index=1,
+            group_key="foo-project",
+            group_properties={"name": "foo-project", "number": 20, "string_number": "20"},
+            version=1,
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100",
+                                "operator": "gt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "aggregation_group_type_index": 1,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "100b2c",
+                                "operator": "gt",
+                                "group_type_index": 1,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "3.1x00b2c",
+                                "operator": "gte",
+                                "type": "person",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        feature_flag4_person = self.create_feature_flag(
+            key="random4_person",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "number",
+                                "value": "20",
+                                "operator": "gte",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        feature_flag5 = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.15",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.1200",
+                                "operator": "gte",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+
+        feature_flag6 = self.create_feature_flag(
+            key="random6",
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "version",
+                                "value": "1.206.0",
+                                "operator": "lt",
+                                "group_type_index": 0,
+                                "type": "group",
+                            },
+                        ]
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag4, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # even though we can parse as a number, only do string comparison
+        self.assertEqual(
+            self.match_flag(feature_flag5, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag6, "307", groups={"organization": "foo", "project": "foo-project"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # Make sure clashes on property name doesn't affect computation
+        with snapshot_postgres_queries_context(self, replace_all_numbers=False):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2, feature_flag4_person],
+                    "307",
+                    groups={"organization": "foo", "project": "foo-project"},
+                ).get_matches()[1],
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random4_person": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                },
+            )
+
+        # handle overrides in group properties
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": 200}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # string '30' > string '100' (lexicographically)
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "30"}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "01323"}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": 0}, "project": {"number": 1}},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2,
+                "307",
+                groups={"organization": "foo", "project": "foo-project"},
+                group_property_value_overrides={"organization": {"number": "0"}, "project": {"number": 19.999999}},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
 

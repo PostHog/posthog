@@ -142,9 +142,34 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         except re.error:
             return False
 
-    # TODO: Use the input property to determine what to compare against!!
-    if operator == "gt":
-        return type(override_value) == type(value) and override_value > value
+    if operator in ("gt", "gte", "lt", "lte"):
+        # :TRICKY: We adjust comparison based on the override value passed in,
+        # to make sure we handle both numeric and string comparisons appropriately.
+        def compare(lhs, rhs, operator):
+            if operator == "gt":
+                return lhs > rhs
+            elif operator == "gte":
+                return lhs >= rhs
+            elif operator == "lt":
+                return lhs < rhs
+            elif operator == "lte":
+                return lhs <= rhs
+            else:
+                raise ValueError(f"Invalid operator: {operator}")
+
+        parsed_value = None
+        try:
+            parsed_value = float(value)  # type: ignore
+        except Exception:
+            pass
+
+        if parsed_value is not None:
+            if isinstance(override_value, str):
+                return compare(override_value, str(value), operator)
+            else:
+                return compare(override_value, parsed_value, operator)
+        else:
+            return compare(str(override_value), str(value), operator)
 
     if operator == "gte":
         return type(override_value) == type(value) and override_value >= value
