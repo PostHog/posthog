@@ -169,7 +169,7 @@ export class SessionRecordingIngester {
             )
 
             return results.reduce((acc, [partition, highOffset]) => {
-                if (partition && highOffset !== undefined) {
+                if (typeof partition === 'number' && typeof highOffset === 'number') {
                     acc[partition] = highOffset
                 }
                 return acc
