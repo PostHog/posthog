@@ -99,7 +99,7 @@ export function Query(props: QueryProps): JSX.Element | null {
         return (
             <ErrorBoundary>
                 <>
-                    {props.context?.showQueryEditor ? (
+                    {true ? (
                         <>
                             <QueryEditor
                                 query={JSON.stringify(query)}
