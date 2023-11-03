@@ -3,8 +3,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
+    AnyPropertyFilter,
     EncodedRecordingSnapshot,
     PersonType,
+    PropertyFilterType,
+    PropertyOperator,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
@@ -133,17 +136,10 @@ export interface SessionRecordingDataLogicProps {
 }
 
 function makeEventsQuery(
-    person: PersonType,
+    person: PersonType | null,
     start: Dayjs,
     end: Dayjs,
-    properties:
-        | {
-              type: string
-              value: string[]
-              key: string
-              operator: string
-          }
-        | { type: string; value: string; key: string; operator: string }
+    properties: AnyPropertyFilter[]
 ): Promise<unknown> {
     return api.query({
         kind: 'EventsQuery',
@@ -159,10 +155,10 @@ function makeEventsQuery(
         ],
         orderBy: ['timestamp ASC'],
         limit: 1000000,
-        personId: String(person.id),
+        personId: person ? String(person.id) : undefined,
         after: start.subtract(BUFFER_MS, 'ms').format(),
         before: end.add(BUFFER_MS, 'ms').format(),
-        properties: [properties],
+        properties: properties,
     })
 }
 
@@ -392,23 +388,35 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        makeEventsQuery(person, start, end, {
-                            key: '$session_id',
-                            value: [props.sessionRecordingId],
-                            operator: 'exact',
-                            type: 'event',
-                        }),
+                        makeEventsQuery(null, start, end, [
+                            {
+                                key: '$session_id',
+                                value: [props.sessionRecordingId],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
                         // these are probably e.g. backend events for the session
                         // but with no session id
-                        makeEventsQuery(person, start, end, {
-                            key: '$session_id',
-                            value: '',
-                            operator: 'exact',
-                            type: 'event',
-                        }),
+                        // since posthog-js must always add session id we can also
+                        // take advantage of lib being materialized and further filter
+                        makeEventsQuery(person, start, end, [
+                            {
+                                key: '$session_id',
+                                value: '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                key: '$lib',
+                                value: ['web'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.Event,
+                            },
+                        ]),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(
