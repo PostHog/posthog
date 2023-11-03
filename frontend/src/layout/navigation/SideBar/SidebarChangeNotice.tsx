@@ -85,7 +85,7 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
         })
     }
 
-    return [noticeAcknowledged ? notices : [], onAcknowledged]
+    return [!noticeAcknowledged ? notices : [], onAcknowledged]
 }
 
 export function SidebarChangeNoticeTooltip({
