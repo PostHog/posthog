@@ -83,7 +83,6 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
 
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
-    console.log('wat', notices, onAcknowledged)
     return (
         <li className="w-full">
             {notices.length ? (
