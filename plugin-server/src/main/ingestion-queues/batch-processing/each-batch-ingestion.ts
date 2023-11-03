@@ -6,7 +6,7 @@ import { Hub, PipelineEvent } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter, LoggingLimiter, WarningLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter, OverflowWarningLimiter } from '../../../utils/token-bucket'
 import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
@@ -139,7 +139,7 @@ export async function eachBatchParallelIngestion(
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
-                    if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
+                    if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
                         processingPromises.push(
                             captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                                 overflowDistinctId: distinct_id,
