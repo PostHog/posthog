@@ -61,7 +61,7 @@ export function SidebarChangeNoticeContent({
 
             <div className="flex justify-end">
                 <LemonButton type="primary" onClick={onAcknowledged}>
-                    Understood!
+                    Got it!
                 </LemonButton>
             </div>
         </div>
@@ -94,18 +94,19 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
 export function SidebarChangeNoticeTooltip({
     identifier,
     children,
-}: SidebarChangeNoticeTooltipProps): React.ReactNode | null {
+}: SidebarChangeNoticeTooltipProps): JSX.Element | null {
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     if (!notices.length) {
-        return children
+        return <>{children}</>
     }
 
     return (
         <Tooltip
             visible={true}
             placement="right"
-            overlay={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
+            delayMs={0}
+            title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
             {children}
         </Tooltip>

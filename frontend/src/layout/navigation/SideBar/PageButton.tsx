@@ -32,8 +32,8 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     title = title || sceneConfigurations[identifier]?.name || identifier
 
     return (
-        <SidebarChangeNoticeTooltip identifier={identifier}>
-            <li>
+        <li>
+            <SidebarChangeNoticeTooltip identifier={identifier}>
                 {sideAction ? (
                     <LemonButtonWithSideAction
                         fullWidth
@@ -77,7 +77,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                         ) : null}
                     </LemonButton>
                 )}
-            </li>
-        </SidebarChangeNoticeTooltip>
+            </SidebarChangeNoticeTooltip>
+        </li>
     )
 }
