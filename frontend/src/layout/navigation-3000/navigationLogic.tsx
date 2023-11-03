@@ -327,15 +327,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     ],
                     [
                         {
-                            identifier: Scene.ToolbarLaunch,
-                            label: 'Toolbar',
-                            icon: <IconToolbar />,
-                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
-                        },
-                    ],
-                    [
-                        {
                             identifier: Scene.SavedInsights,
                             label: 'Product analytics',
                             icon: <IconGraph />,
@@ -398,6 +389,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Apps',
                             icon: <IconApps />,
                             to: urls.projectApps(),
+                        },
+                        {
+                            identifier: Scene.ToolbarLaunch,
+                            label: 'Toolbar',
+                            icon: <IconToolbar />,
+                            logic: isUsingSidebar ? toolbarSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.toolbarLaunch(),
                         },
                     ],
                 ]
