@@ -32,8 +32,6 @@ require('@sentry/tracing')
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
 
-// const flushIntervalTimeoutMs = 30000
-
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
@@ -176,7 +174,7 @@ export class SessionRecordingIngester {
                 }
                 return acc
             }, {} as Record<number, number>)
-        }, 5000)
+        }, 10000)
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {

@@ -31,22 +31,28 @@ export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-f
 
 export const queryWatermarkOffsets = (
     kafkaConsumer: KafkaConsumer | undefined,
-    partition: number
+    partition: number,
+    timeout = 10000
 ): Promise<[number, number]> => {
     return new Promise<[number, number]>((resolve, reject) => {
         if (!kafkaConsumer) {
             return reject('Not connected')
         }
 
-        kafkaConsumer.queryWatermarkOffsets(KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, partition, (err, offsets) => {
-            if (err) {
-                captureException(err)
-                status.error('🔥', 'Failed to query kafka watermark offsets', err)
-                return reject(err)
-            }
+        kafkaConsumer.queryWatermarkOffsets(
+            KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+            timeout,
+            partition,
+            (err, offsets) => {
+                if (err) {
+                    captureException(err)
+                    status.error('🔥', 'Failed to query kafka watermark offsets', err)
+                    return reject(err)
+                }
 
-            resolve([partition, offsets.highOffset])
-        })
+                resolve([partition, offsets.highOffset])
+            }
+        )
     })
 }
 
