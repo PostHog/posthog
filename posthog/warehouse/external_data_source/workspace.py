@@ -1,11 +1,17 @@
 from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
+from django.conf import settings
 
 AIRBYTE_WORKSPACE_URL = "https://api.airbyte.com/v1/workspaces"
 
 
 def create_workspace(team_id: int):
-    payload = {"name": "Team " + str(team_id)}
+    if settings.DEBUG or settings.TEST:
+        workspace_name = "Team " + str(team_id) + " (TEST)"
+    else:
+        workspace_name = "Team " + str(team_id)
+
+    payload = {"name": workspace_name}
     response = send_request(AIRBYTE_WORKSPACE_URL, method="POST", payload=payload)
 
     return response["workspaceId"]
