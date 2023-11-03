@@ -98,7 +98,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (is3000 && docsPanelEnabled && isPostHogComDomain(to as string)) {
+            if (typeof to === 'string' && is3000 && docsPanelEnabled && isPostHogComDomain(to)) {
                 event.preventDefault()
                 openDocsPage(to)
                 return
