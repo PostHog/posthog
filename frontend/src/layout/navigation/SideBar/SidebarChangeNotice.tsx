@@ -34,6 +34,9 @@ const NOTICES: {
         description: (
             <>
                 <b>Annotations</b> have moved! You can now find them in the <b>Data Management</b> section.
+                <br />
+                <br />
+                <b>Cohorts</b> have moved! You can now find them in the <b>People & Groups</b> section.
             </>
         ),
         flagSuffix: 'annotations-2023-10-30',
@@ -48,7 +51,7 @@ export function SidebarChangeNoticeContent({
     onAcknowledged: () => void
 }): JSX.Element | null {
     return (
-        <div className="max-w-50">
+        <div className="max-w-80">
             {notices.map((notice, i) => (
                 <Fragment key={i}>
                     {notice.description}
