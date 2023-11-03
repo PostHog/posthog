@@ -43,7 +43,6 @@ const tabs: Record<
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
-        buttons: <NewActionButton />,
         content: <EventDefinitionsTable />,
     },
     [DataManagementTab.Actions]: {
@@ -59,6 +58,7 @@ const tabs: Record<
                 Actions
             </TitleWithIcon>
         ),
+        buttons: <NewActionButton />,
         content: <ActionsTable />,
     },
     [DataManagementTab.PropertyDefinitions]: {
