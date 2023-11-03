@@ -123,11 +123,11 @@ export function Onboarding(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { product } = useValues(onboardingLogic)
 
-    // useEffect(() => {
-    //     if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
-    //         location.href = urls.ingestion()
-    //     }
-    // }, [])
+    useEffect(() => {
+        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
+            location.href = urls.ingestion()
+        }
+    }, [])
 
     if (!product) {
         return <></>

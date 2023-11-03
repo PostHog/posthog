@@ -49,7 +49,10 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             ) : null}
             <div
                 data-attr="query-editor"
-                className={clsx('flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80', props.className)}
+                className={clsx(
+                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded-sm',
+                    props.className
+                )}
             >
                 <div className="flex-1">
                     <AutoSizer disableWidth>
@@ -72,7 +75,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"
-                    status={error ? 'danger' : 'primary'}
+                    status={error ? 'danger' : 'primary-alt'}
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center

@@ -97,7 +97,7 @@ export const ProductIntroduction = ({
                         ) : (
                             actionElementOverride
                         )}
-                        {true && (
+                        {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
                                 status="muted"
