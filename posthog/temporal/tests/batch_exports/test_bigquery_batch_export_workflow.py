@@ -351,6 +351,10 @@ async def test_bigquery_export_workflow(
         )
 
 
+@pytest.mark.skipif(
+    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
+    reason="Google credentials not set in environment",
+)
 async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle errors when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -397,6 +401,10 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
     assert run.latest_error == "ValueError: A useful error message"
 
 
+@pytest.mark.skipif(
+    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
+    reason="Google credentials not set in environment",
+)
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle cancellations when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
