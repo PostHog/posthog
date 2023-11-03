@@ -3,6 +3,8 @@ from typing import Tuple, Any
 from freezegun import freeze_time
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models import Person, Team
+from posthog.models.organization import Organization
 from posthog.schema import (
     EventsQuery,
     EventPropertyFilter,
@@ -13,6 +15,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    flush_persons_and_events,
 )
 
 
@@ -108,3 +111,21 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual({"p_true", "p_false"}, set(row[0]["distinct_id"] for row in results))
+
+    def test_person_id_expands_to_distinct_ids(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id1", "id2"],
+        )
+        flush_persons_and_events()
+        person = Person.objects.first()
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk))  # type: ignore
+
+        # matching team
+        query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
+        self.assertEqual(query_ast.where.exprs[0].right.value, ["id1", "id2"])
+
+        # another team
+        another_team = Team.objects.create(organization=Organization.objects.create())
+        query_ast = EventsQueryRunner(query=query, team=another_team).to_query()
+        self.assertEqual(query_ast.where.exprs[0].right.value, [])
