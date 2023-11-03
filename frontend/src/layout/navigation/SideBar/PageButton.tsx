@@ -6,7 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { SidebarChangeNotice } from '~/layout/navigation/SideBar/SidebarChangeNotice'
+import { SidebarChangeNoticeTooltip } from '~/layout/navigation/SideBar/SidebarChangeNotice'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
@@ -32,7 +32,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     title = title || sceneConfigurations[identifier]?.name || identifier
 
     return (
-        <SidebarChangeNotice identifier={identifier}>
+        <SidebarChangeNoticeTooltip identifier={identifier}>
             <li>
                 {sideAction ? (
                     <LemonButtonWithSideAction
@@ -78,6 +78,6 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                     </LemonButton>
                 )}
             </li>
-        </SidebarChangeNotice>
+        </SidebarChangeNoticeTooltip>
     )
 }

@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonDropdownProps, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
@@ -7,7 +7,10 @@ import { Scene } from 'scenes/sceneTypes'
 
 export type SidebarChangeNoticeProps = {
     identifier: string | number
-    children: LemonDropdownProps['children']
+}
+
+export type SidebarChangeNoticeTooltipProps = SidebarChangeNoticeProps & {
+    children: TooltipProps['children']
 }
 
 /**
@@ -37,17 +40,38 @@ const NOTICES: {
     },
 ]
 
-export function SidebarChangeNotice({ identifier, children }: SidebarChangeNoticeProps): JSX.Element | null {
+export function SidebarChangeNoticeContent({
+    notices,
+    onAcknowledged,
+}: {
+    notices: typeof NOTICES
+    onAcknowledged: () => void
+}): JSX.Element | null {
+    return (
+        <div className="max-w-50">
+            {notices.map((notice, i) => (
+                <Fragment key={i}>
+                    {notice.description}
+                    <LemonDivider />
+                </Fragment>
+            ))}
+
+            <div className="flex justify-end">
+                <LemonButton type="primary" onClick={onAcknowledged}>
+                    Understood!
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps): [typeof NOTICES, () => void] {
     const { featureFlags } = useValues(featureFlagLogic)
     const [noticeAcknowledged, setNoticeAcknowledged] = useState(false)
 
     const notices = NOTICES.filter((notice) => notice.identifier === identifier).filter(
         (notice) => featureFlags[`sidebar-notice-${notice.flagSuffix}`]
     )
-
-    if (noticeAcknowledged || !notices.length) {
-        return children
-    }
 
     const onAcknowledged = (): void => {
         notices.forEach((change) => {
@@ -61,29 +85,21 @@ export function SidebarChangeNotice({ identifier, children }: SidebarChangeNotic
         })
     }
 
-    return (
-        <Popover
-            placement="right-start"
-            visible={true}
-            showArrow
-            overlay={
-                <div className="max-w-50">
-                    {notices.map((notice, i) => (
-                        <Fragment key={i}>
-                            {notice.description}
-                            <LemonDivider />
-                        </Fragment>
-                    ))}
+    return [noticeAcknowledged ? notices : [], onAcknowledged]
+}
 
-                    <div className="flex justify-end">
-                        <LemonButton type="primary" onClick={onAcknowledged}>
-                            Understood!
-                        </LemonButton>
-                    </div>
-                </div>
-            }
+export function SidebarChangeNoticeTooltip({
+    identifier,
+    children,
+}: SidebarChangeNoticeTooltipProps): JSX.Element | null {
+    const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
+
+    return (
+        <Tooltip
+            visible={true}
+            overlay={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
             {children}
-        </Popover>
+        </Tooltip>
     )
 }
