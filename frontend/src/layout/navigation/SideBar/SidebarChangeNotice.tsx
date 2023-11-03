@@ -35,13 +35,25 @@ const NOTICES: {
         identifier: Scene.DataManagement,
         description: (
             <>
-                <b>Annotations</b> have moved! You can now find them in the <b>Data Management</b> section.
+                <b>Annotations</b> have moved!
                 <br />
-                <br />
-                <b>Cohorts</b> have moved! You can now find them in the <b>People & Groups</b> section.
+                You can now find them in <b>Data Management</b>
             </>
         ),
+        placement: 'rightBottom',
         flagSuffix: 'annotations-2023-10-30',
+    },
+    {
+        identifier: Scene.PersonsManagement,
+        description: (
+            <>
+                <b>Cohorts</b> have moved!
+                <br />
+                You can now find them in <b>People & Groups</b>
+            </>
+        ),
+        placement: 'rightTop',
+        flagSuffix: 'cohorts-2023-10-30',
     },
 ]
 
