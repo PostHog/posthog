@@ -144,10 +144,8 @@ def list_recordings_response(
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
-    # timings are assumed to be in milliseconds
-    # but are gathered by time.perf_counter which is fractional seconds 🫠
     response.headers["Server-Timing"] = ", ".join(
-        f"{key};dur={round(duration * 1000, ndigits=2)}" for key, duration in timings.items()
+        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
     )
     return response
 
@@ -468,7 +466,7 @@ def list_recordings(
     more_recordings_available = False
     team = context["get_team"]()
 
-    start_loading_session_recordings = time.perf_counter()
+    start_loading_session_recordings = time.perf_counter() * 1000
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
@@ -497,7 +495,7 @@ def list_recordings(
 
     recordings = [x for x in recordings if not x.deleted]
 
-    finish_loading_session_recordings = time.perf_counter()
+    finish_loading_session_recordings = time.perf_counter() * 1000
 
     # If we have specified session_ids we need to sort them by the order they were specified
     if all_session_ids:
@@ -506,7 +504,7 @@ def list_recordings(
             key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
         )
 
-    finish_sorting_session_ids = time.perf_counter()
+    finish_sorting_session_ids = time.perf_counter() * 1000
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
@@ -516,7 +514,7 @@ def list_recordings(
         SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
     )
 
-    finish_updating_viewed_status = time.perf_counter()
+    finish_updating_viewed_status = time.perf_counter() * 1000
 
     # Get the related persons for all the recordings
     distinct_ids = sorted([x.distinct_id for x in recordings])
@@ -526,7 +524,7 @@ def list_recordings(
         .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
     )
 
-    finish_loading_persons = time.perf_counter()
+    finish_loading_persons = time.perf_counter() * 1000
 
     distinct_id_to_person = {}
     for person_distinct_id in person_distinct_ids:
@@ -536,13 +534,16 @@ def list_recordings(
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
 
-    finish_processing_persons = time.perf_counter()
+    finish_processing_persons = time.perf_counter() * 1000
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    finish_serializing = time.perf_counter()
+    finish_serializing = time.perf_counter() * 1000
 
+    # timings are assumed to be in milliseconds
+    # but are gathered by time.perf_counter which is fractional seconds 🫠
+    # so each value is multiplied by 1000 at collection
     timings = {
         "load_recordings_from_clickhouse": finish_loading_session_recordings - start_loading_session_recordings,
         "sorting_session_ids": finish_sorting_session_ids - finish_loading_session_recordings,
