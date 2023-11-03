@@ -35,7 +35,7 @@ const NOTICES: {
         identifier: Scene.DataManagement,
         description: (
             <>
-                <b>Annotations</b> have moved!
+                <b>Annotations</b> have moved here!
                 <br />
                 You can now find them in <b>Data Management</b>
             </>
@@ -47,7 +47,7 @@ const NOTICES: {
         identifier: Scene.PersonsManagement,
         description: (
             <>
-                <b>Cohorts</b> have moved!
+                <b>Cohorts</b> have moved here!
                 <br />
                 You can now find them in <b>People & Groups</b>
             </>
