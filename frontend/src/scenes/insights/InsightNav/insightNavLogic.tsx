@@ -1,22 +1,67 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { InsightLogicProps, InsightType } from '~/types'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { InsightLogicProps, InsightType, ActionFilter } from '~/types'
 import type { insightNavLogicType } from './insightNavLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { NodeKind } from '~/queries/schema'
+import {
+    InsightVizNode,
+    InsightQueryNode,
+    NodeKind,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
+    TrendsFilter,
+    FunnelsFilter,
+    RetentionFilter,
+    PathsFilter,
+    StickinessFilter,
+    LifecycleFilter,
+    EventsNode,
+    ActionsNode,
+} from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import {
+    isInsightVizNode,
+    isRetentionQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    filterKeyForQuery,
+    containsHogQLQuery,
+} from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 
 export interface Tab {
     label: string | JSX.Element
     type: InsightType
     dataAttr: string
+}
+
+export interface CommonInsightFilter
+    extends Partial<TrendsFilter>,
+        Partial<FunnelsFilter>,
+        Partial<RetentionFilter>,
+        Partial<PathsFilter>,
+        Partial<StickinessFilter>,
+        Partial<LifecycleFilter> {}
+
+export interface QueryPropertyCache
+    extends Omit<Partial<TrendsQuery>, 'kind'>,
+        Omit<Partial<FunnelsQuery>, 'kind'>,
+        Omit<Partial<RetentionQuery>, 'kind'>,
+        Omit<Partial<PathsQuery>, 'kind'>,
+        Omit<Partial<StickinessQuery>, 'kind'>,
+        Omit<Partial<LifecycleQuery>, 'kind'> {
+    commonFilter: CommonInsightFilter
 }
 
 export const insightNavLogic = kea<insightNavLogicType>([
@@ -38,8 +83,18 @@ export const insightNavLogic = kea<insightNavLogicType>([
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
+        updateQueryPropertyCache: (cache: QueryPropertyCache) => ({ cache }),
     }),
     reducers({
+        queryPropertyCache: [
+            null as QueryPropertyCache | null,
+            {
+                updateQueryPropertyCache: (state, { cache }) => ({
+                    ...state,
+                    ...cache,
+                }),
+            },
+        ],
         userSelectedView: {
             setActiveView: (_, { view }) => view,
         },
@@ -153,20 +208,128 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(examples.HogQLTable)
                 }
             } else {
+                let query: InsightVizNode
+
                 if (view === InsightType.TRENDS) {
-                    actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.FUNNELS) {
-                    actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.RETENTION) {
-                    actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.PATHS) {
-                    actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.STICKINESS) {
-                    actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault)
                 } else if (view === InsightType.LIFECYCLE) {
-                    actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
+                    query = queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault)
+                } else {
+                    throw new Error('encountered unexpected type for view')
                 }
+
+                actions.setQuery({
+                    ...query,
+                    source: values.queryPropertyCache
+                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                        : query.source,
+                } as InsightVizNode)
+            }
+        },
+        setQuery: ({ query }) => {
+            if (isInsightVizNode(query)) {
+                actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
             }
         },
     })),
+    afterMount(({ values, actions }) => {
+        if (values.query && isInsightVizNode(values.query)) {
+            actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
+        }
+    }),
 ])
+
+const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
+    const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
+
+    // set series (first two entries) from retention target and returning entity
+    if (isRetentionQuery(query)) {
+        const { target_entity, returning_entity } = query.retentionFilter || {}
+        const series = actionsAndEventsToSeries({
+            events: [
+                ...(target_entity?.type === 'events' ? [target_entity as ActionFilter] : []),
+                ...(returning_entity?.type === 'events' ? [returning_entity as ActionFilter] : []),
+            ],
+            actions: [
+                ...(target_entity?.type === 'actions' ? [target_entity as ActionFilter] : []),
+                ...(returning_entity?.type === 'actions' ? [returning_entity as ActionFilter] : []),
+            ],
+        })
+        if (series.length > 0) {
+            newCache.series = [...series, ...(cache?.series ? cache.series.slice(series.length) : [])]
+        }
+    }
+
+    // store the insight specific filter in commonFilter
+    const filterKey = filterKeyForQuery(query)
+    newCache.commonFilter = { ...cache?.commonFilter, ...query[filterKey] }
+
+    return newCache
+}
+
+const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCache): InsightQueryNode => {
+    const mergedQuery = {
+        ...query,
+        ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
+        ...(cache.properties ? { properties: cache.properties } : {}),
+        ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+    }
+
+    // series
+    if (isInsightQueryWithSeries(mergedQuery)) {
+        if (cache.series) {
+            mergedQuery.series = cache.series
+        } else if (cache.retentionFilter?.target_entity || cache.retentionFilter?.returning_entity) {
+            mergedQuery.series = [
+                ...(cache.retentionFilter.target_entity
+                    ? [cache.retentionFilter.target_entity as EventsNode | ActionsNode]
+                    : []),
+                ...(cache.retentionFilter.returning_entity
+                    ? [cache.retentionFilter.returning_entity as EventsNode | ActionsNode]
+                    : []),
+            ]
+        }
+    } else if (isRetentionQuery(mergedQuery) && cache.series) {
+        mergedQuery.retentionFilter = {
+            ...mergedQuery.retentionFilter,
+            ...(cache.series.length > 0 ? { target_entity: cache.series[0] } : {}),
+            ...(cache.series.length > 1 ? { returning_entity: cache.series[1] } : {}),
+        }
+    }
+
+    // interval
+    if (isInsightQueryWithSeries(mergedQuery) && cache.interval) {
+        mergedQuery.interval = cache.interval
+    }
+
+    // breakdown
+    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdown) {
+        mergedQuery.breakdown = cache.breakdown
+    }
+
+    // insight specific filter
+    const filterKey = filterKeyForQuery(mergedQuery)
+    if (cache[filterKey] || cache.commonFilter) {
+        const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
+        mergedQuery[filterKey] = {
+            ...query[filterKey],
+            ...cache[filterKey],
+            // TODO: fix an issue where switching between trends and funnels with the option enabled would
+            // result in an error before uncommenting
+            // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
+            ...(getShowValueOnSeries(node) ? { show_values_on_series: getShowValueOnSeries(node) } : {}),
+            ...(getShowPercentStackView(node) ? { show_percent_stack_view: getShowPercentStackView(node) } : {}),
+            ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
+        }
+    }
+
+    return mergedQuery
+}
