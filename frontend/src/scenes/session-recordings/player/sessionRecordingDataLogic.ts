@@ -28,6 +28,7 @@ import { chainToElements } from 'lib/utils/elements-chain'
 import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import posthog from 'posthog-js'
+import { NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -137,12 +138,13 @@ export interface SessionRecordingDataLogicProps {
 
 function makeEventsQuery(
     person: PersonType | null,
+    distinctId: string | null,
     start: Dayjs,
     end: Dayjs,
     properties: AnyPropertyFilter[]
 ): Promise<unknown> {
     return api.query({
-        kind: 'EventsQuery',
+        kind: NodeKind.EventsQuery,
         // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
         select: [
             'uuid',
@@ -159,6 +161,7 @@ function makeEventsQuery(
         after: start.subtract(BUFFER_MS, 'ms').format(),
         before: end.add(BUFFER_MS, 'ms').format(),
         properties: properties,
+        where: distinctId ? [`distinct_id = ('${distinctId}')`] : undefined,
     })
 }
 
@@ -388,7 +391,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        makeEventsQuery(null, start, end, [
+                        makeEventsQuery(null, null, start, end, [
                             {
                                 key: '$session_id',
                                 value: [props.sessionRecordingId],
@@ -403,7 +406,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        makeEventsQuery(person, start, end, [
+                        makeEventsQuery(null, values.sessionPlayerMetaData?.distinct_id || null, start, end, [
                             {
                                 key: '$session_id',
                                 value: '',
