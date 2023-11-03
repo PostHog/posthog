@@ -58,6 +58,34 @@ async def check_valid_credentials() -> bool:
 
 
 @pytest.fixture
+def compression(request) -> str | None:
+    """A parametrizable fixture to configure compression.
+
+    By decorating a test function with @pytest.mark.parametrize("compression", ..., indirect=True)
+    it's possible to set the compression that will be used to create an S3
+    BatchExport. Possible values are "brotli", "gzip", or None.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
+@pytest.fixture
+def encryption(request) -> str | None:
+    """A parametrizable fixture to configure a batch export encryption.
+
+    By decorating a test function with @pytest.mark.parametrize("encryption", ..., indirect=True)
+    it's possible to set the exclude_events that will be used to create an S3
+    BatchExport. Any list of event names can be used, or None.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
+@pytest.fixture
 def bucket_name(request) -> str:
     """Name for a test S3 bucket."""
     try:
@@ -168,8 +196,8 @@ async def assert_events_in_s3(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]])
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client, bucket_name, minio_client, activity_environment, compression, exclude_events
 ):
@@ -269,64 +297,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     )
 
 
-@pytest.fixture
-def compression(request) -> str | None:
-    """A parametrizable fixture to configure compression.
-
-    By decorating a test function with @pytest.mark.parametrize("compression", ..., indirect=True)
-    it's possible to set the compression that will be used to create an S3
-    BatchExport. Possible values are "brotli", "gzip", or None.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def interval(request) -> str:
-    """A parametrizable fixture to configure a batch export interval.
-
-    By decorating a test function with @pytest.mark.parametrize("interval", ..., indirect=True)
-    it's possible to set the interval that will be used to create an S3
-    BatchExport. Possible values are "hour", "day", or "every {value} {unit}".
-    As interval must be defined for every BatchExport, so we default to "hour" to
-    support tests that do not parametrize this.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return "hour"
-
-
-@pytest.fixture
-def exclude_events(request) -> list[str] | None:
-    """A parametrizable fixture to configure event names to exclude from a BatchExport.
-
-    By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
-    it's possible to set the exclude_events that will be used to create an S3
-    BatchExport. Any list of event names can be used, or None.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def encryption(request) -> str | None:
-    """A parametrizable fixture to configure a batch export encryption.
-
-    By decorating a test function with @pytest.mark.parametrize("encryption", ..., indirect=True)
-    it's possible to set the exclude_events that will be used to create an S3
-    BatchExport. Any list of event names can be used, or None.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
 @pytest_asyncio.fixture
 async def s3_batch_export(
     ateam, s3_key_prefix, bucket_name, compression, interval, exclude_events, temporal_client, encryption
@@ -388,7 +358,6 @@ async def test_s3_export_workflow_with_minio_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
