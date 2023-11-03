@@ -60,6 +60,25 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 )
 
 
+# context manager for gathering a sequence of server timings
+class ServerTimingsGathered:
+    def __init__(self, timings_dict, name):
+        self.timings_dict = timings_dict
+        self.name = name
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+        return self.timings_dict
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        self.timings_dict[self.name] = elapsed_time
+
+
 class SessionRecordingSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
@@ -466,45 +485,42 @@ def list_recordings(
     more_recordings_available = False
     team = context["get_team"]()
 
-    start_loading_session_recordings = time.perf_counter() * 1000
+    timings = {}
 
-    if all_session_ids:
-        # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
-        sorted_session_ids = sorted(all_session_ids)
+    with ServerTimingsGathered(timings, "load_recordings_from_clickhouse"):
+        if all_session_ids:
+            # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+            sorted_session_ids = sorted(all_session_ids)
 
-        persisted_recordings_queryset = SessionRecording.objects.filter(
-            team=team, session_id__in=sorted_session_ids
-        ).exclude(object_storage_path=None)
+            persisted_recordings_queryset = SessionRecording.objects.filter(
+                team=team, session_id__in=sorted_session_ids
+            ).exclude(object_storage_path=None)
 
-        persisted_recordings = persisted_recordings_queryset.all()
+            persisted_recordings = persisted_recordings_queryset.all()
 
-        recordings = recordings + list(persisted_recordings)
+            recordings = recordings + list(persisted_recordings)
 
-        remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
+            remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
+            filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
-    if (all_session_ids and filter.session_ids) or not all_session_ids:
-        # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-        (
-            ch_session_recordings,
-            more_recordings_available,
-        ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+        if (all_session_ids and filter.session_ids) or not all_session_ids:
+            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+            (
+                ch_session_recordings,
+                more_recordings_available,
+            ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
-        recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
-        recordings = recordings + recordings_from_clickhouse
+            recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+            recordings = recordings + recordings_from_clickhouse
 
-    recordings = [x for x in recordings if not x.deleted]
+        recordings = [x for x in recordings if not x.deleted]
 
-    finish_loading_session_recordings = time.perf_counter() * 1000
-
-    # If we have specified session_ids we need to sort them by the order they were specified
-    if all_session_ids:
-        recordings = sorted(
-            recordings,
-            key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
-        )
-
-    finish_sorting_session_ids = time.perf_counter() * 1000
+        # If we have specified session_ids we need to sort them by the order they were specified
+        if all_session_ids:
+            recordings = sorted(
+                recordings,
+                key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+            )
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
@@ -514,44 +530,26 @@ def list_recordings(
         SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
     )
 
-    finish_updating_viewed_status = time.perf_counter() * 1000
+    with ServerTimingsGathered(timings, "load_persons"):
+        # Get the related persons for all the recordings
+        distinct_ids = sorted([x.distinct_id for x in recordings])
+        person_distinct_ids = (
+            PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
+            .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
+        )
 
-    # Get the related persons for all the recordings
-    distinct_ids = sorted([x.distinct_id for x in recordings])
-    person_distinct_ids = (
-        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
-        .select_related("person")
-        .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
-    )
+    with ServerTimingsGathered(timings, "process_persons"):
+        distinct_id_to_person = {}
+        for person_distinct_id in person_distinct_ids:
+            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
-    finish_loading_persons = time.perf_counter() * 1000
-
-    distinct_id_to_person = {}
-    for person_distinct_id in person_distinct_ids:
-        distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
-    for recording in recordings:
-        recording.viewed = recording.session_id in viewed_session_recordings
-        recording.person = distinct_id_to_person.get(recording.distinct_id)
-
-    finish_processing_persons = time.perf_counter() * 1000
+        for recording in recordings:
+            recording.viewed = recording.session_id in viewed_session_recordings
+            recording.person = distinct_id_to_person.get(recording.distinct_id)
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
-
-    finish_serializing = time.perf_counter() * 1000
-
-    # timings are assumed to be in milliseconds when reported
-    # but are gathered by time.perf_counter which is fractional seconds 🫠
-    # so each value is multiplied by 1000 at collection
-    timings = {
-        "load_recordings_from_clickhouse": finish_loading_session_recordings - start_loading_session_recordings,
-        "sorting_session_ids": finish_sorting_session_ids - finish_loading_session_recordings,
-        "updating_viewed_status": finish_updating_viewed_status - finish_sorting_session_ids,
-        "load_persons": finish_loading_persons - finish_updating_viewed_status,
-        "process_persons": finish_processing_persons - finish_loading_persons,
-        "serialize": finish_serializing - finish_processing_persons,
-    }
 
     return (
         {"results": results, "has_next": more_recordings_available, "version": 3},
