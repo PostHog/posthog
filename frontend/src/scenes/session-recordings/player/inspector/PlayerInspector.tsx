@@ -2,6 +2,7 @@ import { PlayerInspectorList } from './PlayerInspectorList'
 import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
 import { PlayerInspectorPreview } from './PlayerInspectorPreview'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 
 const MOUSE_ENTER_DELAY = 100
 const MOUSE_LEAVE_DELAY = 500
@@ -53,12 +54,16 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
         return () => window.removeEventListener('click', onClickHandler)
     }, [inspectorFocus])
 
+    const ref = useRef<HTMLDivElement>(null)
+
     return (
         <div
             className="SessionRecordingPlayer__inspector"
             onMouseEnter={onInspectorEnter}
             onMouseLeave={onInspectorLeave}
+            ref={ref}
         >
+            <Resizer placement="left" containerRef={ref} />
             <PlayerInspectorControls />
             <PlayerInspectorList />
             <PlayerInspectorPreview />

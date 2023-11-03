@@ -53,6 +53,7 @@
 
     .SessionRecordingPlayer__main,
     .SessionRecordingPlayer__inspector {
+        position: relative;
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -114,9 +115,7 @@
         }
         .SessionRecordingPlayer__inspector,
         .SessionRecordingPlayer__inspector {
-            min-width: 30%;
             width: 40%;
-            max-width: 400px;
             position: relative;
             transform: translateX(0);
             box-shadow: none;

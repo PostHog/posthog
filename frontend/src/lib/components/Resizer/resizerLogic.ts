@@ -2,6 +2,7 @@ import { actions, beforeUnmount, kea, key, listeners, path, props, reducers, sel
 
 import type { resizerLogicType } from './resizerLogicType'
 import posthog from 'posthog-js'
+import { subscriptions } from 'kea-subscriptions'
 
 export type ResizerEvent = {
     originX: number
@@ -163,6 +164,11 @@ export const resizerLogic = kea<resizerLogicType>([
 
         endResize: () => {
             removeAllListeners(cache)
+        },
+    })),
+    subscriptions(({ values, props }) => ({
+        desiredWidth: (desiredWidth) => {
+            props.containerRef.current?.style.setProperty('width', `${desiredWidth}px`)
         },
     })),
 
