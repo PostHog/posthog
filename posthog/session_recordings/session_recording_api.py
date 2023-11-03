@@ -542,17 +542,28 @@ def list_recordings(
         # persons can have an effectively unbounded number of distinct ids
         # we are only going to return ten
         # so, we don't need to load them all
-        # Create a subquery to fetch the limited distinct IDs for each person.
+        # in the wild we've seen customers with a high number of distinct ids
+        # per person have very slow responses _only_ from loading distinct ids per person
+
+        # So first, we create a subquery to fetch the limited distinct IDs for a given person.
         limited_distinct_ids_subquery = (
             PersonDistinctId.objects.filter(person=OuterRef("person")).order_by("id").values("distinct_id")[:10]
         )
 
-        # Fetch the PersonDistinctId objects we want to prefetch using the sub-queries.
+        # Then we create a query that only loads person distinct IDs for the limited distinct IDs.
+        # that might seem silly, and it sort of is
+        # Django doesn't let us slice the query in a prefetch
+        # but, we can slice a query in a query in a prefetch :shrug:
         limited_distinct_ids = PersonDistinctId.objects.filter(
             distinct_id__in=Subquery(limited_distinct_ids_subquery.values("distinct_id")), team=team
         )
 
         # Now, prefetch these limited distinct IDs when fetching the PersonDistinctId objects.
+        # We want to prefetch because we're going to be loading a page of 20 people
+        # and don't want to make 20 queries against the DB
+        # this _should_ make three queries
+        # before we had the nested queries we would make two queries
+        # but they could be very slow... these should be faster
         person_distinct_ids = (
             PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
             .select_related("person")
