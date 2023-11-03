@@ -169,7 +169,7 @@ export function ItemPerformanceEvent({
                                 {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
                                     <Fragment key={key}>
                                         {index !== 0 && <LemonDivider vertical dashed />}
-                                        <Tooltip isDefaultTooltip title={description}>
+                                        <Tooltip title={description}>
                                             <div className="flex-1 p-2 text-center">
                                                 <div className="text-sm">{label}</div>
                                                 <div className="text-lg font-semibold">

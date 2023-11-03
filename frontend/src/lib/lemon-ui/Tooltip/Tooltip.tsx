@@ -6,8 +6,6 @@ import { useDebounce } from 'use-debounce'
 const DEFAULT_DELAY_MS = 500
 
 export type TooltipProps = AntdTooltipProps & {
-    /** Whether Ant Design's default Tooltip behavior should be used instead of PostHog's. */
-    isDefaultTooltip?: boolean
     delayMs?: number
 }
 
@@ -17,17 +15,11 @@ export type TooltipProps = AntdTooltipProps & {
  * See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L82-L130.
  */
 // CAUTION: Any changes here will affect tooltips across the entire app.
-export function Tooltip({
-    children,
-    visible,
-    isDefaultTooltip = false,
-    delayMs = DEFAULT_DELAY_MS,
-    ...props
-}: TooltipProps): JSX.Element {
-    const [localVisible, setVisible] = useState(!!visible)
+export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...props }: TooltipProps): JSX.Element {
+    const [localVisible, setVisible] = useState(false)
     const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
 
-    if (!isDefaultTooltip && !('mouseEnterDelay' in props)) {
+    if (!('mouseEnterDelay' in props)) {
         // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
         props.mouseEnterDelay = delayMs
     }
@@ -36,16 +28,22 @@ export function Tooltip({
     // See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L226
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
+    const derivedVisible = typeof visible === 'undefined' ? localVisible && debouncedLocalVisible : visible
+
     return props.title ? (
-        <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
+        <AntdTooltip {...props} visible={derivedVisible}>
             {React.cloneElement(child, {
                 onMouseEnter: () => {
                     child.props.onMouseEnter?.()
-                    setVisible(true)
+                    if (typeof visible === 'undefined') {
+                        setVisible(true)
+                    }
                 },
                 onMouseLeave: () => {
                     child.props.onMouseLeave?.()
-                    setVisible(false)
+                    if (typeof visible === 'undefined') {
+                        setVisible(false)
+                    }
                 },
             })}
         </AntdTooltip>
