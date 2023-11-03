@@ -38,7 +38,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     insert_into_s3_activity,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio]
 
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
@@ -55,34 +55,6 @@ async def check_valid_credentials() -> bool:
         return False
     else:
         return True
-
-
-@pytest.fixture
-def compression(request) -> str | None:
-    """A parametrizable fixture to configure compression.
-
-    By decorating a test function with @pytest.mark.parametrize("compression", ..., indirect=True)
-    it's possible to set the compression that will be used to create an S3
-    BatchExport. Possible values are "brotli", "gzip", or None.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
-
-
-@pytest.fixture
-def encryption(request) -> str | None:
-    """A parametrizable fixture to configure a batch export encryption.
-
-    By decorating a test function with @pytest.mark.parametrize("encryption", ..., indirect=True)
-    it's possible to set the exclude_events that will be used to create an S3
-    BatchExport. Any list of event names can be used, or None.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        return None
 
 
 @pytest.fixture
@@ -196,8 +168,9 @@ async def assert_events_in_s3(
     assert json_data == expected_events
 
 
-@pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.django_db
+@pytest.mark.parametrize("compression", [None, "gzip", "brotli"])
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]])
 async def test_insert_into_s3_activity_puts_data_into_s3(
     clickhouse_client, bucket_name, minio_client, activity_environment, compression, exclude_events
 ):
@@ -246,9 +219,10 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         person_properties=None,
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=team_id,
                 start_time=data_interval_start,
@@ -258,6 +232,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     # Make a random string to prefix the S3 keys with. This allows us to ensure
     # isolation of the test, and also to check that the data is being written.
@@ -289,10 +264,68 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         minio_client,
         bucket_name,
         prefix,
-        events=events + events_with_no_properties,
+        events=events + events_to_exclude + events_with_no_properties,
         compression=compression,
         exclude_events=exclude_events,
     )
+
+
+@pytest.fixture
+def compression(request) -> str | None:
+    """A parametrizable fixture to configure compression.
+
+    By decorating a test function with @pytest.mark.parametrize("compression", ..., indirect=True)
+    it's possible to set the compression that will be used to create an S3
+    BatchExport. Possible values are "brotli", "gzip", or None.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
+@pytest.fixture
+def interval(request) -> str:
+    """A parametrizable fixture to configure a batch export interval.
+
+    By decorating a test function with @pytest.mark.parametrize("interval", ..., indirect=True)
+    it's possible to set the interval that will be used to create an S3
+    BatchExport. Possible values are "hour", "day", or "every {value} {unit}".
+    As interval must be defined for every BatchExport, so we default to "hour" to
+    support tests that do not parametrize this.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return "hour"
+
+
+@pytest.fixture
+def exclude_events(request) -> list[str] | None:
+    """A parametrizable fixture to configure event names to exclude from a BatchExport.
+
+    By decorating a test function with @pytest.mark.parametrize("exclude_events", ..., indirect=True)
+    it's possible to set the exclude_events that will be used to create an S3
+    BatchExport. Any list of event names can be used, or None.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
+@pytest.fixture
+def encryption(request) -> str | None:
+    """A parametrizable fixture to configure a batch export encryption.
+
+    By decorating a test function with @pytest.mark.parametrize("encryption", ..., indirect=True)
+    it's possible to set the exclude_events that will be used to create an S3
+    BatchExport. Any list of event names can be used, or None.
+    """
+    try:
+        return request.param
+    except AttributeError:
+        return None
 
 
 @pytest_asyncio.fixture
@@ -332,6 +365,7 @@ async def s3_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -355,6 +389,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
+
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
@@ -371,9 +406,10 @@ async def test_s3_export_workflow_with_minio_bucket(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -383,6 +419,7 @@ async def test_s3_export_workflow_with_minio_bucket(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
@@ -429,7 +466,7 @@ async def test_s3_export_workflow_with_minio_bucket(
         minio_client,
         bucket_name,
         s3_key_prefix,
-        events=events,
+        events=events + events_to_exclude,
         compression=compression,
         exclude_events=exclude_events,
     )
@@ -455,6 +492,7 @@ async def s3_client(bucket_name, s3_key_prefix):
     "S3_TEST_BUCKET" not in os.environ or not check_valid_credentials(),
     reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
 )
+@pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize("compression", [None, "gzip", "brotli"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
@@ -501,9 +539,10 @@ async def test_s3_export_workflow_with_s3_bucket(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -513,6 +552,7 @@ async def test_s3_export_workflow_with_s3_bucket(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
@@ -563,12 +603,13 @@ async def test_s3_export_workflow_with_s3_bucket(
         s3_client,
         bucket_name,
         s3_key_prefix,
-        events=events,
+        events=events + events_to_exclude,
         compression=compression,
         exclude_events=exclude_events,
     )
 
 
+@pytest.mark.django_db
 async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     clickhouse_client,
     minio_client,
@@ -651,6 +692,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(
     )
 
 
+@pytest.mark.django_db
 async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     clickhouse_client, minio_client, bucket_name, compression, interval, s3_batch_export, s3_key_prefix, ateam
 ):
@@ -726,6 +768,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(
     )
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "s3_key_prefix",
     [
@@ -820,6 +863,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     await assert_events_in_s3(minio_client, bucket_name, expected_key_prefix, events, compression)
 
 
+@pytest.mark.django_db
 async def test_s3_export_workflow_handles_insert_activity_errors(ateam, s3_batch_export, interval):
     """Test S3BatchExport Workflow can handle errors from executing the insert into S3 activity.
 
@@ -1076,6 +1120,7 @@ def test_get_s3_key(inputs, expected):
     assert result == expected
 
 
+@pytest.mark.django_db
 async def test_insert_into_s3_activity_heartbeats(
     clickhouse_client, ateam, bucket_name, s3_batch_export, minio_client, activity_environment, s3_key_prefix
 ):
