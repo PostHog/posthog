@@ -103,14 +103,11 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
     return [!noticeAcknowledged ? notices : [], onAcknowledged]
 }
 
-export function SidebarChangeNoticeTooltip({
-    identifier,
-    children,
-}: SidebarChangeNoticeTooltipProps): JSX.Element | null {
+export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChangeNoticeTooltipProps): React.ReactNode {
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     if (!notices.length) {
-        return <>{children}</>
+        return children
     }
 
     return (
@@ -120,7 +117,14 @@ export function SidebarChangeNoticeTooltip({
             delayMs={0}
             title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
-            {children}
+            {React.cloneElement(children as React.ReactElement, {
+                onClick: () => {
+                    onAcknowledged()
+                    if (React.isValidElement(children)) {
+                        children.props.onClick?.()
+                    }
+                },
+            })}
         </Tooltip>
     )
 }
