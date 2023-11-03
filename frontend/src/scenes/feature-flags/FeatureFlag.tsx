@@ -127,20 +127,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <Row>
-                        <Col span={13}>
+                    <div className="flex space-x-4">
+                        <div className="flex-7">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                 <FeatureFlagAutoRollback readOnly />
                             )}
-                        </Col>
-                        <Col span={11} className="pl-4">
+                        </div>
+                        <div className="flex-6">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     <LemonDivider className="mb-4" />
                     <FeatureFlagCodeExample featureFlag={featureFlag} />
                 </>
@@ -267,8 +267,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <Row gutter={16} style={{ marginBottom: 32 }}>
-                            <Col span={12} className="space-y-4">
+                        <div className="mt-4 mb-8">
+                            <div className="max-w-1/2 space-y-4">
                                 <Field
                                     name="key"
                                     label="Key"
@@ -375,8 +375,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </Field>
-                            </Col>
-                        </Row>
+                            </div>
+                        </div>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />
