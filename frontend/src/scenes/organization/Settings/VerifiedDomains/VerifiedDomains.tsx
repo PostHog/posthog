@@ -28,7 +28,6 @@ export function VerifiedDomains(): JSX.Element {
         <>
             <div className="flex items-center">
                 <div style={{ flexGrow: 1 }}>
-                    <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 2022-06-01. */}
                     <h2 id="authentication-domains" className="subtitle">
                         Authentication domains
                     </h2>

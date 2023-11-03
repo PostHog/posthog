@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import fetch, { FetchError } from 'node-fetch'
 
 import { Action, PostIngestionEvent, Team } from '../../../src/types'
-import { isCloud } from '../../../src/utils/env-utils'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import {
@@ -17,9 +16,11 @@ import {
 } from '../../../src/worker/ingestion/hooks'
 import { Hook } from './../../../src/types'
 
-jest.mock('../../../src/utils/env-utils')
-
 describe('hooks', () => {
+    beforeEach(() => {
+        process.env.NODE_ENV = 'test'
+    })
+
     describe('determineWebhookType', () => {
         test('Slack', () => {
             const webhookType = determineWebhookType('https://hooks.slack.com/services/')
@@ -475,7 +476,6 @@ describe('hooks', () => {
         let hook: Hook
 
         beforeEach(() => {
-            jest.mocked(isCloud).mockReturnValue(false) // Disable private IP guard
             hook = {
                 id: 'id',
                 team_id: 1,
@@ -490,7 +490,6 @@ describe('hooks', () => {
                 {} as any,
                 {} as any,
                 {} as any,
-                new Set([hook.team_id]), // Hostname guard enabled
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
                 undefined,
                 20000
@@ -523,8 +522,6 @@ describe('hooks', () => {
         })
 
         test('person data from the event', async () => {
-            jest.mocked(isCloud).mockReturnValue(true) // Enable private IP guard, which example.com should pass
-
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
             await hookCommander.postRestHook(hook, {
@@ -561,14 +558,8 @@ describe('hooks', () => {
             })
         })
 
-        test('private IP hook allowed on self-hosted', async () => {
-            await hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
-
-            expect(fetch).toHaveBeenCalledWith('http://127.0.0.1', expect.anything())
-        })
-
-        test('private IP hook forbidden on Cloud', async () => {
-            jest.mocked(isCloud).mockReturnValue(true)
+        test('private IP hook forbidden in prod', async () => {
+            process.env.NODE_ENV = 'production'
 
             await expect(
                 hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)

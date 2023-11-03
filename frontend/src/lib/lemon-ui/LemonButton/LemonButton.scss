@@ -68,6 +68,27 @@
         padding-right: 0.5rem;
     }
 
+    &.LemonButton--xsmall {
+        min-height: 1.5rem;
+        padding: 0.125rem 0.375rem;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+
+        .LemonButton__icon {
+            font-size: 0.875rem;
+        }
+
+        &.LemonButton--has-icon:not(.LemonButton--no-padding),
+        &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            padding-left: 0.25rem;
+        }
+
+        &.LemonButton--has-side-icon:not(.LemonButton--no-padding),
+        &.LemonButton--no-content:not(.LemonButton--no-padding) {
+            padding-right: 0.25rem;
+        }
+    }
+
     &.LemonButton--small {
         min-height: 2rem;
         padding: 0.125rem 0.5rem;
@@ -243,19 +264,6 @@
             color: var(--muted);
         }
 
-        &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            color: var(--default);
-            background: var(--border);
-            .LemonButton__icon {
-                color: var(--default);
-            }
-        }
-
-        &:not([aria-disabled='true']):active {
-            transform: scale(0.96875); // 31/32 (0.5px less on both sides, assuming a 32px tall button)
-        }
-
         &.LemonButton--status-primary {
             color: var(--muted);
         }
@@ -288,6 +296,19 @@
             .LemonButton__icon {
                 color: var(--default);
             }
+        }
+
+        &:not([aria-disabled='true']):hover,
+        &.LemonButton--active {
+            color: var(--default);
+            background: var(--border);
+            .LemonButton__icon {
+                color: var(--default);
+            }
+        }
+
+        &:not([aria-disabled='true']):active {
+            transform: scale(calc(35 / 36));
         }
     }
 }

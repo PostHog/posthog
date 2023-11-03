@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { DataWarehouseTable, ProductKey } from '~/types'
@@ -12,6 +12,17 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     connect(() => ({
         values: [userLogic, ['user']],
     })),
+    actions({
+        toggleSourceModal: true,
+    }),
+    reducers({
+        isSourceModalOpen: [
+            false,
+            {
+                toggleSourceModal: (state) => !state,
+            },
+        ],
+    }),
     loaders({
         dataWarehouse: [
             null as PaginatedResponse<DataWarehouseTable> | null,

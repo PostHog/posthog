@@ -22,6 +22,7 @@ export type ResizerLogicProps = {
     closeThreshold?: number
     /** Fired when the "closeThreshold" is crossed */
     onToggleClosed?: (closed: boolean) => void
+    onDoubleClick?: () => void
 }
 
 const removeAllListeners = (cache: Record<string, any>): void => {
@@ -83,7 +84,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 return
             }
 
-            const isDoubleClick = cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 200
+            let isDoubleClick = cache.firstClickTimestamp && Date.now() - cache.firstClickTimestamp < 500
             cache.firstClickTimestamp = Date.now()
 
             const originContainerBounds = props.containerRef.current.getBoundingClientRect()
@@ -115,6 +116,7 @@ export const resizerLogic = kea<resizerLogicType>([
                 const event = calculateEvent(e, false)
                 props.onResize?.(event)
                 actions.setResizingWidth(event.desiredWidth)
+                isDoubleClick = false
 
                 const newIsClosed = props.closeThreshold ? event.desiredWidth < props.closeThreshold : false
 
@@ -128,7 +130,13 @@ export const resizerLogic = kea<resizerLogicType>([
                 if (e.button === 0) {
                     const event = calculateEvent(e, false)
 
-                    if (event.desiredWidth !== values.width) {
+                    if (isDoubleClick) {
+                        // Double click - reset to original width
+                        actions.resetDesiredWidth()
+                        cache.firstClickTimestamp = null
+
+                        props.onDoubleClick?.()
+                    } else if (event.desiredWidth !== values.width) {
                         if (!isClosed) {
                             // We only want to persist the value if it is open
                             actions.setDesiredWidth(event.desiredWidth)
@@ -142,10 +150,6 @@ export const resizerLogic = kea<resizerLogicType>([
                             originalWidth: originContainerBounds.width,
                             isClosed,
                         })
-                    } else if (isDoubleClick) {
-                        // Double click - reset to original width
-                        actions.resetDesiredWidth()
-                        cache.firstClickTimestamp = null
                     }
 
                     actions.endResize()

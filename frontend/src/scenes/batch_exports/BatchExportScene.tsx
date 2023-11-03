@@ -101,7 +101,7 @@ export function RunsTab(): JSX.Element {
                                             onClick={loadNextBatchExportRuns}
                                             loading={batchExportRunsResponseLoading}
                                         >
-                                            Load more button in the footer!
+                                            Load more rows
                                         </LemonButton>
                                     </div>
                                 )

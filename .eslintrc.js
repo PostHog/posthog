@@ -142,6 +142,10 @@ module.exports = {
                         element: 'Select',
                         message: 'use <LemonSelect> instead',
                     },
+                    {
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
                 ],
             },
         ],

@@ -7,7 +7,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { router, combineUrl } from 'kea-router'
-import { Link } from '@posthog/lemon-ui'
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
@@ -29,9 +28,10 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
     const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
 
     return (
-        <Link className="block" to={loginUrl}>
+        // eslint-disable-next-line react/forbid-elements
+        <a className="block" href={loginUrl}>
             {children}
-        </Link>
+        </a>
     )
 }
 

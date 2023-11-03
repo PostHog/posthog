@@ -71,7 +71,7 @@ export class EventPipelineRunner {
         this.originalEvent = event
     }
 
-    isEventBlacklisted(event: PipelineEvent): boolean {
+    isEventDisallowed(event: PipelineEvent): boolean {
         // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
         // to drop events here before processing them which would allow us to catch up
         const key = event.token || event.team_id?.toString()
@@ -87,14 +87,14 @@ export class EventPipelineRunner {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
-            if (this.isEventBlacklisted(event)) {
+            if (this.isEventDisallowed(event)) {
                 eventDroppedCounter
                     .labels({
                         event_type: 'analytics',
-                        drop_cause: 'blacklisted',
+                        drop_cause: 'disallowed',
                     })
                     .inc()
-                return this.registerLastStep('eventBlacklistingStep', null, [event])
+                return this.registerLastStep('eventDisallowedStep', null, [event])
             }
             let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
@@ -204,7 +204,7 @@ export class EventPipelineRunner {
             // for a reason that we control and that is transient.
             return true
         }
-        // TODO: Blacklist via env of errors we're going to put into DLQ instead of taking Kafka lag
+        // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
         return false
     }
 
