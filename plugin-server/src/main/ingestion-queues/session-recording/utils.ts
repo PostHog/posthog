@@ -1,6 +1,6 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
@@ -72,6 +72,26 @@ export const queryCommittedOffsets = (
                     return acc
                 }, {} as Record<number, number>)
             )
+        })
+    })
+}
+
+export const getPartitionsForTopic = (
+    kafkaConsumer: KafkaConsumer | undefined,
+    topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+): Promise<PartitionMetadata[]> => {
+    return new Promise<PartitionMetadata[]>((resolve, reject) => {
+        if (!kafkaConsumer) {
+            return reject('Not connected')
+        }
+        kafkaConsumer.getMetadata({ topic }, (err, meta) => {
+            if (err) {
+                captureException(err)
+                status.error('🔥', 'Failed to get partition metadata', err)
+                return reject(err)
+            }
+
+            return resolve(meta.topics.find((x) => x.name === topic)?.partitions ?? [])
         })
     })
 }
