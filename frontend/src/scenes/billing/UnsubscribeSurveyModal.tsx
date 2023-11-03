@@ -34,6 +34,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             <Link
                                 to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
                                 target="_blank"
+                                onClick={() => {
+                                    reportSurveyDismissed(surveyID)
+                                }}
                             >
                                 reduce your bill
                             </Link>
@@ -41,6 +44,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             <Link
                                 to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
                                 target="_blank"
+                                onClick={() => {
+                                    reportSurveyDismissed(surveyID)
+                                }}
                             >
                                 chat with support
                             </Link>
@@ -51,6 +57,9 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                                     <Link
                                         to="mailto:sales@posthog.com?subject=Joining%session%replay%controls%20beta"
                                         target="_blank"
+                                        onClick={() => {
+                                            reportSurveyDismissed(surveyID)
+                                        }}
                                     >
                                         join our beta
                                     </Link>
