@@ -1,3 +1,4 @@
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,6 +28,7 @@ export type SidebarChangeNoticeTooltipProps = SidebarChangeNoticeProps & {
 const NOTICES: {
     identifier: Scene
     description: React.ReactNode
+    placement: TooltipProps['placement']
     flagSuffix: string
 }[] = [
     {
@@ -51,19 +53,17 @@ export function SidebarChangeNoticeContent({
     onAcknowledged: () => void
 }): JSX.Element | null {
     return (
-        <div className="max-w-80">
-            {notices.map((notice, i) => (
-                <Fragment key={i}>
-                    {notice.description}
-                    <LemonDivider />
-                </Fragment>
-            ))}
-
-            <div className="flex justify-end">
-                <LemonButton type="primary" onClick={onAcknowledged}>
-                    Got it!
-                </LemonButton>
+        <div className="flex items-center gap-1">
+            <div className="flex-1">
+                {notices.map((notice, i) => (
+                    <Fragment key={i}>
+                        {notice.description}
+                        {i < notices.length - 1 && <LemonDivider />}
+                    </Fragment>
+                ))}
             </div>
+
+            <LemonButton size="small" onClick={onAcknowledged} icon={<IconCheck />} />
         </div>
     )
 }
@@ -103,8 +103,8 @@ export function SidebarChangeNoticeTooltip({
 
     return (
         <Tooltip
-            visible={true}
-            placement="right"
+            visible
+            placement={notices[0].placement}
             delayMs={0}
             title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
