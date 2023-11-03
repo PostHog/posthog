@@ -213,9 +213,10 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         person_properties=None,
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=team_id,
                 start_time=data_interval_start,
@@ -225,6 +226,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     insert_inputs = PostgresInsertInputs(
         team_id=team_id,
@@ -242,7 +244,7 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         connection=postgres_connection,
         schema=postgres_config["schema"],
         table_name="test_table",
-        events=events + events_with_no_properties,
+        events=events + events_with_no_properties + events_to_exclude,
         exclude_events=exclude_events,
     )
 
@@ -276,7 +278,7 @@ async def postgres_batch_export(ateam, table_name, postgres_config, interval, ex
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour", "day"])
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_postgres_export_workflow(
     clickhouse_client,
@@ -309,9 +311,10 @@ async def test_postgres_export_workflow(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -321,6 +324,7 @@ async def test_postgres_export_workflow(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = PostgresBatchExportInputs(
@@ -363,7 +367,7 @@ async def test_postgres_export_workflow(
         postgres_connection,
         postgres_config["schema"],
         table_name,
-        events=events,
+        events=events + events_to_exclude,
         exclude_events=exclude_events,
     )
 
