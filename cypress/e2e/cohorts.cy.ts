@@ -16,7 +16,7 @@ describe('Cohorts', () => {
         cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more about Cohorts')
 
         // go to create a new cohort
-        cy.get('[data-attr="create-cohort"]').click()
+        cy.get('[data-attr="new-cohort"]').click()
 
         // select "add filter" and "property"
         cy.get('[data-attr="cohort-selector-field-value"]').click()
