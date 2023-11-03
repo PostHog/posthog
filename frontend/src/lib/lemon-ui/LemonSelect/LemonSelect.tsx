@@ -125,7 +125,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
 
     return (
         <LemonMenu
-            items={!isItemsEmpty ? items : [{ active: false, label: 'No Value', onClick: () => {} }]}
+            items={!isItemsEmpty ? items : [{ active: false, label: 'No Value', custom: true, onClick: () => {} }]}
             tooltipPlacement={optionTooltipPlacement}
             sameWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
