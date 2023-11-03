@@ -133,7 +133,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client, activity_environment, bigquery_client, bigquery_config, exclude_events
 ):
-    """Test that the insert_into_bigquery_activity function inserts data into a BigQuery table.
+    """Test that the insert_into_bigquery_activity function inserts data into a Bigquery table.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
@@ -158,7 +158,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         team_id=team_id,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=1000,
+        count=10000,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -178,9 +178,10 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         person_properties=None,
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=team_id,
                 start_time=data_interval_start,
@@ -190,13 +191,13 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     insert_inputs = BigQueryInsertInputs(
         team_id=team_id,
         table_id=f"test_insert_activity_table_{team_id}",
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
-        exclude_events=exclude_events,
         **bigquery_config,
     )
 
@@ -209,7 +210,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             client=bigquery_client,
             table_id=f"test_insert_activity_table_{team_id}",
             dataset_id=bigquery_config["dataset_id"],
-            events=events + events_with_no_properties,
+            events=events + events_with_no_properties + events_to_exclude,
             bq_ingested_timestamp=ingested_timestamp,
             exclude_events=exclude_events,
         )
@@ -286,9 +287,10 @@ async def test_bigquery_export_workflow(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
+    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            await generate_test_events_in_clickhouse(
+            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -298,6 +300,7 @@ async def test_bigquery_export_workflow(
                 count_other_team=0,
                 event_name=event_name,
             )
+            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -343,14 +346,9 @@ async def test_bigquery_export_workflow(
             dataset_id=bigquery_config["dataset_id"],
             events=events,
             bq_ingested_timestamp=ingested_timestamp,
-            exclude_events=exclude_events,
         )
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle errors when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -397,10 +395,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
     assert run.latest_error == "ValueError: A useful error message"
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle cancellations when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
