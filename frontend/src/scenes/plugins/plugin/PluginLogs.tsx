@@ -1,11 +1,10 @@
-import { Checkbox } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { pluralize } from 'lib/utils'
 import { PluginLogEntry, PluginLogEntryType } from '../../../types'
 import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
@@ -75,14 +74,23 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                 onChange={setSearchTerm}
                 allowClear
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                <Checkbox.Group
-                    options={Object.values(PluginLogEntryType)}
-                    value={pluginLogsTypes}
-                    onChange={setPluginLogsTypes}
-                    style={{ marginLeft: '8px' }}
-                />
+                {Object.values(PluginLogEntryType).map((type) => {
+                    return (
+                        <LemonCheckbox
+                            key={type}
+                            label={type}
+                            checked={pluginLogsTypes.includes(type)}
+                            onChange={(checked) => {
+                                const newPluginLogsTypes = checked
+                                    ? [...pluginLogsTypes, type]
+                                    : pluginLogsTypes.filter((t) => t != type)
+                                setPluginLogsTypes(newPluginLogsTypes)
+                            }}
+                        />
+                    )
+                })}
             </div>
             <LemonButton
                 onClick={revealBackground}
