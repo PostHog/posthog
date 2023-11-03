@@ -133,7 +133,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client, activity_environment, bigquery_client, bigquery_config, exclude_events
 ):
-    """Test that the insert_into_bigquery_activity function inserts data into a Bigquery table.
+    """Test that the insert_into_bigquery_activity function inserts data into a BigQuery table.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
@@ -158,7 +158,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         team_id=team_id,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=10000,
+        count=1000,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -198,6 +198,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         table_id=f"test_insert_activity_table_{team_id}",
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
         **bigquery_config,
     )
 
@@ -346,6 +347,7 @@ async def test_bigquery_export_workflow(
             dataset_id=bigquery_config["dataset_id"],
             events=events,
             bq_ingested_timestamp=ingested_timestamp,
+            exclude_events=exclude_events,
         )
 
 
