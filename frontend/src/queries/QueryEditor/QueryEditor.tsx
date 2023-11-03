@@ -75,13 +75,13 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"
-                    status={error ? 'danger' : 'primary-alt'}
+                    status={error ? 'danger' : 'primary'}
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center
                     data-attr="query-editor-save"
                 >
-                    {!props.setQuery ? 'No permission to update' : 'Update'}
+                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
                 </LemonButton>
             </div>
         </>
