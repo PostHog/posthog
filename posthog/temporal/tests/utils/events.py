@@ -15,6 +15,7 @@ class EventValues(typing.TypedDict):
     _timestamp: str
     created_at: str
     distinct_id: str
+    elements: str | None
     elements_chain: str | None
     event: str
     inserted_at: str | None
@@ -24,6 +25,10 @@ class EventValues(typing.TypedDict):
     team_id: int
     timestamp: str
     uuid: str
+    ip: str | None
+    site_url: str | None
+    set: dict | None
+    set_once: dict | None
 
 
 def generate_test_events(
@@ -34,6 +39,10 @@ def generate_test_events(
     inserted_at: str | dt.datetime | None = "_timestamp",
     properties: dict | None = None,
     person_properties: dict | None = None,
+    ip: str | None = None,
+    site_url: str | None = "",
+    set_field: dict | None = None,
+    set_once: dict | None = None,
 ):
     """Generate a list of events for testing."""
     _timestamp = random.choice(possible_datetimes)
@@ -52,7 +61,8 @@ def generate_test_events(
             "_timestamp": _timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "created_at": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "distinct_id": str(uuid.uuid4()),
-            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            "elements": json.dumps("css selectors;"),
+            "elements_chain": "css selectors;",
             "event": event_name.format(i=i),
             "inserted_at": inserted_at_value,
             "person_id": str(uuid.uuid4()),
@@ -61,6 +71,10 @@ def generate_test_events(
             "team_id": team_id,
             "timestamp": random.choice(possible_datetimes).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "uuid": str(uuid.uuid4()),
+            "ip": ip,
+            "site_url": site_url,
+            "set": set_field,
+            "set_once": set_once,
         }
         for i in range(count)
     ]
