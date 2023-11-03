@@ -1,7 +1,8 @@
+import time
 from datetime import datetime, timedelta
 
 import json
-from typing import Any, List, Type, cast
+from typing import Any, List, Type, cast, Dict, Tuple
 from django.conf import settings
 
 import posthoganalytics
@@ -138,6 +139,17 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
     snapshots = serializers.ListField(required=False)
 
 
+def list_recordings_response(
+    filter: SessionRecordingsFilter, request: request.Request, serializer_context: Dict[str, Any]
+) -> Response:
+    (recordings, timings) = list_recordings(filter, request, context=serializer_context)
+    response = Response(recordings)
+    response.headers["Server-Timing"] = ", ".join(
+        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+    )
+    return response
+
+
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [
         IsAuthenticated,
@@ -177,8 +189,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        recordings = list_recordings(filter, request, context=self.get_serializer_context())
-        return Response(recordings)
+        return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
         description="""
@@ -436,7 +447,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:
+def list_recordings(
+    filter: SessionRecordingsFilter, request: request.Request, context: Dict[str, Any]
+) -> Tuple[Dict, Dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -452,6 +465,8 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
+
+    start_loading_session_recordings = time.perf_counter()
 
     if all_session_ids:
         # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
@@ -480,12 +495,16 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
 
     recordings = [x for x in recordings if not x.deleted]
 
+    finish_loading_session_recordings = time.perf_counter()
+
     # If we have specified session_ids we need to sort them by the order they were specified
     if all_session_ids:
         recordings = sorted(
             recordings,
             key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
         )
+
+    finish_sorting_session_ids = time.perf_counter()
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
@@ -495,6 +514,8 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
     )
 
+    finish_updating_viewed_status = time.perf_counter()
+
     # Get the related persons for all the recordings
     distinct_ids = sorted([x.distinct_id for x in recordings])
     person_distinct_ids = (
@@ -502,6 +523,8 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         .select_related("person")
         .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
     )
+
+    finish_loading_persons = time.perf_counter()
 
     distinct_id_to_person = {}
     for person_distinct_id in person_distinct_ids:
@@ -511,7 +534,23 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
 
+    finish_processing_persons = time.perf_counter()
+
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    return {"results": results, "has_next": more_recordings_available, "version": 3}
+    finish_serializing = time.perf_counter()
+
+    timings = {
+        "load_recordings_from_clickhouse": finish_loading_session_recordings - start_loading_session_recordings,
+        "sorting_session_ids": finish_sorting_session_ids - finish_loading_session_recordings,
+        "updating_viewed_status": finish_updating_viewed_status - finish_sorting_session_ids,
+        "load_persons": finish_loading_persons - finish_updating_viewed_status,
+        "process_persons": finish_processing_persons - finish_loading_persons,
+        "serialize": finish_serializing - finish_processing_persons,
+    }
+
+    return (
+        {"results": results, "has_next": more_recordings_available, "version": 3},
+        timings,
+    )
