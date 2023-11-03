@@ -23,7 +23,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, now, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, getPartitionsForTopic, now, queryWatermarkOffsets } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -31,8 +31,6 @@ require('@sentry/tracing')
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 30000
-
-// const flushIntervalTimeoutMs = 30000
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -117,6 +115,7 @@ export class SessionRecordingIngester {
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    totalNumPartitions = 0
 
     private promises: Set<Promise<any>> = new Set()
 
@@ -170,12 +169,12 @@ export class SessionRecordingIngester {
             )
 
             return results.reduce((acc, [partition, highOffset]) => {
-                if (partition && highOffset !== undefined) {
+                if (typeof partition === 'number' && typeof highOffset === 'number') {
                     acc[partition] = highOffset
                 }
                 return acc
             }, {} as Record<number, number>)
-        }, 5000)
+        }, 10000)
     }
 
     private get connectedBatchConsumer(): KafkaConsumer | undefined {
@@ -509,6 +508,9 @@ export class SessionRecordingIngester {
                 return await this.handleEachBatch(messages)
             },
         })
+
+        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer)).length
+
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
@@ -531,6 +533,7 @@ export class SessionRecordingIngester {
 
             // We had a "real" error
             status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
+            captureException(err)
             // TODO: immediately die? or just keep going?
         })
 
@@ -580,14 +583,15 @@ export class SessionRecordingIngester {
 
     private async reportPartitionMetrics() {
         /**
-         * For all partitions we are assigned, report metrics. Otherwise clear them.
+         * For all partitions we are assigned, report metrics.
+         * For any other number we clear the metrics from our gauges
          */
         const assignedPartitions = this.assignedTopicPartitions.map((x) => x.partition)
         const offsetsByPartition = await this.latestOffsetsRefresher.get()
 
-        Object.entries(this.partitionMetrics).forEach(([partitionString, metrics]) => {
-            const partition = parseInt(partitionString)
+        for (let partition = 0; partition < this.totalNumPartitions; partition++) {
             if (assignedPartitions.includes(partition)) {
+                const metrics = this.partitionMetrics[partition] || {}
                 if (metrics.lastMessageTimestamp) {
                     gaugeLagMilliseconds
                         .labels({
@@ -611,7 +615,7 @@ export class SessionRecordingIngester {
                 gaugeOffsetCommitted.remove({ partition })
                 gaugeOffsetCommitFailed.remove({ partition })
             }
-        })
+        }
     }
 
     async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {

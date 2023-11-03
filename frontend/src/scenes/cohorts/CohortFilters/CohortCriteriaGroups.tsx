@@ -3,7 +3,6 @@ import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/co
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
 import clsx from 'clsx'
-import { Row } from 'antd'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -40,7 +39,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             error && `CohortCriteriaGroups__matching-group--error`
                                         )}
                                     >
-                                        <Row align="middle" wrap={false} className="px-4">
+                                        <div className="flex flex-nowrap items-center px-4">
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
                                                 prefix="Match persons against"
@@ -61,7 +60,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}
-                                        </Row>
+                                        </div>
                                         <LemonDivider className="my-4" />
                                         {error && (
                                             <LemonBanner className="m-2" type="error">
