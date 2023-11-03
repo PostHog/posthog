@@ -5,8 +5,7 @@ import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { isProdEnv } from '../../utils/env-utils'
-import { safeTrackedFetch, trackedFetch } from '../../utils/fetch'
+import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { AppMetrics } from './app-metrics'
@@ -368,10 +367,9 @@ export class HookCommander {
                 } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch = isProdEnv() ? safeTrackedFetch : trackedFetch
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await relevantFetch(webhookUrl, {
+                const request = await trackedFetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
@@ -447,9 +445,8 @@ export class HookCommander {
                 } team_id=${event.teamId} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch = isProdEnv() ? safeTrackedFetch : trackedFetch
         try {
-            const request = await relevantFetch(hook.target, {
+            const request = await trackedFetch(hook.target, {
                 method: 'POST',
                 body: JSON.stringify(payload, undefined, 4),
                 headers: { 'Content-Type': 'application/json' },
