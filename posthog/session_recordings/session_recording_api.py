@@ -63,7 +63,7 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
     # Class level dictionary to store timings
-    timings_dict = {}
+    timings_dict: Dict[str, float] = {}
 
     def __call__(self, name):
         self.name = name
