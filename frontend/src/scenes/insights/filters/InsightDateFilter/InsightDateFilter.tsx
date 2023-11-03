@@ -2,8 +2,8 @@ import { useValues, useActions } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
+import { IconCalendar, IconInfo } from '@posthog/icons'
 
 type InsightDateFilterProps = {
     disabled: boolean
@@ -26,10 +26,10 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             }}
             makeLabel={(key) => (
                 <>
-                    <CalendarOutlined /> {key}
+                    <IconCalendar /> {key}
                     {key == 'All time' && (
                         <Tooltip title={`Only events dated after 2015 will be shown`}>
-                            <InfoCircleOutlined className="info-indicator" />
+                            <IconInfo className="info-indicator" />
                         </Tooltip>
                     )}
                 </>

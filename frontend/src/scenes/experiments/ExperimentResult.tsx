@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic } from './experimentLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelLayout } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
@@ -11,6 +10,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { NodeKind } from '~/queries/schema'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
+import { IconInfo } from '@posthog/icons'
 
 export function ExperimentResult(): JSX.Element {
     const {
@@ -129,7 +129,7 @@ export function ExperimentResult(): JSX.Element {
                                                             placement="right"
                                                             title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
                                                         >
-                                                            <InfoCircleOutlined className="py-1 px-0.5" />
+                                                            <IconInfo className="py-1 px-0.5" />
                                                         </Tooltip>
                                                     )}
                                                 </Row>

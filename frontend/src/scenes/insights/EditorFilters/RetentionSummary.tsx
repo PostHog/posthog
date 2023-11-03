@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import {
     dateOptionPlurals,
     dateOptions,
@@ -15,6 +14,7 @@ import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/Action
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { IconInfo } from '@posthog/icons'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
@@ -63,7 +63,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                             <>
                                 {value}
                                 <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                                    <InfoCircleOutlined className="info-indicator" />
+                                    <IconInfo className="info-indicator" />
                                 </Tooltip>
                             </>
                         ),

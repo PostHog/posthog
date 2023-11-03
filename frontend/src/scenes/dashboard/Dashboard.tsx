@@ -3,7 +3,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
@@ -21,6 +20,7 @@ import { groupsModel } from '../../models/groupsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+import { IconCalendar } from '@posthog/icons'
 
 interface DashboardProps {
     id?: string
@@ -128,7 +128,7 @@ function DashboardScene(): JSX.Element {
                                         disabled={!canEditDashboard}
                                         makeLabel={(key) => (
                                             <>
-                                                <CalendarOutlined />
+                                                <IconCalendar />
                                                 <span className="hide-when-small"> {key}</span>
                                             </>
                                         )}

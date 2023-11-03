@@ -3,12 +3,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Col, ConfigProvider, Row, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { IconSelectProperties } from 'lib/lemon-ui/icons'
+import { IconSelectProperties, IconTrendingDown, IconTrendingUp } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -23,6 +22,7 @@ import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/Person
 import { useState } from 'react'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { IconInfo } from '@posthog/icons'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -103,9 +103,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <>
                 <h4>
                     {is_success ? (
-                        <RiseOutlined style={{ color: 'green' }} />
+                        <IconTrendingUp style={{ color: 'green' }} />
                     ) : (
-                        <FallOutlined style={{ color: 'red' }} />
+                        <IconTrendingDown style={{ color: 'red' }} />
                     )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
@@ -264,7 +264,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } have this property and completed the entire funnel.`}
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }
@@ -288,7 +288,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }

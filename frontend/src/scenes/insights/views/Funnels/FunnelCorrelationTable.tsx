@@ -2,8 +2,7 @@ import { useEffect } from 'react'
 import { ConfigProvider, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconSelectEvents, IconTrendUp, IconTrendingDown, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -24,6 +23,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { IconInfo } from '@posthog/icons'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -85,7 +85,11 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         return (
             <>
                 <h4>
-                    {is_success ? <RiseOutlined className="text-success" /> : <FallOutlined className="text-danger" />}{' '}
+                    {is_success ? (
+                        <IconTrendUp className="text-success" />
+                    ) : (
+                        <IconTrendingDown className="text-danger" />
+                    )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
                         <>
@@ -321,7 +325,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }
@@ -345,7 +349,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }

@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { InputNumber, Select } from 'antd'
 import { BinCountValue } from '~/types'
-import { BarChartOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { IconBarChart } from 'lib/lemon-ui/icons'
 
 // Constraints as defined in funnel_time_to_convert.py:34
 const MIN = 1
@@ -99,7 +99,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                             value={option.value}
                             label={
                                 <>
-                                    <BarChartOutlined /> {option.label}
+                                    <IconBarChart /> {option.label}
                                 </>
                             }
                         >
