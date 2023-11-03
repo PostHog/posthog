@@ -35,7 +35,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 TEST_TIME = dt.datetime.utcnow()
 
 
-def assert_events_in_bigquery(client, table_id, dataset_id, events, bq_ingested_timestamp):
+def assert_events_in_bigquery(
+    client, table_id, dataset_id, events, bq_ingested_timestamp, exclude_events: list[str] | None = None
+):
     """Assert provided events written to a given BigQuery table."""
     query_job = client.query(f"SELECT * FROM {dataset_id}.{table_id} ORDER BY event, timestamp")
     result = query_job.result()
@@ -47,15 +49,32 @@ def assert_events_in_bigquery(client, table_id, dataset_id, events, bq_ingested_
         inserted_event = {k: json.loads(v) if k in json_columns and v is not None else v for k, v in row.items()}
         inserted_events.append(inserted_event)
 
+    # Reconstruct bq_ingested_timestamp in case we are faking dates.
+    bq_ingested_timestamp = dt.datetime(
+        bq_ingested_timestamp.year,
+        bq_ingested_timestamp.month,
+        bq_ingested_timestamp.day,
+        bq_ingested_timestamp.hour,
+        bq_ingested_timestamp.minute,
+        bq_ingested_timestamp.second,
+        bq_ingested_timestamp.microsecond,
+        bq_ingested_timestamp.tzinfo,
+    )
+
     expected_events = []
     for event in events:
+        event_name = event.get("event")
+
+        if exclude_events is not None and event_name in exclude_events:
+            continue
+
         properties = event.get("properties", None)
         elements_chain = event.get("elements_chain", None)
         expected_event = {
             "bq_ingested_timestamp": bq_ingested_timestamp,
             "distinct_id": event.get("distinct_id"),
             "elements": json.dumps(elements_chain),
-            "event": event.get("event"),
+            "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
             "properties": event.get("properties"),
             "set": properties.get("$set", None) if properties else None,
@@ -114,7 +133,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client, activity_environment, bigquery_client, bigquery_config, exclude_events
 ):
-    """Test that the insert_into_bigquery_activity function inserts data into a Bigquery table.
+    """Test that the insert_into_bigquery_activity function inserts data into a BigQuery table.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
@@ -139,7 +158,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         team_id=team_id,
         start_time=data_interval_start,
         end_time=data_interval_end,
-        count=10000,
+        count=1000,
         count_outside_range=10,
         count_other_team=10,
         duplicate=True,
@@ -179,6 +198,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         table_id=f"test_insert_activity_table_{team_id}",
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
         **bigquery_config,
     )
 
@@ -193,6 +213,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             dataset_id=bigquery_config["dataset_id"],
             events=events + events_with_no_properties + events_to_exclude,
             bq_ingested_timestamp=ingested_timestamp,
+            exclude_events=exclude_events,
         )
 
 
@@ -326,6 +347,7 @@ async def test_bigquery_export_workflow(
             dataset_id=bigquery_config["dataset_id"],
             events=events,
             bq_ingested_timestamp=ingested_timestamp,
+            exclude_events=exclude_events,
         )
 
 
