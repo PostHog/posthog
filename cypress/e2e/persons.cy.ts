@@ -1,6 +1,6 @@
 describe('Persons', () => {
     beforeEach(() => {
-        cy.clickNavMenu('persons')
+        cy.clickNavMenu('personsmanagement')
     })
 
     it('All tabs work', () => {
