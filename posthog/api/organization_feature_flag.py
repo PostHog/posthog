@@ -20,12 +20,11 @@ class OrganizationFeatureFlagView(APIView):
         try:
             self.organization = Organization.objects.get(id=kwargs.get("organization_id"))
         except Organization.DoesNotExist:
-            raise serializers.ValidationError("Filters are not valid (can only use group properties)")
+            raise serializers.ValidationError("Organization does not exist")
 
         super().initial(request, *args, **kwargs)
 
     def get(self, request, organization_id, feature_flag_key):
-
         organization = Organization.objects.get(id=organization_id)
         teams = organization.teams.all()
 
