@@ -8,26 +8,18 @@ export class S3Wrapper {
     }
 
     async upload(params: S3.Types.PutObjectRequest): Promise<S3.ManagedUpload.SendData> {
-        return await new Promise((resolve, reject) => {
-            this.s3.upload(params, (err, data) => (err ? reject(err) : resolve(data)))
-        })
+        return this.s3.upload(params).promise()
     }
 
     async getObject(params: S3.GetObjectRequest): Promise<S3.Types.GetObjectOutput> {
-        return await new Promise((resolve, reject) =>
-            this.s3.getObject(params, (err, data) => (err ? reject(err) : resolve(data)))
-        )
+        return this.s3.getObject(params).promise()
     }
 
     async deleteObject(params: S3.DeleteObjectRequest): Promise<S3.Types.DeleteObjectOutput> {
-        return await new Promise((resolve, reject) =>
-            this.s3.deleteObject(params, (err, data) => (err ? reject(err) : resolve(data)))
-        )
+        return this.s3.deleteObject(params).promise()
     }
 
     async listObjectsV2(params: S3.ListObjectsV2Request): Promise<S3.Types.ListObjectsV2Output> {
-        return await new Promise((resolve, reject) =>
-            this.s3.listObjectsV2(params, (err, data) => (err ? reject(err) : resolve(data)))
-        )
+        return this.s3.listObjectsV2(params).promise()
     }
 }
