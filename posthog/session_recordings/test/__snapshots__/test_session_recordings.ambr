@@ -687,11 +687,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_get_session_recordings.31
@@ -1234,11 +1241,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.105
@@ -1613,11 +1627,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.123
@@ -1991,11 +2012,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.141
@@ -2408,11 +2436,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.159
@@ -2849,11 +2884,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.177
@@ -3255,11 +3297,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.2
@@ -3468,11 +3517,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.33
@@ -3839,11 +3895,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.51
@@ -4201,11 +4264,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
@@ -4576,11 +4646,18 @@
          "posthog_persondistinctid"."distinct_id",
          "posthog_persondistinctid"."version"
   FROM "posthog_persondistinctid"
-  WHERE "posthog_persondistinctid"."person_id" IN (1,
-                                                   2,
-                                                   3,
-                                                   4,
-                                                   5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  WHERE ("posthog_persondistinctid"."distinct_id" IN
+           (SELECT U0."distinct_id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = "posthog_persondistinctid"."person_id"
+            ORDER BY U0."id" ASC
+            LIMIT 10)
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */)) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.87
