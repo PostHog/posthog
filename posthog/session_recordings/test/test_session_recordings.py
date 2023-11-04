@@ -124,6 +124,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
         )
 
+    @snapshot_postgres_queries
     def test_get_session_recordings(self):
         twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
 
@@ -137,12 +138,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["user2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
+
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        session_id_one = f"test_get_session_recordings-1-{uuid.uuid4()}"
+        session_id_one = f"test_get_session_recordings-1"
         self.create_snapshot("user_one_0", session_id_one, base_time)
         self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
         self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
-        session_id_two = f"test_get_session_recordings-2-{uuid.uuid4()}"
+        session_id_two = f"test_get_session_recordings-2"
         self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
@@ -151,7 +153,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         results_ = response_data["results"]
         assert results_ is not None
-
         assert [
             (
                 r["id"],
