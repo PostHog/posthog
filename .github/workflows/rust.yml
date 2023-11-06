@@ -38,6 +38,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Setup end2end dependencies
+      run: |
+        docker compose up -d --wait
+        echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
     - name: Install rust
       uses: dtolnay/rust-toolchain@master
       with:

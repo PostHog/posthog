@@ -66,7 +66,6 @@ pub fn router<
     // does not work well.
     if metrics {
         let recorder_handle = setup_metrics_recorder();
-
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
