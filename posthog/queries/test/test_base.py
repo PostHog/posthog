@@ -282,24 +282,25 @@ class TestMatchProperties(TestCase):
 
         # Try all possible relative dates
         property_e = Property(key="key", value="1h", operator="is_relative_date_before")
-        self.assertTrue(match_property(property_e, {"key": "2022-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_e, {"key": "2022-05-01 01:00:00"}))
+        self.assertFalse(match_property(property_e, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_e, {"key": "2022-04-30 22:00:00"}))
 
         property_f = Property(key="key", value="1d", operator="is_relative_date_before")
-        self.assertTrue(match_property(property_f, {"key": "2022-04-30 00:00:00"}))
-        self.assertFalse(match_property(property_f, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_f, {"key": "2022-04-29 23:59:00"}))
+        self.assertFalse(match_property(property_f, {"key": "2022-04-30 00:00:01"}))
 
         property_g = Property(key="key", value="1w", operator="is_relative_date_before")
-        self.assertTrue(match_property(property_g, {"key": "2022-04-24 00:00:00"}))
-        self.assertFalse(match_property(property_g, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_g, {"key": "2022-04-23 00:00:00"}))
+        self.assertFalse(match_property(property_g, {"key": "2022-04-24 00:00:00"}))
+        self.assertFalse(match_property(property_g, {"key": "2022-04-24 00:00:01"}))
 
         property_h = Property(key="key", value="1m", operator="is_relative_date_before")
-        self.assertTrue(match_property(property_h, {"key": "2022-04-01 00:00:00"}))
-        self.assertFalse(match_property(property_h, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_h, {"key": "2022-03-01 00:00:00"}))
+        self.assertFalse(match_property(property_h, {"key": "2022-04-05 00:00:00"}))
 
         property_i = Property(key="key", value="1y", operator="is_relative_date_before")
-        self.assertTrue(match_property(property_i, {"key": "2021-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_i, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_i, {"key": "2021-04-28 00:00:00"}))
+        self.assertFalse(match_property(property_i, {"key": "2021-05-01 00:00:01"}))
 
         property_j = Property(key="key", value="122h", operator="is_relative_date_after")
         self.assertTrue(match_property(property_j, {"key": "2022-05-01 00:00:00"}))
@@ -307,16 +308,20 @@ class TestMatchProperties(TestCase):
 
         property_k = Property(key="key", value="2d", operator="is_relative_date_after")
         self.assertTrue(match_property(property_k, {"key": "2022-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_k, {"key": "2022-04-30 00:00:00"}))
+        self.assertTrue(match_property(property_k, {"key": "2022-04-29 00:00:01"}))
+        self.assertFalse(match_property(property_k, {"key": "2022-04-29 00:00:00"}))
 
         property_l = Property(key="key", value="02w", operator="is_relative_date_after")
         self.assertTrue(match_property(property_l, {"key": "2022-05-01 00:00:00"}))
-        self.assertFalse(match_property(property_l, {"key": "2022-04-24 00:00:00"}))
+        self.assertFalse(match_property(property_l, {"key": "2022-04-16 00:00:00"}))
 
         property_m = Property(key="key", value="1m", operator="is_relative_date_after")
-        self.assertTrue(match_property(property_m, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_m, {"key": "2022-04-01 00:00:01"}))
         self.assertFalse(match_property(property_m, {"key": "2022-04-01 00:00:00"}))
 
         property_n = Property(key="key", value="1y", operator="is_relative_date_after")
         self.assertTrue(match_property(property_n, {"key": "2022-05-01 00:00:00"}))
+        self.assertTrue(match_property(property_n, {"key": "2021-05-01 00:00:01"}))
         self.assertFalse(match_property(property_n, {"key": "2021-05-01 00:00:00"}))
+        self.assertFalse(match_property(property_n, {"key": "2021-04-30 00:00:00"}))
+        self.assertFalse(match_property(property_n, {"key": "2021-03-01 12:13:00"}))

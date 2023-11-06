@@ -307,10 +307,9 @@ def property_to_Q(
 
     if property.operator in ("is_date_after", "is_date_before", "is_relative_date_before", "is_relative_date_after"):
         effective_operator = "gt" if property.operator in ("is_date_after", "is_relative_date_after") else "lt"
-        # TODO: defend against invalid date formats?
         effective_value = value
         if property.operator in ("is_relative_date_before", "is_relative_date_after"):
-            relative_date = relative_date_parse_for_feature_flag_matching(value)
+            relative_date = relative_date_parse_for_feature_flag_matching(str(value))
             if relative_date:
                 effective_value = relative_date.isoformat()
             else:
@@ -401,21 +400,21 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
-    regex = r"(?P<number>[0-9]+)(?P<type>[a-z])"
+    regex = r"(?P<number>[0-9]+)(?P<interval>[a-z])"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:
         number = int(match.group("number"))
-        type = match.group("type")
-        if type == "h":
+        interval = match.group("interval")
+        if interval == "h":
             parsed_dt = parsed_dt - relativedelta(hours=number)
-        elif type == "d":
+        elif interval == "d":
             parsed_dt = parsed_dt - relativedelta(days=number)
-        elif type == "w":
+        elif interval == "w":
             parsed_dt = parsed_dt - relativedelta(weeks=number)
-        elif type == "m":
+        elif interval == "m":
             parsed_dt = parsed_dt - relativedelta(months=number)
-        elif type == "y":
+        elif interval == "y":
             parsed_dt = parsed_dt - relativedelta(years=number)
         else:
             return None

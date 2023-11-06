@@ -15,6 +15,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
     snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
 )
 
 
@@ -864,6 +865,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             )
         self.assertFalse(matched_person)
 
+    @freeze_time("2021-04-06T10:00:00")
     def test_person_relative_date_parsing_with_invalid_date(self):
         person1_distinct_id = "example_id"
         Person.objects.create(
@@ -879,8 +881,18 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
 
-        with self.assertRaises(TypeError):
-            properties_to_Q(filter.property_groups.flat)
+        with snapshot_postgres_queries_context(self):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(filter.property_groups.flat))
+                .exists()
+            )
+            # matches '2m'
+            # TODO: Should this not match instead?
+            self.assertTrue(matched_person)
 
         filter = Filter(
             data={
@@ -890,8 +902,16 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             }
         )
 
-        with self.assertRaises(TypeError):
-            properties_to_Q(filter.property_groups.flat)
+        with snapshot_postgres_queries_context(self):
+            matched_person = (
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
+                .filter(properties_to_Q(filter.property_groups.flat))
+                .exists()
+            )
+            self.assertFalse(matched_person)
 
     def _filter_with_date_range(
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
