@@ -3,11 +3,16 @@ import { SettingLevels } from './SettingsMap'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { settingsLogic } from './settingsLogic'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { teamLogic } from 'scenes/teamLogic'
+import { useAnchor } from 'lib/hooks/useAnchor'
+import { router } from 'kea-router'
+import { IconLink } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: SettingsScene,
+    logic: settingsLogic,
 }
 
 /**
@@ -20,16 +25,17 @@ export const scene: SceneExport = {
 
 export function SettingsScene(): JSX.Element {
     const { selectedSectionId, selectedLevel, settings, sections } = useValues(settingsLogic)
-    const { selectSection, selectLevel } = useActions(settingsLogic)
+    const { selectSection, selectLevel, selectSetting } = useActions(settingsLogic)
+    const { currentTeam } = useValues(teamLogic)
 
-    // const { location } = useValues(router)
+    const { location } = useValues(router)
 
-    // useAnchor(location.hash)
+    useAnchor(location.hash)
 
     return (
         <>
-            <div className="flex items-start sticky top-0 gap-8">
-                <div className="shrink-0 w-60">
+            <div className="flex items-start gap-8">
+                <div className="shrink-0 w-60 sticky top-16">
                     <ul className="space-y-px">
                         {SettingLevels.map((level) => (
                             <li key={level} className="space-y-px">
@@ -65,15 +71,33 @@ export function SettingsScene(): JSX.Element {
                     </ul>
                 </div>
 
-                <div className="flex-1 space-y-8 overflow-hidden">
-                    {settings.map((x) => (
-                        <div key={x.id} id={x.id}>
-                            <h2 className="">{x.title}</h2>
-                            {x.description && <p>{x.description}</p>}
+                <div className="flex-1 overflow-hidden space-y-2">
+                    {selectedLevel === 'project' && (
+                        <LemonBanner type="info">
+                            These settings only apply to {currentTeam?.name ?? 'the current project'}.
+                        </LemonBanner>
+                    )}
 
-                            {x.component}
-                        </div>
-                    ))}
+                    <div className="space-y-8">
+                        {settings.map((x) => (
+                            <div key={x.id} className="relative">
+                                <div
+                                    id={x.id}
+                                    className="absolute" // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        marginTop: '-3.5rem', // Account for top bar when scrolling to anchor
+                                    }}
+                                />
+                                <h2 className="flex gap-2 items-center">
+                                    {x.title}{' '}
+                                    <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting(x.id)} />
+                                </h2>
+                                {x.description && <p>{x.description}</p>}
+
+                                {x.component}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         </>

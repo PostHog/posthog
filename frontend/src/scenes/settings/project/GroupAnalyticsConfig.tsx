@@ -3,10 +3,10 @@ import { GroupType } from '~/types'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-export function GroupAnalytics(): JSX.Element | null {
+export function GroupAnalyticsConfig(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
         useValues(groupAnalyticsConfigLogic)
     const { setSingular, setPlural, reset, save } = useActions(groupAnalyticsConfigLogic)
@@ -63,8 +63,7 @@ export function GroupAnalytics(): JSX.Element | null {
     ]
 
     return (
-        <div id="group-analytics">
-            <h2 className="subtitle">Group Analytics</h2>
+        <>
             <p>
                 This project has access to group analytics. Below you can configure how various group types are
                 displayed throughout the app.
@@ -91,7 +90,6 @@ export function GroupAnalytics(): JSX.Element | null {
                     Cancel
                 </LemonButton>
             </div>
-            <LemonDivider className="my-6" />
-        </div>
+        </>
     )
 }

@@ -1,9 +1,13 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { Setting, SettingLevel, SettingSection, SettingSectionId, SettingsSections } from './SettingsMap'
+import { Setting, SettingLevel, SettingLevels, SettingSection, SettingSectionId, SettingsSections } from './SettingsMap'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { Breadcrumb } from '~/types'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const settingsLogic = kea<settingsLogicType>([
     path(['scenes', 'settings']),
@@ -14,6 +18,7 @@ export const settingsLogic = kea<settingsLogicType>([
     actions({
         selectSection: (section: SettingSectionId) => ({ section }),
         selectLevel: (level: SettingLevel) => ({ level }),
+        selectSetting: (setting: string) => ({ setting }),
     }),
 
     reducers({
@@ -56,5 +61,43 @@ export const settingsLogic = kea<settingsLogicType>([
                 return settings
             },
         ],
+        breadcrumbs: [
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
+            (selectedLevel, selectedSectionId): Breadcrumb[] => [
+                {
+                    name: `Settings`,
+                    path: urls.settings(),
+                },
+                {
+                    name: selectedSectionId
+                        ? SettingsSections.find((x) => x.id === selectedSectionId)?.title
+                        : capitalizeFirstLetter(selectedLevel),
+                },
+            ],
+        ],
     }),
+
+    urlToAction(({ actions }) => ({
+        '/settings/:section': ({ section }) => {
+            // TODO: Should we ensure that a given setting always sets the correct section?
+
+            if (SettingLevels.includes(section as SettingLevel)) {
+                actions.selectLevel(section as SettingLevel)
+            } else if (section) {
+                actions.selectSection(section as SettingSectionId)
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        selectLevel({ level }) {
+            return [urls.settings(level)]
+        },
+        selectSection({ section }) {
+            return [urls.settings(section)]
+        },
+        selectSetting({ setting }) {
+            return [urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)]
+        },
+    })),
 ])

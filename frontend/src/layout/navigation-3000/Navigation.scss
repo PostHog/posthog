@@ -21,7 +21,6 @@
     position: relative;
     margin: var(--scene-padding-y) var(--scene-padding-x);
     min-height: calc(100vh - var(--breadcrumbs-height) - var(--scene-padding-y) * 2);
-    overflow-x: hidden;
     &.Navigation3000__scene--raw {
         --scene-padding-y: 0px;
         --scene-padding-x: 0px;

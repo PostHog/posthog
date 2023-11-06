@@ -32,6 +32,10 @@ import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperti
 import { IPCapture } from './project/IPCapture'
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SlackIntegration } from './project/SlackIntegration'
+import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
+import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { SurveySettings } from './project/SurveySettings'
+import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 
 export type SettingLevel = 'user' | 'project' | 'organization'
 export type SettingSectionId =
@@ -117,24 +121,17 @@ export const SettingsSections: SettingSection[] = [
             },
         ],
     },
+
     {
         level: 'project',
-        id: 'project-date-time',
-        title: 'Date & Time',
+        id: 'project-product-analytics',
+        title: 'Product Analytics',
         settings: [
             {
                 id: 'project-date-and-time',
                 title: 'Date & Time',
                 component: <ProjectTimezone />,
             },
-        ],
-    },
-
-    {
-        level: 'project',
-        id: 'project-data-management',
-        title: 'Data Management',
-        settings: [
             {
                 id: 'project-internal-user-filtering',
                 title: 'Filter our internal and test users',
@@ -151,9 +148,24 @@ export const SettingsSections: SettingSection[] = [
                 component: <PersonDisplayNameProperties />,
             },
             {
+                id: 'project-path-cleaning',
+                title: 'Path cleaning rules',
+                component: <PathCleaningFiltersConfig />,
+            },
+            {
                 id: 'project-datacapture',
                 title: 'IP Data capture configuration',
                 component: <IPCapture />,
+            },
+            {
+                id: 'project-group-analytics',
+                title: 'Group Analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'project-persons-on-events',
+                title: 'Persons on events (beta)',
+                component: <SettingPersonsOnEvents />,
             },
         ],
     },
@@ -161,7 +173,7 @@ export const SettingsSections: SettingSection[] = [
     {
         level: 'project',
         id: 'project-replay',
-        title: 'Replay',
+        title: 'Session Replay',
         settings: [
             {
                 id: 'project-replay-general',
@@ -180,6 +192,19 @@ export const SettingsSections: SettingSection[] = [
             },
         ],
     },
+    {
+        level: 'project',
+        id: 'project-surveys',
+        title: 'Surveys',
+        settings: [
+            {
+                id: 'project-surveys-interface',
+                title: 'Surveys web interface',
+                component: <SurveySettings />,
+            },
+        ],
+    },
+
     {
         level: 'project',
         id: 'project-toolbar',
