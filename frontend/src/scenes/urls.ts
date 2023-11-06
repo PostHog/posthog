@@ -133,6 +133,8 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
+    // TODO: Change this later to be more strict type
+    settings: (section?: string): string => `/settings${section ? `#${section}` : ''}`,
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
     mySettings: (): string => '/me/settings',
     organizationSettings: (): string => '/organization/settings',

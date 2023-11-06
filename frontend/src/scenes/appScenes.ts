@@ -57,7 +57,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.AsyncMigrations]: () => import('./instance/AsyncMigrations/AsyncMigrations'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
-    [Scene.MySettings]: () => import('./me/Settings'),
+    [Scene.MySettings]: () => import('./me/settings'),
     [Scene.Annotations]: () => import('./annotations/Annotations'),
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
@@ -83,4 +83,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Products]: () => import('./products/Products'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
+    [Scene.Settings]: () => import('./settings/SettingsScene'),
 }

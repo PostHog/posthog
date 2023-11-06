@@ -86,6 +86,7 @@ export enum Scene {
     Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
+    Settings = 'Settings',
 }
 
 export type SceneProps = Record<string, any>
