@@ -60,7 +60,8 @@ export function FeatureFlags(): JSX.Element {
                                                 hasVariants && checked
                                                     ? (feature_flag.filters?.multivariate?.variants[0]?.key as string)
                                                     : checked
-                                            if (newValue === value && hasOverride) {
+                                            const originalValue = feature_flag.active ? value : false
+                                            if (newValue === originalValue && hasOverride) {
                                                 deleteOverriddenUserFlag(feature_flag.key)
                                             } else {
                                                 setOverriddenUserFlag(feature_flag.key, newValue)

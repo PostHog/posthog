@@ -460,7 +460,7 @@ class FeatureFlagViewSet(
             raise exceptions.NotAuthenticated()
 
         feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
             .prefetch_related("experiment_set")
             .prefetch_related("features")
             .prefetch_related("analytics_dashboards")
