@@ -41,6 +41,7 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { organizationLogic } from '../organizationLogic'
 import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
@@ -177,6 +178,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature'],
             dashboardsLogic,
             ['dashboards'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -219,6 +222,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        setCopyDestinationProject: (id: number | null) => ({ id }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -465,6 +469,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        copyDestinationProject: [
+            null as number | null,
+            {
+                setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
@@ -566,6 +576,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        projectsWithCurrentFlag: {
+            __default: [] as Record<string, string>[],
+            loadProjectsWithCurrentFlag: async () => {
+                return []
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {

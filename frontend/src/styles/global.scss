@@ -625,7 +625,6 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
-        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
         * > {
             ::-webkit-scrollbar {

@@ -740,6 +740,41 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $client_session_initial_referring_host: {
+            label: 'Referrer Host',
+            description: 'Host that the user came from. (First-touch, session-scoped)',
+            examples: ['google.com', 'facebook.com'],
+        },
+        $client_session_initial_pathname: {
+            label: 'Initial Path',
+            description: 'Path that the user started their session on. (First-touch, session-scoped)',
+            examples: ['/register', '/some/landing/page'],
+        },
+        $client_session_initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $client_session_initial_utm_campaign: {
+            label: 'Initial UTM Campaign',
+            description: 'UTM Campaign. (First-touch, session-scoped)',
+            examples: ['feature launch', 'discount'],
+        },
+        $client_session_initial_utm_medium: {
+            label: 'Initial UTM Medium',
+            description: 'UTM Medium. (First-touch, session-scoped)',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $client_session_initial_utm_content: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['bottom link', 'second button'],
+        },
+        $client_session_initial_utm_term: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['free goodies'],
+        },
     },
     element: {
         tag_name: {

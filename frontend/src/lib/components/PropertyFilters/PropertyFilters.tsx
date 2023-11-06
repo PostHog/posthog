@@ -29,6 +29,7 @@ interface PropertyFiltersProps {
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
     errorMessages?: JSX.Element[] | null
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export function PropertyFilters({
@@ -50,6 +51,7 @@ export function PropertyFilters({
     sendAllKeyUpdates = false,
     allowNew = true,
     errorMessages = null,
+    propertyAllowList,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -101,6 +103,7 @@ export function PropertyFilters({
                                                 delayBeforeAutoOpen: 150,
                                                 placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                             }}
+                                            propertyAllowList={propertyAllowList}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

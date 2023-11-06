@@ -142,6 +142,10 @@ module.exports = {
                         element: 'Select',
                         message: 'use <LemonSelect> instead',
                     },
+                    {
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
+                    },
                 ],
             },
         ],
@@ -168,6 +172,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',

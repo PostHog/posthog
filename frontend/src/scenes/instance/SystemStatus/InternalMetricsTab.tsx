@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Button, Checkbox, Table } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { Table } from 'antd'
 import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 export function InternalMetricsTab(): JSX.Element {
     const { openSections, queries, queriesLoading } = useValues(systemStatusLogic)
@@ -34,18 +35,20 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'PostgreSQL - currently running queries',
                         content: (
                             <>
-                                <div className="mb-4 float-right">
-                                    <Checkbox
+                                <div className="flex mb-4 float-right space-x-2">
+                                    <LemonCheckbox
                                         checked={showIdle}
-                                        onChange={(e) => {
-                                            setShowIdle(e.target.checked)
-                                        }}
+                                        onChange={setShowIdle}
+                                        label="Show idle queries"
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconRefresh />}
+                                        onClick={reloadQueries}
                                     >
-                                        Show idle queries
-                                    </Checkbox>
-                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                                        <ReloadOutlined /> Reload Queries
-                                    </Button>
+                                        Reload Queries
+                                    </LemonButton>
                                 </div>
                                 <QueryTable queries={postgresQueries} loading={queriesLoading} />
                             </>
@@ -56,10 +59,15 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'Clickhouse - currently running queries',
                         content: (
                             <>
-                                <div className="mb-4 float-right">
-                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                                        <ReloadOutlined /> Reload Queries
-                                    </Button>
+                                <div className="flex mb-4 float-right">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconRefresh />}
+                                        onClick={reloadQueries}
+                                    >
+                                        Reload Queries
+                                    </LemonButton>
                                 </div>
                                 <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
                             </>
@@ -70,10 +78,15 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'Clickhouse - slow query log (past 6 hours)',
                         content: (
                             <>
-                                <div className="mb-4 float-right">
-                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                                        <ReloadOutlined /> Reload Queries
-                                    </Button>
+                                <div className="flex mb-4 float-right">
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconRefresh />}
+                                        onClick={reloadQueries}
+                                    >
+                                        Reload Queries
+                                    </LemonButton>
                                 </div>
                                 <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
                             </>

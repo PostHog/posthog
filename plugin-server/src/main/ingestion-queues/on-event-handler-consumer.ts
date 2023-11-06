@@ -89,7 +89,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         postgres,
         teamManager,
         organizationManager,
-        new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
         appMetrics,
         statsd,
         serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS

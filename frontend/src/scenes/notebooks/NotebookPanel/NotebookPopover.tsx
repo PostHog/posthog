@@ -8,7 +8,6 @@ import { IconFullScreen, IconChevronRight, IconOpenInNew, IconShare } from 'lib/
 import { useEffect, useMemo, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
-import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,6 @@ export function NotebookPopoverCard(): JSX.Element | null {
     const { popoverVisibility, shownAtLeastOnce, fullScreen, selectedNotebook, initialAutofocus, droppedResource } =
         useValues(notebookPopoverLogic)
     const { setPopoverVisibility, setFullScreen, selectNotebook } = useActions(notebookPopoverLogic)
-    const { createNotebook } = useActions(notebooksModel)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const { activeScene } = useValues(sceneLogic)
 
@@ -47,7 +45,6 @@ export function NotebookPopoverCard(): JSX.Element | null {
                     <NotebookListMini
                         selectedNotebookId={selectedNotebook}
                         onSelectNotebook={(notebook) => selectNotebook(notebook.short_id)}
-                        onNewNotebook={() => createNotebook()}
                     />
                 </span>
                 <span className="flex items-center gap-1 px-1">

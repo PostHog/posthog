@@ -30,6 +30,7 @@ export function TaxonomicFilter({
     excludedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
+    propertyAllowList,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -52,6 +53,7 @@ export function TaxonomicFilter({
         selectFirstItem,
         excludedProperties,
         hogQLTable,
+        propertyAllowList,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
