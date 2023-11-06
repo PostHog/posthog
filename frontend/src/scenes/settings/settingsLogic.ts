@@ -3,10 +3,10 @@ import { Setting, SettingLevel, SettingSection, SettingSectionId, SettingsSectio
 
 import type { settingsLogicType } from './settingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const settingsLogic = kea<settingsLogicType>([
     path(['scenes', 'settings']),
-
     connect({
         values: [featureFlagLogic, ['featureFlags']],
     }),
@@ -37,7 +37,7 @@ export const settingsLogic = kea<settingsLogicType>([
         sections: [
             (s) => [s.featureFlags],
             (featureFlags): SettingSection[] => {
-                return SettingsSections.filter((x) => (x.flag ? featureFlags[x.flag] : true))
+                return SettingsSections.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
             },
         ],
         settings: [
