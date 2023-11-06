@@ -69,7 +69,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     connect({}),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
-        togglePropertyFilter: (type: WebAnalyticsPropertyFilter['type'], key: string, value: string | number) => ({
+        togglePropertyFilter: (
+            type: PropertyFilterType.Event | PropertyFilterType.Person,
+            key: string,
+            value: string | number
+        ) => ({
             type,
             key,
             value,
