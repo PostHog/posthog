@@ -10,7 +10,7 @@ describe('Cohorts', () => {
 
     it('Cohorts new and list', () => {
         // load an empty page
-        cy.get('h1').should('contain', 'Persons, cohorts & groups')
+        cy.get('h1').should('contain', 'People')
         cy.title().should('equal', 'Cohorts • People • PostHog')
         cy.get('h2').should('contain', 'Create your first cohort')
         cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more about Cohorts')
