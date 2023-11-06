@@ -6,6 +6,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { useCallback, useMemo } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -109,36 +110,38 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     }
 }
 
-export const webStatsBreakdownToPropertyName = (breakdownBy: WebStatsBreakdown): string => {
+export const webStatsBreakdownToPropertyName = (
+    breakdownBy: WebStatsBreakdown
+): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
-            return '$pathname'
+            return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialPage:
-            return '$client_session_initial_pathname'
+            return { key: '$initial_pathname', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialReferringDomain:
-            return '$client_session_initial_referring_host'
+            return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMSource:
-            return '$client_session_initial_utm_source'
+            return { key: '$initial_utm_source', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMCampaign:
-            return '$client_session_initial_utm_campaign'
+            return { key: '$initial_utm_campaign', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMMedium:
-            return '$client_session_initial_utm_medium'
+            return { key: '$initial_utm_medium', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMContent:
-            return '$client_session_initial_utm_content'
+            return { key: '$initial_utm_content', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMTerm:
-            return '$client_session_initial_utm_term'
+            return { key: '$initial_utm_term', type: PropertyFilterType.Person }
         case WebStatsBreakdown.Browser:
-            return '$browser'
+            return { key: '$browser', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
-            return '$os'
+            return { key: '$os', type: PropertyFilterType.Event }
         case WebStatsBreakdown.DeviceType:
-            return '$device_type'
+            return { key: '$device_type', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Country:
-            return '$geoip_country_code'
+            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Region:
-            return '$geoip_subdivision_1_code'
+            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
         case WebStatsBreakdown.City:
-            return '$geoip_city_name'
+            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
         default:
             throw new UnexpectedNeverError(breakdownBy)
     }
@@ -176,13 +179,13 @@ export const WebStatsTableTile = ({
     breakdownBy: WebStatsBreakdown
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const propertyName = webStatsBreakdownToPropertyName(breakdownBy)
+    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy)
 
     const onClick = useCallback(
         (breakdownValue: string) => {
-            togglePropertyFilter(propertyName, breakdownValue)
+            togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, propertyName]
+        [togglePropertyFilter, type, key]
     )
 
     const context = useMemo((): QueryContext => {

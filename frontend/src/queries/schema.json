@@ -3064,16 +3064,19 @@
             "required": ["results"],
             "type": "object"
         },
+        "WebAnalyticsPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/PersonPropertyFilter"
+                }
+            ]
+        },
         "WebAnalyticsPropertyFilters": {
             "items": {
-                "anyOf": [
-                    {
-                        "$ref": "#/definitions/EventPropertyFilter"
-                    },
-                    {
-                        "$ref": "#/definitions/HogQLPropertyFilter"
-                    }
-                ]
+                "$ref": "#/definitions/WebAnalyticsPropertyFilter"
             },
             "type": "array"
         },
