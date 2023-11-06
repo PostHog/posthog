@@ -1,10 +1,15 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import { Setting, SettingLevel, SettingSectionId, SettingsSections } from './SettingsMap'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { Setting, SettingLevel, SettingSection, SettingSectionId, SettingsSections } from './SettingsMap'
 
 import type { settingsLogicType } from './settingsLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const settingsLogic = kea<settingsLogicType>([
     path(['scenes', 'settings']),
+
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
 
     actions({
         selectSection: (section: SettingSectionId) => ({ section }),
@@ -16,36 +21,39 @@ export const settingsLogic = kea<settingsLogicType>([
             'user' as SettingLevel,
             {
                 selectLevel: (_, { level }) => level,
+                selectSection: (_, { section }) => SettingsSections.find((x) => x.id === section)?.level || 'user',
             },
         ],
         selectedSectionId: [
             null as SettingSectionId | null,
             {
+                selectLevel: () => null,
                 selectSection: (_, { section }) => section,
             },
         ],
     }),
 
-    listeners(({ actions }) => ({
-        selectSection: ({ section }) => {
-            if (section) {
-                actions.selectLevel(SettingsSections.find((x) => x.id === section)?.level || 'user')
-            }
-        },
-    })),
-
     selectors({
+        sections: [
+            (s) => [s.featureFlags],
+            (featureFlags): SettingSection[] => {
+                return SettingsSections.filter((x) => (x.flag ? featureFlags[x.flag] : true))
+            },
+        ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId],
-            (selectedLevel, selectedSectionId): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
+            (selectedLevel, selectedSectionId, sections): Setting[] => {
+                let settings: Setting[] = []
+
                 if (!selectedSectionId) {
-                    return SettingsSections.filter((section) => section.level === selectedLevel).reduce(
-                        (acc, section) => [...acc, ...section.settings],
-                        [] as Setting[]
-                    )
+                    settings = sections
+                        .filter((section) => section.level === selectedLevel)
+                        .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
+                } else {
+                    settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 }
 
-                return SettingsSections.find((x) => x.id === selectedSectionId)?.settings || []
+                return settings
             },
         ],
     }),

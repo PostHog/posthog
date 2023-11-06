@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { RestrictedComponentProps, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export function DeleteOrganizationModal({
     isOpen,
@@ -62,32 +63,29 @@ export function DeleteOrganizationModal({
     )
 }
 
-export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Element {
+export function DangerZone(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-
     const [isModalVisible, setIsModalVisible] = useState(false)
+    const isRestricted = !!useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
         <>
             <div className="text-danger">
-                <h2 className="text-danger subtitle">Danger Zone</h2>
-                <div className="mt-4">
-                    {!isRestricted && (
-                        <p className="text-danger">
-                            This is <b>irreversible</b>. Please be certain.
-                        </p>
-                    )}
-                    <LemonButton
-                        status="danger"
-                        type="secondary"
-                        onClick={() => setIsModalVisible(true)}
-                        data-attr="delete-organization-button"
-                        icon={<IconDelete />}
-                        disabled={isRestricted}
-                    >
-                        Delete {currentOrganization?.name || 'the current organization'}
-                    </LemonButton>
-                </div>
+                {!isRestricted && (
+                    <p className="text-danger">
+                        This is <b>irreversible</b>. Please be certain.
+                    </p>
+                )}
+                <LemonButton
+                    status="danger"
+                    type="secondary"
+                    onClick={() => setIsModalVisible(true)}
+                    data-attr="delete-organization-button"
+                    icon={<IconDelete />}
+                    disabled={isRestricted}
+                >
+                    Delete {currentOrganization?.name || 'the current organization'}
+                </LemonButton>
             </div>
             <DeleteOrganizationModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
         </>

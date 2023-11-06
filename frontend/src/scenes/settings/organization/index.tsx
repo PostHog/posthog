@@ -8,13 +8,10 @@ import { kea, useActions, useValues, path, actions, reducers } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { AvailableFeature } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import type { organizationSettingsTabsLogicType } from './indexType'
@@ -144,12 +141,7 @@ export function OrganizationSettings(): JSX.Element {
             key: OrganizationSettingsTabs.ROLE_BASED_ACCESS,
             label: 'Role-based access',
             content: (
-                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                    <RestrictedArea
-                        Component={PermissionsGrid}
-                        minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                    />
-                </PayGateMini>
+                <RestrictedArea Component={PermissionsGrid} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             ),
         })
     }

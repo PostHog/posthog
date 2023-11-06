@@ -1,4 +1,3 @@
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { ChangePassword } from './user/ChangePassword'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -11,6 +10,9 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { DangerZone } from './organization/DangerZone'
+import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SettingLevel = 'user' | 'project' | 'organization'
 export type SettingSectionId =
@@ -20,6 +22,8 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-members'
     | 'organization-authentication'
+    | 'organization-danger-zone'
+    | 'organization-rbac'
 
 export const SettingLevels: SettingLevel[] = ['project', 'organization', 'user']
 
@@ -35,19 +39,8 @@ export type SettingSection = {
     title: string
     level: SettingLevel
     settings: Setting[]
+    flag?: keyof typeof FEATURE_FLAGS
     minimumAccessLevel?: EitherMembershipLevel
-}
-
-{
-    /* <div className="border rounded p-6">
-                    <LemonDivider className="my-6" />
-                    <RestrictedArea
-                        Component={EmailPreferences}
-                        minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                    />
-                    <LemonDivider className="my-6" />
-                    <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
-                </div> */
 }
 
 export const SettingsSections: SettingSection[] = [
@@ -94,6 +87,32 @@ export const SettingsSections: SettingSection[] = [
                 id: 'organization-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
+            },
+        ],
+    },
+
+    {
+        level: 'organization',
+        id: 'organization-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'organization-delete',
+                title: 'Delete organization',
+                component: <DangerZone />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-rbac',
+        title: 'Role-based access',
+        flag: 'ROLE_BASED_ACCESS',
+        settings: [
+            {
+                id: 'organization-rbac',
+                title: 'Role-based access',
+                component: <PermissionsGrid />,
             },
         ],
     },

@@ -19,7 +19,7 @@ export const scene: SceneExport = {
  */
 
 export function SettingsScene(): JSX.Element {
-    const { selectedSectionId, selectedLevel, settings } = useValues(settingsLogic)
+    const { selectedSectionId, selectedLevel, settings, sections } = useValues(settingsLogic)
     const { selectSection, selectLevel } = useActions(settingsLogic)
 
     // const { location } = useValues(router)
@@ -33,25 +33,32 @@ export function SettingsScene(): JSX.Element {
                     <ul className="space-y-px">
                         {SettingLevels.map((level) => (
                             <li key={level} className="space-y-px">
-                                <LemonButton onClick={() => selectLevel(level)} size="small" fullWidth>
+                                <LemonButton
+                                    onClick={() => selectLevel(level)}
+                                    size="small"
+                                    fullWidth
+                                    active={selectedLevel === level && !selectedSectionId}
+                                >
                                     <span className={clsx('text-muted-alt', level === selectedLevel && 'font-bold')}>
                                         {capitalizeFirstLetter(level)}
                                     </span>
                                 </LemonButton>
 
                                 <ul className="space-y-px">
-                                    {SettingsSections.filter((x) => x.level === level).map((section) => (
-                                        <li key={section.id} className="pl-4">
-                                            <LemonButton
-                                                onClick={() => selectSection(section.id)}
-                                                size="small"
-                                                fullWidth
-                                                active={selectedSectionId === section.id}
-                                            >
-                                                {section.title}
-                                            </LemonButton>
-                                        </li>
-                                    ))}
+                                    {sections
+                                        .filter((x) => x.level === level)
+                                        .map((section) => (
+                                            <li key={section.id} className="pl-4">
+                                                <LemonButton
+                                                    onClick={() => selectSection(section.id)}
+                                                    size="small"
+                                                    fullWidth
+                                                    active={selectedSectionId === section.id}
+                                                >
+                                                    {section.title}
+                                                </LemonButton>
+                                            </li>
+                                        ))}
                                 </ul>
                             </li>
                         ))}
