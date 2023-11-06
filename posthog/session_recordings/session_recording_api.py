@@ -8,7 +8,6 @@ from django.conf import settings
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
