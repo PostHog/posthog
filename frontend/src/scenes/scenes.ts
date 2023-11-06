@@ -396,6 +396,10 @@ export const redirects: Record<
     },
     '/replay': urls.replay(),
     '/exports': urls.batchExports(),
+    '/settings': urls.settings(),
+    '/project/settings': urls.settings('project'),
+    '/organization/settings': urls.settings('organization'),
+    '/me/settings': urls.settings('user'),
 }
 
 export const routes: Record<string, Scene> = {
@@ -468,7 +472,7 @@ export const routes: Record<string, Scene> = {
     [urls.annotations()]: Scene.Annotations,
     [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
-    [urls.projectSettings()]: Scene.ProjectSettings,
+    // [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Apps,
     [urls.projectApp(':id')]: Scene.Apps,
     [urls.projectAppLogs(':id')]: Scene.Apps,
@@ -479,7 +483,7 @@ export const routes: Record<string, Scene> = {
     [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
     [urls.appLogs(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
-    [urls.organizationSettings()]: Scene.OrganizationSettings,
+    // [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
     [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
@@ -492,7 +496,7 @@ export const routes: Record<string, Scene> = {
     [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
     [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
-    [urls.mySettings()]: Scene.MySettings,
+    // [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
@@ -518,5 +522,5 @@ export const routes: Record<string, Scene> = {
     [urls.notebook(':shortId')]: Scene.Notebook,
     [urls.notebooks()]: Scene.Notebooks,
     [urls.canvas()]: Scene.Canvas,
-    [urls.settings()]: Scene.Settings,
+    [urls.settings(':section')]: Scene.Settings,
 }

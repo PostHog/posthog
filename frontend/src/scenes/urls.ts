@@ -134,7 +134,8 @@ export const urls = {
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     // TODO: Change this later to be more strict type
-    settings: (section?: string, setting?: string): string => combineUrl('/settings', { section }, setting).url,
+    settings: (section: string = 'project', setting?: string): string =>
+        combineUrl(`/settings/${section}`, undefined, setting).url,
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
     mySettings: (): string => '/me/settings',
     organizationSettings: (): string => '/organization/settings',

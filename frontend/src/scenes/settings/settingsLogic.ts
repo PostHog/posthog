@@ -66,7 +66,7 @@ export const settingsLogic = kea<settingsLogicType>([
             (selectedLevel, selectedSectionId): Breadcrumb[] => [
                 {
                     name: `Settings`,
-                    path: urls.settings(),
+                    path: urls.settings('project'),
                 },
                 {
                     name: selectedSectionId
