@@ -48,7 +48,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: OrganizationFeatureFlagViewTests.test_get_feature_flag_success.2
@@ -57,7 +57,7 @@
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: OrganizationFeatureFlagViewTests.test_get_feature_flag_success.3
@@ -68,7 +68,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: OrganizationFeatureFlagViewTests.test_get_feature_flag_success.4
@@ -116,7 +116,7 @@
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id"
   FROM "posthog_team"
-  WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: OrganizationFeatureFlagViewTests.test_get_feature_flag_success.5
@@ -142,6 +142,6 @@
                                                  2,
                                                  3,
                                                  4,
-                                                 5 /* ... */)) /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+                                                 5 /* ... */)) /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
