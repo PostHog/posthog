@@ -1,11 +1,12 @@
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, Message, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
-import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { status } from '../../../utils/status'
+import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
@@ -114,7 +115,7 @@ export const getLagMultipler = (lag: number, threshold = 1000000) => {
 
 export async function readTokenFromHeaders(
     headers: MessageHeader[] | undefined,
-    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
 ) {
     const tokenHeader = headers?.find((header: MessageHeader) => {
         // each header in the array is an object of key to value
@@ -128,11 +129,145 @@ export async function readTokenFromHeaders(
     let teamIdWithConfig: TeamIDWithConfig | null = null
 
     if (token) {
-        const teams = await teamsRefresher.get()
-        teamIdWithConfig = {
-            teamId: teams[token]?.teamId || null,
-            consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-        }
+        teamIdWithConfig = await getTeamFn(token)
     }
     return { token, teamIdWithConfig }
+}
+
+export const parseKafkaMessage = async (
+    message: Message,
+    getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
+): Promise<IncomingRecordingMessage | void> => {
+    const statusWarn = (reason: string, extra?: Record<string, any>) => {
+        status.warn('⚠️', 'invalid_message', {
+            reason,
+            partition: message.partition,
+            offset: message.offset,
+            ...(extra || {}),
+        })
+    }
+
+    if (!message.value || !message.timestamp) {
+        // Typing says this can happen but in practice it shouldn't
+        return statusWarn('message value or timestamp is empty')
+    }
+
+    const headerResult = await readTokenFromHeaders(message.headers, getTeamFn)
+    const token: string | undefined = headerResult.token
+    let teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+
+    // NB `==` so we're comparing undefined and null
+    // if token was in the headers but, we could not load team config
+    // then, we can return early
+    if (!!token && (teamIdWithConfig == null || teamIdWithConfig.teamId == null)) {
+        eventDroppedCounter
+            .labels({
+                event_type: 'session_recordings_blob_ingestion',
+                drop_cause: 'team_missing_or_disabled',
+            })
+            .inc()
+
+        return statusWarn('team_missing_or_disabled', {
+            token: token,
+        })
+    }
+
+    let messagePayload: RawEventMessage
+    let event: PipelineEvent
+
+    try {
+        messagePayload = JSON.parse(message.value.toString())
+        event = JSON.parse(messagePayload.data)
+    } catch (error) {
+        return statusWarn('invalid_json', { error })
+    }
+
+    const { $snapshot_items, $session_id, $window_id } = event.properties || {}
+
+    // NOTE: This is simple validation - ideally we should do proper schema based validation
+    if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
+        status.warn('🙈', 'Received non-snapshot message, ignoring')
+        return
+    }
+
+    // TODO this mechanism is deprecated for blobby ingestion, we should remove it
+    // once we're happy that the new mechanism is working
+    // if there was not a token in the header then we try to load one from the message payload
+    if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
+        return statusWarn('no_token')
+    }
+
+    if (teamIdWithConfig == null) {
+        const token = messagePayload.token
+
+        if (token) {
+            teamIdWithConfig = await getTeamFn(token)
+        }
+    }
+
+    // NB `==` so we're comparing undefined and null
+    if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
+        eventDroppedCounter
+            .labels({
+                event_type: 'session_recordings_blob_ingestion',
+                drop_cause: 'token_fallback_team_missing_or_disabled',
+            })
+            .inc()
+
+        return statusWarn('token_fallback_team_missing_or_disabled', {
+            token: messagePayload.token,
+            teamId: messagePayload.team_id,
+            payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+        })
+    }
+    // end of deprecated mechanism
+
+    const invalidEvents: any[] = []
+    const events: RRWebEvent[] = $snapshot_items.filter((event: any) => {
+        if (!event || !event.timestamp) {
+            invalidEvents.push(event)
+            return false
+        }
+        return true
+    })
+
+    if (invalidEvents.length) {
+        captureMessage('[session-manager]: invalid rrweb events filtered out from message', {
+            extra: {
+                invalidEvents,
+                eventsCount: events.length,
+                invalidEventsCount: invalidEvents.length,
+                event,
+            },
+            tags: {
+                team_id: teamIdWithConfig.teamId,
+                session_id: $session_id,
+            },
+        })
+    }
+
+    if (!events.length) {
+        status.warn('🙈', 'Event contained no valid rrweb events, ignoring')
+
+        return statusWarn('invalid_rrweb_events', {
+            token: messagePayload.token,
+            teamId: messagePayload.team_id,
+        })
+    }
+
+    return {
+        metadata: {
+            partition: message.partition,
+            topic: message.topic,
+            offset: message.offset,
+            timestamp: message.timestamp,
+            consoleLogIngestionEnabled: teamIdWithConfig.consoleLogIngestionEnabled,
+        },
+
+        team_id: teamIdWithConfig.teamId,
+        distinct_id: messagePayload.distinct_id,
+        session_id: $session_id,
+        window_id: $window_id,
+        events: events,
+    }
 }
