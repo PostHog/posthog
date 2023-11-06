@@ -2,6 +2,8 @@ import os
 import http.client
 import json
 
+from prometheus_client import CollectorRegistry, Gauge, multiprocess, generate_latest
+
 def application(environ, start_response):
     connection = http.client.HTTPConnection("localhost:8081")
     connection.request("GET", "/status")
@@ -24,4 +26,6 @@ def application(environ, start_response):
         metrics.append("unit_application_" + application + "_requests_active {}".format(statj["applications"][application]["requests"]["active"]))
 
     start_response('200 OK', [("Content-Type", "text/plain")])
-    yield str.encode("\n".join(metrics) + "\n")
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    yield str.encode("\n".join(metrics) + "\n" + generate_latest(registry).decode('utf-8'))

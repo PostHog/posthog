@@ -3,7 +3,7 @@
         "*:8000": {
             "pass": "applications/posthog"
         },
-        "*:8080": {
+        "*:8001": {
             "pass": "routes/metrics"
         },
         "*:8081": {
