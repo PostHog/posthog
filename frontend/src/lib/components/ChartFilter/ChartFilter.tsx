@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { chartFilterLogic } from './chartFilterLogic'
 import {
     IconShowChart,
     IconCumulativeChart,
@@ -18,8 +17,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function ChartFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { chartFilter } = useValues(chartFilterLogic(insightProps))
-    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
+    const { display } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizDataLogic(insightProps))
 
@@ -109,9 +108,9 @@ export function ChartFilter(): JSX.Element {
     return (
         <LemonSelect
             key="2"
-            value={chartFilter || ChartDisplayType.ActionsLineGraph}
+            value={display || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => {
-                setChartFilter(value as ChartDisplayType)
+                updateInsightFilter({ display: value })
             }}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"

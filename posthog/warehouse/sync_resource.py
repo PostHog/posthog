@@ -13,25 +13,26 @@ def sync_resources():
     resources = ExternalDataSource.objects.filter(are_tables_created=False, status__in=["running", "error"])
 
     for resource in resources:
-        _sync_resource.delay(resource.pk)
+        sync_resource.delay(resource.pk)
 
 
 @app.task(ignore_result=True)
-def _sync_resource(resource_id):
+def sync_resource(resource_id):
     resource = ExternalDataSource.objects.get(pk=resource_id)
 
     try:
         job = retrieve_sync(resource.connection_id)
     except Exception as e:
-        logger.exception("Sync Resource failed with an unexpected exception.", exc_info=e)
+        logger.exception("Data Warehouse: Sync Resource failed with an unexpected exception.", exc_info=e)
         resource.status = "error"
         resource.save()
         return
 
     if job is None:
-        logger.error(f"No jobs found for connection: {resource.connection_id}")
+        logger.error(f"Data Warehouse: No jobs found for connection: {resource.connection_id}")
         resource.status = "error"
         resource.save()
+        return
 
     if job["status"] == "succeeded":
         resource = ExternalDataSource.objects.get(pk=resource_id)
@@ -53,7 +54,10 @@ def _sync_resource(resource_id):
         try:
             table.columns = table.get_columns()
         except Exception as e:
-            logger.exception("Sync Resource failed with an unexpected exception.", exc_info=e)
+            logger.exception(
+                f"Data Warehouse: Sync Resource failed with an unexpected exception for connection: {resource.connection_id}",
+                exc_info=e,
+            )
         else:
             table.save()
 

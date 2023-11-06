@@ -9,6 +9,7 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
 
     source_id: models.CharField = models.CharField(max_length=400)
     connection_id: models.CharField = models.CharField(max_length=400)
+    destination_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     status: models.CharField = models.CharField(max_length=400)
     source_type: models.CharField = models.CharField(max_length=128, choices=Type.choices)
