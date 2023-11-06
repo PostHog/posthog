@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q
+from django.db.models import Q, Func, F, CharField
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception, start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -396,6 +396,13 @@ class FeatureFlagMatcher:
                     annotate_query = True
                     nonlocal person_query
 
+                    property_list = Filter(data=condition).property_groups.flat
+                    properties_with_math_operators = [
+                        key_and_field_for_property(prop)
+                        for prop in property_list
+                        if prop.operator in ["gt", "lt", "gte", "lte"]
+                    ]
+
                     if len(condition.get("properties", {})) > 0:
                         # Feature Flags don't support OR filtering yet
                         target_properties = self.property_value_overrides
@@ -404,8 +411,9 @@ class FeatureFlagMatcher:
                                 self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index],
                                 {},
                             )
+
                         expr = properties_to_Q(
-                            Filter(data=condition).property_groups.flat,
+                            property_list,
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
                             using_database=DATABASE_FOR_FLAG_MATCHING,
@@ -428,13 +436,24 @@ class FeatureFlagMatcher:
 
                     if annotate_query:
                         if feature_flag.aggregation_group_type_index is None:
+                            # :TRICKY: Flag matching depends on type of property when doing >, <, >=, <= comparisons.
+                            # This requires a generated field to query in Q objects, which sadly don't allow inlining fields,
+                            # hence we need to annotate the query here, even though these annotations are used much deeper,
+                            # in properties_to_q, in empty_or_null_with_value_q
+                            # These need to come in before the expr so they're available to use inside the expr.
+                            # Same holds for the group queries below.
+                            type_property_annotations = {
+                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
+                                for prop_key, prop_field in properties_with_math_operators
+                            }
                             person_query = person_query.annotate(
+                                **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
                                         expr if expr else RawSQL("true", []),
                                         output_field=BooleanField(),
-                                    )
-                                }
+                                    ),
+                                },
                             )
                             person_fields.append(key)
                         else:
@@ -445,13 +464,18 @@ class FeatureFlagMatcher:
                                 group_query,
                                 group_fields,
                             ) = group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index]
+                            type_property_annotations = {
+                                prop_key: Func(F(prop_field), function="JSONB_TYPEOF", output_field=CharField())
+                                for prop_key, prop_field in properties_with_math_operators
+                            }
                             group_query = group_query.annotate(
+                                **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
                                         expr if expr else RawSQL("true", []),
                                         output_field=BooleanField(),
                                     )
-                                }
+                                },
                             )
                             group_fields.append(key)
                             group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
@@ -881,3 +905,12 @@ def parse_exception_for_error_message(err: Exception):
             reason = "query_wait_timeout"
 
     return reason
+
+
+def key_and_field_for_property(property: Property) -> Tuple[str, str]:
+    column = "group_properties" if property.type == "group" else "properties"
+    key = property.key
+    return (
+        f"{column}_{key}_type",
+        f"{column}__{key}",
+    )

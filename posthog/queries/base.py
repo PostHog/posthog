@@ -12,7 +12,7 @@ from typing import (
 )
 
 from dateutil import parser
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef, Q, Value
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
@@ -29,10 +29,10 @@ from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
 
-F = TypeVar("F", Filter, PathFilter)
+FilterType = TypeVar("FilterType", Filter, PathFilter)
 
 
-def determine_compared_filter(filter: F) -> F:
+def determine_compared_filter(filter: FilterType) -> FilterType:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(
@@ -142,8 +142,34 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         except re.error:
             return False
 
-    if operator == "gt":
-        return type(override_value) == type(value) and override_value > value
+    if operator in ("gt", "gte", "lt", "lte"):
+        # :TRICKY: We adjust comparison based on the override value passed in,
+        # to make sure we handle both numeric and string comparisons appropriately.
+        def compare(lhs, rhs, operator):
+            if operator == "gt":
+                return lhs > rhs
+            elif operator == "gte":
+                return lhs >= rhs
+            elif operator == "lt":
+                return lhs < rhs
+            elif operator == "lte":
+                return lhs <= rhs
+            else:
+                raise ValueError(f"Invalid operator: {operator}")
+
+        parsed_value = None
+        try:
+            parsed_value = float(value)  # type: ignore
+        except Exception:
+            pass
+
+        if parsed_value is not None:
+            if isinstance(override_value, str):
+                return compare(override_value, str(value), operator)
+            else:
+                return compare(override_value, parsed_value, operator)
+        else:
+            return compare(str(override_value), str(value), operator)
 
     if operator == "gte":
         return type(override_value) == type(value) and override_value >= value
@@ -207,7 +233,25 @@ def empty_or_null_with_value_q(
                 f"{column}__{key}", value_as_coerced_to_number
             )
     else:
-        target_filter = Q(**{f"{column}__{key}__{operator}": value})
+        if isinstance(value, list):
+            raise TypeError(f"empty_or_null_with_value_q: Operator {operator} does not support list values")
+
+        parsed_value = None
+        if operator in ("gt", "gte", "lt", "lte"):
+            try:
+                parsed_value = float(value)
+            except (ValueError, TypeError):
+                pass
+
+        if parsed_value is not None:
+            # When we can coerce given value to a number, check whether the value in DB is a number
+            # and do a numeric comparison. Otherwise, do a string comparison.
+            target_filter = Q(
+                Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{key}_type": Value("string")})
+                | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{key}_type": Value("number")})
+            )
+        else:
+            target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 
