@@ -65,45 +65,6 @@ export function ProjectSettings(): JSX.Element {
                 }.`}
             />
             <div className="border rounded p-6">
-                <h2 className="subtitle" id="internal-users-filtering">
-                    Filter out internal and test users
-                </h2>
-                <p>
-                    Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments.{' '}
-                    <strong>
-                        The filters you apply here are added as extra filters when the toggle is switched on.
-                    </strong>{' '}
-                    So, if you apply a cohort, it means you will only match users in that cohort.
-                </p>
-                <LemonBanner type="info">
-                    Events and recordings will still be ingested and saved, but they will be excluded from any queries
-                    where the "Filter out internal and test users" toggle is set. You can learn how to{' '}
-                    <Link to="https://posthog.com/tutorials/fewer-unwanted-events" target="_blank">
-                        capture fewer events
-                    </Link>{' '}
-                    or how to{' '}
-                    <Link to="https://posthog.com/tutorials/limit-session-recordings" target="_blank">
-                        capture fewer recordings
-                    </Link>{' '}
-                    in our docs.
-                </LemonBanner>
-                <div className={'mt-4'}>
-                    <strong>Example filters</strong>
-                    <ul className="list-disc pl-4 mb-2">
-                        <li>
-                            "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all
-                            events from your company's team members.
-                        </li>
-                        <li>
-                            "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events
-                            from local development environments.
-                        </li>
-                    </ul>
-                </div>
-                <TestAccountFiltersConfig />
-                <LemonDivider className="my-6" />
-                <CorrelationConfig />
                 {hasAdvancedPaths && (
                     <>
                         <LemonDivider className="my-6" />
@@ -136,45 +97,9 @@ export function ProjectSettings(): JSX.Element {
                         <PathCleaningFiltersConfig />
                     </>
                 )}
-                <LemonDivider className="my-6" />
-                <h2 className="subtitle" id="attributes">
-                    Data attributes
-                </h2>
-                <DataAttributes />
-                <LemonDivider className="my-6" />
-                <h2 className="subtitle" id="person-display-name">
-                    Person display name
-                </h2>
-                <PersonDisplayNameProperties />
-                <LemonDivider className="my-6" />
-                <h2 className="subtitle" id="webhook">
-                    Webhook integration
-                </h2>
-                <WebhookIntegration />
-                <LemonDivider className="my-6" />
-                <>
-                    <h2 className="subtitle" id="slack">
-                        Slack integration
-                    </h2>
-                    <SlackIntegration />
-                    <LemonDivider className="my-6" />
-                </>
-                <h2 className="subtitle" id="datacapture">
-                    Data capture configuration
-                </h2>
-                <IPCapture />
-                <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <SurveySettings />
                 <ExtraTeamSettings />
-                <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <LemonDivider className="my-6" />
-                {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
-                    <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                        {user && <TeamMembers user={user} team={currentTeam as TeamType} />}
-                        <LemonDivider className="my-6" />
-                    </BindLogic>
-                )}
             </div>
         </div>
     )

@@ -35,9 +35,6 @@ export function CorrelationConfig(): JSX.Element {
 
     return (
         <>
-            <h2 className="subtitle" id="internal-users-filtering">
-                Correlation analysis exclusions
-            </h2>
             <p>Globally exclude events or properties that do not provide relevant signals for your conversions.</p>
 
             <LemonBanner type="info">

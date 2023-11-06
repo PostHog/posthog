@@ -26,6 +26,12 @@ import { DataAttributes } from './project/DataAttributes'
 import { ReplayAuthorizedDomains, ReplayCostControl, ReplayGeneral } from './project/SessionRecordingSettings'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
+import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
+import { CorrelationConfig } from './project/CorrelationConfig'
+import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
+import { IPCapture } from './project/IPCapture'
+import { WebhookIntegration } from './project/WebhookIntegration'
+import { SlackIntegration } from './project/SlackIntegration'
 
 export type SettingLevel = 'user' | 'project' | 'organization'
 export type SettingSectionId =
@@ -64,7 +70,7 @@ export const SettingsSections: SettingSection[] = [
     {
         level: 'project',
         id: 'project-details',
-        title: 'Details',
+        title: 'General',
         settings: [
             {
                 id: 'project-display-name',
@@ -113,13 +119,41 @@ export const SettingsSections: SettingSection[] = [
     },
     {
         level: 'project',
-        id: 'project-display',
+        id: 'project-date-time',
         title: 'Date & Time',
         settings: [
             {
                 id: 'project-date-and-time',
                 title: 'Date & Time',
                 component: <ProjectTimezone />,
+            },
+        ],
+    },
+
+    {
+        level: 'project',
+        id: 'project-data-management',
+        title: 'Data Management',
+        settings: [
+            {
+                id: 'project-internal-user-filtering',
+                title: 'Filter our internal and test users',
+                component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'project-correlation-analysis',
+                title: 'Correlation analysis exclusions',
+                component: <CorrelationConfig />,
+            },
+            {
+                id: 'project-person-display-name',
+                title: 'Person display name',
+                component: <PersonDisplayNameProperties />,
+            },
+            {
+                id: 'project-datacapture',
+                title: 'IP Data capture configuration',
+                component: <IPCapture />,
             },
         ],
     },
@@ -160,6 +194,23 @@ export const SettingsSections: SettingSection[] = [
     },
     {
         level: 'project',
+        id: 'project-integrations',
+        title: 'Integrations',
+        settings: [
+            {
+                id: 'project-integration-webhooks',
+                title: 'Webhook integration',
+                component: <WebhookIntegration />,
+            },
+            {
+                id: 'project-integration-slack',
+                title: 'Slack integration',
+                component: <SlackIntegration />,
+            },
+        ],
+    },
+    {
+        level: 'project',
         id: 'project-rbac',
         title: 'Access control',
         settings: [
@@ -187,11 +238,11 @@ export const SettingsSections: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-details',
-        title: 'Details',
+        title: 'General',
         settings: [
             {
                 id: 'organization-details',
-                title: 'General',
+                title: 'Display name',
                 component: <OrganizationDisplayName />,
             },
         ],

@@ -49,7 +49,7 @@ export function SlackIntegration(): JSX.Element {
 
             <p>
                 {slackIntegration ? (
-                    <div className="rounded border flex justify-between items-center p-2">
+                    <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
                         <div className="flex items-center gap-4 ml-2">
                             <IconSlack />
                             <div>
