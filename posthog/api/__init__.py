@@ -24,6 +24,7 @@ from . import (
     notebook,
     organization,
     organization_domain,
+    organization_feature_flag,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -186,6 +187,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"feature_flags",
+    organization_feature_flag.OrganizationFeatureFlagView,
+    "organization_feature_flags",
     ["organization_id"],
 )
 
