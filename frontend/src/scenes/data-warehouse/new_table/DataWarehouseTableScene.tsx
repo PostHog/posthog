@@ -12,8 +12,8 @@ export const scene: SceneExport = {
     logic: dataWarehouseTableLogic,
 }
 export function DataWarehouseTable(): JSX.Element {
-    const { isEditingTable, tableLoading } = useValues(dataWarehouseTableLogic)
-    const { editingTable, loadTable } = useActions(dataWarehouseTableLogic)
+    const { isEditingTable, tableLoading, table } = useValues(dataWarehouseTableLogic)
+    const { editingTable, loadTable, createTable } = useActions(dataWarehouseTableLogic)
     return (
         <>
             <PageHeader
@@ -38,7 +38,9 @@ export function DataWarehouseTable(): JSX.Element {
                         <LemonButton
                             type="primary"
                             data-attr="save-data-warehouse-table"
-                            htmlType="submit"
+                            onClick={() => {
+                                createTable(table)
+                            }}
                             loading={tableLoading}
                         >
                             Save
