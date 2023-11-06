@@ -113,7 +113,6 @@ export function PropertyGroupFilters({
                                                             ? (group.values as AnyPropertyFilter[])
                                                             : null
                                                     }
-                                                    className="mb-0"
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}

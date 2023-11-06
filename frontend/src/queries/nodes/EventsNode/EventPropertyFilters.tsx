@@ -36,7 +36,6 @@ export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersPr
                 }
             }}
             pageKey={`EventPropertyFilters.${id}`}
-            className="my-0"
             eventNames={eventNames}
         />
     ) : (

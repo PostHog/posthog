@@ -33,7 +33,6 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
                     : [TaxonomicFilterGroupType.PersonProperties]
             }
             hogQLTable="persons"
-            className="my-0"
         />
     ) : (
         <div>Error: property groups are not supported.</div>
