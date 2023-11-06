@@ -12,8 +12,8 @@ import {
     FormattedResourceLevel,
     permissionsLogic,
     ResourcePermissionMapping,
-} from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
+} from './settings/organization/Permissions/permissionsLogic'
+import { rolesLogic } from './settings/organization/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {

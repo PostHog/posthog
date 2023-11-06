@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { OrganizationMemberType, UserType } from '~/types'
+import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -18,7 +18,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Row } from 'antd'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
@@ -133,18 +132,18 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
 }
 
-export interface MembersProps {
-    /** Currently logged-in user. */
-    user: UserType
-}
-
-export function Members({ user }: MembersProps): JSX.Element {
+export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
+
+    if (!user) {
+        return null
+    }
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -262,8 +261,7 @@ export function Members({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <h2 className="subtitle">Members</h2>
-            <Row align="middle" justify="space-between">
+            <div className="flex items-center justify-between">
                 <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
                 <LemonSwitch
                     label="Enforce 2FA"
@@ -271,7 +269,7 @@ export function Members({ user }: MembersProps): JSX.Element {
                     checked={currentOrganization?.enforce_2fa ? true : false}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
                 />
-            </Row>
+            </div>
 
             <LemonTable
                 dataSource={filteredMembers}

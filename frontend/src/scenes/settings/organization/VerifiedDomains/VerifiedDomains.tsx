@@ -26,25 +26,20 @@ export function VerifiedDomains(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
-                    <h2 id="authentication-domains" className="subtitle">
-                        Authentication domains
-                    </h2>
-                    <p className="text-muted-alt">
-                        Enable users to sign up automatically with an email address on verified domains and enforce SSO
-                        for accounts under your domains.
-                    </p>
-                </div>
-                <LemonButton
-                    type="primary"
-                    onClick={() => setAddModalShown(true)}
-                    disabled={verifiedDomainsLoading || updatingDomainLoading}
-                >
-                    Add domain
-                </LemonButton>
-            </div>
+            <p>
+                Enable users to sign up automatically with an email address on verified domains and enforce SSO for
+                accounts under your domains.
+            </p>
+
             <VerifiedDomainsTable />
+            <LemonButton
+                type="primary"
+                onClick={() => setAddModalShown(true)}
+                className="mt-4"
+                disabledReason={verifiedDomainsLoading || updatingDomainLoading ? 'loading...' : null}
+            >
+                Add domain
+            </LemonButton>
         </>
     )
 }

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'

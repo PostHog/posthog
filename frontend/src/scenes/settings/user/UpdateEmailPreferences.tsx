@@ -16,7 +16,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                 checked={user?.email_opt_in || false}
                 disabled={userLoading}
                 label="Receive security and feature updates via email. You can easily unsubscribe at any time."
-                fullWidth
                 bordered
             />
             <br />
@@ -35,7 +34,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                 }}
                 checked={user?.notification_settings.plugin_disabled || false}
                 disabled={userLoading}
-                fullWidth
                 bordered
                 label="Get notified when plugins are disabled due to errors."
             />

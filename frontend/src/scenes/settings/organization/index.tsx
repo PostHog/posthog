@@ -39,9 +39,6 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
 
     return (
         <div className="max-w-160">
-            <h2 id="name" className="subtitle mt-0">
-                Display Name
-            </h2>
             <LemonInput className="mb-4" value={name} onChange={setName} disabled={isRestricted} />
             <LemonButton
                 type="primary"
@@ -109,7 +106,6 @@ const organizationSettingsTabsLogic = kea<organizationSettingsTabsLogicType>([
 ])
 
 export function OrganizationSettings(): JSX.Element {
-    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useAnchor(location.hash)
     const { tab } = useValues(organizationSettingsTabsLogic)
@@ -125,7 +121,7 @@ export function OrganizationSettings(): JSX.Element {
                     <LemonDivider className="my-6" />
                     <Invites />
                     <LemonDivider className="my-6" />
-                    {user && <Members user={user} />}
+                    <Members />
                     <LemonDivider className="my-6" />
                     <RestrictedArea
                         Component={VerifiedDomains}

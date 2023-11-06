@@ -29,7 +29,7 @@ import {
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

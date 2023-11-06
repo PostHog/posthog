@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { Setting, SettingLevel, SettingSectionId, SettingsSections } from './SettingsMap'
 
 import type { settingsLogicType } from './settingsLogicType'
@@ -26,15 +26,19 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
     }),
 
+    listeners(({ actions }) => ({
+        selectSection: ({ section }) => {
+            if (section) {
+                actions.selectLevel(SettingsSections.find((x) => x.id === section)?.level || 'user')
+            }
+        },
+    })),
+
     selectors({
         settings: [
             (s) => [s.selectedLevel, s.selectedSectionId],
             (selectedLevel, selectedSectionId): Setting[] => {
                 if (!selectedSectionId) {
-                    console.log(
-                        'wat',
-                        SettingsSections.filter((section) => section.level === selectedLevel)
-                    )
                     return SettingsSections.filter((section) => section.level === selectedLevel).reduce(
                         (acc, section) => [...acc, ...section.settings],
                         [] as Setting[]

@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DemoProjectButton } from './PanelComponents'
 

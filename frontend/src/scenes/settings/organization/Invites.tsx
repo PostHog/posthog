@@ -98,12 +98,12 @@ export function Invites(): JSX.Element {
 
     return (
         <div>
-            <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
+            {/* <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Pending Invites
                 <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                     Invite team member
                 </LemonButton>
-            </h2>
+            </h2> */}
             {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable
                 dataSource={invites}
