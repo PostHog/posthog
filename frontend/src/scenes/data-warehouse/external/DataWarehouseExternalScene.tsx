@@ -1,4 +1,4 @@
-import { LemonTag, Link, LemonButtonWithSideAction } from '@posthog/lemon-ui'
+import { LemonTag, Link, LemonButtonWithSideAction, LemonButton } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -47,10 +47,14 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             }}
                             data-attr="new-data-warehouse-easy-link"
                             key={'new-data-warehouse-easy-link'}
-                            onClick={toggleSourceModal}
+                            onClick={() => toggleSourceModal()}
                         >
                             Link Source
                         </LemonButtonWithSideAction>
+                    ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
+                        <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
+                            New Table
+                        </LemonButton>
                     ) : undefined
                 }
                 caption={
@@ -72,7 +76,11 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() => toggleSourceModal()}
+                    action={() =>
+                        featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK]
+                            ? toggleSourceModal()
+                            : router.actions.push(urls.dataWarehouseTable())
+                    }
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}

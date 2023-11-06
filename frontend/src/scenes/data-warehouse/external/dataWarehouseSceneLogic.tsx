@@ -13,13 +13,13 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [userLogic, ['user']],
     })),
     actions({
-        toggleSourceModal: true,
+        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
     }),
     reducers({
         isSourceModalOpen: [
             false,
             {
-                toggleSourceModal: (state) => !state,
+                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
             },
         ],
     }),
