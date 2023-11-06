@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import {
     getLagMultiplier,
@@ -8,63 +8,66 @@ import {
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
 
 describe('session-recording utils', () => {
+    const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>
+        ({
+            headers,
+            value: Buffer.from(
+                JSON.stringify({
+                    uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
+                    distinct_id: String(distinctId),
+                    ip: '127.0.0.1',
+                    site_url: 'http://127.0.0.1:8000',
+                    data: JSON.stringify({
+                        uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
+                        event: '$snapshot_items',
+                        properties: {
+                            distinct_id: distinctId,
+                            $session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
+                            $window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
+                            $snapshot_items: [
+                                {
+                                    type: 6,
+                                    data: {
+                                        plugin: 'rrweb/console@1',
+                                        payload: {
+                                            level: 'log',
+                                            trace: [
+                                                'HedgehogActor.setAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105543:17)',
+                                                'HedgehogActor.setRandomAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105550:14)',
+                                                'HedgehogActor.update (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105572:16)',
+                                                'loop (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105754:15)',
+                                            ],
+                                            payload: ['"Hedgehog: Will \'jump\' for 2916.6666666666665ms"'],
+                                        },
+                                    },
+                                    timestamp: 1693422950693,
+                                },
+                            ],
+                            $snapshot_consumer: 'v2',
+                        },
+                        offset: 2187,
+                    }),
+                    now: '2023-08-30T19:15:54.887316+00:00',
+                    sent_at: '2023-08-30T19:15:54.882000+00:00',
+                    token: 'the_token',
+                    ...value,
+                })
+            ),
+            timestamp: 1,
+            size: 1,
+            topic: 'the_topic',
+            offset: 1,
+            partition: 1,
+        } satisfies Message)
+
     describe('parsing the message', () => {
         it('can handle numeric distinct_ids', async () => {
-            const numeric_id = 12345
-
-            const parsedMessage = await parseKafkaMessage(
-                {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
-                            distinct_id: String(numeric_id),
-                            ip: '127.0.0.1',
-                            site_url: 'http://127.0.0.1:8000',
-                            data: JSON.stringify({
-                                uuid: '018a47df-a0f6-7761-8635-439a0aa873bb',
-                                event: '$snapshot_items',
-                                properties: {
-                                    distinct_id: numeric_id,
-                                    $session_id: '018a47c2-2f4a-70a8-b480-5e51d8b8d070',
-                                    $window_id: '018a47c2-2f4a-70a8-b480-5e52f5480448',
-                                    $snapshot_items: [
-                                        {
-                                            type: 6,
-                                            data: {
-                                                plugin: 'rrweb/console@1',
-                                                payload: {
-                                                    level: 'log',
-                                                    trace: [
-                                                        'HedgehogActor.setAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105543:17)',
-                                                        'HedgehogActor.setRandomAnimation (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105550:14)',
-                                                        'HedgehogActor.update (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105572:16)',
-                                                        'loop (http://127.0.0.1:8000/static/toolbar.js?_ts=1693421010000:105754:15)',
-                                                    ],
-                                                    payload: ['"Hedgehog: Will \'jump\' for 2916.6666666666665ms"'],
-                                                },
-                                            },
-                                            timestamp: 1693422950693,
-                                        },
-                                    ],
-                                    $snapshot_consumer: 'v2',
-                                },
-                                offset: 2187,
-                            }),
-                            now: '2023-08-30T19:15:54.887316+00:00',
-                            sent_at: '2023-08-30T19:15:54.882000+00:00',
-                            token: 'the_token',
-                        })
-                    ),
-                    timestamp: 1,
-                    size: 1,
-                    topic: 'the_topic',
-                    offset: 1,
-                    partition: 1,
-                } satisfies Message,
-                () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
+            const numericId = 12345
+            const parsedMessage = await parseKafkaMessage(validMessage(numericId), () =>
+                Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage).toEqual({
-                distinct_id: '12345',
+                distinct_id: String(numericId),
                 events: expect.any(Array),
                 metadata: {
                     offset: 1,
@@ -152,6 +155,50 @@ describe('session-recording utils', () => {
                 Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false })
             )
             expect(parsedMessage3).toEqual(undefined)
+        })
+
+        describe('team token can be in header or body', () => {
+            const mockTeamResolver = jest.fn()
+
+            beforeEach(() => {
+                mockTeamResolver.mockReset()
+                mockTeamResolver.mockResolvedValue({ teamId: 1, consoleLogIngestionEnabled: false })
+            })
+
+            test.each([
+                [
+                    'calls the team id resolver once when token is in header, not in the body',
+                    'the_token',
+                    undefined,
+                    ['the_token'],
+                ],
+                [
+                    'calls the team id resolver once when token is in header, and in the body',
+                    'the_token',
+                    'the body token',
+                    ['the_token'],
+                ],
+                [
+                    'does not call the team id resolver when token is not in header, and not in body',
+                    undefined,
+                    undefined,
+                    undefined,
+                ],
+                [
+                    'calls the team id resolver twice when token is not in header, and is in body',
+                    undefined,
+                    'the body token',
+                    ['the body token'],
+                ],
+            ])('%s', async (_name, headerToken, payloadToken, expectedCalls) => {
+                await parseKafkaMessage(
+                    validMessage(12345, headerToken ? [{ token: Buffer.from(headerToken) }] : undefined, {
+                        token: payloadToken,
+                    }),
+                    mockTeamResolver
+                )
+                expect(mockTeamResolver.mock.calls).toEqual([expectedCalls])
+            })
         })
     })
 
