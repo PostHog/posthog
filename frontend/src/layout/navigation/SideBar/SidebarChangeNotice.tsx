@@ -1,3 +1,4 @@
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,19 +28,32 @@ export type SidebarChangeNoticeTooltipProps = SidebarChangeNoticeProps & {
 const NOTICES: {
     identifier: Scene
     description: React.ReactNode
+    placement: TooltipProps['placement']
     flagSuffix: string
 }[] = [
     {
         identifier: Scene.DataManagement,
         description: (
             <>
-                <b>Annotations</b> have moved! You can now find them in the <b>Data Management</b> section.
+                <b>Annotations</b> have moved here!
                 <br />
-                <br />
-                <b>Cohorts</b> have moved! You can now find them in the <b>People & Groups</b> section.
+                You can now find them in <b>Data Management</b>
             </>
         ),
+        placement: 'rightBottom',
         flagSuffix: 'annotations-2023-10-30',
+    },
+    {
+        identifier: Scene.PersonsManagement,
+        description: (
+            <>
+                <b>Cohorts</b> have moved here!
+                <br />
+                You can now find them in <b>People & Groups</b>
+            </>
+        ),
+        placement: 'rightTop',
+        flagSuffix: 'cohorts-2023-10-30',
     },
 ]
 
@@ -51,19 +65,17 @@ export function SidebarChangeNoticeContent({
     onAcknowledged: () => void
 }): JSX.Element | null {
     return (
-        <div className="max-w-80">
-            {notices.map((notice, i) => (
-                <Fragment key={i}>
-                    {notice.description}
-                    <LemonDivider />
-                </Fragment>
-            ))}
-
-            <div className="flex justify-end">
-                <LemonButton type="primary" onClick={onAcknowledged}>
-                    Got it!
-                </LemonButton>
+        <div className="flex items-center gap-1">
+            <div className="flex-1">
+                {notices.map((notice, i) => (
+                    <Fragment key={i}>
+                        {notice.description}
+                        {i < notices.length - 1 && <LemonDivider />}
+                    </Fragment>
+                ))}
             </div>
+
+            <LemonButton size="small" onClick={onAcknowledged} icon={<IconCheck />} />
         </div>
     )
 }
@@ -91,24 +103,28 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
     return [!noticeAcknowledged ? notices : [], onAcknowledged]
 }
 
-export function SidebarChangeNoticeTooltip({
-    identifier,
-    children,
-}: SidebarChangeNoticeTooltipProps): JSX.Element | null {
+export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChangeNoticeTooltipProps): React.ReactNode {
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     if (!notices.length) {
-        return <>{children}</>
+        return children
     }
 
     return (
         <Tooltip
-            visible={true}
-            placement="right"
+            visible
+            placement={notices[0].placement}
             delayMs={0}
             title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
         >
-            {children}
+            {React.cloneElement(children as React.ReactElement, {
+                onClick: () => {
+                    onAcknowledged()
+                    if (React.isValidElement(children)) {
+                        children.props.onClick?.()
+                    }
+                },
+            })}
         </Tooltip>
     )
 }
