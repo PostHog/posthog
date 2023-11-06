@@ -47,7 +47,7 @@ class QueryDateRange:
         delta_mapping = None
 
         if self._date_range and self._date_range.date_to:
-            date_to, delta_mapping = relative_date_parse_with_delta_mapping(
+            date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
                 self._team.timezone_info,
                 always_truncate=True,
