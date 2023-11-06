@@ -266,7 +266,7 @@ export class SessionRecordingIngester {
 
         if (!message.value || !message.timestamp) {
             // Typing says this can happen but in practice it shouldn't
-            return statusWarn('message value, timestamp, or team is empty')
+            return statusWarn('message value or timestamp is empty')
         }
 
         const headerResult = await readTokenFromHeaders(message.headers, this.teamsRefresher)
