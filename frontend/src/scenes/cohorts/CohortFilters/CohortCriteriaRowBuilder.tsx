@@ -1,7 +1,7 @@
 import './CohortCriteriaRowBuilder.scss'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { Col, Divider, Row } from 'antd'
+import { Col, Divider } from 'antd'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
@@ -76,7 +76,7 @@ export function CohortCriteriaRowBuilder({
                 }}
             >
                 <>
-                    <Row align="middle" wrap={false} className="mb-1">
+                    <div className="flex flex-nowrap items-center mb-1">
                         <KeaField
                             name="value"
                             template={({ error, kids }) => {
@@ -120,13 +120,13 @@ export function CohortCriteriaRowBuilder({
                                 onClick={() => removeFilter(groupIndex, index)}
                             />
                         )}
-                    </Row>
+                    </div>
                     <div style={{ display: 'flex' }}>
-                        <Col>
+                        <div>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
-                        </Col>
-                        <Col>
-                            <Row align="middle">
+                        </div>
+                        <div>
+                            <div className="flex items-center">
                                 {rowShape.fields.map((field, i) => {
                                     return (
                                         !field.hide &&
@@ -158,8 +158,8 @@ export function CohortCriteriaRowBuilder({
                                         ))
                                     )
                                 })}
-                            </Row>
-                        </Col>
+                            </div>
+                        </div>
                     </div>
                 </>
             </KeaField>

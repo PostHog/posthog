@@ -125,7 +125,7 @@ jobs:
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
-                  ruff check . 
+                  ruff check .
 
             - name: Check formatting
               run: |

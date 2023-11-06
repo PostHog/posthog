@@ -12,7 +12,6 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.session_recordings.session_recording_api import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, AvailableFeature
 from posthog.models import (
@@ -39,6 +38,7 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
+from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -234,7 +234,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         filter = SessionRecordingsFilter(request=request, team=self.team)
         filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(playlist_items)})
 
-        return response.Response(list_recordings(filter, request, context=self.get_serializer_context()))
+        return list_recordings_response(filter, request, self.get_serializer_context())
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(
