@@ -47,7 +47,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             }}
                             data-attr="new-data-warehouse-easy-link"
                             key={'new-data-warehouse-easy-link'}
-                            onClick={toggleSourceModal}
+                            onClick={() => toggleSourceModal()}
                         >
                             Link Source
                         </LemonButtonWithSideAction>
@@ -55,7 +55,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
                             New Table
                         </LemonButton>
-                    ) : null
+                    ) : undefined
                 }
                 caption={
                     <div>
