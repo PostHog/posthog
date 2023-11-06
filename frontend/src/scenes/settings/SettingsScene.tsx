@@ -1,8 +1,10 @@
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AllSettings } from './SettingsMap'
-
-export const SettingsSections = {}
+import { SettingLevels, SettingsSections } from './SettingsMap'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { settingsLogic } from './settingsLogic'
+import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: SettingsScene,
@@ -17,6 +19,9 @@ export const scene: SceneExport = {
  */
 
 export function SettingsScene(): JSX.Element {
+    const { selectedSectionId, selectedLevel, settings } = useValues(settingsLogic)
+    const { selectSection, selectLevel } = useActions(settingsLogic)
+
     // const { location } = useValues(router)
 
     // useAnchor(location.hash)
@@ -24,15 +29,27 @@ export function SettingsScene(): JSX.Element {
     return (
         <>
             <div className="flex items-start sticky top-0 gap-8">
-                <div className="flex-0">
-                    <ul>
-                        {AllSettings.map((section) => (
-                            <li key={section.id}>
-                                <span className="text-muted-alt">{section.title}</span>
-                                <ul>
-                                    {section.settings.map((setting) => (
-                                        <li key={setting.id} className="pl-4">
-                                            {setting.title}
+                <div className="flex-0 w-60">
+                    <ul className="space-y-px">
+                        {SettingLevels.map((level) => (
+                            <li key={level} className="space-y-px">
+                                <LemonButton onClick={() => selectLevel(level)} size="small" fullWidth>
+                                    <span className={clsx('text-muted-alt', level === selectedLevel && 'font-bold')}>
+                                        {capitalizeFirstLetter(level)}
+                                    </span>
+                                </LemonButton>
+
+                                <ul className="space-y-px">
+                                    {SettingsSections.filter((x) => x.level === level).map((section) => (
+                                        <li key={section.id} className="pl-4">
+                                            <LemonButton
+                                                onClick={() => selectSection(section.id)}
+                                                size="small"
+                                                fullWidth
+                                                active={selectedSectionId === section.id}
+                                            >
+                                                {section.title}
+                                            </LemonButton>
                                         </li>
                                     ))}
                                 </ul>
@@ -41,8 +58,8 @@ export function SettingsScene(): JSX.Element {
                     </ul>
                 </div>
 
-                <div className="flex-1 space-y-4">
-                    {AllSettings.map((x) => (
+                <div className="flex-1 space-y-8">
+                    {settings.map((x) => (
                         <div key={x.id} id={x.id}>
                             <h2 className="">{x.title}</h2>
                             {x.description && <p>{x.description}</p>}

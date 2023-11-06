@@ -1,14 +1,11 @@
 import { useState, useCallback, Dispatch, SetStateAction } from 'react'
-import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
-import { ColumnsType } from 'antd/lib/table'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconPlus } from 'lib/lemon-ui/icons'
 
@@ -71,79 +68,72 @@ function CreateKeyModal({
     )
 }
 
-function RowValue(value: string): JSX.Element {
-    return value ? (
-        <CopyToClipboardInline description="personal API key value">{value}</CopyToClipboardInline>
-    ) : (
-        <i>secret</i>
-    )
-}
-
-function RowActionsCreator(
-    deleteKey: (key: PersonalAPIKeyType) => void
-): (personalAPIKey: PersonalAPIKeyType) => JSX.Element {
-    return function RowActions(personalAPIKey: PersonalAPIKeyType) {
-        return (
-            <Popconfirm
-                title={`Permanently delete key "${personalAPIKey.label}"?`}
-                okText="Delete Key"
-                okType="danger"
-                icon={<ExclamationCircleOutlined style={{ color: 'var(--danger)' }} />}
-                placement="left"
-                onConfirm={() => {
-                    deleteKey(personalAPIKey)
-                }}
-            >
-                <span className="text-danger">Danger</span>
-            </Popconfirm>
-        )
-    }
-}
-
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
     const { deleteKey } = useActions(personalAPIKeysLogic)
 
-    const columns: ColumnsType<Record<string, any>> = [
-        {
-            title: 'Label',
-            dataIndex: 'label',
-            key: 'label',
-        },
-        {
-            title: 'Value',
-            dataIndex: 'value',
-            key: 'value',
-            className: 'ph-no-capture',
-            render: RowValue,
-        },
-        {
-            title: 'Last Used',
-            dataIndex: 'last_used_at',
-            key: 'lastUsedAt',
-            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt, 'MMMM DD, YYYY', 'h A'),
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            key: 'createdAt',
-            render: (createdAt: string | null) => humanFriendlyDetailedTime(createdAt),
-        },
-        {
-            title: '',
-            key: 'actions',
-            align: 'center',
-            render: RowActionsCreator(deleteKey),
-        },
-    ]
-
     return (
-        <Table
+        <LemonTable
             dataSource={keys}
-            columns={columns}
-            rowKey="id"
-            pagination={{ pageSize: 50, hideOnSinglePage: true }}
-            style={{ marginTop: '1rem' }}
+            className="mt-4"
+            columns={[
+                {
+                    title: 'Label',
+                    dataIndex: 'label',
+                    key: 'label',
+                },
+                {
+                    title: 'Value',
+                    key: 'value',
+                    dataIndex: 'value',
+                    render: function RenderValue(value) {
+                        return value ? (
+                            <CopyToClipboardInline description="personal API key value">{`${value}`}</CopyToClipboardInline>
+                        ) : (
+                            <i>secret</i>
+                        )
+                    },
+                },
+                {
+                    title: 'Last Used',
+                    dataIndex: 'last_used_at',
+                    key: 'lastUsedAt',
+                    render: (_, key) => humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                },
+                {
+                    title: 'Created',
+                    dataIndex: 'created_at',
+                    key: 'createdAt',
+                    render: (_, key) => humanFriendlyDetailedTime(key.created_at),
+                },
+                {
+                    title: '',
+                    key: 'actions',
+                    align: 'right',
+                    width: 0,
+                    render: (_, key) => {
+                        return (
+                            <LemonButton
+                                status="danger"
+                                type="primary"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: `Permanently delete key "${key.label}"?`,
+                                        description: 'This action cannot be undone.',
+                                        primaryButton: {
+                                            status: 'danger',
+                                            children: 'Permanently delete',
+                                            onClick: () => deleteKey(key),
+                                        },
+                                    })
+                                }}
+                            >
+                                Delete
+                            </LemonButton>
+                        )
+                    },
+                },
+            ]}
         />
     )
 }
@@ -174,8 +164,10 @@ export function PersonalAPIKeys(): JSX.Element {
             >
                 Create personal API key
             </LemonButton>
-            <CreateKeyModal isOpen={modalIsOpen} setIsOpen={setModalIsOpen} />
+
             <PersonalAPIKeysTable />
+
+            <CreateKeyModal isOpen={modalIsOpen} setIsOpen={setModalIsOpen} />
         </>
     )
 }

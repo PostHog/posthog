@@ -5,6 +5,11 @@ import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
+export type SettingLevel = 'user' | 'project' | 'organization'
+export type SettingSectionId = 'user-details' | 'user-api-keys' | 'user-notifications'
+
+export const SettingLevels: SettingLevel[] = ['project', 'organization', 'user']
+
 export type Setting = {
     id: string
     title: string
@@ -13,48 +18,62 @@ export type Setting = {
 }
 
 export type SettingSection = {
-    id: string
+    id: SettingSectionId
     title: string
+    level: SettingLevel
     settings: Setting[]
 }
 
-const UserSettings: Setting[] = [
+export const SettingsSections: SettingSection[] = [
     {
-        id: 'details',
+        level: 'user',
+        id: 'user-details',
         title: 'Details',
-        component: <UserDetails />,
+        settings: [
+            {
+                id: 'details',
+                title: 'Details',
+                component: <UserDetails />,
+            },
+            {
+                id: 'change-password',
+                title: 'Change password',
+                component: <ChangePassword />,
+            },
+            {
+                id: 'two-factor-authentication',
+                title: 'Two-factor authentication',
+                component: <TwoFactorAuthentication />,
+            },
+        ],
     },
     {
-        id: 'change-password',
-        title: 'Change password',
-        component: <ChangePassword />,
+        level: 'user',
+        id: 'user-api-keys',
+        title: 'Personal API Keys',
+        settings: [
+            {
+                id: 'personal-api-keys',
+                title: 'Personal API keys',
+                component: <PersonalAPIKeys />,
+            },
+        ],
     },
     {
-        id: 'personal-api-keys',
-        title: 'Personal API keys',
-        component: <PersonalAPIKeys />,
-    },
-    {
-        id: 'two-factor-authentication',
-        title: 'Two-factor authentication',
-        component: <TwoFactorAuthentication />,
-    },
-    {
-        id: 'notifications',
+        level: 'user',
+        id: 'user-notifications',
         title: 'Notifications',
-        component: <UpdateEmailPreferences />,
-    },
-    {
-        id: 'optout',
-        title: 'Anonymize Data Collection',
-        component: <OptOutCapture />,
-    },
-]
-
-export const AllSettings: SettingSection[] = [
-    {
-        id: 'user',
-        title: 'User',
-        settings: UserSettings,
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+            {
+                id: 'optout',
+                title: 'Anonymize Data Collection',
+                component: <OptOutCapture />,
+            },
+        ],
     },
 ]

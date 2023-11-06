@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { Switch } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 export function OptOutCapture(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
@@ -16,21 +16,14 @@ export function OptOutCapture(): JSX.Element {
                 We also understand there are many reasons why people don't want to or aren't allowed to send this usage
                 data. If you would like to anonymize your personal usage data, just tick the box below.
             </p>
-            <Switch
+            <LemonSwitch
+                label={'Anonymize my data'}
                 data-attr="anonymize-data-collection"
                 onChange={(checked) => updateUser({ anonymize_data: checked })}
-                defaultChecked={user?.anonymize_data}
-                loading={userLoading}
+                checked={user?.anonymize_data ?? false}
                 disabled={userLoading}
+                bordered
             />
-            <label
-                htmlFor="anonymize-data-collection"
-                style={{
-                    marginLeft: '10px',
-                }}
-            >
-                Anonymize my data
-            </label>
         </div>
     )
 }
