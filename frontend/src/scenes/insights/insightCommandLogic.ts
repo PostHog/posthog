@@ -5,6 +5,7 @@ import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLo
 import { dateMapping } from 'lib/utils'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from './insightVizDataLogic'
 import { IconTrendingUp } from 'lib/lemon-ui/icons'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
