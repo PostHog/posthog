@@ -45,7 +45,7 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.Annotations,
         })
-        router.actions.push(urls.mySettings())
+        router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             scene: Scene.MySettings,
         })
@@ -74,7 +74,7 @@ describe('sceneLogic', () => {
                     [Scene.Annotations]: expectedAnnotation,
                 }),
             })
-        router.actions.push(urls.mySettings())
+        router.actions.push(urls.settings('user'))
         await expectLogic(logic)
             .delay(1)
             .toMatchValues({

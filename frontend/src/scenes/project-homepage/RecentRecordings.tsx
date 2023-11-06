@@ -70,7 +70,7 @@ export function RecentRecordings(): JSX.Element {
                               title: 'Recordings are not enabled for this project',
                               description: 'Once recordings are enabled, new recordings will display here.',
                               buttonText: 'Enable recordings',
-                              buttonTo: urls.projectSettings() + '#recordings',
+                              buttonTo: urls.settings('project-replay'),
                           }
                 }
                 items={sessionRecordings.slice(0, 5)}

@@ -10,7 +10,7 @@ export function RecordingNotFound(): JSX.Element {
                 <>
                     The requested recording doesn't seem to exist. The recording may still be processing, deleted due to
                     age or have not been enabled. Please check your{' '}
-                    <Link to={urls.projectSettings()}>project settings</Link> that recordings is turned on and enabled
+                    <Link to={urls.settings('project')}>project settings</Link> that recordings is turned on and enabled
                     for the domain in question.
                 </>
             }

@@ -18,6 +18,8 @@ import { VerifiedDomains } from 'scenes/settings/organization/VerifiedDomains/Ve
 import { OrganizationDangerZone } from 'scenes/settings/organization/OrganizationDangerZone'
 import { PermissionsGrid } from 'scenes/settings/organization/Permissions/PermissionsGrid'
 
+import type { organizationSettingsTabsLogicType } from './SettingsType'
+
 export const scene: SceneExport = {
     component: OrganizationSettings,
     logic: organizationLogic,
@@ -91,10 +93,10 @@ const organizationSettingsTabsLogic = kea<organizationSettingsTabsLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setTab: ({ tab }) => `${urls.organizationSettings()}?tab=${tab}`,
+        setTab: ({ tab }) => `${urls.settings('organization')}?tab=${tab}`,
     })),
     urlToAction(({ values, actions }) => ({
-        [urls.organizationSettings()]: (_, searchParams) => {
+        [urls.settings('organization')]: (_, searchParams) => {
             if (searchParams['tab'] && values.tab !== searchParams['tab']) {
                 actions.setTab(searchParams['tab'])
             }

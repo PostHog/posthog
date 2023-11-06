@@ -31,7 +31,7 @@ export function SurveySettings({ inModal = false }: SurveySettingsProps): JSX.El
 
                 <p>
                     Please note your website needs to have the{' '}
-                    <Link to={urls.projectSettings() + '#snippet'}>PostHog snippet</Link> or at least version 1.81.1 of{' '}
+                    <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or at least version 1.81.1 of{' '}
                     <Link
                         to="https://posthog.com/docs/integrations/js-integration?utm_campaign=surveys&utm_medium=in-product"
                         target="_blank"

@@ -97,7 +97,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 case 'slack': {
                     const { state, code, error, next } = searchParams
 
-                    const replaceUrl = next || urls.projectSettings()
+                    const replaceUrl = next || urls.settings('project')
 
                     if (error) {
                         lemonToast.error(`Failed due to "${error}"`)

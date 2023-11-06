@@ -236,7 +236,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
 
                 <p>
                     Please note your website needs to have the{' '}
-                    <Link to={urls.projectSettings() + '#snippet'}>PostHog snippet</Link> or the latest version of{' '}
+                    <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or the latest version of{' '}
                     <Link
                         to="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"

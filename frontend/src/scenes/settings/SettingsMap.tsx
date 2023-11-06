@@ -4,7 +4,6 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
-import { EitherMembershipLevel } from 'lib/utils/permissioning'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -12,7 +11,6 @@ import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     Bookmarklet,
     ProjectDisplayName,
@@ -36,38 +34,7 @@ import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
 import { SurveySettings } from './project/SurveySettings'
 import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
-
-export type SettingLevel = 'user' | 'project' | 'organization'
-export type SettingSectionId =
-    | 'project-details'
-    | 'project-autocapture'
-    | 'project-replay'
-    | 'user-details'
-    | 'user-api-keys'
-    | 'user-notifications'
-    | 'organization-details'
-    | 'organization-members'
-    | 'organization-authentication'
-    | 'organization-danger-zone'
-    | 'organization-rbac'
-
-export const SettingLevels: SettingLevel[] = ['project', 'organization', 'user']
-
-export type Setting = {
-    id: string
-    title: string
-    description?: JSX.Element | string
-    component: JSX.Element
-}
-
-export type SettingSection = {
-    id: SettingSectionId
-    title: string
-    level: SettingLevel
-    settings: Setting[]
-    flag?: keyof typeof FEATURE_FLAGS
-    minimumAccessLevel?: EitherMembershipLevel
-}
+import { SettingSection } from './types'
 
 export const SettingsSections: SettingSection[] = [
     // PROJECT
@@ -77,22 +44,22 @@ export const SettingsSections: SettingSection[] = [
         title: 'General',
         settings: [
             {
-                id: 'project-display-name',
+                id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
             },
             {
-                id: 'project-snippet',
+                id: 'snippet',
                 title: 'Web snippet',
                 component: <WebSnippet />,
             },
             {
-                id: 'project-bookmarklet',
+                id: 'bookmarklet',
                 title: 'Bookmarklet',
                 component: <Bookmarklet />,
             },
             {
-                id: 'project-variables',
+                id: 'variables',
                 title: 'Project ID',
                 component: <ProjectVariables />,
             },
@@ -105,17 +72,17 @@ export const SettingsSections: SettingSection[] = [
 
         settings: [
             {
-                id: 'project-autocapture',
+                id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
             },
             {
-                id: 'project-exception-autocapture',
+                id: 'exception-autocapture',
                 title: 'Exception Autocapture',
                 component: <ExceptionAutocaptureSettings />,
             },
             {
-                id: 'project-autocapture-data-attributes',
+                id: 'autocapture-data-attributes',
                 title: 'Data attributes',
                 component: <DataAttributes />,
             },
@@ -128,42 +95,42 @@ export const SettingsSections: SettingSection[] = [
         title: 'Product Analytics',
         settings: [
             {
-                id: 'project-date-and-time',
+                id: 'date-and-time',
                 title: 'Date & Time',
                 component: <ProjectTimezone />,
             },
             {
-                id: 'project-internal-user-filtering',
+                id: 'internal-user-filtering',
                 title: 'Filter our internal and test users',
                 component: <ProjectAccountFiltersSetting />,
             },
             {
-                id: 'project-correlation-analysis',
+                id: 'correlation-analysis',
                 title: 'Correlation analysis exclusions',
                 component: <CorrelationConfig />,
             },
             {
-                id: 'project-person-display-name',
+                id: 'person-display-name',
                 title: 'Person display name',
                 component: <PersonDisplayNameProperties />,
             },
             {
-                id: 'project-path-cleaning',
+                id: 'path-cleaning',
                 title: 'Path cleaning rules',
                 component: <PathCleaningFiltersConfig />,
             },
             {
-                id: 'project-datacapture',
+                id: 'datacapture',
                 title: 'IP Data capture configuration',
                 component: <IPCapture />,
             },
             {
-                id: 'project-group-analytics',
+                id: 'group-analytics',
                 title: 'Group Analytics',
                 component: <GroupAnalyticsConfig />,
             },
             {
-                id: 'project-persons-on-events',
+                id: 'persons-on-events',
                 title: 'Persons on events (beta)',
                 component: <SettingPersonsOnEvents />,
             },
@@ -176,17 +143,17 @@ export const SettingsSections: SettingSection[] = [
         title: 'Session Replay',
         settings: [
             {
-                id: 'project-replay-general',
+                id: 'replay',
                 title: 'Session Replay',
                 component: <ReplayGeneral />,
             },
             {
-                id: 'project-replay-authorized-domains',
+                id: 'replay-authorized-domains',
                 title: 'Authorized Domains for Replay',
                 component: <ReplayAuthorizedDomains />,
             },
             {
-                id: 'project-replay-ingestion',
+                id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
             },
@@ -198,7 +165,7 @@ export const SettingsSections: SettingSection[] = [
         title: 'Surveys',
         settings: [
             {
-                id: 'project-surveys-interface',
+                id: 'surveys-interface',
                 title: 'Surveys web interface',
                 component: <SurveySettings />,
             },
@@ -211,7 +178,7 @@ export const SettingsSections: SettingSection[] = [
         title: 'Toolbar',
         settings: [
             {
-                id: 'project-authorized-toolbar-urls',
+                id: 'authorized-toolbar-urls',
                 title: 'Authorized Toolbar URLs',
                 component: <ProjectToolbarURLs />,
             },
@@ -223,12 +190,12 @@ export const SettingsSections: SettingSection[] = [
         title: 'Integrations',
         settings: [
             {
-                id: 'project-integration-webhooks',
+                id: 'integration-webhooks',
                 title: 'Webhook integration',
                 component: <WebhookIntegration />,
             },
             {
-                id: 'project-integration-slack',
+                id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
             },
@@ -266,7 +233,7 @@ export const SettingsSections: SettingSection[] = [
         title: 'General',
         settings: [
             {
-                id: 'organization-details',
+                id: 'organization-display-name',
                 title: 'Display name',
                 component: <OrganizationDisplayName />,
             },
@@ -278,17 +245,17 @@ export const SettingsSections: SettingSection[] = [
         title: 'Members',
         settings: [
             {
-                id: 'organization-invites',
+                id: 'invites',
                 title: 'Pending Invites',
                 component: <Invites />,
             },
             {
-                id: 'organization-members',
+                id: 'members',
                 title: 'Members',
                 component: <Members />,
             },
             {
-                id: 'organization-email-members',
+                id: 'email-members',
                 title: 'Notification preferences',
                 component: <OrganizationEmailPreferences />,
             },
@@ -300,7 +267,7 @@ export const SettingsSections: SettingSection[] = [
         title: 'Authentication Domains & SSO',
         settings: [
             {
-                id: 'organization-domains',
+                id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
             },
@@ -335,7 +302,7 @@ export const SettingsSections: SettingSection[] = [
     // USER
     {
         level: 'user',
-        id: 'user-details',
+        id: 'user-profile',
         title: 'Profile',
         settings: [
             {
@@ -349,7 +316,7 @@ export const SettingsSections: SettingSection[] = [
                 component: <ChangePassword />,
             },
             {
-                id: 'two-factor-authentication',
+                id: '2fa',
                 title: 'Two-factor authentication',
                 component: <TwoFactorAuthentication />,
             },

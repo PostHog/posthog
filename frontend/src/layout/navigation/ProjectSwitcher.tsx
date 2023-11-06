@@ -74,7 +74,7 @@ function CurrentProjectButton(): JSX.Element | null {
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
-                    push(urls.projectSettings())
+                    push(urls.settings('project'))
                 },
             }}
             title={`Switch to project ${currentTeam.name}`}

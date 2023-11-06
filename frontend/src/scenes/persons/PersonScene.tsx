@@ -239,7 +239,7 @@ export function PersonScene(): JSX.Element | null {
                                         <LemonBanner type="info">
                                             Session recordings are currently disabled for this project. To use this
                                             feature, please go to your{' '}
-                                            <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link>{' '}
+                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>

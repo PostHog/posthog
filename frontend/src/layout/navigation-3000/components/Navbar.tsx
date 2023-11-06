@@ -104,9 +104,9 @@ export function Navbar(): JSX.Element {
                         />
                         <NavbarButton
                             icon={<IconGear />}
-                            identifier={Scene.ProjectSettings}
+                            identifier={Scene.Settings}
                             title="Project settings"
-                            to={urls.projectSettings()}
+                            to={urls.settings('project')}
                         />
                         <Popover
                             overlay={<SitePopoverOverlay />}

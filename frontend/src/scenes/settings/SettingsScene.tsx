@@ -1,5 +1,4 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { SettingLevels } from './SettingsMap'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { settingsLogic } from './settingsLogic'
@@ -9,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { SettingLevelIds } from './types'
 
 export const scene: SceneExport = {
     component: SettingsScene,
@@ -37,7 +37,7 @@ export function SettingsScene(): JSX.Element {
             <div className="flex items-start gap-8">
                 <div className="shrink-0 w-60 sticky top-16">
                     <ul className="space-y-px">
-                        {SettingLevels.map((level) => (
+                        {SettingLevelIds.map((level) => (
                             <li key={level} className="space-y-px">
                                 <LemonButton
                                     onClick={() => selectLevel(level)}

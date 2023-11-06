@@ -113,7 +113,7 @@ export function ResourcePermission({
                                 icon={
                                     <LemonButton
                                         icon={<IconSettings />}
-                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        to={`${urls.settings('organization')}?tab=role_based_access`}
                                         status="stealth"
                                         targetBlank
                                         size="small"
@@ -246,7 +246,7 @@ function OrganizationResourcePermissionLabel({
                 icon={
                     <LemonButton
                         icon={<IconSettings />}
-                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        to={`${urls.settings('organization')}?tab=role_based_access`}
                         status="stealth"
                         targetBlank
                         size="small"

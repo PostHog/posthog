@@ -254,7 +254,7 @@ export function EditSubscription({
                                                 <>
                                                     Slack is not yet configured for this project. You can configure it
                                                     at{' '}
-                                                    <Link to={`${urls.projectSettings()}#slack`}>
+                                                    <Link to={`${urls.settings('project')}#slack`}>
                                                         {' '}
                                                         Slack Integration settings
                                                     </Link>

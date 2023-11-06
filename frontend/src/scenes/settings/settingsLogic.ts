@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { Setting, SettingLevel, SettingLevels, SettingSection, SettingSectionId, SettingsSections } from './SettingsMap'
+import { SettingsSections } from './SettingsMap'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -7,7 +7,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, copyToClipboard } from 'lib/utils'
+import { SettingSectionId, SettingLevelId, SettingSection, Setting, SettingLevelIds } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([
     path(['scenes', 'settings']),
@@ -17,13 +18,13 @@ export const settingsLogic = kea<settingsLogicType>([
 
     actions({
         selectSection: (section: SettingSectionId) => ({ section }),
-        selectLevel: (level: SettingLevel) => ({ level }),
+        selectLevel: (level: SettingLevelId) => ({ level }),
         selectSetting: (setting: string) => ({ setting }),
     }),
 
     reducers({
         selectedLevel: [
-            'project' as SettingLevel,
+            'project' as SettingLevelId,
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { section }) => SettingsSections.find((x) => x.id === section)?.level || 'user',
@@ -78,11 +79,11 @@ export const settingsLogic = kea<settingsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/settings/:section': ({ section }) => {
+        '/settings/:section': ({ section }, _, hashParams) => {
             // TODO: Should we ensure that a given setting always sets the correct section?
 
-            if (SettingLevels.includes(section as SettingLevel)) {
-                actions.selectLevel(section as SettingLevel)
+            if (SettingLevelIds.includes(section as SettingLevelId)) {
+                actions.selectLevel(section as SettingLevelId)
             } else if (section) {
                 actions.selectSection(section as SettingSectionId)
             }
@@ -97,7 +98,11 @@ export const settingsLogic = kea<settingsLogicType>([
             return [urls.settings(section)]
         },
         selectSetting({ setting }) {
-            return [urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)]
+            const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)
+
+            copyToClipboard(window.location.origin + url)
+
+            return [url]
         },
     })),
 ])
