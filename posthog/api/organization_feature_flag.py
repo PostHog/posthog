@@ -1,11 +1,15 @@
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import FeatureFlag
+from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.models import FeatureFlag, Team
 from posthog.permissions import OrganizationMemberPermissions
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
 from rest_framework import (
     mixins,
     viewsets,
+    status,
 )
 
 
@@ -27,6 +31,75 @@ class OrganizationFeatureFlagView(
         teams = self.organization.teams.all()
 
         flags = FeatureFlag.objects.filter(key=feature_flag_key, team_id__in=[team.id for team in teams])
-        flags_data = [{"team_id": flag.team_id, "active": flag.active} for flag in flags]
+        flags_data = [
+            {
+                "flag_id": flag.id,
+                "team_id": flag.team_id,
+                "active": flag.active,
+            }
+            for flag in flags
+        ]
 
         return Response(flags_data)
+
+    @action(detail=False, methods=["post"], url_path="copy_flags")
+    def copy_flags(self, request, *args, **kwargs):
+        body = request.data
+        feature_flag_key = body.get("feature_flag_key")
+        from_project = body.get("from_project")
+        target_project_ids = body.get("target_project_ids")
+
+        if not feature_flag_key or not from_project or not target_project_ids:
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team_id=from_project)
+        except FeatureFlag.DoesNotExist:
+            return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_404_NOT_FOUND)
+
+        results = {"success": [], "failed": []}
+
+        for target_project_id in target_project_ids:
+            # Target project does not exist
+            try:
+                Team.objects.get(id=target_project_id)
+            except ObjectDoesNotExist:
+                results["failed"].append({"project_id": target_project_id, "errors": "Target project does not exist."})
+                continue
+
+            context = {
+                "request": request,
+                "team_id": target_project_id,
+            }
+            flag_data = {
+                "key": flag_to_copy.key,
+                "name": flag_to_copy.name,
+                "filters": flag_to_copy.filters,
+                "active": flag_to_copy.active,
+                "deleted": False,
+            }
+            feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
+
+            existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target_project_id).first()
+            # Update existing flag
+            if existing_flag:
+                feature_flag_serializer = FeatureFlagSerializer(
+                    existing_flag, data=flag_data, partial=True, context=context
+                )
+            # Create new flag
+            else:
+                feature_flag_serializer = FeatureFlagSerializer(data=flag_data, context=context)
+
+            try:
+                feature_flag_serializer.is_valid(raise_exception=True)
+                new_feature_flag = feature_flag_serializer.save(team_id=target_project_id)
+                results["success"].append(FeatureFlagSerializer(new_feature_flag, context=context).data)
+            except Exception as e:
+                results["failed"].append(
+                    {
+                        "project_id": target_project_id,
+                        "errors": str(e) if not feature_flag_serializer.errors else feature_flag_serializer.errors,
+                    }
+                )
+
+        return Response(results, status=status.HTTP_200_OK)
