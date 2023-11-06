@@ -10,7 +10,7 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { DangerZone } from './organization/DangerZone'
+import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
@@ -327,7 +327,7 @@ export const SettingsSections: SettingSection[] = [
             {
                 id: 'organization-delete',
                 title: 'Delete organization',
-                component: <DangerZone />,
+                component: <OrganizationDangerZone />,
             },
         ],
     },
