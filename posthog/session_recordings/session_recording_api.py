@@ -539,15 +539,16 @@ def list_recordings(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings])
-        person_distinct_ids = (
-            PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
-            .select_related("person")
-            .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
+        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
+            "person"
         )
 
     with timer("process_persons"):
         distinct_id_to_person = {}
         for person_distinct_id in person_distinct_ids:
+            person_distinct_id.person._distinct_ids = [
+                person_distinct_id.distinct_id
+            ]  # Stop the person from loading all distinct ids
             distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
         for recording in recordings:
