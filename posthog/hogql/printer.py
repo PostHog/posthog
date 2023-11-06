@@ -854,7 +854,11 @@ class _Printer(Visitor):
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
-        elif isinstance(type.table_type, ast.SelectQueryType) or isinstance(type.table_type, ast.SelectQueryAliasType):
+        elif (
+            isinstance(type.table_type, ast.SelectQueryType)
+            or isinstance(type.table_type, ast.SelectQueryAliasType)
+            or isinstance(type.table_type, ast.SelectUnionQueryType)
+        ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"

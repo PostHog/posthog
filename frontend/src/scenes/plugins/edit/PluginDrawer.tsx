@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Switch, Tag } from 'antd'
+import { Form, Switch } from 'antd'
 import { LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -18,7 +18,7 @@ import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { IconCode } from '@posthog/icons'
 
 window.process = MOCK_NODE_PROCESS
@@ -209,12 +209,12 @@ export function PluginDrawer(): JSX.Element {
                                             )
                                             .map((capability) => (
                                                 <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
-                                                    <Tag className="Plugin__CapabilitiesTag">{capability}</Tag>
+                                                    <LemonTag className="cursor-default">{capability}</LemonTag>
                                                 </Tooltip>
                                             ))}
                                         {(editingPlugin.capabilities?.jobs || []).map((jobName) => (
                                             <Tooltip title="Custom job" key={jobName}>
-                                                <Tag className="Plugin__CapabilitiesTag">{jobName}</Tag>
+                                                <LemonTag className="cursor-default">{jobName}</LemonTag>
                                             </Tooltip>
                                         ))}
                                     </div>

@@ -174,6 +174,10 @@ module.exports = {
                         message: 'use <LemonCollapse> instead',
                     },
                     {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
+                    },
+                    {
                         element: 'MonacoEditor',
                         message: 'use <CodeEditor> instead',
                     },
