@@ -584,6 +584,7 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
+        overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
 
         * > {
             ::-webkit-scrollbar {
