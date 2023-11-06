@@ -3,7 +3,14 @@ from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet, Q
 from django.conf import settings
-from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework import (
+    authentication,
+    exceptions,
+    request,
+    serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -18,9 +25,16 @@ from posthog.api.dashboards.dashboard import Dashboard
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
-from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.dashboard_templates import (
+    add_enriched_insights_to_feature_flag_dashboard,
+)
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Detail,
+    changes_between,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
@@ -35,7 +49,10 @@ from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.rate_limit import BurstRateThrottle
 
 DATABASE_FOR_LOCAL_EVALUATION = (
@@ -204,7 +221,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(
-                            detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
+                            detail=f"Cohort with id {prop.value} does not exist",
+                            code="cohort_does_not_exist",
                         )
 
         payloads = filters.get("payloads", {})
@@ -222,7 +240,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -252,7 +269,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
-
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
@@ -319,7 +335,12 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
         ]
 
 
-class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class FeatureFlagViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -468,7 +489,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
-
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
             team_id=self.team_id, deleted=False, active=True
         )
@@ -493,7 +513,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             if not should_send_cohorts and (
                 len(
                     feature_flag.get_cohort_ids(
-                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
                     )
                 )
                 == 1
@@ -501,7 +522,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                 feature_flag.filters = {
                     **filters,
                     "groups": feature_flag.transform_cohort_filters_for_easy_evaluation(
-                        using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
                     ),
                 }
             else:
@@ -513,7 +535,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             # irrespective of complexity
             if should_send_cohorts:
                 for id in feature_flag.get_cohort_ids(
-                    using_database=DATABASE_FOR_LOCAL_EVALUATION, seen_cohorts_cache=seen_cohorts_cache
+                    using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                    seen_cohorts_cache=seen_cohorts_cache,
                 ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
@@ -548,7 +571,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["GET"], detail=False)
     def evaluation_reasons(self, request: request.Request, **kwargs):
-
         distinct_id = request.query_params.get("distinct_id", None)
         groups = json.loads(request.query_params.get("groups", "{}"))
 
@@ -582,7 +604,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
-
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
@@ -617,7 +638,11 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
-            scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
+            scope="FeatureFlag",
+            team_id=self.team_id,
+            item_id=item_id,
+            limit=limit,
+            page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
 

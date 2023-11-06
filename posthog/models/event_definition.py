@@ -8,7 +8,10 @@ from posthog.models.utils import UUIDModel
 
 class EventDefinition(UUIDModel):
     team: models.ForeignKey = models.ForeignKey(
-        Team, on_delete=models.CASCADE, related_name="event_definitions", related_query_name="team"
+        Team,
+        on_delete=models.CASCADE,
+        related_name="event_definitions",
+        related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
@@ -26,7 +29,9 @@ class EventDefinition(UUIDModel):
         unique_together = ("team", "name")
         indexes = [
             GinIndex(
-                name="index_event_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+                name="index_event_definition_name",
+                fields=["name"],
+                opclasses=["gin_trgm_ops"],
             )  # To speed up DB-based fuzzy searching
         ]
 

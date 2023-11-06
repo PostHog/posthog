@@ -2,12 +2,12 @@ import React, { useState } from 'react'
 import { NotebookNodeType } from '~/types'
 import './DraggableToNotebook.scss'
 import { useActions, useValues } from 'kea'
-import { notebookPopoverLogic } from '../Notebook/notebookPopoverLogic'
 import clsx from 'clsx'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from '../Nodes/notebookNodeLogic'
+import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
 export type DraggableToNotebookBaseProps = {
     href?: string
@@ -22,9 +22,10 @@ export type DraggableToNotebookProps = DraggableToNotebookBaseProps & {
 
 export function useNotebookDrag({ href, node, properties }: DraggableToNotebookBaseProps): {
     isDragging: boolean
-    elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'draggable' | 'onDragStart' | 'onDragEnd'>
+    elementProps: Pick<React.HTMLAttributes<HTMLElement>, 'onDragStart' | 'onDragEnd'>
 } {
-    const { startDropMode, endDropMode } = useActions(notebookPopoverLogic)
+    const { startDropMode, endDropMode } = useActions(notebookPanelLogic)
+
     const [isDragging, setIsDragging] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -42,7 +43,6 @@ export function useNotebookDrag({ href, node, properties }: DraggableToNotebookB
     return {
         isDragging,
         elementProps: {
-            draggable: true,
             onDragStart: (e: any) => {
                 setIsDragging(true)
                 startDropMode()
@@ -80,6 +80,7 @@ export function DraggableToNotebook({
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} fallback={children}>
                 <span
                     className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
+                    draggable={elementProps.onDragEnd ? true : false}
                     {...elementProps}
                 >
                     {children}

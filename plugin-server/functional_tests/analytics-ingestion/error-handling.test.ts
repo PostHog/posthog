@@ -8,23 +8,24 @@ import { waitForExpect } from '../expectations'
 let kafka: Kafka
 let organizationId: string
 
-let dlq: KafkaMessage[]
-let dlqConsumer: Consumer
+let warningMessages: KafkaMessage[]
+let warningConsumer: Consumer
 
 beforeAll(async () => {
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
 
-    // Make sure the dlq topic exists before starting the consumer
+    // Make sure the ingest warnings topic exists before starting the consumer
     const admin = kafka.admin()
-    await admin.createTopics({ topics: [{ topic: 'events_plugin_ingestion_dlq' }] })
+    const topic = 'clickhouse_ingestion_warnings' // note: functional tests don't use _test suffix as in config
+    await admin.createTopics({ topics: [{ topic: topic }] })
     await admin.disconnect()
 
-    dlq = []
-    dlqConsumer = kafka.consumer({ groupId: 'events_plugin_ingestion_test' })
-    await dlqConsumer.subscribe({ topic: 'events_plugin_ingestion_dlq', fromBeginning: true })
-    await dlqConsumer.run({
+    warningMessages = []
+    warningConsumer = kafka.consumer({ groupId: 'events_plugin_ingestion_test' })
+    await warningConsumer.subscribe({ topic: topic, fromBeginning: true })
+    await warningConsumer.run({
         eachMessage: ({ message }) => {
-            dlq.push(message)
+            warningMessages.push(message)
             return Promise.resolve()
         },
     })
@@ -33,10 +34,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await dlqConsumer.disconnect()
+    await warningConsumer.disconnect()
 })
 
-test.concurrent('consumer handles messages just less than 1MB gracefully', async () => {
+test.concurrent('consumer produces ingest warnings for messages over 1MB', async () => {
     // For this we basically want the plugin-server to try and produce a new
     // message larger than 1MB. We do this by creating a person with a lot of
     // properties. We will end up denormalizing the person properties onto the
@@ -44,8 +45,8 @@ test.concurrent('consumer handles messages just less than 1MB gracefully', async
     // message that's larger than 1MB. There may also be other attributes that
     // are added to the event which pushes it over the limit.
     //
-    // We verify that at least some error has happened by checking that there is
-    // a message in the DLQ.
+    // We verify that this is handled by checking that there is a message in the
+    // appropriate topic.
     const token = new UUIDT().toString()
     const teamId = await createTeam(organizationId, undefined, token)
     const distinctId = new UUIDT().toString()
@@ -68,12 +69,16 @@ test.concurrent('consumer handles messages just less than 1MB gracefully', async
         properties: personProperties,
     })
 
-    // Verify we have a message in the DLQ, along a Sentry event id in the
-    // header `sentry-event-id`.
-    const message = await waitForExpect(() => {
-        const [message] = dlq.filter((message) => message.headers?.['event-id']?.toString() === personEventUuid)
+    // Verify we have a message corresponding to the input event.
+    await waitForExpect(() => {
+        const [message] = warningMessages.filter((message: KafkaMessage) => {
+            if (message.value) {
+                const payload = JSON.parse(message.value.toString())
+                const details = JSON.parse(payload.details)
+                return details.eventUuid === personEventUuid && details.distinctId === distinctId
+            }
+        })
         expect(message).toBeDefined()
         return message
     })
-    expect(message.headers?.['sentry-event-id']).toBeDefined()
 })

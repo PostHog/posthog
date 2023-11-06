@@ -55,13 +55,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     QUERY_TYPE = "funnel_trends"
 
     def __init__(self, filter: Filter, team: Team) -> None:
-
         super().__init__(filter, team)
 
         self.funnel_order = get_funnel_order_class(filter)(filter, team)
 
     def _exec_query(self):
-
         return self._summarize_data(super()._exec_query())
 
     def get_step_counts_without_aggregation_query(
@@ -97,7 +95,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
-        reached_from_step_count_condition, reached_to_step_count_condition, _ = self.get_steps_reached_conditions()
+        (
+            reached_from_step_count_condition,
+            reached_to_step_count_condition,
+            _,
+        ) = self.get_steps_reached_conditions()
         interval_func = get_interval_func_ch(self._filter.interval)
 
         if self._filter.date_from is None:
@@ -157,10 +159,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         reached_to_step_count_condition = f"steps_completed >= {to_step+1}"
         # Those who dropped off
         did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step+1}"
-        return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
+        return (
+            reached_from_step_count_condition,
+            reached_to_step_count_condition,
+            did_not_reach_to_step_count_condition,
+        )
 
     def _summarize_data(self, results):
-
         breakdown_clause = self._get_breakdown_prop()
 
         summary = []
@@ -185,7 +190,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return summary
 
     def _format_results(self, summary):
-
         if self._filter.breakdown:
             grouper = lambda row: row["breakdown_value"]
             sorted_data = sorted(summary, key=grouper)

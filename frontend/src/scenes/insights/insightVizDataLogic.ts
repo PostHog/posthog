@@ -17,7 +17,7 @@ import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     filterForQuery,
-    filterPropertyForQuery,
+    filterKeyForQuery,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -94,6 +94,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         querySource: [
             (s) => [s.query],
             (query) => (isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null),
+        ],
+        localQuerySource: [
+            (s) => [s.querySource, s.filterTestAccountsDefault],
+            (querySource, filterTestAccountsDefault) =>
+                querySource ? querySource : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault).source,
         ],
 
         isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
@@ -191,53 +196,25 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     listeners(({ actions, values, props }) => ({
         updateDateRange: ({ dateRange }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = { ...localQuerySource, dateRange }
-                actions.updateQuerySource(newQuerySource)
-            }
+            actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
         updateBreakdown: ({ breakdown }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const newQuerySource = {
-                    ...localQuerySource,
-                    breakdown: { ...(localQuerySource as TrendsQuery).breakdown, ...breakdown },
-                }
-                actions.updateQuerySource(newQuerySource)
-            }
+            actions.updateQuerySource({ breakdown: { ...values.breakdown, ...breakdown } } as Partial<TrendsQuery>)
+        },
+        updateInsightFilter: ({ insightFilter }) => {
+            const filterProperty = filterKeyForQuery(values.localQuerySource)
+            actions.updateQuerySource({
+                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
+            })
         },
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
-        updateInsightFilter: ({ insightFilter }) => {
-            const localQuerySource = values.querySource
-                ? values.querySource
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault).source
-            if (isInsightQueryNode(localQuerySource)) {
-                const filterProperty = filterPropertyForQuery(localQuerySource)
-                const newQuerySource = { ...localQuerySource }
-                newQuerySource[filterProperty] = {
-                    ...localQuerySource[filterProperty],
-                    ...insightFilter,
-                }
-                actions.updateQuerySource(newQuerySource)
-            }
-        },
         updateQuerySource: ({ querySource }) => {
-            const localQuery = values.query
-                ? values.query
-                : queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault)
-            if (localQuery && isInsightVizNode(localQuery)) {
-                actions.setQuery({
-                    ...localQuery,
-                    source: { ...(localQuery as InsightVizNode).source, ...querySource },
-                } as Node)
-            }
+            actions.setQuery({
+                ...values.query,
+                source: { ...values.querySource, ...querySource },
+            } as Node)
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {

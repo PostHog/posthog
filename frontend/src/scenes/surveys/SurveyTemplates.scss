@@ -1,0 +1,22 @@
+@import '../../styles/mixins';
+
+.SurveyTemplateContainer {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-height: 300px;
+    margin-top: 2px;
+
+    &:hover {
+        cursor: pointer;
+        border-color: var(--primary-light);
+    }
+
+    .SurveyTemplate {
+        -ms-transform: scale(0.8, 0.8); /* IE 9 */
+        -webkit-transform: scale(0.8, 0.8); /* Safari */
+        transform: scale(0.8, 0.8);
+    }
+}

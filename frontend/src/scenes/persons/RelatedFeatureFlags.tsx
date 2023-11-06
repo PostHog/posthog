@@ -83,7 +83,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <div style={{ wordBreak: 'break-word' }}>
                         {featureFlag.active && featureFlag.value
                             ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : '--'}
+                            : 'False'}
                     </div>
                 )
             },
@@ -117,6 +117,16 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             },
         },
     ]
+
+    const options = [
+        { label: 'All types', value: 'all' },
+        {
+            label: FeatureFlagReleaseType.ReleaseToggle,
+            value: FeatureFlagReleaseType.ReleaseToggle,
+        },
+        { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
+    ]
+
     return (
         <>
             <div className="flex justify-between mb-4">
@@ -131,14 +141,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         <b>Type</b>
                     </span>
                     <LemonSelect
-                        options={[
-                            { label: 'All types', value: 'all' },
-                            {
-                                label: FeatureFlagReleaseType.ReleaseToggle,
-                                value: FeatureFlagReleaseType.ReleaseToggle,
-                            },
-                            { label: FeatureFlagReleaseType.Variants, value: FeatureFlagReleaseType.Variants },
-                        ]}
+                        options={options}
                         onChange={(type) => {
                             if (type) {
                                 if (type === 'all') {
@@ -181,7 +184,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
-                        <b>Status</b>
+                        <b>Flag status</b>
                     </span>
                     <LemonSelect
                         onChange={(status) => {

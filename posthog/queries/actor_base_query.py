@@ -96,7 +96,11 @@ class ActorBaseQuery:
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
+    ) -> Tuple[
+        Union[QuerySet[Person], QuerySet[Group]],
+        Union[List[SerializedGroup], List[SerializedPerson]],
+        int,
+    ]:
         """Get actors in data model and dict formats. Builds query and executes"""
         self._filter.team = self._team
         query, params = self.actor_query()
@@ -109,13 +113,20 @@ class ActorBaseQuery:
         )
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
+        if (
+            hasattr(self._filter, "include_recordings")
+            and self._filter.include_recordings  # type: ignore
+            and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]
+        ):
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
         return actors, serialized_actors, len(raw_result)
 
     def query_for_session_ids_with_recordings(
-        self, session_ids: Set[str], date_from: datetime | None, date_to: datetime | None
+        self,
+        session_ids: Set[str],
+        date_from: datetime | None,
+        date_to: datetime | None,
     ) -> Set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
@@ -154,7 +165,9 @@ class ActorBaseQuery:
         return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(
-        self, serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]], raw_result
+        self,
+        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]],
+        raw_result,
     ) -> Union[List[SerializedGroup], List[SerializedPerson]]:
         all_session_ids = set()
 
@@ -172,7 +185,9 @@ class ActorBaseQuery:
         # Prune out deleted recordings
         session_ids_with_deleted_recordings = set(
             SessionRecording.objects.filter(
-                team=self._team, session_id__in=session_ids_with_all_recordings, deleted=True
+                team=self._team,
+                session_id__in=session_ids_with_all_recordings,
+                deleted=True,
             ).values_list("session_id", flat=True)
         )
         session_ids_with_recordings = session_ids_with_all_recordings.difference(session_ids_with_deleted_recordings)
@@ -206,7 +221,10 @@ class ActorBaseQuery:
 
     def get_actors_from_result(
         self, raw_result
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]]]:
+    ) -> Tuple[
+        Union[QuerySet[Person], QuerySet[Group]],
+        Union[List[SerializedGroup], List[SerializedPerson]],
+    ]:
         actors: Union[QuerySet[Person], QuerySet[Group]]
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
@@ -215,7 +233,10 @@ class ActorBaseQuery:
 
         if self.is_aggregating_by_groups:
             actors, serialized_actors = get_groups(
-                self._team.pk, cast(int, self.aggregation_group_type_index), actor_ids, value_per_actor_id
+                self._team.pk,
+                cast(int, self.aggregation_group_type_index),
+                actor_ids,
+                value_per_actor_id,
             )
         else:
             actors, serialized_actors = get_people(self._team, actor_ids, value_per_actor_id)
@@ -223,13 +244,19 @@ class ActorBaseQuery:
         if self.ACTOR_VALUES_INCLUDED:
             # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds
             # We need .sort() to restore this order
-            serialized_actors.sort(key=lambda actor: cast(float, actor["value_at_data_point"]), reverse=True)
+            serialized_actors.sort(
+                key=lambda actor: cast(float, actor["value_at_data_point"]),
+                reverse=True,
+            )
 
         return actors, serialized_actors
 
 
 def get_groups(
-    team_id: int, group_type_index: int, group_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None
+    team_id: int,
+    group_type_index: int,
+    group_ids: List[Any],
+    value_per_actor_id: Optional[Dict[str, float]] = None,
 ) -> Tuple[QuerySet[Group], List[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
     groups: QuerySet[Group] = Group.objects.filter(
@@ -239,7 +266,10 @@ def get_groups(
 
 
 def get_people(
-    team: Team, people_ids: List[Any], value_per_actor_id: Optional[Dict[str, float]] = None, distinct_id_limit=1000
+    team: Team,
+    people_ids: List[Any],
+    value_per_actor_id: Optional[Dict[str, float]] = None,
+    distinct_id_limit=1000,
 ) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
@@ -263,7 +293,9 @@ def get_people(
 
 
 def serialize_people(
-    team: Team, data: Union[QuerySet[Person], List[Person]], value_per_actor_id: Optional[Dict[str, float]] = None
+    team: Team,
+    data: Union[QuerySet[Person], List[Person]],
+    value_per_actor_id: Optional[Dict[str, float]] = None,
 ) -> List[SerializedPerson]:
     from posthog.api.person import get_person_name
 

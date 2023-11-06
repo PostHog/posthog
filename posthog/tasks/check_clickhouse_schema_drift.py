@@ -28,9 +28,7 @@ def get_clickhouse_schema() -> List[Tuple[str, str, str]]:
             database == '{database}'
         AND
             table_name NOT LIKE '.inner_id.%'
-        """.format(
-            cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE
-        )
+        """.format(cluster=settings.CLICKHOUSE_CLUSTER, database=settings.CLICKHOUSE_DATABASE)
     )
 
 
@@ -47,9 +45,7 @@ def get_clickhouse_nodes() -> List[Tuple[str]]:
         WHERE
             cluster == '{cluster}'
 
-        """.format(
-            cluster=settings.CLICKHOUSE_CLUSTER
-        )
+        """.format(cluster=settings.CLICKHOUSE_CLUSTER)
     )
 
 
@@ -91,7 +87,8 @@ def get_clickhouse_schema_drift(
 
 
 def check_clickhouse_schema_drift(
-    clickhouse_nodes: List[Tuple[str]] = [], clickhouse_schema: List[Tuple[str, str, str]] = []
+    clickhouse_nodes: List[Tuple[str]] = [],
+    clickhouse_schema: List[Tuple[str, str, str]] = [],
 ) -> None:
     try:
         if not clickhouse_nodes:

@@ -34,6 +34,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PersonDashboard } from './PersonDashboard'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import PersonFeedCanvas from './PersonFeedCanvas'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -109,6 +110,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 export function PersonScene(): JSX.Element | null {
     const {
         showCustomerSuccessDashboards,
+        feedEnabled,
         person,
         personLoading,
         currentTab,
@@ -185,6 +187,13 @@ export function PersonScene(): JSX.Element | null {
                 }}
                 data-attr="persons-tabs"
                 tabs={[
+                    feedEnabled
+                        ? {
+                              key: PersonsTabType.FEED,
+                              label: <span data-attr="persons-feed-tab">Feed</span>,
+                              content: <PersonFeedCanvas person={person} />,
+                          }
+                        : false,
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="persons-properties-tab">Properties</span>,

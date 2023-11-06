@@ -9,7 +9,7 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { ConsoleLogEntry, gatherConsoleLogEvents } from '../../../../worker/ingestion/process-event'
+import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -21,11 +21,30 @@ const consoleLogEventsCounter = new Counter({
     help: 'Number of console log events successfully ingested',
 })
 
+function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): ConsoleLogEntry[] {
+    // assuming that the console log entries are all for one team id (and they should be)
+    // because we only use these for search
+    // then we can deduplicate them by the message string
+
+    const seen = new Set<string>()
+    const deduped: ConsoleLogEntry[] = []
+
+    for (const cle of consoleLogEntries) {
+        const fingerPrint = `${cle.log_level}-${cle.message}`
+        if (!seen.has(fingerPrint)) {
+            deduped.push(cle)
+            seen.add(fingerPrint)
+        }
+    }
+    return deduped
+}
+
 // TODO this is an almost exact duplicate of the replay events ingester
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
     enabled: boolean
+
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly persistentHighWaterMarker: OffsetHighWaterMarker
@@ -66,9 +85,9 @@ export class ConsoleLogsIngester {
                 status.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
 
                 if (error?.isRetriable) {
-                    // We assume the if the error is retriable, then we
+                    // We assume that if the error is retriable, then we
                     // are probably in a state where e.g. Kafka is down
-                    // temporarily and we would rather simply throw and
+                    // temporarily, and we would rather simply throw and
                     // have the process restarted.
                     throw error
                 }
@@ -86,8 +105,8 @@ export class ConsoleLogsIngester {
             return
         }
 
-        const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', `[console-log-events-ingester] ${text}`, {
+        const logDebug = (text: string, labels: Record<string, any> = {}) =>
+            status.debug('⚠️', `[console-log-events-ingester] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -101,7 +120,7 @@ export class ConsoleLogsIngester {
                 })
                 .inc()
 
-            warn(reason, {
+            logDebug(reason, {
                 reason,
                 ...labels,
             })
@@ -123,9 +142,26 @@ export class ConsoleLogsIngester {
             return drop('high_water_mark')
         }
 
-        try {
-            const consoleLogEvents = gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+        // cheapest possible check for any console logs to avoid parsing the events because...
+        const hasAnyConsoleLogs = event.events.some(
+            (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/console@1'
+        )
 
+        if (!hasAnyConsoleLogs) {
+            return
+        }
+
+        // ... we don't want to mark events with no console logs as dropped
+        // this keeps the signal here clean and makes it easier to debug
+        // when we disable a team's console log ingestion
+        if (!event.metadata.consoleLogIngestionEnabled) {
+            return drop('console_log_ingestion_disabled')
+        }
+
+        try {
+            const consoleLogEvents = deduplicateConsoleLogEvents(
+                gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+            )
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
             return consoleLogEvents.map((cle: ConsoleLogEntry) =>
@@ -145,9 +181,12 @@ export class ConsoleLogsIngester {
             })
         }
     }
+
     public async start(): Promise<void> {
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+
         const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
+
         this.producer = await createKafkaProducer(connectionConfig, producerConfig)
         this.producer.connect()
     }

@@ -1,9 +1,11 @@
+import asyncio
+import collections
 import datetime as dt
-import itertools
 import json
 import typing
 
 import pytest
+import temporalio.client
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.management import call_command
@@ -15,7 +17,7 @@ from posthog.api.test.test_team import create_team
 from posthog.management.commands.create_batch_export_from_app import (
     map_plugin_config_to_destination,
 )
-from posthog.models import Plugin, PluginConfig
+from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.temporal.client import sync_connect
 from posthog.temporal.codec import EncryptionCodec
 
@@ -58,6 +60,30 @@ def s3_plugin(organization) -> typing.Generator[Plugin, None, None]:
     plugin.delete()
 
 
+@pytest.fixture
+def bigquery_plugin(organization) -> typing.Generator[Plugin, None, None]:
+    plugin = Plugin.objects.create(
+        name="BigQuery Export",
+        url="https://github.com/PostHog/bigquery-plugin",
+        plugin_type="custom",
+        organization=organization,
+    )
+    yield plugin
+    plugin.delete()
+
+
+@pytest.fixture
+def postgres_plugin(organization) -> typing.Generator[Plugin, None, None]:
+    plugin = Plugin.objects.create(
+        name="PostgreSQL Export Plugin",
+        url="https://github.com/PostHog/postgres-plugin",
+        plugin_type="custom",
+        organization=organization,
+    )
+    yield plugin
+    plugin.delete()
+
+
 test_snowflake_config = {
     "account": "snowflake-account",
     "username": "test-user",
@@ -77,64 +103,162 @@ test_s3_config = {
     "compression": "gzip",
     "eventsToIgnore": "$feature_flag_called",
 }
+test_bigquery_config = {
+    "tableId": "my_table_id",
+    "datasetId": "my_dataset_id",
+    "googleCloudKeyJson": {
+        "type": "service_accout",
+        "project_id": "my_project_id",
+        "private_key_id": "my_private_key_id",
+        "private_key": "-----BEGIN PRIVATE KEY-----Wow much private, such key-----END PRIVATE KEY-----",
+        "client_email": "email@google.com",
+        "client_id": "client_id",
+        "auth_uri": "https://accouts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata",
+    },
+    "exportEventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
+}
+test_postgres_config = {
+    "host": "localhost",
+    "port": "5432",
+    "dbName": "dev",
+    "tableName": "posthog_event",
+    "dbPassword": "password",
+    "dbUsername": "username",
+    "databaseUrl": "",
+    "eventsToIgnore": "$feature_flag_called",
+    "hasSelfSignedCert": "Yes",
+}
+test_postgres_config_with_database_url = {
+    "port": "54322",
+    "dbName": "prod",
+    "host": "localhost",
+    "tableName": "posthog_event",
+    "dbPassword": "password_in_url",
+    "dbUsername": "username_in_url",
+    "databaseUrl": "postgres://username_in_url:password_in_url@localhost:54322/prod",
+    "eventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
+    "hasSelfSignedCert": "Yes",
+}
+
+PluginConfigParams = collections.namedtuple(
+    "PluginConfigParams", ("plugin_type", "disabled", "database_url"), defaults=(False, False)
+)
 
 
 @pytest.fixture
-def config(request):
-    if request.param == "S3":
-        return test_s3_config
-    elif request.param == "Snowflake":
-        return test_snowflake_config
+def config(request) -> dict[str, str]:
+    """Dispatch into one of the configurations for testing according to export/plugin type."""
+    if isinstance(request.param, tuple):
+        params = PluginConfigParams(*request.param)
     else:
-        raise ValueError(f"Unsupported plugin: {request.param}")
+        params = PluginConfigParams(request.param)
+
+    match params.plugin_type:
+        case "S3":
+            return test_s3_config
+        case "Snowflake":
+            return test_snowflake_config
+        case "BigQuery":
+            return test_bigquery_config
+        case "Postgres":
+            if params.database_url is True:
+                return test_postgres_config_with_database_url
+            else:
+                return test_postgres_config
+        case _:
+            raise ValueError(f"Unsupported plugin: {request.param}")
 
 
 @pytest.fixture
-def snowflake_plugin_config(snowflake_plugin, team) -> typing.Generator[PluginConfig, None, None]:
+def plugin_config(
+    request, bigquery_plugin, postgres_plugin, s3_plugin, snowflake_plugin, team
+) -> typing.Generator[PluginConfig, None, None]:
+    """Manage a PluginConfig for testing.
+
+    We dispatch to each supported plugin/export type according to
+    request.param.
+    """
+    if isinstance(request.param, tuple):
+        params = PluginConfigParams(*request.param)
+    else:
+        params = PluginConfigParams(request.param)
+
+    attachment_contents = None
+    attachment_key = None
+
+    match params.plugin_type:
+        case "S3":
+            plugin = s3_plugin
+            config = test_s3_config
+        case "Snowflake":
+            plugin = snowflake_plugin
+            config = test_snowflake_config
+        case "BigQuery":
+            plugin = bigquery_plugin
+            config = test_bigquery_config
+
+            json_attachment = config["googleCloudKeyJson"]
+            attachment_contents = json.dumps(json_attachment).encode("utf-8")
+            attachment_key = "googleCloudKeyJson"
+
+            # Merge these back so that we can assert their prescense later.
+            config = {**config, **json_attachment}
+
+        case "Postgres":
+            plugin = postgres_plugin
+
+            if params.database_url is True:
+                config = test_postgres_config_with_database_url
+            else:
+                config = test_postgres_config
+
+        case _:
+            raise ValueError(f"Unsupported plugin: {params.plugin_type}")
+
     plugin_config = PluginConfig.objects.create(
-        plugin=snowflake_plugin, order=1, team=team, enabled=True, config=test_snowflake_config
+        plugin=plugin,
+        order=1,
+        team=team,
+        enabled=True,
+        config=config,
     )
+
+    attachment = None
+    if attachment_contents and attachment_key:
+        attachment = PluginAttachment.objects.create(
+            key=attachment_key,
+            plugin_config=plugin_config,
+            team=team,
+            contents=attachment_contents,
+            file_size=len(attachment_contents),
+            file_name=attachment_key,
+        )
+
+    if params.disabled is True:
+        plugin_config.enabled = False
+        plugin_config.save()
+
     yield plugin_config
+
     plugin_config.delete()
 
-
-@pytest.fixture
-def s3_plugin_config(s3_plugin, team) -> typing.Generator[PluginConfig, None, None]:
-    plugin_config = PluginConfig.objects.create(
-        plugin=s3_plugin, order=1, team=team, enabled=True, config=test_s3_config
-    )
-    yield plugin_config
-    plugin_config.delete()
-
-
-@pytest.fixture
-def plugin_config(request, s3_plugin_config, snowflake_plugin_config) -> PluginConfig:
-    if request.param == "S3":
-        return s3_plugin_config
-    elif request.param == "Snowflake":
-        return snowflake_plugin_config
-    else:
-        raise ValueError(f"Unsupported plugin: {request.param}")
-
-
-@pytest.fixture
-def disabled_plugin_config(request, s3_plugin_config, snowflake_plugin_config) -> PluginConfig:
-    if request.param == "S3":
-        s3_plugin_config.enabled = False
-        s3_plugin_config.save()
-        return s3_plugin_config
-    elif request.param == "Snowflake":
-        snowflake_plugin_config.enabled = False
-        snowflake_plugin_config.save()
-        return snowflake_plugin_config
-    else:
-        raise ValueError(f"Unsupported plugin: {request.param}")
+    if attachment:
+        attachment.delete()
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "plugin_config,config,expected_type",
-    [("S3", "S3", "S3"), ("Snowflake", "Snowflake", "Snowflake")],
+    [
+        ("S3", "S3", "S3"),
+        ("Snowflake", "Snowflake", "Snowflake"),
+        ("BigQuery", "BigQuery", "BigQuery"),
+        ("Postgres", "Postgres", "Postgres"),
+        (("Postgres", False, True), ("Postgres", False, True), "Postgres"),
+    ],
     indirect=["plugin_config", "config"],
 )
 def test_map_plugin_config_to_destination(plugin_config, config, expected_type):
@@ -145,15 +269,33 @@ def test_map_plugin_config_to_destination(plugin_config, config, expected_type):
 
     result_values = list(export_config.values())
     for key, value in config.items():
-        if key == "eventsToIgnore":
-            assert value in export_config["exclude_events"]
+        if key == "eventsToIgnore" or key == "exportEventsToIgnore":
+            assert value.split(",") == export_config["exclude_events"]
+            continue
+
+        if key == "hasSelfSignedCert":
+            assert (value == "Yes") == export_config["has_self_signed_cert"]
+            continue
+
+        if key == "port":
+            value = int(value)
+
+        if key in (
+            "databaseUrl",
+            "googleCloudKeyJson",
+        ):
+            # We don't use these in exports, or we parse them and store them with a different key.
             continue
 
         assert value in result_values
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("plugin_config", ["S3", "Snowflake"], indirect=True)
+@pytest.mark.parametrize(
+    "plugin_config",
+    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True)),
+    indirect=True,
+)
 def test_create_batch_export_from_app_fails_with_mismatched_team_id(plugin_config):
     """Test the create_batch_export_from_app command fails if team_id does not match PluginConfig.team_id."""
 
@@ -167,7 +309,11 @@ def test_create_batch_export_from_app_fails_with_mismatched_team_id(plugin_confi
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("plugin_config", ["S3", "Snowflake"], indirect=True)
+@pytest.mark.parametrize(
+    "plugin_config",
+    ("S3", "Snowflake", "BigQuery", "Postgres", ("Postgres", False, True)),
+    indirect=True,
+)
 def test_create_batch_export_from_app_dry_run(plugin_config):
     """Test a dry_run of the create_batch_export_from_app command."""
     output = call_command(
@@ -191,11 +337,13 @@ def test_create_batch_export_from_app_dry_run(plugin_config):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
-    "interval,plugin_config,disable_plugin_config",
-    itertools.product(["hour", "day"], ["S3", "Snowflake"], [True, False]),
-    indirect=["plugin_config"],
+    "plugin_config",
+    (("S3", False), ("Snowflake", False), ("BigQuery", False), ("Postgres", False), ("Postgres", False, True)),
+    indirect=True,
 )
+@pytest.mark.parametrize("disable_plugin_config", (True, False))
 def test_create_batch_export_from_app(
     interval,
     plugin_config,
@@ -248,20 +396,22 @@ def test_create_batch_export_from_app(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
-    "interval,disabled_plugin_config,migrate_disabled_plugin_config",
-    itertools.product(["hour", "day"], ["S3", "Snowflake"], [True, False]),
-    indirect=["disabled_plugin_config"],
+    "plugin_config",
+    (("S3", True), ("Snowflake", True), ("BigQuery", True), ("Postgres", True), ("Postgres", True, True)),
+    indirect=True,
 )
+@pytest.mark.parametrize("migrate_disabled_plugin_config", (True, False))
 def test_create_batch_export_from_app_with_disabled_plugin(
     interval,
-    disabled_plugin_config,
+    plugin_config,
     migrate_disabled_plugin_config,
 ):
     """Test a live run of the create_batch_export_from_app command."""
     args = [
-        f"--plugin-config-id={disabled_plugin_config.id}",
-        f"--team-id={disabled_plugin_config.team.id}",
+        f"--plugin-config-id={plugin_config.id}",
+        f"--team-id={plugin_config.team.id}",
         f"--interval={interval}",
     ]
     if migrate_disabled_plugin_config:
@@ -269,14 +419,14 @@ def test_create_batch_export_from_app_with_disabled_plugin(
 
     output = call_command("create_batch_export_from_app", *args)
 
-    disabled_plugin_config.refresh_from_db()
-    assert disabled_plugin_config.enabled is False
+    plugin_config.refresh_from_db()
+    assert plugin_config.enabled is False
 
-    export_type, config = map_plugin_config_to_destination(disabled_plugin_config)
+    export_type, config = map_plugin_config_to_destination(plugin_config)
 
     batch_export_data = json.loads(output)
 
-    assert batch_export_data["team_id"] == disabled_plugin_config.team.id
+    assert batch_export_data["team_id"] == plugin_config.team.id
     assert batch_export_data["interval"] == interval
     assert batch_export_data["name"] == f"{export_type} Export"
     assert batch_export_data["destination_data"] == {
@@ -301,7 +451,7 @@ def test_create_batch_export_from_app_with_disabled_plugin(
     args = json.loads(decoded_payload[0].data)
 
     # Common inputs
-    assert args["team_id"] == disabled_plugin_config.team.pk
+    assert args["team_id"] == plugin_config.team.pk
     assert args["batch_export_id"] == str(batch_export_data["id"])
     assert args["interval"] == interval
 
@@ -311,26 +461,31 @@ def test_create_batch_export_from_app_with_disabled_plugin(
 
 
 @async_to_sync
-async def list_workflows(temporal, schedule_id: str):
-    """List Workflows scheduled by given Schedule."""
-    workflows = []
+async def wait_for_workflow_executions(
+    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
+):
+    """Wait for Workflow Executions matching query."""
+    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
 
-    while len(workflows) == 0:
-        workflows = [workflow async for workflow in temporal.list_workflows(f'TemporalScheduledById="{schedule_id}"')]
+    total = 0
+    while not workflows:
+        total += sleep
+
+        if total > timeout:
+            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
+
+        await asyncio.sleep(sleep)
+        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
 
     return workflows
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("interval", ("hour", "day"))
 @pytest.mark.parametrize(
-    "interval,plugin_config",
-    [
-        ("hour", "S3"),
-        ("day", "S3"),
-        ("hour", "Snowflake"),
-        ("day", "Snowflake"),
-    ],
-    indirect=["plugin_config"],
+    "plugin_config",
+    (("S3", False), ("Snowflake", False), ("BigQuery", False), ("Postgres", False), ("Postgres", False, True)),
+    indirect=True,
 )
 def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
     """Test a live run of the create_batch_export_from_app command with the backfill flag set."""
@@ -348,9 +503,10 @@ def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
         output = call_command("create_batch_export_from_app", *args)
 
         batch_export_data = json.loads(output)
-        # time.sleep(10)
-        workflows = list_workflows(temporal, str(batch_export_data["id"]))
+        batch_export_id = str(batch_export_data["id"])
+        workflows = wait_for_workflow_executions(temporal, query=f'TemporalScheduledById="{batch_export_id}"')
 
-        assert len(workflows) == 1
+        # In the event the test takes too long, we may spawn more than one run
+        assert len(workflows) >= 1
         workflow_execution = workflows[0]
         assert workflow_execution.workflow_type == f"{export_type.lower()}-export"

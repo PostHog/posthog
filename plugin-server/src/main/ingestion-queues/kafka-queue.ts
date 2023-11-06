@@ -6,12 +6,11 @@ import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
-import { Hub, PipelineEvent, WorkerMethods } from '../../types'
+import { Hub } from '../../types'
 import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import Piscina from '../../worker/piscina'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -23,7 +22,6 @@ type KafkaJSBatchFunction = (payload: EachBatchPayload, queue: KafkaJSIngestionC
 
 export class KafkaJSIngestionConsumer {
     public pluginsServer: Hub
-    public workerMethods: WorkerMethods
     public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
@@ -34,13 +32,7 @@ export class KafkaJSIngestionConsumer {
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
 
-    constructor(
-        pluginsServer: Hub,
-        piscina: Piscina,
-        topic: string,
-        consumerGroupId: string,
-        batchHandler: KafkaJSBatchFunction
-    ) {
+    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: KafkaJSBatchFunction) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.topic = topic
@@ -54,17 +46,6 @@ export class KafkaJSIngestionConsumer {
         )
         this.wasConsumerRan = false
 
-        // TODO: remove `this.workerMethods` and just rely on
-        // `this.batchHandler`. At the time of writing however, there are some
-        // references to queue.workerMethods buried deep in the codebase
-        // #onestepatatime
-        this.workerMethods = {
-            runEventPipeline: (event: PipelineEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runEventPipeline'
-                return piscina.run({ task: 'runEventPipeline', args: { event } })
-            },
-        }
         this.consumerGroupMemberId = null
         this.consumerReady = false
 
@@ -198,35 +179,17 @@ type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Prom
 
 export class IngestionConsumer {
     public pluginsServer: Hub
-    public workerMethods: WorkerMethods
     public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
     public eachBatch: EachBatchFunction
     public consumer?: BatchConsumer
 
-    constructor(
-        pluginsServer: Hub,
-        piscina: Piscina,
-        topic: string,
-        consumerGroupId: string,
-        batchHandler: EachBatchFunction
-    ) {
+    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
         this.pluginsServer = pluginsServer
         this.topic = topic
         this.consumerGroupId = consumerGroupId
 
-        // TODO: remove `this.workerMethods` and just rely on
-        // `this.batchHandler`. At the time of writing however, there are some
-        // references to queue.workerMethods buried deep in the codebase
-        // #onestepatatime
-        this.workerMethods = {
-            runEventPipeline: (event: PipelineEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runEventPipeline'
-                return piscina.run({ task: 'runEventPipeline', args: { event } })
-            },
-        }
         this.consumerReady = false
 
         this.eachBatch = batchHandler

@@ -12,16 +12,33 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.session_recordings.session_recording_api import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, AvailableFeature
-from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models import (
+    SessionRecording,
+    SessionRecordingPlaylist,
+    SessionRecordingPlaylistItem,
+    Team,
+    User,
+)
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
+from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -94,7 +111,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
         created_by = validated_data.pop("created_by", request.user)
         playlist = SessionRecordingPlaylist.objects.create(
-            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            team=team,
+            created_by=created_by,
+            last_modified_by=request.user,
+            **validated_data,
         )
 
         log_playlist_activity(
@@ -145,7 +165,11 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
@@ -210,19 +234,29 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         filter = SessionRecordingsFilter(request=request, team=self.team)
         filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(playlist_items)})
 
-        return response.Response(list_recordings(filter, request, context=self.get_serializer_context()))
+        return list_recordings_response(filter, request, self.get_serializer_context())
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
-    @action(methods=["POST", "DELETE"], detail=True, url_path="recordings/(?P<session_recording_id>[^/.]+)")
+    @action(
+        methods=["POST", "DELETE"],
+        detail=True,
+        url_path="recordings/(?P<session_recording_id>[^/.]+)",
+    )
     def modify_recordings(
-        self, request: request.Request, session_recording_id: str, *args: Any, **kwargs: Any
+        self,
+        request: request.Request,
+        session_recording_id: str,
+        *args: Any,
+        **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
             recording, _ = SessionRecording.objects.get_or_create(
-                session_id=session_recording_id, team=self.team, defaults={"deleted": False}
+                session_id=session_recording_id,
+                team=self.team,
+                defaults={"deleted": False},
             )
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording

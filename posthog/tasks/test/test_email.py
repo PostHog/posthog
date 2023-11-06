@@ -28,7 +28,10 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
-            organization=org, email=email, password=None, level=OrganizationMembership.Level.OWNER
+            organization=org,
+            email=email,
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
         )
         return org, user
 
@@ -47,7 +50,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         create_org_team_and_user("2022-01-01 00:00:00", "too_late_user@posthog.com")
-        create_org_team_and_user("2022-01-02 00:00:00", "ingested_event_in_range_user@posthog.com", ingested_event=True)
+        create_org_team_and_user(
+            "2022-01-02 00:00:00",
+            "ingested_event_in_range_user@posthog.com",
+            ingested_event=True,
+        )
         create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
 
     def test_send_invite(self, MockEmailMessage: MagicMock) -> None:
@@ -68,7 +75,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
 
         user = User.objects.create_and_join(
-            organization=org, email="new-user@posthog.com", password=None, level=OrganizationMembership.Level.MEMBER
+            organization=org,
+            email="new-user@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
         )
         send_member_join(user.uuid, org.id)
 

@@ -12,7 +12,13 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
 from .ordered_csv_renderer import OrderedCsvRenderer
-from ..exporter import EXPORT_FAILED_COUNTER, EXPORT_ASSET_UNKNOWN_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from ..exporter import (
+    EXPORT_FAILED_COUNTER,
+    EXPORT_ASSET_UNKNOWN_COUNTER,
+    EXPORT_SUCCEEDED_COUNTER,
+    EXPORT_TIMER,
+)
+from ...constants import CSV_EXPORT_LIMIT
 
 logger = structlog.get_logger(__name__)
 
@@ -127,12 +133,18 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             for item in items:
                 if item.get("date"):
                     # Dated means we create a grid
-                    line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                    line = {
+                        "cohort": item["date"],
+                        "cohort size": item["values"][0]["count"],
+                    }
                     for index, data in enumerate(item["values"]):
                         line[items[index]["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
-                    line = {"cohort": item["label"], "cohort size": item["values"][0]["count"]}
+                    line = {
+                        "cohort": item["label"],
+                        "cohort size": item["values"][0]["count"],
+                    }
                     for index, data in enumerate(item["values"]):
                         line[f"Period {index}"] = data["count"]
 
@@ -164,20 +176,15 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
     resource = exported_asset.export_context
 
     columns: List[str] = resource.get("columns", [])
-
     all_csv_rows: List[Any] = []
 
     if resource.get("source"):
-        from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-
         query = resource.get("source")
-        query_response = process_query(
-            team=exported_asset.team, query_json=query, default_limit=MAX_SELECT_RETURNED_ROWS
-        )
+        query_response = process_query(team=exported_asset.team, query_json=query, in_export_context=True)
         all_csv_rows = _convert_response_to_csv_data(query_response)
 
     else:
@@ -186,10 +193,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         body = resource.get("body", None)
         next_url = None
         access_token = encode_jwt(
-            {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+            {"id": exported_asset.created_by_id},
+            datetime.timedelta(minutes=15),
+            PosthogJwtAudience.IMPERSONATED_USER,
         )
 
-        while len(all_csv_rows) < max_limit:
+        while len(all_csv_rows) < CSV_EXPORT_LIMIT:
             response = make_api_call(access_token, body, limit, method, next_url, path)
 
             if response.status_code != 200:
@@ -247,13 +256,24 @@ def get_limit_param_key(path: str) -> str:
 
 
 def make_api_call(
-    access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
+    access_token: str,
+    body: Any,
+    limit: int,
+    method: str,
+    next_url: Optional[str],
+    path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
     try:
-        url = add_query_params(request_url, {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"})
+        url = add_query_params(
+            request_url,
+            {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
+        )
         response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
+            method=method.lower(),
+            url=url,
+            json=body,
+            headers={"Authorization": f"Bearer {access_token}"},
         )
         return response
     except Exception as ex:
@@ -269,14 +289,14 @@ def make_api_call(
         raise ex
 
 
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
     if not limit:
         limit = 1000
 
     try:
         if exported_asset.export_format == "text/csv":
             with EXPORT_TIMER.labels(type="csv").time():
-                _export_to_csv(exported_asset, limit, max_limit)
+                _export_to_csv(exported_asset, limit)
             EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
         else:
             EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()

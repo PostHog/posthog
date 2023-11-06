@@ -30,9 +30,9 @@ export function LemonLabel({
             {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
 
             {onExplanationClick ? (
-                <a onClick={onExplanationClick}>
+                <Link onClick={onExplanationClick}>
                     <span className="LemonLabel__extra">(what is this?)</span>
-                </a>
+                </Link>
             ) : null}
 
             {info ? (

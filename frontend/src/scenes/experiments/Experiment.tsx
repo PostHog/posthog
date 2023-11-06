@@ -63,6 +63,7 @@ export function Experiment(): JSX.Element {
         flagImplementationWarning,
         props,
         aggregationLabel,
+        showGroupsOptions,
         groupTypes,
         experimentMissing,
     } = useValues(experimentLogic)
@@ -338,7 +339,7 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
-                                        {experimentId === 'new' && groupTypes.length > 0 && (
+                                        {experimentId === 'new' && showGroupsOptions && (
                                             <>
                                                 <div className="mt-4">
                                                     <strong>Default participant type</strong>
@@ -371,7 +372,7 @@ export function Experiment(): JSX.Element {
                                                     }}
                                                     options={[
                                                         { value: -1, label: 'Persons' },
-                                                        ...groupTypes.map((groupType) => ({
+                                                        ...Array.from(groupTypes.values()).map((groupType) => ({
                                                             value: groupType.group_type_index,
                                                             label: capitalizeFirstLetter(
                                                                 aggregationLabel(groupType.group_type_index).plural
@@ -424,13 +425,13 @@ export function Experiment(): JSX.Element {
                                                 Ensure that you're using the latest PostHog client libraries, and make
                                                 sure you manually send feature flag information for server-side
                                                 libraries if necessary.{' '}
-                                                <a
-                                                    href="https://posthog.com/docs/integrate/server/python#capture"
+                                                <Link
+                                                    to="https://posthog.com/docs/integrate/server/python#capture"
                                                     target="_blank"
                                                 >
                                                     {' '}
                                                     Read the docs for how to do this for server-side libraries.
-                                                </a>
+                                                </Link>
                                             </LemonBanner>
                                         )}
 
@@ -660,10 +661,10 @@ export function Experiment(): JSX.Element {
                                     {significanceBannerDetails}{' '}
                                     {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See
                                     our{' '}
-                                    <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                    <Link to="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
                                         {' '}
                                         experimentation guide{' '}
-                                    </a>
+                                    </Link>
                                     for more information.{' '}
                                 </Col>
                                 <Col span={1}>

@@ -109,7 +109,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
-        "slack_service": {"available": bool(slack_client_id), "client_id": slack_client_id or None},
+        "slack_service": {
+            "available": bool(slack_client_id),
+            "client_id": slack_client_id or None,
+        },
         "object_storage": is_cloud() or is_object_storage_available(),
     }
 

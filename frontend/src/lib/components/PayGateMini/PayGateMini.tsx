@@ -6,8 +6,8 @@ import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
-import { capitalizeFirstLetter } from 'lib/utils'
 import clsx from 'clsx'
+import { Link } from '@posthog/lemon-ui'
 
 type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
@@ -16,6 +16,8 @@ type PayGateSupportedFeatures =
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
+    | AvailableFeature.SURVEYS_STYLING
+    | AvailableFeature.SURVEYS_TEXT_HTML
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -69,6 +71,16 @@ const FEATURE_SUMMARIES: Record<
         umbrella: 'advanced analysis capabilities',
         docsHref: 'https://posthog.com/manual/paths',
     },
+    [AvailableFeature.SURVEYS_STYLING]: {
+        description: 'Customize the look and feel of your surveys with custom colors and positions.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
+    },
+    [AvailableFeature.SURVEYS_TEXT_HTML]: {
+        description: 'Use HTML to customize the content of your surveys.',
+        umbrella: 'surveys customization',
+        docsHref: 'https://posthog.com/docs/surveys',
+    },
 }
 
 /** A sort of paywall for premium features.
@@ -87,7 +99,7 @@ export function PayGateMini({
 
     const featureSummary = FEATURE_SUMMARIES[feature]
     const planRequired = FEATURE_MINIMUM_PLAN[feature]
-    let gateVariant: 'add-card' | 'contact-sales' | 'check-licensing' | null = null
+    let gateVariant: 'add-card' | 'contact-sales' | 'subscribe' | null = null
     if (!overrideShouldShowGate && !hasAvailableFeature(feature)) {
         if (preflight?.cloud) {
             if (planRequired === POSTHOG_CLOUD_STANDARD_PLAN) {
@@ -96,7 +108,7 @@ export function PayGateMini({
                 gateVariant = 'contact-sales'
             }
         } else {
-            gateVariant = 'check-licensing'
+            gateVariant = 'subscribe'
         }
     }
 
@@ -109,14 +121,13 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Upgrade to {gateVariant === 'add-card' ? 'a premium' : `the ${capitalizeFirstLetter(planRequired)}`}{' '}
-                plan to gain {featureSummary.umbrella}.
+                Subscribe to gain {featureSummary.umbrella}.
                 {featureSummary.docsHref && (
                     <>
                         {' '}
-                        <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
-                            Learn more in PostHog Docs.
-                        </a>
+                        <Link to={featureSummary.docsHref} target="_blank">
+                            Learn more in PostHog Docs.
+                        </Link>
                     </>
                 )}
             </div>
@@ -126,8 +137,8 @@ export function PayGateMini({
                         ? '/organization/billing'
                         : gateVariant === 'contact-sales'
                         ? `mailto:sales@posthog.com?subject=Inquiring about ${featureSummary.umbrella}`
-                        : gateVariant === 'check-licensing'
-                        ? 'https://posthog.com/pricing'
+                        : gateVariant === 'subscribe'
+                        ? '/organization/billing'
                         : undefined
                 }
                 type="secondary"
@@ -135,10 +146,10 @@ export function PayGateMini({
                 center
             >
                 {gateVariant === 'add-card'
-                    ? 'Upgrade now'
+                    ? 'Subscribe now'
                     : gateVariant === 'contact-sales'
                     ? 'Contact sales'
-                    : 'Explore license options'}
+                    : 'Subscribe'}
             </LemonButton>
         </div>
     ) : (

@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
+from posthog.schema import HogQLQueryModifiers
 
 LOG_ENTRIES_FIELDS: Dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -34,7 +35,7 @@ class LogEntriesTable(Table):
 class ReplayConsoleLogsLogEntriesTable(LazyTable):
     fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
@@ -57,7 +58,7 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
 class BatchExportLogEntriesTable(LazyTable):
     fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(

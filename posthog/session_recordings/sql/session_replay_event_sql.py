@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine
-from posthog.clickhouse.table_engines import Distributed, ReplicationScheme, AggregatingMergeTree
+from posthog.clickhouse.table_engines import (
+    Distributed,
+    ReplicationScheme,
+    AggregatingMergeTree,
+)
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
 SESSION_REPLAY_EVENTS_DATA_TABLE = lambda: "sharded_session_replay_events"
@@ -101,7 +105,8 @@ KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABL
 )
 
 
-SESSION_REPLAY_EVENTS_TABLE_MV_SQL = lambda: """
+SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -135,9 +140,10 @@ max(_timestamp) as _timestamp
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """.format(
-    target_table="writable_session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table="writable_session_replay_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 
@@ -147,7 +153,10 @@ group by session_id, team_id
 WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(
+        data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+        sharding_key="sipHash64(distinct_id)",
+    ),
 )
 
 
@@ -155,7 +164,10 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_replay_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+    engine=Distributed(
+        data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+        sharding_key="sipHash64(distinct_id)",
+    ),
 )
 
 

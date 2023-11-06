@@ -2,11 +2,15 @@ import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { WarningLimiter } from '../../../src/utils/token-bucket'
+import { OverflowWarningLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
+jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
+    runEventPipeline: jest.fn().mockResolvedValue('default value'),
+}))
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 const captureEndpointEvent = {
     uuid: 'uuid1',
@@ -53,15 +57,12 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
                 },
                 db: 'database',
             },
-            workerMethods: {
-                runEventPipeline: jest.fn(() => Promise.resolve({})),
-            },
         }
     })
 
     it('raises ingestion warning when consuming from overflow', async () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
-        const consume = jest.spyOn(WarningLimiter, 'consume').mockImplementation(() => true)
+        const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => true)
 
         queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
         await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Consume)
@@ -81,12 +82,12 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         )
 
         // Event is processed
-        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+        expect(runEventPipeline).toHaveBeenCalled()
     })
 
     it('does not raise ingestion warning when under threshold', async () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
-        const consume = jest.spyOn(WarningLimiter, 'consume').mockImplementation(() => false)
+        const consume = jest.spyOn(OverflowWarningLimiter, 'consume').mockImplementation(() => false)
 
         queue.pluginsServer.teamManager.getTeamForEvent.mockResolvedValueOnce({ id: 1 })
         await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Consume)
@@ -99,6 +100,6 @@ describe('eachBatchParallelIngestion with overflow consume', () => {
         expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
 
         // Event is processed
-        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+        expect(runEventPipeline).toHaveBeenCalled()
     })
 })

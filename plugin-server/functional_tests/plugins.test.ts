@@ -10,6 +10,7 @@ import {
     createPluginAttachment,
     createPluginConfig,
     createTeam,
+    enablePluginConfig,
     fetchEvents,
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
@@ -107,7 +108,10 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
 
     const event = {
         event: 'custom event',
-        properties: { name: 'haha' },
+        // NOTE: Before `sanitizeJsonbValue` was added, the null byte below would blow up the error
+        // UPDATE, breaking this test. It is now replaced with the Unicode replacement character,
+        // \uFFFD.
+        properties: { name: 'haha', other: '\u0000' },
     }
 
     await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
@@ -125,6 +129,9 @@ test.concurrent(`plugin method tests: creates error on unhandled throw`, async (
     })
 
     expect(error.message).toEqual('error thrown in plugin')
+    const errorProperties = error.event.properties
+    expect(errorProperties.name).toEqual('haha')
+    expect(errorProperties.other).toEqual('\uFFFD')
 })
 
 test.concurrent(`plugin method tests: creates error on unhandled rejection`, async () => {
@@ -567,7 +574,9 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    // Create the pluginconfig disabled to avoid it being loaded by a concurrent test
+    // before the attachment is available.
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, false)
     await createPluginAttachment({
         teamId,
         pluginConfigId: pluginConfig.id,
@@ -577,6 +586,7 @@ test.concurrent('plugins can use attachements', async () => {
         key: 'testAttachment',
         contents: 'test',
     })
+    await enablePluginConfig(teamId, plugin.id)
 
     await reloadPlugins()
 

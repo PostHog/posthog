@@ -1,4 +1,4 @@
-import { Row, Select } from 'antd'
+import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelExclusion, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
@@ -8,6 +8,7 @@ import { IconDelete } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
+import clsx from 'clsx'
 
 type ExclusionRowSuffixComponentBaseProps = {
     filter: ActionFilterType | FunnelExclusion
@@ -66,11 +67,7 @@ export function ExclusionRowSuffix({
     }
 
     return (
-        <Row
-            align="middle"
-            wrap={false}
-            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: isVertical ? '100%' : 'auto' }}
-        >
+        <div className={clsx('flex items-center flex-nowrap pl-1 mx-0', isVertical ? 'w-full my-1' : 'w-auto my-0')}>
             between
             <Select
                 defaultValue={0}
@@ -120,6 +117,6 @@ export function ExclusionRowSuffix({
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"
             />
-        </Row>
+        </div>
     )
 }

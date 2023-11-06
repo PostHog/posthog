@@ -38,16 +38,24 @@ class SimplifyFilterMixin:
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
             for entity_type, entities in result.entities_to_dict().items():
-                updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
+                updated_entities[entity_type] = [
+                    self._simplify_entity(team, entity_type, entity, **kwargs)  # type: ignore
+                    for entity in entities
+                ]
 
         from posthog.models.property.util import clear_excess_levels
 
-        prop_group = clear_excess_levels(self._simplify_property_group(team, result.property_groups, **kwargs), skip=True)  # type: ignore
+        prop_group = clear_excess_levels(
+            self._simplify_property_group(team, result.property_groups, **kwargs),  # type: ignore
+            skip=True,
+        )
         prop_group = prop_group.to_dict()  # type: ignore
 
         new_group_props = []
         if getattr(result, "aggregation_group_type_index", None) is not None:
-            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())  # type: ignore
+            new_group_props.append(
+                self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict()  # type: ignore
+            )
 
         if new_group_props:
             new_group = {"type": "AND", "values": new_group_props}
@@ -56,7 +64,11 @@ class SimplifyFilterMixin:
         return result.shallow_clone({**updated_entities, "properties": prop_group})
 
     def _simplify_entity(
-        self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
+        self,
+        team: "Team",
+        entity_type: Literal["events", "actions", "exclusions"],
+        entity_params: Dict,
+        **kwargs,
     ) -> Dict:
         from posthog.models.entity import Entity, ExclusionEntity
 

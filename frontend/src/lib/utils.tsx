@@ -527,6 +527,43 @@ export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+export function humanFriendlyLargeNumber(d: number): string {
+    if (isNaN(d)) {
+        return 'NaN'
+    } else if (!isFinite(d)) {
+        if (d > 0) {
+            return 'inf'
+        } else {
+            return '-inf'
+        }
+    }
+    const trillion = 1_000_000_000_000
+    const billion = 1_000_000_000
+    const million = 1_000_000
+    const thousand = 1_000
+
+    // handle positive number only to make life easier
+    const prefix = d >= 0 ? '' : '-'
+    d = Math.abs(d)
+
+    // round to 3 significant figures
+    d = parseFloat(d.toPrecision(3))
+
+    if (d >= trillion) {
+        return `${prefix}${(d / trillion).toString()}T`
+    } else if (d >= billion) {
+        return `${prefix}${(d / billion).toString()}B`
+    }
+    if (d >= million) {
+        return `${prefix}${(d / million).toString()}M`
+    }
+    if (d >= thousand) {
+        return `${prefix}${(d / thousand).toString()}K`
+    } else {
+        return `${prefix}${d}`
+    }
+}
+
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
     if (typeof timestamp !== 'number') {
         return undefined
@@ -1601,6 +1638,54 @@ export function isNumeric(x: any): boolean {
  */
 export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
     return arg !== null && arg !== undefined
+}
+
+/** An error signaling that a value of type `never` in TypeScript was used unexpectedly at runtime.
+ *
+ * Useful for type-narrowing, will give a compile-time error if the type of x is not `never`.
+ * See the example below where it catches a missing branch at compile-time.
+ *
+ * @example
+ *
+ * enum MyEnum {
+ *     a,
+ *     b,
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         // missing branch
+ *         default:
+ *             throw new UnexpectedNeverError(x) // TS2345: Argument of type MyEnum is not assignable to parameter of type never
+ *     }
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         case MyEnum.b:
+ *             return
+ *         default:
+ *             throw new UnexpectedNeverError(x) // no type error
+ *     }
+ * }
+ *
+ */
+export class UnexpectedNeverError extends Error {
+    constructor(x: never, message?: string) {
+        message = message ?? 'Unexpected never: ' + String(x)
+        super(message)
+
+        // restore prototype chain, which is broken by Error
+        // see https://stackoverflow.com/questions/41102060/typescript-extending-error-class
+        const actualProto = new.target.prototype
+        if (Object.setPrototypeOf) {
+            Object.setPrototypeOf(this, actualProto)
+        }
+    }
 }
 
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {

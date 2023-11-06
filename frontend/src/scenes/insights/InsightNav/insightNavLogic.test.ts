@@ -1,11 +1,11 @@
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '~/queries/schema'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { insightDataLogic } from '../insightDataLogic'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
@@ -62,7 +62,18 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery], filterTestAccounts: true },
+                    source: {
+                        ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery],
+                        filterTestAccounts: true,
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: 'EventsNode',
+                                math: 'total',
+                                name: '$pageview',
+                            },
+                        ],
+                    },
                 },
             })
         })
@@ -107,6 +118,173 @@ describe('insightNavLogic', () => {
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
+            })
+        })
+
+        describe('query cache', () => {
+            const trendsQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: { show_values_on_series: true },
+                },
+            }
+            const funnelsQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageleave',
+                            event: '$pageleave',
+                        },
+                    ],
+                    funnelsFilter: {
+                        funnel_order_type: StepOrderValue.STRICT,
+                        funnel_viz_type: FunnelVizType.Steps,
+                    },
+                },
+            }
+            const retentionQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.RetentionQuery,
+                    retentionFilter: {
+                        returning_entity: {
+                            id: 'returning',
+                            name: 'returning',
+                            type: 'events',
+                        },
+                        target_entity: {
+                            id: 'target',
+                            name: 'target',
+                            type: 'events',
+                        },
+                    },
+                },
+            }
+
+            it('is initialized on mount', async () => {
+                await expectLogic(logic).toMatchValues({
+                    queryPropertyCache: {
+                        ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
+                        commonFilter: {},
+                        filterTestAccounts: true,
+                    },
+                })
+            })
+
+            it('stores query updates', async () => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: 'EventsNode',
+                                name: '$pageview',
+                            },
+                        ],
+                    }),
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQuery)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: 'EventsNode',
+                                name: '$pageview',
+                            },
+                            {
+                                event: '$pageleave',
+                                kind: 'EventsNode',
+                                name: '$pageleave',
+                            },
+                        ],
+                    }),
+                })
+            })
+
+            it('stores insight filter in commonFilter', async () => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        commonFilter: { show_values_on_series: true },
+                    }),
+                })
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQuery)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        commonFilter: {
+                            show_values_on_series: true,
+                            funnel_order_type: 'strict',
+                            funnel_viz_type: 'steps',
+                        },
+                    }),
+                })
+            })
+
+            it('stores series from retention entities', async () => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(retentionQuery)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        series: [
+                            {
+                                event: 'target',
+                                kind: 'EventsNode',
+                                math: 'total',
+                                name: 'target',
+                            },
+                            {
+                                event: 'returning',
+                                kind: 'EventsNode',
+                                math: 'total',
+                                name: 'returning',
+                            },
+                        ],
+                    }),
+                })
+            })
+
+            it('updates query when navigating', async () => {
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQuery)
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setActiveView(InsightType.LIFECYCLE)
+                }).toDispatchActions([
+                    logic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'LifecycleQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            filterTestAccounts: true,
+                            lifecycleFilter: { show_values_on_series: true },
+                        },
+                    } as Node),
+                ])
             })
         })
     })

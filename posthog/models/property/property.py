@@ -78,7 +78,12 @@ GroupTypeName = str
 PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
-CLICKHOUSE_ONLY_PROPERTY_TYPES = ["static-cohort", "precalculated-cohort", "behavioral", "recording"]
+CLICKHOUSE_ONLY_PROPERTY_TYPES = [
+    "static-cohort",
+    "precalculated-cohort",
+    "behavioral",
+    "recording",
+]
 
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
@@ -95,7 +100,13 @@ VALIDATE_PROP_TYPES = {
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
-    BehavioralPropertyType.PERFORMED_EVENT: ["key", "value", "event_type", "time_value", "time_interval"],
+    BehavioralPropertyType.PERFORMED_EVENT: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+    ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         "key",
         "value",
@@ -104,7 +115,13 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "time_interval",
         "operator_value",
     ],
-    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: ["key", "value", "event_type", "time_value", "time_interval"],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
+        "key",
+        "value",
+        "event_type",
+        "time_value",
+        "time_interval",
+    ],
     BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",
         "value",
@@ -254,9 +271,9 @@ class Property:
     def _parse_value(value: ValueT, convert_to_number: bool = False) -> Any:
         if isinstance(value, list):
             return [Property._parse_value(v, convert_to_number) for v in value]
-        if value == "true":
+        if value == "true" or value == "True":
             return True
-        if value == "false":
+        if value == "false" or value == "False":
             return False
         if isinstance(value, int):
             return value
@@ -282,7 +299,11 @@ class PropertyGroup:
     type: PropertyOperatorType
     values: Union[List[Property], List["PropertyGroup"]]
 
-    def __init__(self, type: PropertyOperatorType, values: Union[List[Property], List["PropertyGroup"]]) -> None:
+    def __init__(
+        self,
+        type: PropertyOperatorType,
+        values: Union[List[Property], List["PropertyGroup"]],
+    ) -> None:
         self.type = type
         self.values = values
 
@@ -310,7 +331,10 @@ class PropertyGroup:
         if not self.values:
             return {}
 
-        return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
+        return {
+            "type": self.type.value,
+            "values": [prop.to_dict() for prop in self.values],
+        }
 
     def __repr__(self):
         params_repr = ", ".join(f"{repr(prop)}" for prop in self.values)

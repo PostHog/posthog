@@ -1,14 +1,18 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Link, LemonButtonWithSideAction } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
 import { DataWarehouseTablesContainer } from './DataWarehouseTables'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import SourceModal from './SourceModal'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
@@ -16,7 +20,10 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSceneLogic)
+    const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen } =
+        useValues(dataWarehouseSceneLogic)
+    const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -30,24 +37,30 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    !shouldShowProductIntroduction ? (
-                        <LemonButton
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
+                        <LemonButtonWithSideAction
                             type="primary"
-                            to={urls.dataWarehouseTable('new')}
-                            data-attr="new-data-warehouse-table"
+                            sideAction={{
+                                icon: <IconSettings />,
+                                onClick: () => router.actions.push(urls.dataWarehouseSettings()),
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={toggleSourceModal}
                         >
-                            New Table
-                        </LemonButton>
+                            Link Source
+                        </LemonButtonWithSideAction>
                     ) : undefined
                 }
                 caption={
                     <div>
                         These are external data sources you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
+                        </Link>
                         . Connect your own tables from S3 to query data from outside posthog.{' '}
-                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
+                        <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }
             />
@@ -59,13 +72,14 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
+                    action={() => toggleSourceModal()}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
             {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
+            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
         </div>
     )
 }
