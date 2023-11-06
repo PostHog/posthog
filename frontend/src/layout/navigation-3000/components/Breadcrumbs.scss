@@ -7,6 +7,7 @@
     align-items: start;
     height: var(--breadcrumbs-height-full);
     pointer-events: none;
+    white-space: nowrap;
 }
 
 .Breadcrumbs3000__content {
@@ -21,7 +22,6 @@
     );
     background: var(--glass-bg-3000);
     border-bottom: 1px solid var(--glass-border-3000);
-    overflow-x: auto;
     font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
     line-height: 1rem;
     font-weight: 600;
@@ -32,6 +32,12 @@
 .Breadcrumbs3000__crumbs {
     display: flex;
     align-items: center;
+}
+
+.Breadcrumbs3000__trail {
+    flex-grow: 1;
+    flex-shrink: 1;
+    overflow-x: auto;
 }
 
 .Breadcrumbs3000__here {
@@ -49,6 +55,7 @@
 }
 
 .Breadcrumbs3000__breadcrumb {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     white-space: pre;
