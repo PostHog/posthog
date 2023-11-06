@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Space, Switch } from 'antd'
-import { CodeOutlined, LockFilled } from '@ant-design/icons'
+import { Form, Switch } from 'antd'
+import { LockFilled } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
@@ -18,7 +18,8 @@ import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PluginTags } from '../tabs/apps/components'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -136,20 +137,19 @@ export function PluginDrawer(): JSX.Element {
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
-                    <div className="flex">
-                        <Space>
-                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
-                                Cancel
-                            </Button>
-                            <Button
-                                type="primary"
-                                loading={loading}
-                                onClick={form.submit}
-                                data-attr="plugin-drawer-save"
-                            >
-                                Save
-                            </Button>
-                        </Space>
+                    <div className="flex space-x-2">
+                        <LemonButton size="small" onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            loading={loading}
+                            onClick={form.submit}
+                            data-attr="plugin-drawer-save"
+                        >
+                            Save
+                        </LemonButton>
                     </div>
                 }
             >
@@ -184,14 +184,14 @@ export function PluginDrawer(): JSX.Element {
 
                             {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
-                                    <Button
-                                        type={editingSource ? 'default' : 'primary'}
-                                        icon={<CodeOutlined />}
+                                    <LemonButton
+                                        status={editingSource ? 'muted' : 'primary'}
+                                        icon={<IconCode />}
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"
                                     >
                                         Edit source
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             ) : null}
 
