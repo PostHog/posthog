@@ -10,6 +10,8 @@ import {
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -194,7 +196,7 @@ export function RatingQuestionBarChart({
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className=" h-50 border rounded pt-6 pb-2">
+                    <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
@@ -345,7 +347,7 @@ export function SingleChoiceQuestionPieChart({
                                             className="w-3 h-3 rounded-full mr-2"
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-30 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
                                         <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
                                     </div>
@@ -460,10 +462,15 @@ export function OpenTextViz({
                 <></>
             ) : (
                 <>
-                    <div className="font-semibold text-muted-alt">Open text</div>
-                    <div className="text-xl font-bold mb-4">
-                        {question.question} • <span className="">Latest responses</span>
-                    </div>
+                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                        <div className="inline-flex gap-1">
+                            <div className="font-semibold text-muted-alt">Open text</div>
+                            <LemonDivider vertical className="my-1 mx-1" />
+                            <div className="font-semibold text-muted-alt">random selection</div>
+                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                        </div>
+                    </Tooltip>
+                    <div className="text-xl font-bold mb-4">{question.question}</div>
                     <div className="mt-4 mb-8 masonry-container">
                         {surveyOpenTextResults[questionIndex].events.map((event, i) => {
                             const personProp = {

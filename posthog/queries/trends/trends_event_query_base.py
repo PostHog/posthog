@@ -1,6 +1,11 @@
 from typing import Any, Dict, Tuple
 
-from posthog.constants import MONTHLY_ACTIVE, UNIQUE_USERS, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.constants import (
+    MONTHLY_ACTIVE,
+    UNIQUE_USERS,
+    WEEKLY_ACTIVE,
+    PropertyOperatorType,
+)
 from posthog.models import Entity
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.filter import Filter
@@ -8,7 +13,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, get_active_user_params
+from posthog.queries.trends.util import (
+    COUNT_PER_ACTOR_MATH_FUNCTIONS,
+    get_active_user_params,
+)
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode
 
@@ -117,9 +125,10 @@ class TrendsEventQueryBase(EventQuery):
         self.parsed_date_to = parsed_date_to
 
         if self._entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-            active_user_format_params, active_user_query_params = get_active_user_params(
-                self._filter, self._entity, self._team_id
-            )
+            (
+                active_user_format_params,
+                active_user_query_params,
+            ) = get_active_user_params(self._filter, self._entity, self._team_id)
             self.active_user_params = active_user_format_params
             date_params.update(active_user_query_params)
 

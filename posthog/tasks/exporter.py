@@ -34,7 +34,13 @@ EXPORT_TIMER = Histogram(
 
 
 # export_asset is used in chords/groups and so must not ignore its results
-@app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True, ignore_result=False)
+@app.task(
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=True,
+    acks_late=True,
+    ignore_result=False,
+)
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 

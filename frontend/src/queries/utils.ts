@@ -28,7 +28,7 @@ import {
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataWaterfallNode,
     TrendsQuery,
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     WebStatsTableQuery,
     WebTopClicksQuery,
 } from '~/queries/schema'
@@ -112,8 +112,8 @@ export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverviewStatsQuery {
-    return node?.kind === NodeKind.WebOverviewStatsQuery
+export function isWebOverviewQuery(node?: Node | null): node is WebOverviewQuery {
+    return node?.kind === NodeKind.WebOverviewQuery
 }
 
 export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
@@ -232,7 +232,7 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
     return undefined
 }
 
-const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
+export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -241,7 +241,7 @@ const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> =
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-export function filterPropertyForQuery(node: InsightQueryNode): InsightFilterProperty {
+export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
     return nodeKindToFilterProperty[node.kind]
 }
 

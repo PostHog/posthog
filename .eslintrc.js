@@ -18,6 +18,12 @@ module.exports = {
         react: {
             version: 'detect',
         },
+        'import/resolver': {
+            node: {
+                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
+            },
+        },
     },
     extends: [
         'eslint:recommended',
@@ -37,7 +43,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat', 'posthog'],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
@@ -91,7 +97,7 @@ module.exports = {
                 ],
             },
         ],
-        'react/forbid-elements': [
+        'posthog/warn-elements': [
             1,
             {
                 forbid: [
@@ -103,10 +109,6 @@ module.exports = {
                     {
                         element: 'Col',
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Divider',
@@ -137,8 +139,8 @@ module.exports = {
                         message: 'use <LemonSelect> instead',
                     },
                     {
-                        element: 'a',
-                        message: 'use <Link> instead',
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
                 ],
             },
@@ -156,6 +158,10 @@ module.exports = {
                         message: 'use <LemonTabs> instead',
                     },
                     {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
+                    },
+                    {
                         element: 'Spin',
                         message: 'use Spinner instead',
                     },
@@ -166,6 +172,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',
@@ -182,6 +192,10 @@ module.exports = {
                     {
                         element: 'ReactMarkdown',
                         message: 'use <LemonMarkdown> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
                     },
                 ],
             },
@@ -234,6 +248,16 @@ module.exports = {
             files: ['*.js'],
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
+            },
+        },
+        {
+            files: 'eslint-rules/**/*',
+            extends: ['eslint:recommended'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+            },
+            env: {
+                node: true,
             },
         },
     ],

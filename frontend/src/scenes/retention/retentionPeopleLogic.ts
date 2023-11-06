@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -12,23 +13,20 @@ import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionPeopleLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionPeopleLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
         actions: [insightVizDataLogic(props), ['loadDataSuccess']],
-    }),
-    actions: () => ({
+    })),
+    actions(() => ({
         clearPeople: true,
         loadMorePeople: true,
         loadMorePeopleSuccess: (payload: RetentionTablePeoplePayload) => ({ payload }),
-    }),
-    selectors: () => ({
-        apiFilters: [(s) => [s.querySource], (querySource) => (querySource ? queryNodeToFilter(querySource) : {})],
-    }),
-    loaders: ({ values }) => ({
+    })),
+    loaders(({ values }) => ({
         people: {
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
@@ -36,8 +34,8 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
                 return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
             },
         },
-    }),
-    reducers: {
+    })),
+    reducers({
         people: {
             clearPeople: () => ({}),
             loadPeople: () => ({}),
@@ -50,8 +48,11 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
                 loadMorePeopleSuccess: () => false,
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    selectors(() => ({
+        apiFilters: [(s) => [s.querySource], (querySource) => (querySource ? queryNodeToFilter(querySource) : {})],
+    })),
+    listeners(({ actions, values }) => ({
         loadDataSuccess: () => {
             // clear people when changing the insight filters
             actions.clearPeople()
@@ -67,5 +68,5 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
                 actions.loadMorePeopleSuccess(newPayload)
             }
         },
-    }),
-})
+    })),
+])

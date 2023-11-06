@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -98,7 +98,7 @@ export function LemonMenu({
     )
 
     const _onVisibilityChange = useCallback(
-        (visible) => {
+        (visible: boolean) => {
             onVisibilityChange?.(visible)
             if (visible && activeItemIndex && activeItemIndex > -1) {
                 // Scroll the active item into view once the menu is open (i.e. in the next tick)
@@ -256,7 +256,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     size={size}
                     {...buttonProps}
                 >
-                    {label}
+                    {label as ReactNode}
                     {keyboardShortcut && (
                         <div className="-mr-0.5 inline-flex grow justify-end">
                             {/* Show the keyboard shortcut on the right */}

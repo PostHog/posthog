@@ -99,7 +99,9 @@ class EventsQueryRunner(QueryRunner):
                     with self.timings.measure("event"):
                         where_exprs.append(
                             parse_expr(
-                                "event = {event}", {"event": ast.Constant(value=self.query.event)}, timings=self.timings
+                                "event = {event}",
+                                {"event": ast.Constant(value=self.query.event)},
+                                timings=self.timings,
                             )
                         )
                 if self.query.actionId:
@@ -113,12 +115,16 @@ class EventsQueryRunner(QueryRunner):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(Person.objects.all(), self.query.personId).first()
+                        person: Optional[Person] = get_pk_or_uuid(
+                            Person.objects.filter(team=self.team), self.query.personId
+                        ).first()
                         distinct_ids = person.distinct_ids if person is not None else []
                         ids_list = list(map(str, distinct_ids))
                         where_exprs.append(
                             parse_expr(
-                                "distinct_id in {list}", {"list": ast.Constant(value=ids_list)}, timings=self.timings
+                                "distinct_id in {list}",
+                                {"list": ast.Constant(value=ids_list)},
+                                timings=self.timings,
                             )
                         )
 
@@ -131,7 +137,9 @@ class EventsQueryRunner(QueryRunner):
                     parsed_date = relative_date_parse(before, self.team.timezone_info)
                 where_exprs.append(
                     parse_expr(
-                        "timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}, timings=self.timings
+                        "timestamp < {timestamp}",
+                        {"timestamp": ast.Constant(value=parsed_date)},
+                        timings=self.timings,
                     )
                 )
 
@@ -261,7 +269,10 @@ class EventsQueryRunner(QueryRunner):
 
     def limit(self) -> int:
         # importing locally so we could override in a test
-        from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+        from posthog.hogql.constants import (
+            DEFAULT_RETURNED_ROWS,
+            MAX_SELECT_RETURNED_ROWS,
+        )
 
         # adding +1 to the limit to check if there's a "next page" after the requested results
         return (

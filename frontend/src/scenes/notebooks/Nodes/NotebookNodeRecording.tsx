@@ -25,7 +25,7 @@ import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
 
 const HEIGHT = 500
-const MIN_HEIGHT = 400
+const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
     const { id, noInspector } = attributes
@@ -162,7 +162,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    settings: Settings,
+    Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

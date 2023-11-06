@@ -216,6 +216,11 @@ async def wait_for_schedule_backfill_in_range(
         f'AND StartTime >= "{now.isoformat()}"'
     )
 
+    workflows = [workflow async for workflow in client.list_workflows(query=query)]
+
+    if workflows and check_workflow_executions_not_running(workflows) is True:
+        return
+
     done = False
     while not done:
         await asyncio.sleep(wait_delay)
@@ -281,7 +286,10 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to backfill a BatchExport."""
         logger = get_batch_exports_logger(inputs=inputs)
         logger.info(
-            "Starting Backfill for BatchExport %s: %s - %s", inputs.batch_export_id, inputs.start_at, inputs.end_at
+            "Starting Backfill for BatchExport %s: %s - %s",
+            inputs.batch_export_id,
+            inputs.start_at,
+            inputs.end_at,
         )
 
         create_batch_export_backfill_inputs = CreateBatchExportBackfillInputs(

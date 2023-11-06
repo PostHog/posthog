@@ -226,6 +226,15 @@
                   "updated_at",
                   "properties"
               ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
+              ]
           }
       ],
       "groups": [
@@ -1006,6 +1015,15 @@
                   "created_at",
                   "updated_at",
                   "properties"
+              ]
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "id",
+                  "duration"
               ]
           }
       ],

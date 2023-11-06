@@ -59,7 +59,11 @@ def test_can_retrieve_multiple_settings(db):
     assert get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT") == 20000
 
     returned = get_instance_settings(
-        ["MATERIALIZED_COLUMNS_ENABLED", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", "ASYNC_MIGRATIONS_AUTO_CONTINUE"]
+        [
+            "MATERIALIZED_COLUMNS_ENABLED",
+            "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            "ASYNC_MIGRATIONS_AUTO_CONTINUE",
+        ]
     )
 
     assert returned == {

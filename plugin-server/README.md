@@ -47,7 +47,7 @@ testing:
 
 1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
 1. setup the test DBs `pnpm setup:test`
-1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm start:dev`
+1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog RELOAD_PLUGIN_JITTER_MAX_MS=0 pnpm start:dev`
 1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm functional_tests --watch`
 
 ## CLI flags

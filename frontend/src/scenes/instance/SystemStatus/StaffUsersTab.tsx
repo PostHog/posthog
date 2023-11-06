@@ -1,6 +1,6 @@
 import { Divider, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconDelete, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonTableColumns, LemonTable } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UserType } from '~/types'
@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { Link } from '@posthog/lemon-ui'
 
 export function StaffUsersTab(): JSX.Element {
     const { user: myself } = useValues(userLogic)
@@ -105,15 +106,19 @@ export function StaffUsersTab(): JSX.Element {
             <div className="mb-4">
                 Users who have permissions to manage instance-wide settings. Staff user permissions are set at the{' '}
                 <b>instance-level and are independent of any organization or project permissions.</b>{' '}
-                <a href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users" target="_blank">
-                    Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                </a>
+                <Link
+                    to="https://posthog.com/docs/self-host/configure/instance-settings#staff-users"
+                    target="_blank"
+                    targetBlankIcon
+                >
+                    Learn more
+                </Link>
                 .
             </div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
                 <div className="flex gap-2 mb-4">
-                    <div style={{ flex: 1 }}>
+                    <div className="flex flex-1">
                         <LemonSelectMultiple
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}

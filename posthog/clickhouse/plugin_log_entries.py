@@ -61,7 +61,9 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PLUGIN_LOG_ENTRIES_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
+    table_name=PLUGIN_LOG_ENTRIES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
 )
 
 

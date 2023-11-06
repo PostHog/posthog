@@ -4,7 +4,6 @@ import { userLogic } from 'scenes/userLogic'
 import { TZLabel } from '../TZLabel'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { ColumnType } from 'antd/lib/table'
-import { Row } from 'antd'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
@@ -30,14 +29,14 @@ export function createdByColumn<T extends Record<string, any> = Record<string, a
         title: normalizeColumnTitle('Created by'),
         render: function Render(_: any, item: any) {
             return (
-                <Row align="middle" wrap={false}>
+                <div className="flex items-center flex-nowrap">
                     {item.created_by && (
                         <ProfilePicture name={item.created_by.first_name} email={item.created_by.email} size="md" />
                     )}
                     <div style={{ maxWidth: 250, width: 'auto', verticalAlign: 'middle', marginLeft: 8 }}>
                         {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
                     </div>
-                </Row>
+                </div>
             )
         },
         filters: uniqueBy(

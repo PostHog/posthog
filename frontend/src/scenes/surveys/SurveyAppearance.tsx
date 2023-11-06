@@ -1,5 +1,5 @@
 import './SurveyAppearance.scss'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
@@ -318,9 +318,9 @@ export function BaseAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -490,8 +490,10 @@ export function SurveyRatingAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="rating-section">
                     <div className="rating-options">
                         {ratingSurveyQuestion.display === 'emoji' && (
@@ -526,9 +528,9 @@ export function SurveyRatingAppearance({
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
-                            <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                            <Link to="https://posthog.com" target="_blank" className="footer-branding">
                                 Survey by {posthogLogoSVG}
-                            </a>
+                            </Link>
                         )}
                     </div>
                 </div>
@@ -588,8 +590,10 @@ export function SurveyMultipleChoiceAppearance({
                         </button>
                     </div>
                 )}
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
@@ -612,9 +616,9 @@ export function SurveyMultipleChoiceAppearance({
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -664,9 +668,9 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
-                    <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                    <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
-                    </a>
+                    </Link>
                 )}
             </div>
         </div>

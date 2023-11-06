@@ -39,7 +39,6 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0078_auto_20200731_1323"),
     ]

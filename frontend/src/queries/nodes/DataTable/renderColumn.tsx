@@ -5,7 +5,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
@@ -204,27 +204,29 @@ export function renderColumn(
             )
         }
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
-    } else if (key === 'person' && isEventsQuery(query.source)) {
-        const personRecord = value as EventsQueryPersonColumn
-        return personRecord.distinct_id ? (
-            <PersonDisplay withIcon person={personRecord} />
-        ) : (
-            <PersonDisplay noLink withIcon person={value} />
-        )
-    } else if (key === 'person' && isPersonsNode(query.source)) {
+    } else if (key === 'person') {
         const personRecord = record as PersonType
-        return (
-            <Link to={urls.personByDistinctId(personRecord.distinct_ids[0])}>
-                <PersonDisplay noLink withIcon person={personRecord} noPopover />
-            </Link>
-        )
-    } else if (key === 'person' && isPersonsQuery(query.source)) {
-        const personRecord = value as PersonType
-        return (
-            <Link to={urls.personByUUID(personRecord.id ?? '-')}>
-                <PersonDisplay noLink withIcon person={personRecord} noPopover />
-            </Link>
-        )
+
+        const displayProps: PersonDisplayProps = {
+            withIcon: true,
+            person: record as PersonType,
+            noPopover: true,
+        }
+
+        if (isEventsQuery(query.source)) {
+            displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
+            displayProps.noPopover = false // If we are in an events list, the popover experience is better
+        }
+
+        if (isPersonsNode(query.source) && personRecord.distinct_ids) {
+            displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
+        }
+
+        if (isPersonsQuery(query.source)) {
+            displayProps.href = urls.personByUUID(personRecord.id ?? '-')
+        }
+
+        return <PersonDisplay {...displayProps} />
     } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />

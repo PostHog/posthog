@@ -30,7 +30,8 @@ class ElementGroupManager(models.Manager):
                     group = super().create(*args, **kwargs)
             except:
                 return ElementGroup.objects.get(
-                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"]
+                    hash=kwargs["hash"],
+                    team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
                 )
             for element in elements:
                 element.group = group

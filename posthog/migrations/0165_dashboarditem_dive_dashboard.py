@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0164_person_index_by_team_and_id"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="dashboarditem",
             name="dive_dashboard",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.dashboard"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                to="posthog.dashboard",
             ),
         ),
     ]

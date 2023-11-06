@@ -1,5 +1,6 @@
-import { kea } from 'kea'
-import { decodeParams, router } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { decodeParams, router, actionToUrl, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
@@ -31,21 +32,21 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
-export const personsLogic = kea<personsLogicType>({
-    props: {} as PersonsLogicProps,
-    key: (props) => {
+export const personsLogic = kea<personsLogicType>([
+    props({} as PersonsLogicProps),
+    key((props) => {
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
 
         return props.cohort ? `cohort_${props.cohort}` : 'scene'
-    },
-    path: (key) => ['scenes', 'persons', 'personsLogic', key],
-    connect: () => ({
+    }),
+    path((key) => ['scenes', 'persons', 'personsLogic', key]),
+    connect(() => ({
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-    }),
-    actions: {
+    })),
+    actions({
         setPerson: (person: PersonType | null) => ({ person }),
         setPersons: (persons: PersonType[]) => ({ persons }),
         loadPerson: (id: string) => ({ id }),
@@ -60,193 +61,8 @@ export const personsLogic = kea<personsLogicType>({
         setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
-    },
-    reducers: () => ({
-        listFilters: [
-            {} as PersonListParams,
-            {
-                setListFilters: (state, { payload }) => {
-                    const newFilters = { ...state, ...payload }
-
-                    if (newFilters.properties?.length === 0) {
-                        delete newFilters['properties']
-                    }
-                    if (newFilters.properties) {
-                        newFilters.properties = convertPropertyGroupToProperties(
-                            newFilters.properties.filter(isValidPropertyFilter)
-                        )
-                    }
-                    return newFilters
-                },
-            },
-        ],
-        hiddenListProperties: [
-            [] as AnyPropertyFilter[],
-            {
-                setHiddenListProperties: (state, { payload }) => {
-                    let newProperties = [...state, ...payload]
-                    if (newProperties) {
-                        newProperties =
-                            convertPropertyGroupToProperties(newProperties.filter(isValidPropertyFilter)) || []
-                    }
-                    return newProperties
-                },
-            },
-        ],
-        activeTab: [
-            null as PersonsTabType | null,
-            {
-                navigateToTab: (_, { tab }) => tab,
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        splitMergeModalShown: [
-            false,
-            {
-                setSplitMergeModalShown: (_, { shown }) => shown,
-            },
-        ],
-        persons: {
-            setPerson: (state, { person }) => ({
-                ...state,
-                results: state.results.map((p) => (person && p.id === person.id ? person : p)),
-            }),
-            setPersons: (state, { persons }) => ({
-                ...state,
-                results: [...persons, ...state.results],
-            }),
-        },
-        person: {
-            loadPerson: () => null,
-            setPerson: (_, { person }): PersonType | null => person,
-        },
-        distinctId: [
-            null as string | null,
-            {
-                setDistinctId: (_, { distinctId }) => distinctId,
-            },
-        ],
     }),
-    selectors: () => ({
-        apiDocsURL: [
-            () => [(_, props) => props.cohort],
-            (cohort: PersonsLogicProps['cohort']) =>
-                cohort
-                    ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
-                    : 'https://posthog.com/docs/api/persons',
-        ],
-        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
-        currentTab: [
-            (s) => [s.activeTab],
-            (activeTab) => {
-                return activeTab || PersonsTabType.PROPERTIES
-            },
-        ],
-        breadcrumbs: [
-            (s) => [s.person, router.selectors.location],
-            (person, location): Breadcrumb[] => {
-                const showPerson = person && location.pathname.match(/\/person\/.+/)
-                const breadcrumbs: Breadcrumb[] = [
-                    {
-                        name: 'Persons',
-                        path: urls.persons(),
-                    },
-                ]
-                if (showPerson) {
-                    breadcrumbs.push({
-                        name: asDisplay(person),
-                    })
-                }
-                return breadcrumbs
-            },
-        ],
-
-        exporterProps: [
-            (s) => [s.listFilters, (_, { cohort }) => cohort],
-            (listFilters, cohort: number | 'new' | undefined): TriggerExportProps[] => [
-                {
-                    export_format: ExporterFormat.CSV,
-                    export_context: {
-                        path: cohort
-                            ? api.cohorts.determineListUrl(cohort, listFilters)
-                            : api.persons.determineListUrl(listFilters),
-                    },
-                },
-            ],
-        ],
-        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        showCustomerSuccessDashboards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
-        ],
-    }),
-    listeners: ({ actions, values }) => ({
-        editProperty: async ({ key, newValue }) => {
-            const person = values.person
-
-            if (person && person.id) {
-                let parsedValue = newValue
-
-                // Instrumentation stuff
-                let action: 'added' | 'updated'
-                const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
-                let newPropertyType: string = typeof newValue
-
-                // If the property is a number, store it as a number
-                const attemptedParsedNumber = Number(newValue)
-                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
-                    parsedValue = attemptedParsedNumber
-                    newPropertyType = 'number'
-                }
-
-                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
-                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
-                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
-                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
-                }
-
-                if (!Object.keys(person.properties).includes(key)) {
-                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
-                    action = 'added'
-                } else {
-                    person.properties[key] = parsedValue
-                    action = 'updated'
-                }
-
-                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
-                //      the _updated_ properties yet.
-                await api.persons.updateProperty(person.id, key, parsedValue)
-                lemonToast.success(`Person property ${action}`)
-
-                eventUsageLogic.actions.reportPersonPropertyUpdated(
-                    action,
-                    Object.keys(person.properties).length,
-                    oldPropertyType,
-                    newPropertyType
-                )
-            }
-        },
-        deleteProperty: async ({ key }) => {
-            const person = values.person
-
-            if (person && person.id) {
-                const updatedProperties = { ...person.properties }
-                delete updatedProperties[key]
-
-                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
-                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
-                await api.persons.deleteProperty(person.id, key)
-                lemonToast.success(`Person property deleted`)
-
-                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
-            }
-        },
-        navigateToCohort: ({ cohort }) => {
-            router.actions.push(urls.cohort(cohort.id))
-        },
-    }),
-    loaders: ({ values, actions, props }) => ({
+    loaders(({ values, actions, props }) => ({
         persons: [
             { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
                 offset: number
@@ -343,8 +159,193 @@ export const personsLogic = kea<personsLogicType>({
                 },
             },
         ],
-    }),
-    actionToUrl: ({ values, props }) => ({
+    })),
+    reducers(() => ({
+        listFilters: [
+            {} as PersonListParams,
+            {
+                setListFilters: (state, { payload }) => {
+                    const newFilters = { ...state, ...payload }
+
+                    if (newFilters.properties?.length === 0) {
+                        delete newFilters['properties']
+                    }
+                    if (newFilters.properties) {
+                        newFilters.properties = convertPropertyGroupToProperties(
+                            newFilters.properties.filter(isValidPropertyFilter)
+                        )
+                    }
+                    return newFilters
+                },
+            },
+        ],
+        hiddenListProperties: [
+            [] as AnyPropertyFilter[],
+            {
+                setHiddenListProperties: (state, { payload }) => {
+                    let newProperties = [...state, ...payload]
+                    if (newProperties) {
+                        newProperties =
+                            convertPropertyGroupToProperties(newProperties.filter(isValidPropertyFilter)) || []
+                    }
+                    return newProperties
+                },
+            },
+        ],
+        activeTab: [
+            null as PersonsTabType | null,
+            {
+                navigateToTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        splitMergeModalShown: [
+            false,
+            {
+                setSplitMergeModalShown: (_, { shown }) => shown,
+            },
+        ],
+        persons: {
+            setPerson: (state, { person }) => ({
+                ...state,
+                results: state.results.map((p) => (person && p.id === person.id ? person : p)),
+            }),
+            setPersons: (state, { persons }) => ({
+                ...state,
+                results: [...persons, ...state.results],
+            }),
+        },
+        person: {
+            loadPerson: () => null,
+            setPerson: (_, { person }): PersonType | null => person,
+        },
+        distinctId: [
+            null as string | null,
+            {
+                setDistinctId: (_, { distinctId }) => distinctId,
+            },
+        ],
+    })),
+    selectors(() => ({
+        apiDocsURL: [
+            () => [(_, props) => props.cohort],
+            (cohort: PersonsLogicProps['cohort']) =>
+                cohort
+                    ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
+                    : 'https://posthog.com/docs/api/persons',
+        ],
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
+        currentTab: [(s) => [s.activeTab, s.defaultTab], (activeTab, defaultTab) => activeTab || defaultTab],
+        defaultTab: [
+            (s) => [s.feedEnabled],
+            (feedEnabled) => (feedEnabled ? PersonsTabType.FEED : PersonsTabType.PROPERTIES),
+        ],
+        breadcrumbs: [
+            (s) => [s.person, router.selectors.location],
+            (person, location): Breadcrumb[] => {
+                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        name: 'Persons',
+                        path: urls.persons(),
+                    },
+                ]
+                if (showPerson) {
+                    breadcrumbs.push({
+                        name: asDisplay(person),
+                    })
+                }
+                return breadcrumbs
+            },
+        ],
+
+        exporterProps: [
+            (s) => [s.listFilters, (_, { cohort }) => cohort],
+            (listFilters, cohort: number | 'new' | undefined): TriggerExportProps[] => [
+                {
+                    export_format: ExporterFormat.CSV,
+                    export_context: {
+                        path: cohort
+                            ? api.cohorts.determineListUrl(cohort, listFilters)
+                            : api.persons.determineListUrl(listFilters),
+                    },
+                },
+            ],
+        ],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
+        showCustomerSuccessDashboards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
+        ],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+    })),
+    listeners(({ actions, values }) => ({
+        editProperty: async ({ key, newValue }) => {
+            const person = values.person
+
+            if (person && person.id) {
+                let parsedValue = newValue
+
+                // Instrumentation stuff
+                let action: 'added' | 'updated'
+                const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
+                let newPropertyType: string = typeof newValue
+
+                // If the property is a number, store it as a number
+                const attemptedParsedNumber = Number(newValue)
+                if (!Number.isNaN(attemptedParsedNumber) && typeof newValue !== 'boolean') {
+                    parsedValue = attemptedParsedNumber
+                    newPropertyType = 'number'
+                }
+
+                const lowercaseValue = typeof parsedValue === 'string' && parsedValue.toLowerCase()
+                if (lowercaseValue === 'true' || lowercaseValue === 'false' || lowercaseValue === 'null') {
+                    parsedValue = lowercaseValue === 'true' ? true : lowercaseValue === 'null' ? null : false
+                    newPropertyType = parsedValue !== null ? 'boolean' : 'null'
+                }
+
+                if (!Object.keys(person.properties).includes(key)) {
+                    person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
+                    action = 'added'
+                } else {
+                    person.properties[key] = parsedValue
+                    action = 'updated'
+                }
+
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
+                //      the _updated_ properties yet.
+                await api.persons.updateProperty(person.id, key, parsedValue)
+                lemonToast.success(`Person property ${action}`)
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated(
+                    action,
+                    Object.keys(person.properties).length,
+                    oldPropertyType,
+                    newPropertyType
+                )
+            }
+        },
+        deleteProperty: async ({ key }) => {
+            const person = values.person
+
+            if (person && person.id) {
+                const updatedProperties = { ...person.properties }
+                delete updatedProperties[key]
+
+                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
+                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                await api.persons.deleteProperty(person.id, key)
+                lemonToast.success(`Person property deleted`)
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+            }
+        },
+        navigateToCohort: ({ cohort }) => {
+            router.actions.push(urls.cohort(cohort.id))
+        },
+    })),
+    actionToUrl(({ values, props }) => ({
         setListFilters: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
@@ -364,8 +365,8 @@ export const personsLogic = kea<personsLogicType>({
                 ]
             }
         },
-    }),
-    urlToAction: ({ actions, values, props }) => ({
+    })),
+    urlToAction(({ actions, values, props }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
@@ -375,7 +376,7 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonDistinctId) {
@@ -397,7 +398,7 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 if (!activeTab) {
-                    actions.setActiveTab(PersonsTabType.PROPERTIES)
+                    actions.setActiveTab(values.defaultTab)
                 }
 
                 if (rawPersonUUID) {
@@ -408,8 +409,8 @@ export const personsLogic = kea<personsLogicType>({
                 }
             }
         },
-    }),
-    events: ({ props, actions }) => ({
+    })),
+    events(({ props, actions }) => ({
         afterMount: () => {
             if (props.cohort && typeof props.cohort === 'number') {
                 actions.setListFilters({ cohort: props.cohort })
@@ -421,5 +422,5 @@ export const personsLogic = kea<personsLogicType>({
                 actions.loadPersons()
             }
         },
-    }),
-})
+    })),
+])

@@ -131,7 +131,11 @@ def _send_email(
             try:
                 connection.close()  # type: ignore
             except Exception as err:
-                print("Could not close email connection (this can be ignored):", err, file=sys.stderr)
+                print(
+                    "Could not close email connection (this can be ignored):",
+                    err,
+                    file=sys.stderr,
+                )
 
 
 class EmailMessage:

@@ -4,14 +4,22 @@ from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FunnelCorrelationType, PropertyOperatorType
+from posthog.constants import (
+    FUNNEL_CORRELATION_PERSON_LIMIT,
+    FunnelCorrelationType,
+    PropertyOperatorType,
+)
 from posthog.models import Person
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.team import Team
-from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
+from posthog.queries.actor_base_query import (
+    ActorBaseQuery,
+    SerializedGroup,
+    SerializedPerson,
+)
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import get_person_properties_mode
 
@@ -44,7 +52,11 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
+    ) -> Tuple[
+        Union[QuerySet[Person], QuerySet[Group]],
+        Union[List[SerializedGroup], List[SerializedPerson]],
+        int,
+    ]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
         else:
@@ -64,13 +76,15 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         return self._filter.aggregation_group_type_index
 
     def actor_query(self, limit_actors: Optional[bool] = True):
-
         if not self._filter.correlation_person_entity:
             raise ValidationError("No entity for persons specified")
 
         assert isinstance(self._filter.correlation_person_entity, Entity)
 
-        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_actors_cte()
+        (
+            funnel_persons_query,
+            funnel_persons_params,
+        ) = self._funnel_correlation.get_funnel_actors_cte()
 
         prop_filters = self._filter.correlation_person_entity.property_groups
 
@@ -150,11 +164,18 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     def aggregation_group_type_index(self):
         return self._filter.aggregation_group_type_index
 
-    def actor_query(self, limit_actors: Optional[bool] = True, extra_fields: Optional[List[str]] = None):
+    def actor_query(
+        self,
+        limit_actors: Optional[bool] = True,
+        extra_fields: Optional[List[str]] = None,
+    ):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
 
-        funnel_persons_query, funnel_persons_params = self._funnel_correlation.get_funnel_actors_cte()
+        (
+            funnel_persons_query,
+            funnel_persons_params,
+        ) = self._funnel_correlation.get_funnel_actors_cte()
 
         conversion_filter = (
             f'funnel_actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'

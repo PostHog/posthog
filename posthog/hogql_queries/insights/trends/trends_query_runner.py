@@ -6,7 +6,10 @@ from operator import itemgetter
 from typing import List, Optional, Any, Dict
 
 from django.utils.timezone import datetime
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.caching.insights_api import (
+    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+)
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
@@ -17,12 +20,20 @@ from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithE
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import (
+    QueryPreviousPeriodDateRange,
+)
 from posthog.models import Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import ActionsNode, EventsNode, HogQLQueryResponse, TrendsQuery, TrendsQueryResponse
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    HogQLQueryResponse,
+    TrendsQuery,
+    TrendsQueryResponse,
+)
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -35,7 +46,7 @@ class TrendsQueryRunner(QueryRunner):
         query: TrendsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[int] = None,
+        in_export_context: Optional[bool] = None,
     ):
         super().__init__(query, team, timings, in_export_context)
         self.series = self.setup_series()
@@ -81,6 +92,26 @@ class TrendsQueryRunner(QueryRunner):
                 queries.append(query_builder.build_query())
 
         return queries
+
+    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        queries = []
+        with self.timings.measure("trends_persons_query"):
+            for series in self.series:
+                if not series.is_previous_period_series:
+                    query_date_range = self.query_date_range
+                else:
+                    query_date_range = self.query_previous_date_range
+
+                query_builder = TrendsQueryBuilder(
+                    trends_query=series.overriden_query or self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series.series,
+                    timings=self.timings,
+                )
+                queries.append(query_builder.build_persons_query())
+
+        return ast.SelectUnionQuery(select_queries=queries)
 
     def calculate(self):
         queries = self.to_query()
@@ -141,7 +172,10 @@ class TrendsQueryRunner(QueryRunner):
             # Modifications for when comparing to previous period
             if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
                 labels = [
-                    "{} {}".format(self.query.interval if self.query.interval is not None else "day", i)
+                    "{} {}".format(
+                        self.query.interval if self.query.interval is not None else "day",
+                        i,
+                    )
                     for i in range(len(series_object["labels"]))
                 ]
 
@@ -171,13 +205,19 @@ class TrendsQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
         )
 
     @cached_property
     def query_previous_date_range(self):
         return QueryPreviousPeriodDateRange(
-            date_range=self.query.dateRange, team=self.team, interval=self.query.interval, now=datetime.now()
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
         )
 
     def series_event(self, series: EventsNode | ActionsNode) -> str | None:
@@ -209,12 +249,16 @@ class TrendsQueryRunner(QueryRunner):
             for series in series_with_extras:
                 updated_series.append(
                     SeriesWithExtras(
-                        series=series.series, is_previous_period_series=False, overriden_query=series.overriden_query
+                        series=series.series,
+                        is_previous_period_series=False,
+                        overriden_query=series.overriden_query,
                     )
                 )
                 updated_series.append(
                     SeriesWithExtras(
-                        series=series.series, is_previous_period_series=True, overriden_query=series.overriden_query
+                        series=series.series,
+                        is_previous_period_series=True,
+                        overriden_query=series.overriden_query,
                     )
                 )
             series_with_extras = updated_series
@@ -265,7 +309,9 @@ class TrendsQueryRunner(QueryRunner):
             property_type = PropertyDefinition.Type.EVENT
 
         field_type = self._event_property(
-            self.query.breakdown.breakdown, property_type, self.query.breakdown.breakdown_group_type_index
+            self.query.breakdown.breakdown,
+            property_type,
+            self.query.breakdown.breakdown_group_type_index,
         )
         return field_type == "Boolean"
 
@@ -273,7 +319,12 @@ class TrendsQueryRunner(QueryRunner):
         bool_map = {1: "true", 0: "false", "": ""}
         return bool_map.get(value) or value
 
-    def _event_property(self, field: str, field_type: PropertyDefinition.Type, group_type_index: Optional[int]):
+    def _event_property(
+        self,
+        field: str,
+        field_type: PropertyDefinition.Type,
+        group_type_index: Optional[int],
+    ):
         return PropertyDefinition.objects.get(
             name=field,
             team=self.team,

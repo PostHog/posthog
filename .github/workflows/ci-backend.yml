@@ -125,11 +125,11 @@ jobs:
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
-                  ruff .
+                  ruff check .
 
             - name: Check formatting
               run: |
-                  black --exclude posthog/hogql/grammar --check --diff .
+                  ruff format --exclude posthog/hogql/grammar --check --diff .
 
             - name: Check static typing
               run: |

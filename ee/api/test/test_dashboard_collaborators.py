@@ -21,10 +21,14 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         other_user_a = User.objects.create_and_join(self.organization, "a@x.com", None)
         other_user_b = User.objects.create_and_join(self.organization, "b@x.com", None)
         DashboardPrivilege.objects.create(
-            user=other_user_a, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_VIEW
+            user=other_user_a,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_VIEW,
         )
         DashboardPrivilege.objects.create(
-            user=other_user_b, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=other_user_b,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         response = self.client.get(
@@ -48,7 +52,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(other_user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
@@ -67,7 +74,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(other_user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
@@ -84,7 +94,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(self.user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(self.user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
@@ -106,13 +119,17 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(other_user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
@@ -124,7 +141,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(other_user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
@@ -144,12 +164,18 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         response = self.client.post(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/",
-            {"user_uuid": str(other_user.uuid), "level": Dashboard.PrivilegeLevel.CAN_EDIT},
+            {
+                "user_uuid": str(other_user.uuid),
+                "level": Dashboard.PrivilegeLevel.CAN_EDIT,
+            },
         )
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response_data, self.permission_denied_response("You don't have access to the project."))
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response("You don't have access to the project."),
+        )
 
     def test_cannot_update_existing_collaborator(self):
         # This will change once there are more levels, but with just two it doesn't make sense to PATCH privileges
@@ -159,7 +185,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.test_dashboard.save()
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         DashboardPrivilege.objects.create(
-            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=other_user,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         response = self.client.patch(
@@ -176,7 +204,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.test_dashboard.save()
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         DashboardPrivilege.objects.create(
-            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=other_user,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         response = self.client.delete(
@@ -199,7 +229,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.test_dashboard.save()
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         DashboardPrivilege.objects.create(
-            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=other_user,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         response = self.client.delete(
@@ -216,7 +248,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.test_dashboard.save()
         other_user = User.objects.create_and_join(self.organization, "a@x.com", None)
         DashboardPrivilege.objects.create(
-            user=other_user, dashboard=self.test_dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=other_user,
+            dashboard=self.test_dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         response = self.client.delete(
@@ -226,5 +260,6 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
-            response_data, self.permission_denied_response("You don't have edit permissions for this dashboard.")
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
         )

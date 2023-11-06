@@ -6,7 +6,7 @@ import {
     getDefaultFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -17,6 +17,7 @@ import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { IconComment } from 'lib/lemon-ui/icons'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 
 const Component = ({
     attributes,
@@ -55,6 +56,11 @@ const Component = ({
     const { activeSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
+    const getReplayLogic = (
+        sessionRecordingId?: string
+    ): BuiltLogic<sessionRecordingPlayerLogicType> | null | undefined =>
+        sessionRecordingId ? sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId }) : null
+
     useEffect(() => {
         setActions(
             activeSessionRecording
@@ -62,10 +68,15 @@ const Component = ({
                       {
                           text: 'View replay',
                           onClick: () => {
+                              getReplayLogic(activeSessionRecording.id)?.actions.setPause()
+
                               insertAfter({
                                   type: NotebookNodeType.Recording,
                                   attrs: {
                                       id: String(activeSessionRecording.id),
+                                      __init: {
+                                          expanded: true,
+                                      },
                                   },
                               })
                           },
@@ -93,7 +104,7 @@ const Component = ({
 
                 setTimeout(() => {
                     // NOTE: This is a hack but we need a delay to give time for the player to mount
-                    sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(time)
+                    getReplayLogic(sessionRecordingId)?.actions.seekToTime(time)
                 }, 100)
             },
         })
@@ -161,7 +172,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
             return { filters: searchParams.filters }
         },
     },
-    settings: Settings,
+    Settings,
 })
 
 export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {

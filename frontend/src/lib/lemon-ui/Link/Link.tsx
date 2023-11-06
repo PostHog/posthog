@@ -6,6 +6,9 @@ import './Link.scss'
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useActions } from 'kea'
+import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
 
@@ -42,6 +45,14 @@ const shouldForcePageLoad = (input: any): boolean => {
     return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
 }
 
+const isPostHogDomain = (url: string): boolean => {
+    return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
+}
+
+const isPostHogComDomain = (url: string): boolean => {
+    return /^https:\/\/(www\.)?posthog\.com/.test(url)
+}
+
 /**
  * Link
  *
@@ -70,6 +81,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
+        const docsPanelEnabled = useFeatureFlag('SIDE_PANEL_DOCS')
+        const is3000 = useFeatureFlag('POSTHOG_3000')
+        const { openDocsPage } = useActions(sidePanelDocsLogic)
+
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -80,6 +95,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
 
             if (event.isDefaultPrevented()) {
                 event.preventDefault()
+                return
+            }
+
+            if (typeof to === 'string' && is3000 && docsPanelEnabled && isPostHogComDomain(to)) {
+                event.preventDefault()
+                openDocsPage(to)
                 return
             }
 
@@ -95,14 +116,17 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
         }
 
+        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+
         return to ? (
+            // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
                 className={clsx('Link', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? to : '#'}
                 target={target}
-                rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+                rel={target === '_blank' ? rel : undefined}
                 {...props}
                 {...draggableProps}
             >

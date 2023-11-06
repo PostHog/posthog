@@ -21,22 +21,20 @@ export class Storage {
     }
 
     replenish(key: string, now?: number): void {
-        if (typeof now === 'undefined') {
-            now = Date.now()
-        }
-
-        if (this.buckets.has(key) === false) {
-            this.buckets.set(key, [this.bucketCapacity, now])
+        const replenish_timestamp: number = now ?? Date.now()
+        const bucket = this.buckets.get(key)
+        if (bucket === undefined) {
+            this.buckets.set(key, [this.bucketCapacity, replenish_timestamp])
             return
         }
 
-        // We have checked the key exists already, so this cannot be undefined
-        const bucket: Bucket = this.buckets.get(key)!
-
-        // replenishRate is per second, but timestamps are in milliseconds
-        const replenishedTokens = this.replenishRate * ((now - bucket[1]) / 1000) + bucket[0]
-        bucket[0] = Math.min(replenishedTokens, this.bucketCapacity)
-        bucket[1] = now
+        // Replenish the bucket if replenish_timestamp is higher than lastReplenishedTimestamp
+        const secondsToReplenish = (replenish_timestamp - bucket[1]) / 1000
+        if (secondsToReplenish > 0) {
+            bucket[0] += this.replenishRate * secondsToReplenish
+            bucket[0] = Math.min(bucket[0], this.bucketCapacity)
+            bucket[1] = replenish_timestamp
+        }
     }
 
     consume(key: string, tokens: number): boolean {
@@ -74,6 +72,8 @@ export const ConfiguredLimiter: Limiter = new Limiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
 
-export const WarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+export const OverflowWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+
+export const MessageSizeTooLargeWarningLimiter: Limiter = new Limiter(1, 1.0 / 300)
 
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

@@ -2,8 +2,14 @@ import unittest
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+from ee.clickhouse.queries.funnels.funnel_correlation import (
+    EventContingencyTable,
+    EventStats,
+    FunnelCorrelation,
+)
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
+    FunnelCorrelationActors,
+)
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
@@ -35,13 +41,16 @@ def _create_action(**kwargs):
 
 
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
-
     maxDiff = None
 
     def _get_actors_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
         actor_filter = filter.shallow_clone(
             {
-                "funnel_correlation_person_entity": {"id": event_name, "type": "events", "properties": properties},
+                "funnel_correlation_person_entity": {
+                    "id": event_name,
+                    "type": "events",
+                    "properties": properties,
+                },
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
@@ -53,7 +62,12 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         actor_filter = filter.shallow_clone(
             {
                 "funnel_correlation_property_values": [
-                    {"key": prop, "value": value, "type": type, "group_type_index": group_type_index}
+                    {
+                        "key": prop,
+                        "value": value,
+                        "type": type,
+                        "group_type_index": group_type_index,
+                    }
                     for prop, value, type, group_type_index in property_values
                 ],
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
@@ -80,7 +94,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -89,12 +106,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=f"user_{i}",
                     timestamp="2020-01-03T14:00:00Z",
                 )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(10, 20):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -133,8 +158,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
-        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "positively_related", success=False)),
+            0,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "negatively_related", success=False)),
+            5,
+        )
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
 
         # Now exclude positively_related
@@ -162,31 +193,50 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         # Getting specific people isn't affected by exclude_events
         self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
-        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 5)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "positively_related", success=False)),
+            0,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "negatively_related", success=False)),
+            5,
+        )
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
 
     @snapshot_clickhouse_queries
     def test_action_events_are_excluded_from_correlations(self):
-
         journey = {}
 
         for i in range(3):
             person_id = f"user_{i}"
             events = [
-                {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"}},
+                {
+                    "event": "user signed up",
+                    "timestamp": "2020-01-02T14:00:00",
+                    "properties": {"key": "val"},
+                },
                 # same event, but missing property, so not part of action.
                 {"event": "user signed up", "timestamp": "2020-01-02T14:10:00"},
             ]
             if i % 2 == 0:
                 events.append({"event": "positively_related", "timestamp": "2020-01-03T14:00:00"})
-            events.append({"event": "paid", "timestamp": "2020-01-04T14:00:00", "properties": {"key": "val"}})
+            events.append(
+                {
+                    "event": "paid",
+                    "timestamp": "2020-01-04T14:00:00",
+                    "properties": {"key": "val"},
+                }
+            )
 
             journey[person_id] = events
 
         # one failure needed
         journey["failure"] = [
-            {"event": "user signed up", "timestamp": "2020-01-02T14:00:00", "properties": {"key": "val"}}
+            {
+                "event": "user signed up",
+                "timestamp": "2020-01-02T14:00:00",
+                "properties": {"key": "val"},
+            }
         ]
 
         journeys_for(events_by_person=journey, team=self.team)  # type: ignore
@@ -204,7 +254,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
         filters = {
             "events": [],
-            "actions": [{"id": sign_up_action.id, "order": 0}, {"id": paid_action.id, "order": 1}],
+            "actions": [
+                {"id": sign_up_action.id, "order": 0},
+                {"id": paid_action.id, "order": 1},
+            ],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
@@ -233,11 +286,26 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_events_and_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:7", properties={"industry": "finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:7",
+            properties={"industry": "finance"},
+        )
 
         for i in range(10, 20):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={})
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={},
+            )
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
                 team=self.team,
@@ -352,13 +420,28 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(self._get_actors_for_event(filter, "positively_related")), 5)
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", success=False)), 0)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "positively_related", success=False)),
+            0,
+        )
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
-        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "negatively_related", success=False)),
+            1,
+        )
 
         # Now exclude all groups in positive
         filter = filter.shallow_clone(
-            {"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]}
+            {
+                "properties": [
+                    {
+                        "key": "industry",
+                        "value": "finance",
+                        "type": "group",
+                        "group_type_index": 0,
+                    }
+                ]
+            }
         )
         result = FunnelCorrelation(filter, self.team)._run()[0]
 
@@ -382,7 +465,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
-        self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "negatively_related", success=False)),
+            1,
+        )
 
     @also_test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     @snapshot_clickhouse_queries
@@ -403,16 +489,35 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(10):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
-            _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive"},
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(10, 20):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative"},
+            )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -423,17 +528,36 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 )
 
         # One Positive with failure
-        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_person(
+            distinct_ids=[f"user_fail"],
+            team_id=self.team.pk,
+            properties={"$browser": "Positive"},
+        )
         _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         # One Negative with success
-        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
-        _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_succ", timestamp="2020-01-02T14:00:00Z"
+        _create_person(
+            distinct_ids=[f"user_succ"],
+            team_id=self.team.pk,
+            properties={"$browser": "Negative"},
         )
-        _create_event(team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z")
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-04T14:00:00Z",
+        )
 
         result = correlation._run()[0]
 
@@ -478,13 +602,21 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)])), 10)
         self.assertEqual(
-            len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)], False)), 1
+            len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)])),
+            10,
         )
-        self.assertEqual(len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)])), 1)
         self.assertEqual(
-            len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)), 10
+            len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)], False)),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)])),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)),
+            10,
         )
 
     # TODO: Delete this test when moved to person-on-events
@@ -497,9 +629,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "positive"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": "positive"},
             )
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive"},
+            )
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -517,9 +656,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10, 20):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "negative"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": "negative"},
             )
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative"},
+            )
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -538,9 +684,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # One Positive with failure
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:fail", properties={"industry": "positive"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:fail",
+            properties={"industry": "positive"},
         )
-        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_person(
+            distinct_ids=[f"user_fail"],
+            team_id=self.team.pk,
+            properties={"$browser": "Positive"},
+        )
         _create_event(
             team=self.team,
             event="user signed up",
@@ -551,9 +704,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # One Negative with success
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:succ", properties={"industry": "negative"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:succ",
+            properties={"industry": "negative"},
         )
-        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
+        _create_person(
+            distinct_ids=[f"user_succ"],
+            team_id=self.team.pk,
+            properties={"$browser": "Negative"},
+        )
         _create_event(
             team=self.team,
             event="user signed up",
@@ -627,10 +787,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])), 10)
-        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)), 1)
-        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])), 1)
-        self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)), 10)
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])),
+            10,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)),
+            10,
+        )
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
@@ -659,9 +831,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "positive"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": "positive"},
             )
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive"},
+            )
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -679,9 +858,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10, 20):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "negative"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": "negative"},
             )
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative"},
+            )
             _create_event(
                 team=self.team,
                 event="user signed up",
@@ -700,9 +886,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # One Positive with failure
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:fail", properties={"industry": "positive"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:fail",
+            properties={"industry": "positive"},
         )
-        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_person(
+            distinct_ids=[f"user_fail"],
+            team_id=self.team.pk,
+            properties={"$browser": "Positive"},
+        )
         _create_event(
             team=self.team,
             event="user signed up",
@@ -713,9 +906,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # One Negative with success
         create_group(
-            team_id=self.team.pk, group_type_index=0, group_key=f"org:succ", properties={"industry": "negative"}
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:succ",
+            properties={"industry": "negative"},
         )
-        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
+        _create_person(
+            distinct_ids=[f"user_succ"],
+            team_id=self.team.pk,
+            properties={"$browser": "Negative"},
+        )
         _create_event(
             team=self.team,
             event="user signed up",
@@ -790,13 +990,21 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-            self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])), 10)
             self.assertEqual(
-                len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)), 1
+                len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])),
+                10,
             )
-            self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])), 1)
             self.assertEqual(
-                len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)), 10
+                len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)),
+                1,
+            )
+            self.assertEqual(
+                len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])),
+                1,
+            )
+            self.assertEqual(
+                len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)),
+                10,
             )
 
             # test with `$all` as property
@@ -828,18 +1036,42 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         correlation = FunnelCorrelation(filter, self.team)
 
         for i in range(2):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive"},
+            )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             # failure count for this event is 0
-            _create_event(team=self.team, event="positive", distinct_id=f"user_{i}", timestamp="2020-01-03T14:00:00Z")
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="positive",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-03T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(2, 4):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative"},
+            )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 # success count for this event is 0
@@ -897,10 +1129,29 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=filters)
         correlation = FunnelCorrelation(filter, self.team)
 
-        _create_person(distinct_ids=[f"user_1"], team_id=self.team.pk, properties={"$browser": "Positive"})
-        _create_event(team=self.team, event="user signed up", distinct_id=f"user_1", timestamp="2020-01-02T14:00:00Z")
-        _create_event(team=self.team, event="rick", distinct_id=f"user_1", timestamp="2020-01-03T14:00:00Z")
-        _create_event(team=self.team, event="paid", distinct_id=f"user_1", timestamp="2020-01-04T14:00:00Z")
+        _create_person(
+            distinct_ids=[f"user_1"],
+            team_id=self.team.pk,
+            properties={"$browser": "Positive"},
+        )
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_1",
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="rick",
+            distinct_id=f"user_1",
+            timestamp="2020-01-03T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id=f"user_1",
+            timestamp="2020-01-04T14:00:00Z",
+        )
         flush_persons_and_events()
 
         with self.assertRaises(ValidationError):
@@ -933,44 +1184,88 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         #  5 successful people with both properties
         for i in range(5):
             _create_person(
-                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive", "$nice": "very"}
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive", "$nice": "very"},
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         #  10 successful people with some different properties
         for i in range(5, 15):
             _create_person(
-                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive", "$nice": "not"}
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive", "$nice": "not"},
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         # 5 Unsuccessful people with some common properties
         for i in range(15, 20):
             _create_person(
-                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative", "$nice": "smh"}
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative", "$nice": "smh"},
             )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
 
         # One Positive with failure, no $nice property
-        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_person(
+            distinct_ids=[f"user_fail"],
+            team_id=self.team.pk,
+            properties={"$browser": "Positive"},
+        )
         _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         # One Negative with success, no $nice property
-        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
-        _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_succ", timestamp="2020-01-02T14:00:00Z"
+        _create_person(
+            distinct_ids=[f"user_succ"],
+            team_id=self.team.pk,
+            properties={"$browser": "Negative"},
         )
-        _create_event(team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z")
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-04T14:00:00Z",
+        )
 
         result = correlation._run()[0]
 
@@ -1073,9 +1368,18 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(new_result, new_expected_result)
 
-        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "not", "person", None)])), 10)
-        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "", "person", None)], False)), 1)
-        self.assertEqual(len(self._get_actors_for_property(filter, [("$nice", "very", "person", None)])), 5)
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$nice", "not", "person", None)])),
+            10,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$nice", "", "person", None)], False)),
+            1,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_property(filter, [("$nice", "very", "person", None)])),
+            5,
+        )
 
     def test_discarding_insignificant_events(self):
         filters = {
@@ -1095,7 +1399,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -1111,12 +1418,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=f"user_{i}",
                     timestamp="2020-01-03T14:20:00Z",
                 )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(10, 20):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -1162,16 +1477,30 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         _create_person(distinct_ids=["user_successful"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id="user_successful", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_successful",
+            timestamp="2020-01-02T14:00:00Z",
         )
         _create_event(
-            team=self.team, event="positively_related", distinct_id="user_successful", timestamp="2020-01-02T14:02:00Z"
+            team=self.team,
+            event="positively_related",
+            distinct_id="user_successful",
+            timestamp="2020-01-02T14:02:00Z",
         )
-        _create_event(team=self.team, event="paid", distinct_id="user_successful", timestamp="2020-01-02T14:06:00Z")
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="user_successful",
+            timestamp="2020-01-02T14:06:00Z",
+        )
 
         _create_person(distinct_ids=["user_dropoff"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id="user_dropoff", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_dropoff",
+            timestamp="2020-01-02T14:00:00Z",
         )
         _create_event(
             team=self.team,
@@ -1212,7 +1541,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "event_with_properties",
-            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
+            "funnel_correlation_event_names": [
+                "positively_related",
+                "negatively_related",
+            ],
         }
 
         filter = Filter(data=filters)
@@ -1221,7 +1553,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -1229,15 +1564,26 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     event="positively_related",
                     distinct_id=f"user_{i}",
                     timestamp="2020-01-03T14:00:00Z",
-                    properties={"signup_source": "facebook" if i % 4 == 0 else "email", "blah": "value_bleh"},
+                    properties={
+                        "signup_source": "facebook" if i % 4 == 0 else "email",
+                        "blah": "value_bleh",
+                    },
                 )
                 # source: email occurs only twice, so would be discarded from result set
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(10, 20):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -1284,15 +1630,21 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})), 5)
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
+            len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})),
+            5,
         )
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)), 0
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})),
+            3,
         )
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"}, False)),
+            0,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "negatively_related", {"signup_source": "email"}, False)),
+            3,
         )
 
     @also_test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
@@ -1303,7 +1655,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": "positive"}
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key=f"org:{i}",
+                properties={"industry": "positive"},
             )
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
@@ -1336,7 +1691,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10, 20):
             create_group(
-                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": "positive"}
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key=f"org:{i}",
+                properties={"industry": "positive"},
             )
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
@@ -1352,7 +1710,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     event="negatively_related",
                     distinct_id=f"user_{i}",
                     timestamp="2020-01-03T14:00:00Z",
-                    properties={"signup_source": "shazam" if i % 6 == 0 else "email", "$group_1": f"org:{i}"},
+                    properties={
+                        "signup_source": "shazam" if i % 6 == 0 else "email",
+                        "$group_1": f"org:{i}",
+                    },
                 )
                 # source: shazam occurs only once, so would be discarded from result set
 
@@ -1366,7 +1727,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2020-01-14",
             "aggregation_group_type_index": 1,
             "funnel_correlation_type": "event_with_properties",
-            "funnel_correlation_event_names": ["positively_related", "negatively_related"],
+            "funnel_correlation_event_names": [
+                "positively_related",
+                "negatively_related",
+            ],
         }
 
         filter = Filter(data=filters)
@@ -1427,7 +1791,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for i in range(3):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             _create_event(
                 team=self.team,
@@ -1436,12 +1803,20 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 timestamp="2020-01-03T14:00:00Z",
                 properties={"signup_source": "facebook", "blah": "value_bleh"},
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         # Atleast one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         result = correlation._run()[0]
@@ -1459,11 +1834,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})), 3)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})),
+            3,
+        )
 
         # If you search for persons with a specific property, even if excluded earlier, you should get them
         self.assertEqual(
-            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
+            len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})),
+            3,
         )
 
     @also_test_with_materialized_columns(["$event_type", "signup_source"])
@@ -1487,7 +1866,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for i in range(6):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             _create_event(
                 team=self.team,
@@ -1503,17 +1885,32 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     event="$autocapture",
                     distinct_id=f"user_{i}",
-                    elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+                    elements=[
+                        Element(
+                            nth_of_type=1,
+                            nth_child=0,
+                            tag_name="button",
+                            text="Pay $10",
+                        )
+                    ],
                     timestamp="2020-01-03T14:00:00Z",
                     properties={"signup_source": "facebook", "$event_type": "submit"},
                 )
 
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         # Atleast one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         result = correlation._run()[0]
@@ -1539,16 +1936,32 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(len(self._get_actors_for_event(filter, "$autocapture", {"signup_source": "facebook"})), 3)
-        self.assertEqual(len(self._get_actors_for_event(filter, "$autocapture", {"$event_type": "click"})), 6)
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "$autocapture", {"signup_source": "facebook"})),
+            3,
+        )
+        self.assertEqual(
+            len(self._get_actors_for_event(filter, "$autocapture", {"$event_type": "click"})),
+            6,
+        )
         self.assertEqual(
             len(
                 self._get_actors_for_event(
                     filter,
                     "$autocapture",
                     [
-                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "button"},
-                        {"key": "text", "operator": "exact", "type": "element", "value": "Pay $10"},
+                        {
+                            "key": "tag_name",
+                            "operator": "exact",
+                            "type": "element",
+                            "value": "button",
+                        },
+                        {
+                            "key": "text",
+                            "operator": "exact",
+                            "type": "element",
+                            "value": "Pay $10",
+                        },
                     ],
                 )
             ),
@@ -1560,8 +1973,18 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     filter,
                     "$autocapture",
                     [
-                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "a"},
-                        {"key": "href", "operator": "exact", "type": "element", "value": "/movie"},
+                        {
+                            "key": "tag_name",
+                            "operator": "exact",
+                            "type": "element",
+                            "value": "a",
+                        },
+                        {
+                            "key": "href",
+                            "operator": "exact",
+                            "type": "element",
+                            "value": "/movie",
+                        },
                     ],
                 )
             ),

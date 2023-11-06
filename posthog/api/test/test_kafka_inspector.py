@@ -23,29 +23,40 @@ class TestKafkaInspector(APIBaseTest):
     )
     def test_fetch_message(self, _):
         response = self.client.post(
-            "/api/kafka_inspector/fetch_message", data={"topic": "foo", "partition": 1, "offset": 0}
+            "/api/kafka_inspector/fetch_message",
+            data={"topic": "foo", "partition": 1, "offset": 0},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
-            {"key": "k", "offset": 0, "partition": 0, "timestamp": 1650375470233, "topic": "foo", "value": "v"},
+            {
+                "key": "k",
+                "offset": 0,
+                "partition": 0,
+                "timestamp": 1650375470233,
+                "topic": "foo",
+                "value": "v",
+            },
         )
 
     def test_fetch_message_invalid_params(self):
         response = self.client.post(
-            "/api/kafka_inspector/fetch_message", data={"topic": "foo", "partition": "1", "offset": 0}
+            "/api/kafka_inspector/fetch_message",
+            data={"topic": "foo", "partition": "1", "offset": 0},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"error": "Invalid partition."})
 
         response = self.client.post(
-            "/api/kafka_inspector/fetch_message", data={"topic": 42, "partition": 1, "offset": 0}
+            "/api/kafka_inspector/fetch_message",
+            data={"topic": 42, "partition": 1, "offset": 0},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"error": "Invalid topic."})
 
         response = self.client.post(
-            "/api/kafka_inspector/fetch_message", data={"topic": "foo", "partition": 1, "offset": "0"}
+            "/api/kafka_inspector/fetch_message",
+            data={"topic": "foo", "partition": 1, "offset": "0"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), {"error": "Invalid offset."})

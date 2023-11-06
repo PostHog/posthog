@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import './FeatureFlagInstructions.scss'
-import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
-import { FeatureFlagType } from '~/types'
+import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
+import { FeatureFlagType, GroupTypeIndex } from '~/types'
 import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
@@ -24,9 +24,9 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     return (
         <div className="mt-4">
             Need more information?{' '}
-            <a data-attr="feature-flag-doc-link" target="_blank" rel="noopener" href={documentationLink}>
-                Check the docs <IconOpenInNew />
-            </a>
+            <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
+                Check the docs
+            </Link>
         </div>
     )
 }
@@ -66,7 +66,7 @@ export function CodeInstructions({
     const { groupTypes } = useValues(groupsModel)
     const groupType =
         featureFlag?.filters?.aggregation_group_type_index != null
-            ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
+            ? groupTypes.get(featureFlag.filters.aggregation_group_type_index as GroupTypeIndex)
             : undefined
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)

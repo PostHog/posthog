@@ -29,7 +29,9 @@ class RevenueDataGenerator(DataGenerator):
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         if random.randint(0, 10) <= 4:
             self.add_event(
-                event="entered_free_trial", distinct_id=distinct_id, timestamp=now() - relativedelta(days=345)
+                event="entered_free_trial",
+                distinct_id=distinct_id,
+                timestamp=now() - relativedelta(days=345),
             )
 
         self.add_event(
@@ -68,7 +70,14 @@ class RevenueDataGenerator(DataGenerator):
             team=self.team,
             name="Entered Free Trial -> Purchase (Premium)",
             filters={
-                "events": [{"id": "$pageview", "name": "Pageview", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS}],
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "Pageview",
+                        "order": 0,
+                        "type": TREND_FILTER_TYPE_ACTIONS,
+                    }
+                ],
                 "actions": [
                     {
                         "id": purchase_action.id,

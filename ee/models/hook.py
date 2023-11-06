@@ -31,11 +31,15 @@ class Hook(models.Model):
 def hook_saved(sender, instance: Hook, created, **kwargs):
     if instance.event == "action_performed":
         get_client().publish(
-            "reload-action", json.dumps({"teamId": instance.team_id, "actionId": instance.resource_id})
+            "reload-action",
+            json.dumps({"teamId": instance.team_id, "actionId": instance.resource_id}),
         )
 
 
 @mutable_receiver(post_delete, sender=Hook)
 def hook_deleted(sender, instance: Hook, **kwargs):
     if instance.event == "action_performed":
-        get_client().publish("drop-action", json.dumps({"teamId": instance.team_id, "actionId": instance.resource_id}))
+        get_client().publish(
+            "drop-action",
+            json.dumps({"teamId": instance.team_id, "actionId": instance.resource_id}),
+        )

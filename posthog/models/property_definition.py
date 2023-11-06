@@ -16,7 +16,10 @@ class PropertyType(models.TextChoices):
 
 class PropertyFormat(models.TextChoices):
     UnixTimestamp = "unix_timestamp", "Unix Timestamp in seconds"
-    UnixTimestampMilliseconds = "unix_timestamp_milliseconds", "Unix Timestamp in milliseconds"
+    UnixTimestampMilliseconds = (
+        "unix_timestamp_milliseconds",
+        "Unix Timestamp in milliseconds",
+    )
     ISO8601Date = "YYYY-MM-DDThh:mm:ssZ", "YYYY-MM-DDThh:mm:ssZ"
     FullDate = "YYYY-MM-DD hh:mm:ss", "YYYY-MM-DD hh:mm:ss"
     FullDateIncreasing = "DD-MM-YYYY hh:mm:ss", "DD-MM-YYYY hh:mm:ss"
@@ -33,7 +36,10 @@ class PropertyDefinition(UUIDModel):
         GROUP = 3, "group"
 
     team: models.ForeignKey = models.ForeignKey(
-        Team, on_delete=models.CASCADE, related_name="property_definitions", related_query_name="team"
+        Team,
+        on_delete=models.CASCADE,
+        related_name="property_definitions",
+        related_query_name="team",
     )
     name: models.CharField = models.CharField(max_length=400)
     is_numerical: models.BooleanField = models.BooleanField(
@@ -76,15 +82,19 @@ class PropertyDefinition(UUIDModel):
             models.Index(fields=["team_id", "type", "is_numerical"]),
         ] + [
             GinIndex(
-                name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+                name="index_property_definition_name",
+                fields=["name"],
+                opclasses=["gin_trgm_ops"],
             )  # To speed up DB-based fuzzy searching
         ]
         constraints = [
             models.CheckConstraint(
-                name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values)
+                name="property_type_is_valid",
+                check=models.Q(property_type__in=PropertyType.values),
             ),
             models.CheckConstraint(
-                name="group_type_index_set", check=~models.Q(type=3) | models.Q(group_type_index__isnull=False)
+                name="group_type_index_set",
+                check=~models.Q(type=3) | models.Q(group_type_index__isnull=False),
             ),
             UniqueConstraintByExpression(
                 name="posthog_propertydefinition_uniq",

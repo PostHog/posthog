@@ -32,11 +32,27 @@ import { NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 
-type SlashCommandsProps = {
-    mode: 'slash' | 'add'
+type SlashCommandConditionalProps =
+    | {
+          mode: 'add'
+          getPos: () => number
+          range?: never
+      }
+    | {
+          mode: 'slash'
+          getPos?: never
+          range: EditorRange
+      }
+
+type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string
-    range?: EditorRange
     decorationNode?: any
+    onClose?: () => void
+}
+
+type SlashCommandsPopoverProps = SlashCommandsProps & {
+    visible: boolean
+    children?: JSX.Element
 }
 
 type SlashCommandsRef = {
@@ -47,7 +63,7 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: EditorCommands) => EditorCommands | Promise<EditorCommands>
+    command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -57,12 +73,12 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
         command: (chain) => chain.toggleHeading({ level: 1 }),
     },
     {
-        title: 'h1',
+        title: 'h2',
         icon: <NotebookIconHeading level={2} />,
         command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
-        title: 'h1',
+        title: 'h3',
         icon: <NotebookIconHeading level={3} />,
         command: (chain) => chain.toggleHeading({ level: 3 }),
     },
@@ -83,8 +99,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Trend',
         search: 'trend insight',
         icon: <InsightsTrendsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: false,
@@ -107,8 +124,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Funnel',
         search: 'funnel insight',
         icon: <InsightsFunnelsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.FunnelsQuery,
                     series: [
@@ -133,8 +151,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Retention',
         search: 'retention insight',
         icon: <InsightsRetentionIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.RetentionQuery,
                     retentionFilter: {
@@ -159,8 +178,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Paths',
         search: 'paths insight',
         icon: <InsightsPathsIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.PathsQuery,
                     pathsFilter: {
@@ -173,8 +193,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Stickiness',
         search: 'stickiness insight',
         icon: <InsightsStickinessIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.StickinessQuery,
                     series: [
@@ -193,8 +214,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'Lifecycle',
         search: 'lifecycle insight',
         icon: <InsightsLifecycleIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildInsightVizQueryContent({
                     kind: NodeKind.LifecycleQuery,
                     series: [
@@ -212,8 +234,9 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
         title: 'HogQL',
         search: 'sql',
         icon: <InsightSQLIcon noBackground color="currentColor" />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -243,8 +266,9 @@ order by count() desc
         title: 'Events',
         search: 'data explore',
         icon: <IconTableChart />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -261,8 +285,9 @@ order by count() desc
         title: 'Persons',
         search: 'people users',
         icon: <IconCohort />,
-        command: (chain) =>
-            chain.insertContent(
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
                 buildNodeQueryContent({
                     kind: NodeKind.DataTableNode,
                     columns: defaultDataTableColumns(NodeKind.PersonsNode),
@@ -277,19 +302,19 @@ order by count() desc
         title: 'Session Replays',
         search: 'recordings video',
         icon: <IconRecording />,
-        command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
     {
         title: 'Image',
         search: 'picture',
         icon: <IconUploadFile />,
-        command: async (chain) => {
+        command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
                 const files = await selectFile({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
-                    return chain.insertContent({ type: NotebookNodeType.Image, attrs: { file: files[0] } })
+                    return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
             } catch (e) {
                 lemonToast.error('Something went wrong when trying to select a file.')
@@ -301,7 +326,7 @@ order by count() desc
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, range = { from: 0, to: 0 }, query },
+    { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
@@ -335,16 +360,31 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const onPressEnter = async (): Promise<void> => {
+    const execute = async (item: SlashCommandsItem): Promise<void> => {
         if (editor) {
-            const command =
-                selectedIndex === -1
-                    ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                    : filteredSlashCommands[selectedIndex].command
+            const selectedNode = editor.getSelectedNode()
+            const isTextNode = selectedNode === null || selectedNode.isText
+            const isTextCommand = TEXT_CONTROLS.map((c) => c.title).includes(item.title)
 
-            const partialCommand = await command(editor.deleteRange(range))
+            const position = mode === 'slash' ? range.from : getPos()
+            let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
+
+            if (!isTextNode && isTextCommand) {
+                chain = chain.insertContentAt(position, { type: 'paragraph' })
+            }
+
+            const partialCommand = await item.command(chain, position)
             partialCommand.run()
+
+            onClose?.()
         }
+    }
+
+    const onPressEnter = async (): Promise<void> => {
+        const command =
+            selectedIndex === -1 ? TEXT_CONTROLS[selectedHorizontalIndex] : filteredSlashCommands[selectedIndex]
+
+        await execute(command)
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
@@ -414,7 +454,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                        onClick={async () => await execute(item)}
                         icon={item.icon}
                     />
                 ))}
@@ -429,7 +469,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={async () => (await item.command(editor.deleteRange(range))).run()}
+                    onClick={async () => await execute(item)}
                 >
                     {item.title}
                 </LemonButton>
@@ -453,18 +493,25 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
-    props: SlashCommandsProps,
-    ref
-): JSX.Element | null {
-    return (
-        <Popover
-            overlay={<SlashCommands ref={ref} {...props} mode="slash" />}
-            visible
-            referenceElement={props.decorationNode}
-        />
-    )
-})
+export const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsPopoverProps>(
+    function SlashCommandsPopover(
+        { visible = true, decorationNode, children, onClose, ...props }: SlashCommandsPopoverProps,
+        ref
+    ): JSX.Element | null {
+        return (
+            <Popover
+                placement="right-start"
+                fallbackPlacements={['left-start', 'right-end']}
+                overlay={<SlashCommands ref={ref} onClose={onClose} {...props} />}
+                referenceElement={decorationNode}
+                visible={visible}
+                onClickOutside={onClose}
+            >
+                {children}
+            </Popover>
+        )
+    }
+)
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
@@ -481,7 +528,7 @@ export const SlashCommandsExtension = Extension.create({
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(SlashCommandsPopover, {
-                                props,
+                                props: { ...props, mode: 'slash' },
                                 editor: props.editor,
                             })
                         },
