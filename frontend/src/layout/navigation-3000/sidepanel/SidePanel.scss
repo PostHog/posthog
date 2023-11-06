@@ -7,10 +7,6 @@
     display: flex;
     background: var(--accent-3000);
 
-    .LemonButton {
-        min-height: 2.25rem !important; // Reduce minimum height
-    }
-
     &--open {
         position: relative;
         max-width: 60%;
@@ -45,6 +41,11 @@
         width: 3rem;
         border-left-width: 1px;
         overflow-y: auto;
+        user-select: none;
+
+        .LemonButton {
+            min-height: 2.25rem !important; // Reduce minimum height
+        }
     }
 
     .SidePanel3000__content {

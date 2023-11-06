@@ -80,8 +80,8 @@ export class ReplayEventsIngester {
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', `[replay-events] ${text}`, {
+        const logDebug = (text: string, labels: Record<string, any> = {}) =>
+            status.debug('⚠️', `[replay-events] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -95,7 +95,7 @@ export class ReplayEventsIngester {
                 })
                 .inc()
 
-            warn(reason, {
+            logDebug(reason, {
                 reason,
                 ...labels,
             })

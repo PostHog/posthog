@@ -9,6 +9,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Link } from '@posthog/lemon-ui'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 
@@ -60,7 +61,7 @@ export function Sidebar(): JSX.Element {
                         </>
                     )}
                     <div className="IngestionSidebar__help">
-                        <a href={`https://posthog.com/slack${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
+                        <Link to={`https://posthog.com/slack${HELP_UTM_TAGS}`} target="_blank">
                             <LemonButton
                                 icon={<IconQuestionAnswer />}
                                 fullWidth
@@ -70,10 +71,9 @@ export function Sidebar(): JSX.Element {
                             >
                                 Get support on Slack
                             </LemonButton>
-                        </a>
-                        <a
-                            href={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
-                            rel="noopener"
+                        </Link>
+                        <Link
+                            to={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
                             target="_blank"
                             className="mt-2"
                         >
@@ -86,7 +86,7 @@ export function Sidebar(): JSX.Element {
                             >
                                 Read our documentation
                             </LemonButton>
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>

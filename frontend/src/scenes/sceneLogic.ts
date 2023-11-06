@@ -35,13 +35,14 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
     [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
+    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
 export const sceneLogic = kea<sceneLogicType>([
