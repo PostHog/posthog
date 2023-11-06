@@ -1,6 +1,6 @@
 import { captureException, captureMessage } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, MessageHeader, TopicPartition } from 'node-rdkafka'
+import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { sessionRecordingConsumerConfig } from '../../../config/config'
@@ -23,7 +23,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { bufferFileDir, getPartitionsForTopic, now, queryWatermarkOffsets } from './utils'
+import { bufferFileDir, getPartitionsForTopic, now, queryWatermarkOffsets, readTokenFromHeaders } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -106,31 +106,6 @@ const statusWarn = (reason: string, extra?: Record<string, any>) => {
         reason,
         ...(extra || {}),
     })
-}
-
-async function readTokenFromHeaders(
-    headers: MessageHeader[] | undefined,
-    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
-) {
-    const tokenHeader = headers?.find((header: MessageHeader) => {
-        // each header in the array is an object of key to value
-        // because it's possible to have multiple headers with the same key
-        // but, we don't support that. the first truthy match we find is the one we use
-        return header.token
-    })?.token
-
-    const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
-
-    let teamIdWithConfig: TeamIDWithConfig | null = null
-
-    if (token) {
-        const teams = await teamsRefresher.get()
-        teamIdWithConfig = {
-            teamId: teams[token]?.teamId || null,
-            consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-        }
-    }
-    return { token, teamIdWithConfig }
 }
 
 export class SessionRecordingIngester {
@@ -285,7 +260,6 @@ export class SessionRecordingIngester {
 
     public async parseKafkaMessage(
         message: Message,
-        teamIdWithConfig: TeamIDWithConfig | null,
         getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
     ): Promise<IncomingRecordingMessage | void> {
         if (!message.value || !message.timestamp) {
@@ -293,6 +267,26 @@ export class SessionRecordingIngester {
             return statusWarn('message value, timestamp, or team is empty', {
                 partition: message.partition,
                 offset: message.offset,
+            })
+        }
+
+        const headerResult = await readTokenFromHeaders(message.headers, this.teamsRefresher)
+        const token: string | undefined = headerResult.token
+        let teamIdWithConfig: null | TeamIDWithConfig = headerResult.teamIdWithConfig
+
+        // NB `==` so we're comparing undefined and null
+        // if token was in the headers but, we could not load team config
+        // then, we can return early
+        if (!!token && (teamIdWithConfig == null || teamIdWithConfig.teamId == null)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'team_missing_or_disabled',
+                })
+                .inc()
+
+            return statusWarn('team_missing_or_disabled', {
+                token: token,
             })
         }
 
@@ -316,6 +310,7 @@ export class SessionRecordingIngester {
 
         // TODO this mechanism is deprecated for blobby ingestion, we should remove it
         // once we're happy that the new mechanism is working
+        // if there was not a token in the header then we try to load one from the message payload
         if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
             return statusWarn('no_token', { partition: message.partition, offset: message.offset })
         }
@@ -418,7 +413,7 @@ export class SessionRecordingIngester {
                     statsKey: `recordingingester.handleEachBatch.parseKafkaMessages`,
                     func: async () => {
                         for (const message of messages) {
-                            const { partition, offset, timestamp, headers } = message
+                            const { partition, offset, timestamp } = message
 
                             this.partitionMetrics[partition] = this.partitionMetrics[partition] || {}
                             const metrics = this.partitionMetrics[partition]
@@ -430,23 +425,7 @@ export class SessionRecordingIngester {
 
                             counterKafkaMessageReceived.inc({ partition })
 
-                            const { token, teamIdWithConfig } = await readTokenFromHeaders(headers, this.teamsRefresher)
-
-                            // NB `==` so we're comparing undefined and null
-                            if (teamIdWithConfig == null || teamIdWithConfig.teamId == null) {
-                                eventDroppedCounter
-                                    .labels({
-                                        event_type: 'session_recordings_blob_ingestion',
-                                        drop_cause: 'team_missing_or_disabled',
-                                    })
-                                    .inc()
-
-                                return statusWarn('team_missing_or_disabled', {
-                                    token: token,
-                                })
-                            }
-
-                            const recordingMessage = await this.parseKafkaMessage(message, teamIdWithConfig, (token) =>
+                            const recordingMessage = await this.parseKafkaMessage(message, (token) =>
                                 this.teamsRefresher.get().then((teams) => ({
                                     teamId: teams[token]?.teamId || null,
                                     consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,

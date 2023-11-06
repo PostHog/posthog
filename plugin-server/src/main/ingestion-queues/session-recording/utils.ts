@@ -1,10 +1,12 @@
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { KafkaConsumer, PartitionMetadata, TopicPartition } from 'node-rdkafka'
+import { KafkaConsumer, MessageHeader, PartitionMetadata, TopicPartition } from 'node-rdkafka'
 import path from 'path'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
+import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
+import { TeamIDWithConfig } from './session-recordings-consumer'
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
 export const convertToPersistedMessage = (message: IncomingRecordingMessage): PersistedRecordingMessage => {
@@ -108,4 +110,29 @@ export const getLagMultipler = (lag: number, threshold = 1000000) => {
     }
 
     return Math.max(0.1, 1 - (lag - threshold) / (threshold * 10))
+}
+
+export async function readTokenFromHeaders(
+    headers: MessageHeader[] | undefined,
+    teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
+) {
+    const tokenHeader = headers?.find((header: MessageHeader) => {
+        // each header in the array is an object of key to value
+        // because it's possible to have multiple headers with the same key
+        // but, we don't support that. the first truthy match we find is the one we use
+        return header.token
+    })?.token
+
+    const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
+
+    let teamIdWithConfig: TeamIDWithConfig | null = null
+
+    if (token) {
+        const teams = await teamsRefresher.get()
+        teamIdWithConfig = {
+            teamId: teams[token]?.teamId || null,
+            consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+        }
+    }
+    return { token, teamIdWithConfig }
 }
