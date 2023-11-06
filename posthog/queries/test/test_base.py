@@ -154,8 +154,7 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_a, {"key": 0}))
         self.assertFalse(match_property(property_a, {"key": -1}))
-        # now we handle type mismatches so this should be true
-        self.assertTrue(match_property(property_a, {"key": "23"}))
+        self.assertFalse(match_property(property_a, {"key": "23"}))
 
         property_b = Property(key="key", value=1, operator="lt")
         self.assertTrue(match_property(property_b, {"key": 0}))
@@ -172,31 +171,15 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_c, {"key": 0}))
         self.assertFalse(match_property(property_c, {"key": -1}))
-        # now we handle type mismatches so this should be true
-        self.assertTrue(match_property(property_c, {"key": "3"}))
+        self.assertFalse(match_property(property_c, {"key": "3"}))
 
         property_d = Property(key="key", value="43", operator="lt")
         self.assertTrue(match_property(property_d, {"key": "41"}))
         self.assertTrue(match_property(property_d, {"key": "42"}))
-        self.assertTrue(match_property(property_d, {"key": 42}))
 
         self.assertFalse(match_property(property_d, {"key": "43"}))
         self.assertFalse(match_property(property_d, {"key": "44"}))
         self.assertFalse(match_property(property_d, {"key": 44}))
-
-        property_e = Property(key="key", value="30", operator="lt")
-        self.assertTrue(match_property(property_e, {"key": "29"}))
-
-        # depending on the type of override, we adjust type comparison
-        self.assertTrue(match_property(property_e, {"key": "100"}))
-        self.assertFalse(match_property(property_e, {"key": 100}))
-
-        property_f = Property(key="key", value="123aloha", operator="gt")
-        self.assertFalse(match_property(property_f, {"key": "123"}))
-        self.assertFalse(match_property(property_f, {"key": 122}))
-
-        # this turns into a string comparison
-        self.assertTrue(match_property(property_f, {"key": 129}))
 
     def test_match_property_date_operators(self):
         property_a = Property(key="key", value="2022-05-01", operator="is_date_before")
