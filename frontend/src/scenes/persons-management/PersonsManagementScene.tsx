@@ -20,7 +20,7 @@ export function PersonsManagementScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={'Persons, cohorts & groups'}
+                title="People"
                 caption={`A catalog of your product's end users, lists of users who have something in common to use in analytics or feature flags${
                     showGroupsOptions ? ' and groups' : ''
                 }.`}

@@ -133,7 +133,6 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     }),
     actionToUrl(({ values }) => ({
         setTabKey: ({ tabKey }) => {
-            // TODO: Fix that groups are not always ready...
             return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
         },
     })),
