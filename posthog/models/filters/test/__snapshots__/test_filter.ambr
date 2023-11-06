@@ -304,6 +304,7 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts
@@ -367,6 +368,7 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts.3
@@ -376,6 +378,7 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts_no_match
@@ -439,6 +442,7 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts
@@ -571,6 +575,7 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_negation_cohorts.6
@@ -580,5 +585,6 @@
   WHERE ("posthog_persondistinctid"."person_id" = 2
          AND "posthog_persondistinctid"."team_id" = 2)
   ORDER BY "posthog_persondistinctid"."id" ASC
+  LIMIT 2500
   '
 ---
