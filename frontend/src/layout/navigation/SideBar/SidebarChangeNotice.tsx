@@ -103,11 +103,11 @@ export function useSidebarChangeNotices({ identifier }: SidebarChangeNoticeProps
     return [!noticeAcknowledged ? notices : [], onAcknowledged]
 }
 
-export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChangeNoticeTooltipProps): React.ReactNode {
+export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChangeNoticeTooltipProps): JSX.Element {
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     if (!notices.length) {
-        return children
+        return <>children</>
     }
 
     return (
