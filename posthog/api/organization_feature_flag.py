@@ -19,9 +19,10 @@ class OrganizationFeatureFlagView(
     """
 
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    lookup_field = "feature_flag_key"
 
     def retrieve(self, request, *args, **kwargs):
-        feature_flag_key = kwargs.get("pk")
+        feature_flag_key = kwargs.get(self.lookup_field)
 
         teams = self.organization.teams.all()
 
