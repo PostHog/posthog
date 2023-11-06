@@ -5,6 +5,8 @@ from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
+MAX_LIMIT_DISTINCT_IDS = 2500
+
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -34,7 +36,7 @@ class Person(models.Model):
             id[0]
             for id in PersonDistinctId.objects.filter(person=self, team_id=self.team_id)
             .order_by("id")
-            .values_list("distinct_id")
+            .values_list("distinct_id")[:MAX_LIMIT_DISTINCT_IDS]
         ]
 
     # :DEPRECATED: This should happen through the plugin server
