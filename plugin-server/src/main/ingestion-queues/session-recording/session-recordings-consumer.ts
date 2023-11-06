@@ -101,13 +101,6 @@ export interface TeamIDWithConfig {
     consoleLogIngestionEnabled: boolean
 }
 
-const statusWarn = (reason: string, extra?: Record<string, any>) => {
-    status.warn('⚠️', 'invalid_message', {
-        reason,
-        ...(extra || {}),
-    })
-}
-
 export class SessionRecordingIngester {
     redisPool: RedisPool
     sessions: Record<string, SessionManager> = {}
@@ -262,12 +255,18 @@ export class SessionRecordingIngester {
         message: Message,
         getTeamFn: (s: string) => Promise<TeamIDWithConfig | null>
     ): Promise<IncomingRecordingMessage | void> {
-        if (!message.value || !message.timestamp) {
-            // Typing says this can happen but in practice it shouldn't
-            return statusWarn('message value, timestamp, or team is empty', {
+        const statusWarn = (reason: string, extra?: Record<string, any>) => {
+            status.warn('⚠️', 'invalid_message', {
+                reason,
                 partition: message.partition,
                 offset: message.offset,
+                ...(extra || {}),
             })
+        }
+
+        if (!message.value || !message.timestamp) {
+            // Typing says this can happen but in practice it shouldn't
+            return statusWarn('message value, timestamp, or team is empty')
         }
 
         const headerResult = await readTokenFromHeaders(message.headers, this.teamsRefresher)
@@ -297,7 +296,7 @@ export class SessionRecordingIngester {
             messagePayload = JSON.parse(message.value.toString())
             event = JSON.parse(messagePayload.data)
         } catch (error) {
-            return statusWarn('invalid_json', { error, partition: message.partition, offset: message.offset })
+            return statusWarn('invalid_json', { error })
         }
 
         const { $snapshot_items, $session_id, $window_id } = event.properties || {}
@@ -312,7 +311,7 @@ export class SessionRecordingIngester {
         // once we're happy that the new mechanism is working
         // if there was not a token in the header then we try to load one from the message payload
         if (teamIdWithConfig == null && messagePayload.team_id == null && !messagePayload.token) {
-            return statusWarn('no_token', { partition: message.partition, offset: message.offset })
+            return statusWarn('no_token')
         }
 
         if (teamIdWithConfig == null) {
@@ -336,8 +335,6 @@ export class SessionRecordingIngester {
                 token: messagePayload.token,
                 teamId: messagePayload.team_id,
                 payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
-                partition: message.partition,
-                offset: message.offset,
             })
         }
         // end of deprecated mechanism
@@ -372,8 +369,6 @@ export class SessionRecordingIngester {
             return statusWarn('invalid_rrweb_events', {
                 token: messagePayload.token,
                 teamId: messagePayload.team_id,
-                partition: message.partition,
-                offset: message.offset,
             })
         }
 
