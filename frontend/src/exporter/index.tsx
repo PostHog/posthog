@@ -1,6 +1,6 @@
 import '~/styles'
 import './Exporter.scss'
-import { createRoot } from 'react-dom/client'
+import ReactDOM from 'react-dom'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { initKea } from '~/initKea'
 import { Exporter } from '~/exporter/Exporter'
@@ -20,10 +20,11 @@ const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
-        createRoot(root).render(
+        ReactDOM.render(
             <ErrorBoundary>
                 <Exporter {...exportedData} />
-            </ErrorBoundary>
+            </ErrorBoundary>,
+            root
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')

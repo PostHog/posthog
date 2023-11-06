@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client'
+import ReactDOM from 'react-dom'
 import { kea, props, path, key, actions, events, listeners } from 'kea'
 import { Modal, ModalProps, Input, InputProps, Form, FormItemProps } from 'antd'
 
@@ -118,13 +118,12 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
     }
     const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
-        const root = createRoot(div)
         document.body.appendChild(div)
         let currentConfig: PromptProps = { ...config, close, visible: true } as any
 
         function destroy(value: unknown): void {
-            root.unmount()
-            if (div.parentNode) {
+            const unmountResult = ReactDOM.unmountComponentAtNode(div)
+            if (unmountResult && div.parentNode) {
                 div.parentNode.removeChild(div)
             }
             if (typeof value === 'string') {
@@ -135,7 +134,7 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
         }
 
         function render(props: PromptProps): void {
-            root.render(<Prompt {...props} />)
+            ReactDOM.render(<Prompt {...props} />, div)
         }
 
         function close(this: PromptProps, value: string): void {

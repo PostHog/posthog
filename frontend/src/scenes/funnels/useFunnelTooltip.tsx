@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
+import { ensureTooltipElement } from 'scenes/insights/views/LineGraph/LineGraph'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -108,14 +109,14 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const [tooltipRoot, tooltipEl] = ensureTooltip()
+        const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         if (isTooltipShown) {
             tooltipEl.style.display = 'initial'
         }
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
-            tooltipRoot.render(
+            ReactDOM.render(
                 <>
                     {currentTooltip && (
                         <FunnelTooltip
@@ -126,7 +127,8 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             breakdownFilter={breakdown}
                         />
                     )}
-                </>
+                </>,
+                tooltipEl
             )
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
             let xOffset: number

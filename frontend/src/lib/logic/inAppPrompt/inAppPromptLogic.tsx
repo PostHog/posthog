@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client'
+import ReactDOM from 'react-dom'
 import { Placement } from '@floating-ui/react'
 import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'
 import type { inAppPromptLogicType } from './inAppPromptLogicType'
@@ -125,10 +125,9 @@ function cancellableTooltipWithRetries(
     const close = (): number => window.setTimeout(trigger, 1)
     const show = new Promise((resolve, reject) => {
         const div = document.createElement('div')
-        const root = createRoot(div)
         function destroy(): void {
-            root.unmount()
-            if (div.parentNode) {
+            const unmountResult = ReactDOM.unmountComponentAtNode(div)
+            if (unmountResult && div.parentNode) {
                 div.parentNode.removeChild(div)
             }
         }
@@ -183,7 +182,7 @@ function cancellableTooltipWithRetries(
                     props = { ...props, element }
                 }
 
-                root.render(<LemonActionableTooltip {...props} />)
+                ReactDOM.render(<LemonActionableTooltip {...props} />, div)
 
                 resolve(true)
             } catch (e) {

@@ -15,12 +15,13 @@ import { areObjectValuesEmpty } from '~/lib/utils'
 import { GraphType } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
-    ensureTooltip,
+    ensureTooltipElement,
     filterNestedDataset,
     LineGraphProps,
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
+import ReactDOM from 'react-dom'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useActions, useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -176,7 +177,7 @@ export function PieChart({
                                 return
                             }
 
-                            const [tooltipRoot, tooltipEl] = ensureTooltip()
+                            const tooltipEl = ensureTooltipElement()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
                                 if (trendsFilter?.show_legend) {
@@ -203,7 +204,7 @@ export function PieChart({
 
                                 highlightSeries(seriesData[0].dataIndex)
 
-                                tooltipRoot.render(
+                                ReactDOM.render(
                                     <InsightTooltip
                                         seriesData={seriesData}
                                         hideColorCol={!!tooltipConfig?.hideColorCol}
@@ -249,7 +250,8 @@ export function PieChart({
                                                 : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
-                                    />
+                                    />,
+                                    tooltipEl
                                 )
                             }
 

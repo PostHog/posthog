@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { createRoot } from 'react-dom/client'
+import ReactDOM from 'react-dom'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -86,15 +86,14 @@ export function LemonDialog({
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const div = document.createElement('div')
-    const root = createRoot(div)
     function destroy(): void {
-        root.unmount()
-        if (div.parentNode) {
+        const unmountResult = ReactDOM.unmountComponentAtNode(div)
+        if (unmountResult && div.parentNode) {
             div.parentNode.removeChild(div)
         }
     }
 
     document.body.appendChild(div)
-    root.render(<LemonDialog {...props} onAfterClose={destroy} />)
+    ReactDOM.render(<LemonDialog {...props} onAfterClose={destroy} />, div)
     return
 }
