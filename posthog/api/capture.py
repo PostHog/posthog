@@ -169,7 +169,7 @@ def log_event(
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
@@ -561,7 +561,6 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         kafka_partition_key = event["properties"]["$session_id"]
         headers = [
-            ("session_id", event["properties"]["$session_id"]),
             ("token", token),
         ]
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)

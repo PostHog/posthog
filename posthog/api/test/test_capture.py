@@ -161,7 +161,9 @@ class TestCapture(BaseTest):
                     HTTP_ORIGIN="https://localhost",
                 )
 
-            kafka_produce.assert_called_with(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None)
+            kafka_produce.assert_called_with(
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None, headers=None
+            )
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
@@ -1440,14 +1442,13 @@ class TestCapture(BaseTest):
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce) -> None:
+    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_session_recording_event(event_data=large_data_array)
-            calls = kafka_produce.call_args_list
-            assert calls == 2
-            # assert calls[0] == ("wat", "am", "I", "doing")
+            self._send_session_recording_event(event_data=["some snapshot data"])
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
