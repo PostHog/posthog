@@ -72,7 +72,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() => toggleSourceModal()}
+                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}
