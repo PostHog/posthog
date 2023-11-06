@@ -232,7 +232,7 @@ class SimBrowserClient(SimClient):
                 if utm_key in parsed_current_url_query:
                     utm_value = parsed_current_url_query[utm_key][0]
                     combined_properties[utm_key] = utm_value
-                    combined_properties["$set"].update({utm_key: utm_value})
+                    combined_properties["$set"][utm_key] = utm_value
         if properties:
             if referrer := properties.get("$referrer"):
                 referring_domain = urlparse(referrer).netloc if referrer != "$direct" else referrer
