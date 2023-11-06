@@ -8,7 +8,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlus, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -57,6 +57,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from '../organizationLogic'
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
@@ -66,6 +67,7 @@ import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import FeatureFlagProjects from './FeatureFlagProjects'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -96,6 +98,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
 
+    const { currentOrganization } = useValues(organizationLogic)
+
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -123,20 +127,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <Row>
-                        <Col span={13}>
+                    <div className="flex space-x-4">
+                        <div className="flex-7">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                 <FeatureFlagAutoRollback readOnly />
                             )}
-                        </Col>
-                        <Col span={11} className="pl-4">
+                        </div>
+                        <div className="flex-6">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     <LemonDivider className="mb-4" />
                     <FeatureFlagCodeExample featureFlag={featureFlag} />
                 </>
@@ -202,6 +206,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    if (featureFlags[FEATURE_FLAGS.MULTI_PROJECT_FEATURE_FLAGS] && hasMultipleProjects) {
+        tabs.push({
+            label: 'Projects',
+            key: FeatureFlagsTab.PROJECTS,
+            content: <FeatureFlagProjects />,
+        })
+    }
+
     return (
         <>
             <div className="feature-flag">
@@ -254,8 +267,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <Row gutter={16} style={{ marginBottom: 32 }}>
-                            <Col span={12} className="space-y-4">
+                        <div className="mt-4 mb-8">
+                            <div className="max-w-1/2 space-y-4">
                                 <Field
                                     name="key"
                                     label="Key"
@@ -263,14 +276,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         hasKeyChanged && id !== 'new' ? (
                                             <span className="text-warning">
                                                 <b>Warning! </b>Changing this key will
-                                                <a
-                                                    href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                <Link
+                                                    to={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
                                                     target="_blank"
-                                                    rel="noopener"
+                                                    targetBlankIcon
                                                 >
                                                     {' '}
-                                                    affect the persistence of your flag <IconOpenInNew />
-                                                </a>
+                                                    affect the persistence of your flag
+                                                </Link>
                                             </span>
                                         ) : undefined
                                     }
@@ -362,8 +375,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </Field>
-                            </Col>
-                        </Row>
+                            </div>
+                        </div>
                         <LemonDivider />
                         <FeatureFlagRollout />
                         <LemonDivider />

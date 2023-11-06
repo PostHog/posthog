@@ -68,7 +68,7 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(0)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-white">
+        <div className="w-fit border rounded p-2">
             <TaxonomicFilter {...args} />
         </div>
     )

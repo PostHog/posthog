@@ -10,7 +10,6 @@ import { Form } from 'kea-forms'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from '@posthog/lemon-ui'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
@@ -33,8 +32,8 @@ export function ConfigureSAMLModal(): JSX.Element {
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
                     <p>
-                        <Link to={'https://posthog.com/docs/data/sso#setting-up-saml'}>
-                            Read the docs <IconOpenInNew />
+                        <Link to={'https://posthog.com/docs/data/sso#setting-up-saml'} target="_blank" targetBlankIcon>
+                            Read the docs
                         </Link>
                     </p>
                     <Field label="ACS Consumer URL" name="_ACSConsumerUrl">
