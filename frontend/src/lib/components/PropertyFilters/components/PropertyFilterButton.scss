@@ -1,6 +1,5 @@
 .PropertyFilterButton {
     overflow: hidden;
-    color: var(--bg-charcoal);
     border-color: transparent;
     background: var(--border);
     display: inline-flex;
@@ -10,7 +9,7 @@
     &:focus {
         border-color: var(--border);
         background: var(--border);
-        color: var(--bg-charcoal);
+        color: var(--text-default);
     }
 
     text-shadow: none;
@@ -26,9 +25,5 @@
         flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .anticon-close {
-        color: var(--bg-charcoal);
     }
 }
