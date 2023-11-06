@@ -4582,6 +4582,167 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+    def test_numeric_operator_with_cohorts_and_nested_cohorts(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"number": 30, "string_number": "30", "version": "1.24", "nested_prop": 21},
+        )
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        }
+                    ]
+                }
+            ],
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort1.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "version",
+                            "value": "1.05",
+                            "operator": "gt",
+                            "type": "person",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort2.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        cohort_nest = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "nested_prop",
+                            "value": "20",
+                            "operator": "gt",
+                            "type": "person",
+                        },
+                    ]
+                }
+            ],
+        )
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number",
+                            "value": "31",
+                            "operator": "lt",
+                            "type": "person",
+                        },
+                        {
+                            "key": "id",
+                            "value": str(cohort_nest.pk),
+                            "type": "cohort",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": str(cohort3.pk),
+                                "type": "cohort",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag3, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # Make sure clashes on property name doesn't affect computation
+        with snapshot_postgres_queries_context(self, replace_all_numbers=False):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2, feature_flag3],
+                    "307",
+                ).get_matches()[1],
+                {
+                    "random1": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    },
+                    "random2": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                    "random3": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    },
+                },
+            )
+
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
     person: Person

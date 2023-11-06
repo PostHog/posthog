@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 import time
 import structlog
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
@@ -397,11 +397,9 @@ class FeatureFlagMatcher:
                     nonlocal person_query
 
                     property_list = Filter(data=condition).property_groups.flat
-                    properties_with_math_operators = [
-                        key_and_field_for_property(prop)
-                        for prop in property_list
-                        if prop.operator in ["gt", "lt", "gte", "lte"]
-                    ]
+                    properties_with_math_operators = get_all_properties_with_math_operators(
+                        property_list, self.cohorts_cache
+                    )
 
                     if len(condition.get("properties", {})) > 0:
                         # Feature Flags don't support OR filtering yet
@@ -914,3 +912,24 @@ def key_and_field_for_property(property: Property) -> Tuple[str, str]:
         f"{column}_{key}_type",
         f"{column}__{key}",
     )
+
+
+def get_all_properties_with_math_operators(
+    properties: List[Property], cohorts_cache: Dict[int, Cohort]
+) -> List[Tuple[str, str]]:
+    all_keys_and_fields = []
+
+    for prop in properties:
+        if prop.type == "cohort":
+            cohort_id = int(cast(Union[str, int], prop.value))
+            if cohorts_cache.get(cohort_id) is None:
+                cohorts_cache[cohort_id] = Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).get(pk=cohort_id)
+            cohort = cohorts_cache[cohort_id]
+            if cohort:
+                all_keys_and_fields.extend(
+                    get_all_properties_with_math_operators(cohort.properties.flat, cohorts_cache)
+                )
+        elif prop.operator in ["gt", "lt", "gte", "lte"] and prop.type in ("person", "group"):
+            all_keys_and_fields.append(key_and_field_for_property(prop))
+
+    return all_keys_and_fields

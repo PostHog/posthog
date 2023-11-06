@@ -20,7 +20,6 @@ from posthog.models.cohort import Cohort, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import (
-    CLICKHOUSE_ONLY_PROPERTY_TYPES,
     Property,
     PropertyGroup,
 )
@@ -163,22 +162,13 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
         except Exception:
             pass
 
-        if parsed_value is not None:
+        if parsed_value is not None and override_value is not None:
             if isinstance(override_value, str):
                 return compare(override_value, str(value), operator)
             else:
                 return compare(override_value, parsed_value, operator)
         else:
             return compare(str(override_value), str(value), operator)
-
-    if operator == "gte":
-        return type(override_value) == type(value) and override_value >= value
-
-    if operator == "lt":
-        return type(override_value) == type(value) and override_value < value
-
-    if operator == "lte":
-        return type(override_value) == type(value) and override_value <= value
 
     if operator in ["is_date_before", "is_date_after"]:
         try:
@@ -233,14 +223,12 @@ def empty_or_null_with_value_q(
                 f"{column}__{key}", value_as_coerced_to_number
             )
     else:
-        if isinstance(value, list):
-            raise TypeError(f"empty_or_null_with_value_q: Operator {operator} does not support list values")
-
         parsed_value = None
         if operator in ("gt", "gte", "lt", "lte"):
             try:
-                parsed_value = float(value)
-            except (ValueError, TypeError):
+                # try to parse even if arrays can't be parsed, the catch will handle it
+                parsed_value = float(value)  # type: ignore
+            except Exception:
                 pass
 
         if parsed_value is not None:
@@ -273,7 +261,7 @@ def property_to_Q(
     cohorts_cache: Optional[Dict[int, Cohort]] = None,
     using_database: str = "default",
 ) -> Q:
-    if property.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
+    if property.type not in ["person", "group", "cohort"]:
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
 
     value = property._parse_value(property.value)
