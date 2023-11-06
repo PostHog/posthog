@@ -1,19 +1,51 @@
 .Breadcrumbs3000 {
+    --breadcrumbs-compaction-rate: 0;
     z-index: var(--z-main-nav);
     position: sticky;
     top: 0;
+    display: flex;
+    align-items: start;
+    height: var(--breadcrumbs-height-full);
+    pointer-events: none;
+}
+
+.Breadcrumbs3000__content {
     backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     width: 100%;
     padding: 0 1rem;
-    height: var(--breadcrumbs-height);
+    height: calc(
+        var(--breadcrumbs-height-full) - (var(--breadcrumbs-height-full) - var(--breadcrumbs-height-compact)) *
+            var(--breadcrumbs-compaction-rate)
+    );
     background: var(--glass-bg-3000);
     border-bottom: 1px solid var(--glass-border-3000);
     overflow-x: auto;
-    font-size: 0.8125rem;
+    font-size: calc(0.75rem + 0.0625rem * var(--breadcrumbs-compaction-rate));
+    line-height: 1rem;
     font-weight: 600;
     user-select: none;
+    pointer-events: auto;
+}
+
+.Breadcrumbs3000__crumbs {
+    display: flex;
+    align-items: center;
+}
+
+.Breadcrumbs3000__here {
+    position: relative;
+    line-height: 1.2;
+    margin: calc(0.125rem * (1 - var(--breadcrumbs-compaction-rate))) 0 0;
+    font-size: 1rem;
+    font-weight: 700;
+    overflow: hidden;
+    height: calc(1em * 1.2 * (1 - var(--breadcrumbs-compaction-rate)));
+    > span {
+        position: absolute;
+        bottom: 0;
+    }
 }
 
 .Breadcrumbs3000__breadcrumb {
@@ -22,19 +54,29 @@
     white-space: pre;
     cursor: default;
     color: var(--default);
+    overflow: hidden;
+
+    &.Link:hover {
+        color: inherit;
+    }
 
     &.Breadcrumbs3000__breadcrumb--here {
         cursor: default;
         > span {
             opacity: 1;
+            transform: translateY(calc(100% * (1 - var(--breadcrumbs-compaction-rate))));
         }
     }
 
     &.Breadcrumbs3000__breadcrumb--actionable {
         cursor: pointer;
+        &:hover > span {
+            opacity: 1;
+        }
     }
 
     > span {
+        transition: opacity 200ms ease;
         opacity: 0.5;
     }
 
