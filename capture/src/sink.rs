@@ -1,16 +1,17 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use metrics::{absolute_counter, counter, gauge, histogram};
-use std::time::Duration;
-use tokio::task::JoinSet;
-
-use crate::api::CaptureError;
-use rdkafka::config::{ClientConfig, FromClientConfigAndContext};
+use rdkafka::config::ClientConfig;
 use rdkafka::error::RDKafkaErrorCode;
 use rdkafka::producer::future_producer::{FutureProducer, FutureRecord};
 use rdkafka::producer::Producer;
 use rdkafka::util::Timeout;
-use tracing::info;
+use tokio::task::JoinSet;
+use tracing::{debug, info};
 
+use crate::api::CaptureError;
+use crate::config::KafkaConfig;
 use crate::event::ProcessedEvent;
 use crate::prometheus::report_dropped_events;
 
@@ -106,29 +107,41 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(topic: String, brokers: String, tls: bool) -> anyhow::Result<KafkaSink> {
-        info!("connecting to Kafka brokers at {}...", brokers);
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", &brokers)
-            .set("statistics.interval.ms", "10000");
+    pub fn new(config: KafkaConfig) -> anyhow::Result<KafkaSink> {
+        info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
-        if tls {
-            config
+        let mut client_config = ClientConfig::new();
+        client_config
+            .set("bootstrap.servers", &config.kafka_hosts)
+            .set("statistics.interval.ms", "10000")
+            .set("linger.ms", config.kafka_producer_linger_ms.to_string())
+            .set("compression.codec", config.kafka_compression_codec)
+            .set(
+                "queue.buffering.max.kbytes",
+                (config.kafka_producer_queue_mib * 1024).to_string(),
+            );
+
+        if config.kafka_tls {
+            client_config
                 .set("security.protocol", "ssl")
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        let producer = FutureProducer::from_config_and_context(&config, KafkaContext)?;
+        debug!("rdkafka configuration: {:?}", client_config);
+        let producer: FutureProducer<KafkaContext> =
+            client_config.create_with_context(KafkaContext)?;
 
-        // Ping the cluster to make sure we can reach brokers
+        // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
         _ = producer.client().fetch_metadata(
             Some("__consumer_offsets"),
             Timeout::After(Duration::new(10, 0)),
         )?;
         info!("connected to Kafka brokers");
 
-        Ok(KafkaSink { producer, topic })
+        Ok(KafkaSink {
+            producer,
+            topic: config.kafka_topic,
+        })
     }
 }
 

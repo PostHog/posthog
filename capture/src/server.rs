@@ -28,9 +28,7 @@ where
             config.export_prometheus,
         )
     } else {
-        let sink =
-            sink::KafkaSink::new(config.kafka_topic, config.kafka_hosts, config.kafka_tls).unwrap();
-
+        let sink = sink::KafkaSink::new(config.kafka).unwrap();
         router::router(
             crate::time::SystemTime {},
             sink,

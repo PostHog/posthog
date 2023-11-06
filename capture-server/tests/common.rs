@@ -19,7 +19,7 @@ use rdkafka::{Message, TopicPartitionList};
 use tokio::sync::Notify;
 use tracing::debug;
 
-use capture::config::Config;
+use capture::config::{Config, KafkaConfig};
 use capture::server::serve;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -27,9 +27,14 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     export_prometheus: false,
     redis_url: "redis://localhost:6379/".to_string(),
-    kafka_hosts: "kafka:9092".to_string(),
-    kafka_topic: "events_plugin_ingestion".to_string(),
-    kafka_tls: false,
+    kafka: KafkaConfig {
+        kafka_producer_linger_ms: 0, // Send messages as soon as possible
+        kafka_producer_queue_mib: 10,
+        kafka_compression_codec: "none".to_string(),
+        kafka_hosts: "kafka:9092".to_string(),
+        kafka_topic: "events_plugin_ingestion".to_string(),
+        kafka_tls: false,
+    },
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -48,7 +53,7 @@ pub struct ServerHandle {
 impl ServerHandle {
     pub fn for_topic(topic: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka_topic = topic.topic_name().to_string();
+        config.kafka.kafka_topic = topic.topic_name().to_string();
         Self::for_config(config)
     }
     pub fn for_config(config: Config) -> Self {
@@ -90,7 +95,10 @@ impl EphemeralTopic {
     pub async fn new() -> Self {
         let mut config = ClientConfig::new();
         config.set("group.id", "capture_integration_tests");
-        config.set("bootstrap.servers", DEFAULT_CONFIG.kafka_hosts.clone());
+        config.set(
+            "bootstrap.servers",
+            DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
+        );
         config.set("debug", "all");
 
         // TODO: check for name collision?
@@ -151,7 +159,10 @@ impl Drop for EphemeralTopic {
 
 async fn delete_topic(topic: String) {
     let mut config = ClientConfig::new();
-    config.set("bootstrap.servers", DEFAULT_CONFIG.kafka_hosts.clone());
+    config.set(
+        "bootstrap.servers",
+        DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
+    );
     let admin = AdminClient::from_config(&config).expect("failed to create admin client");
     admin
         .delete_topics(&[&topic], &AdminOptions::default())
