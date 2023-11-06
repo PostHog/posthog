@@ -105,7 +105,7 @@ export const getPartitionsForTopic = (
     })
 }
 
-export const getLagMultipler = (lag: number, threshold = 1000000) => {
+export const getLagMultiplier = (lag: number, threshold = 1000000) => {
     if (lag < threshold) {
         return 1
     }
