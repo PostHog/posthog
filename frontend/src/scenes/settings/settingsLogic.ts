@@ -18,7 +18,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
     reducers({
         selectedLevel: [
-            'user' as SettingLevel,
+            'project' as SettingLevel,
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { section }) => SettingsSections.find((x) => x.id === section)?.level || 'user',

@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { SettingLevels, SettingsSections } from './SettingsMap'
+import { SettingLevels } from './SettingsMap'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { settingsLogic } from './settingsLogic'
@@ -29,7 +29,7 @@ export function SettingsScene(): JSX.Element {
     return (
         <>
             <div className="flex items-start sticky top-0 gap-8">
-                <div className="flex-0 w-60">
+                <div className="shrink-0 w-60">
                     <ul className="space-y-px">
                         {SettingLevels.map((level) => (
                             <li key={level} className="space-y-px">
@@ -65,7 +65,7 @@ export function SettingsScene(): JSX.Element {
                     </ul>
                 </div>
 
-                <div className="flex-1 space-y-8">
+                <div className="flex-1 space-y-8 overflow-hidden">
                     {settings.map((x) => (
                         <div key={x.id} id={x.id}>
                             <h2 className="">{x.title}</h2>

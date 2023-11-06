@@ -13,9 +13,25 @@ import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences
 import { DangerZone } from './organization/DangerZone'
 import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
 import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    Bookmarklet,
+    ProjectDisplayName,
+    ProjectTimezone,
+    ProjectToolbarURLs,
+    ProjectVariables,
+    WebSnippet,
+} from './project/ProjectSettings'
+import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/AutocaptureSettings'
+import { DataAttributes } from './project/DataAttributes'
+import { ReplayAuthorizedDomains, ReplayCostControl, ReplayGeneral } from './project/SessionRecordingSettings'
+import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectAccessControl } from './project/ProjectAccessControl'
 
 export type SettingLevel = 'user' | 'project' | 'organization'
 export type SettingSectionId =
+    | 'project-details'
+    | 'project-autocapture'
+    | 'project-replay'
     | 'user-details'
     | 'user-api-keys'
     | 'user-notifications'
@@ -44,6 +60,130 @@ export type SettingSection = {
 }
 
 export const SettingsSections: SettingSection[] = [
+    // PROJECT
+    {
+        level: 'project',
+        id: 'project-details',
+        title: 'Details',
+        settings: [
+            {
+                id: 'project-display-name',
+                title: 'Display name',
+                component: <ProjectDisplayName />,
+            },
+            {
+                id: 'project-snippet',
+                title: 'Web snippet',
+                component: <WebSnippet />,
+            },
+            {
+                id: 'project-bookmarklet',
+                title: 'Bookmarklet',
+                component: <Bookmarklet />,
+            },
+            {
+                id: 'project-variables',
+                title: 'Project ID',
+                component: <ProjectVariables />,
+            },
+        ],
+    },
+    {
+        level: 'project',
+        id: 'project-autocapture',
+        title: 'Autocapture',
+
+        settings: [
+            {
+                id: 'project-autocapture',
+                title: 'Autocapture',
+                component: <AutocaptureSettings />,
+            },
+            {
+                id: 'project-exception-autocapture',
+                title: 'Exception Autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
+                id: 'project-autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
+            },
+        ],
+    },
+    {
+        level: 'project',
+        id: 'project-display',
+        title: 'Date & Time',
+        settings: [
+            {
+                id: 'project-date-and-time',
+                title: 'Date & Time',
+                component: <ProjectTimezone />,
+            },
+        ],
+    },
+
+    {
+        level: 'project',
+        id: 'project-replay',
+        title: 'Replay',
+        settings: [
+            {
+                id: 'project-replay-general',
+                title: 'Session Replay',
+                component: <ReplayGeneral />,
+            },
+            {
+                id: 'project-replay-authorized-domains',
+                title: 'Authorized Domains for Replay',
+                component: <ReplayAuthorizedDomains />,
+            },
+            {
+                id: 'project-replay-ingestion',
+                title: 'Ingestion controls',
+                component: <ReplayCostControl />,
+            },
+        ],
+    },
+    {
+        level: 'project',
+        id: 'project-toolbar',
+        title: 'Toolbar',
+        settings: [
+            {
+                id: 'project-authorized-toolbar-urls',
+                title: 'Authorized Toolbar URLs',
+                component: <ProjectToolbarURLs />,
+            },
+        ],
+    },
+    {
+        level: 'project',
+        id: 'project-rbac',
+        title: 'Access control',
+        settings: [
+            {
+                id: 'project-rbac',
+                title: 'Access Control',
+                component: <ProjectAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'project',
+        id: 'project-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'project-delete',
+                title: 'Delete project',
+                component: <ProjectDangerZone />,
+            },
+        ],
+    },
+
+    // ORGANIZATION
     {
         level: 'organization',
         id: 'organization-details',
@@ -51,7 +191,7 @@ export const SettingsSections: SettingSection[] = [
         settings: [
             {
                 id: 'organization-details',
-                title: 'Details',
+                title: 'General',
                 component: <OrganizationDisplayName />,
             },
         ],
@@ -90,19 +230,6 @@ export const SettingsSections: SettingSection[] = [
             },
         ],
     },
-
-    {
-        level: 'organization',
-        id: 'organization-danger-zone',
-        title: 'Danger zone',
-        settings: [
-            {
-                id: 'organization-delete',
-                title: 'Delete organization',
-                component: <DangerZone />,
-            },
-        ],
-    },
     {
         level: 'organization',
         id: 'organization-rbac',
@@ -116,11 +243,24 @@ export const SettingsSections: SettingSection[] = [
             },
         ],
     },
+    {
+        level: 'organization',
+        id: 'organization-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'organization-delete',
+                title: 'Delete organization',
+                component: <DangerZone />,
+            },
+        ],
+    },
 
+    // USER
     {
         level: 'user',
         id: 'user-details',
-        title: 'Details',
+        title: 'Profile',
         settings: [
             {
                 id: 'details',
