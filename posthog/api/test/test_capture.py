@@ -56,7 +56,6 @@ parser = ResolvingParser(
 )
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
-
 large_data_array = [
     random.choice(string.ascii_letters) for _ in range(700 * 1024)
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
@@ -98,10 +97,10 @@ class TestCapture(BaseTest):
             "sent_at": args["sent_at"],
         }
 
-    def _send_session_recording_event(
+    def _send_original_version_session_recording_event(
         self,
-        number_of_events=1,
-        event_data={},
+        number_of_events: int = 1,
+        event_data: Dict | None = {},
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -109,6 +108,9 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
+
         event = {
             "event": "$snapshot",
             "properties": {
@@ -122,6 +124,48 @@ class TestCapture(BaseTest):
                 "distinct_id": distinct_id,
             },
             "offset": 1993,
+        }
+
+        self.client.post(
+            "/s/",
+            data={
+                "data": json.dumps([event for _ in range(number_of_events)]),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        return event
+
+    def _send_august_2023_version_session_recording_event(
+        self,
+        number_of_events: int = 1,
+        event_data: Dict | List[Dict] | None = None,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+    ) -> Dict:
+        if event_data is None:
+            # event_data is an array of RRWeb events
+            event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
+
+        if isinstance(event_data, Dict):
+            event_data = [event_data]
+
+        event = {
+            "event": "$snapshot",
+            "properties": {
+                # estimate of the size of the event data
+                "$snapshot_bytes": 60,
+                "$snapshot_data": event_data,
+                "$session_id": session_id,
+                "$window_id": window_id,
+                # snapshot events have the distinct id in the properties
+                # as well as at the top-level
+                "distinct_id": distinct_id,
+            },
+            "timestamp": timestamp,
+            "distinct_id": distinct_id,
         }
 
         self.client.post(
@@ -248,6 +292,31 @@ class TestCapture(BaseTest):
         log_context = structlog.contextvars.get_contextvars()
         assert "token" in log_context
         assert log_context["token"] == self.team.api_token
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event(self, kafka_produce):
+        data = {
+            "event": "$snapshot",
+            "api_key": "key",
+            "properties": {
+                "$snapshot_bytes": 60,
+                "$snapshot_data": [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}],
+                "$session_id": "sessionId",
+                "$window_id": "windowId",
+                "distinct_id": "theID",
+            },
+            "timestamp": "2023-10-25T14:14:04.407Z",
+            "distinct_id": "theID",
+        }
+
+        response = self.client.post(
+            "/s/",
+            data={
+                "data": json.dumps([data]),
+                "api_key": self.team.api_token,
+            },
+        )
+        assert response.status_code == 200
 
     @patch("axes.middleware.AxesMiddleware")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1365,7 +1434,7 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
-        self._send_session_recording_event(session_id=session_id)
+        self._send_original_version_session_recording_event(session_id=session_id)
         self.assertEqual(kafka_produce.call_count, 1)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS)
@@ -1384,7 +1453,7 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        self._send_session_recording_event(
+        self._send_original_version_session_recording_event(
             timestamp=timestamp,
             snapshot_source=snapshot_source,
             snapshot_type=snapshot_type,
@@ -1424,7 +1493,7 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
         ):
-            self._send_session_recording_event(event_data=large_data_array)
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
@@ -1434,10 +1503,19 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_session_recording_event(event_data=large_data_array)
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_august_2023_version_session_recording_event(event_data=[{}])
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
@@ -1457,8 +1535,7 @@ class TestCapture(BaseTest):
             # avoid logs from being printed because the mock is None
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
 
-            data = "example"
-            self._send_session_recording_event(event_data=data)
+            self._send_august_2023_version_session_recording_event(event_data=None)
 
             session_recording_producer_singleton_mock.assert_called_with(
                 compression_type=None,
@@ -1489,9 +1566,9 @@ class TestCapture(BaseTest):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
 
-            data = "example"
             session_id = "test_can_redirect_session_recordings_to_alternative_kafka"
-            self._send_session_recording_event(event_data=data, session_id=session_id)
+            # just a single thing to send (it should be an rrweb event but capture doesn't validate that)
+            self._send_august_2023_version_session_recording_event(event_data={}, session_id=session_id)
             # session events don't get routed through the default kafka producer
             default_kafka_producer_mock.assert_not_called()
             session_recording_producer_factory_mock.assert_called()
@@ -1562,7 +1639,7 @@ class TestCapture(BaseTest):
             QuotaResource.EVENTS,
             {self.team.api_token: timezone.now().timestamp() + 10000},
         )
-        self._send_session_recording_event()
+        self._send_august_2023_version_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1572,7 +1649,7 @@ class TestCapture(BaseTest):
 
         def _produce_events():
             kafka_produce.reset_mock()
-            self._send_session_recording_event()
+            self._send_august_2023_version_session_recording_event()
             self.client.post(
                 "/e/",
                 data={
