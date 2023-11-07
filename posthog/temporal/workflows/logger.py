@@ -7,13 +7,13 @@ import structlog
 import temporalio.activity
 import temporalio.workflow
 from django.conf import settings
+from structlog.processors import EventRenamer
+from structlog.typing import FilteringBoundLogger
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 
-async def bind_batch_exports_logger(
-    team_id: int, destination: str | None = None
-) -> structlog.types.FilteringBoundLogger:
+async def bind_batch_exports_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
     """Return a bound logger for BatchExports."""
     if not structlog.is_configured():
         await configure_logger()
@@ -55,7 +55,7 @@ async def configure_logger(
         structlog.stdlib.PositionalArgumentsFormatter(),
         add_batch_export_context,
         put_in_queue,
-        structlog.processors.EventRenamer("msg"),
+        EventRenamer("msg"),
         structlog.processors.JSONRenderer(),
     ]
     extra_processors_to_add = extra_processors if extra_processors is not None else []
