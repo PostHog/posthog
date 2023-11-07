@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 import clsx from 'clsx'
-import { LemonButton, Popover, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -31,7 +31,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 }
             >
                 <LemonButton size="small" noPadding type="secondary" status="primary-alt" sideIcon={null}>
-                    <span className="p-1">{member?.user.first_name ?? '(Member)'}</span>
+                    <span className="p-1">@{member?.user.first_name ?? '(Member)'}</span>
                 </LemonButton>
             </Tooltip>
         </NodeViewWrapper>
