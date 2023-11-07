@@ -49,6 +49,8 @@ runs:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
+        - uses: actions/checkout@v4
+
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
           id: hogql-parser-diff
