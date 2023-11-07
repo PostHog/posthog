@@ -49,10 +49,6 @@ runs:
               python-version: ${{ inputs.python-version }}
               token: ${{ inputs.token }}
 
-        - uses: actions/checkout@v3
-          with:
-              ref: master
-
         - name: Determine if hogql-parser has changed compared to master
           shell: bash
           id: hogql-parser-diff
@@ -60,8 +56,6 @@ runs:
               git fetch --no-tags --prune --depth=1 origin
               changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
-
-        - uses: actions/checkout@v3
 
         - name: Install SAML (python3-saml) dependencies
           shell: bash
