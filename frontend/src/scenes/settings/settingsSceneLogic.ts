@@ -42,9 +42,14 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
     urlToAction(({ actions, values }) => ({
         '/settings/:section': ({ section }) => {
-            if (SettingLevelIds.includes(section as SettingLevelId) && section !== values.selectedLevel) {
-                actions.selectLevel(section as SettingLevelId)
-            } else if (section && section !== values.selectedSectionId) {
+            if (!section) {
+                return
+            }
+            if (SettingLevelIds.includes(section as SettingLevelId)) {
+                if (section !== values.selectedLevel) {
+                    actions.selectLevel(section as SettingLevelId)
+                }
+            } else if (section !== values.selectedSectionId) {
                 actions.selectSection(section as SettingSectionId)
             }
         },
