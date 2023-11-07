@@ -551,7 +551,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                     {!isOnboarding && product.addons?.length > 0 && (
                         <div className="pb-8">
-                            <h4 className="mb-4">Addons</h4>
+                            <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons.map((addon, i) => {
                                     return <BillingProductAddon key={i} addon={addon} />

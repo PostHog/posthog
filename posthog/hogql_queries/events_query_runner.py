@@ -115,7 +115,9 @@ class EventsQueryRunner(QueryRunner):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(Person.objects.all(), self.query.personId).first()
+                        person: Optional[Person] = get_pk_or_uuid(
+                            Person.objects.filter(team=self.team), self.query.personId
+                        ).first()
                         distinct_ids = person.distinct_ids if person is not None else []
                         ids_list = list(map(str, distinct_ids))
                         where_exprs.append(

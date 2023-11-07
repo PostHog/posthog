@@ -9,7 +9,7 @@ import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
 import { DataTableNode } from '~/queries/schema'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
-import { dataWarehouseSceneLogic } from './external/dataWarehouseSceneLogic'
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 
 export interface TableLogicProps {
     id: string | 'new'
@@ -71,7 +71,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
             actions.loadDataWarehouse()
-            actions.toggleSourceModal()
+            actions.toggleSourceModal(false)
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {
@@ -96,13 +96,15 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.table],
-            (table: DataWarehouseTable): Breadcrumb[] => [
+            () => [],
+            (): Breadcrumb[] => [
                 {
-                    name: 'Tables',
-                    path: urls.dataWarehouse(),
+                    name: `Data Warehouse`,
+                    path: urls.dataWarehouseExternal(),
                 },
-                ...(table?.name ? [{ name: table.name }] : []),
+                {
+                    name: 'New',
+                },
             ],
         ],
     }),

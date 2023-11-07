@@ -111,10 +111,6 @@ module.exports = {
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
                     },
                     {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
                     },
@@ -162,6 +158,10 @@ module.exports = {
                         message: 'use <LemonTabs> instead',
                     },
                     {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
+                    },
+                    {
                         element: 'Spin',
                         message: 'use Spinner instead',
                     },
@@ -172,6 +172,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',

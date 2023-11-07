@@ -30,6 +30,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             surveyID,
             surveyResponse,
         }),
+        reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
     }),
     reducers({
@@ -205,6 +206,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             posthog.capture('survey sent', {
                 $survey_id: surveyID,
                 ...surveyResponse,
+            })
+            actions.setSurveyID('')
+        },
+        reportSurveyDismissed: ({ surveyID }) => {
+            posthog.capture('survey dismissed', {
+                $survey_id: surveyID,
             })
             actions.setSurveyID('')
         },

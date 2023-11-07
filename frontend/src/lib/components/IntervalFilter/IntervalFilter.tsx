@@ -1,8 +1,8 @@
-import { intervalFilterLogic } from './intervalFilterLogic'
 import { useActions, useValues } from 'kea'
-import { IntervalType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { InsightQueryNode } from '~/queries/schema'
 
 interface IntervalFilterProps {
     disabled?: boolean
@@ -10,8 +10,8 @@ interface IntervalFilterProps {
 
 export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { interval, enabledIntervals } = useValues(intervalFilterLogic(insightProps))
-    const { setInterval } = useActions(intervalFilterLogic(insightProps))
+    const { interval, enabledIntervals } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     return (
         <>
@@ -24,9 +24,7 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                 value={interval || 'day'}
                 dropdownMatchSelectWidth={false}
                 onChange={(value) => {
-                    if (value) {
-                        setInterval(String(value) as IntervalType)
-                    }
+                    updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
                 data-attr="interval-filter"
                 options={Object.entries(enabledIntervals).map(([value, { label, disabledReason }]) => ({

@@ -259,5 +259,10 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         )
 
         await execute_batch_export_insert_activity(
-            insert_into_redshift_activity, insert_inputs, non_retryable_error_types=[], update_inputs=update_inputs
+            insert_into_redshift_activity,
+            insert_inputs,
+            non_retryable_error_types=[],
+            update_inputs=update_inputs,
+            # Disable heartbeat timeout until we add heartbeat support.
+            heartbeat_timeout_seconds=None,
         )

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -13,7 +13,7 @@ class QueryAlternator:
     _group_bys: List[ast.Expr]
     _select_from: ast.JoinExpr | None
 
-    def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
+    def __init__(self, query: ast.SelectQuery):
         assert isinstance(query, ast.SelectQuery)
 
         self._query = query
@@ -21,7 +21,7 @@ class QueryAlternator:
         self._group_bys = []
         self._select_from = None
 
-    def build(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build(self) -> ast.SelectQuery:
         if len(self._selects) > 0:
             self._query.select.extend(self._selects)
 
@@ -280,9 +280,9 @@ class AggregationOperations:
         )
 
     def get_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
-        events_query = self._events_query(events_where_clause, sample_value)
-        inner_select = self._inner_select_query(events_query)
-        parent_select = self._parent_select_query(inner_select)
+        events_query = cast(ast.SelectQuery, self._events_query(events_where_clause, sample_value))
+        inner_select = cast(ast.SelectQuery, self._inner_select_query(events_query))
+        parent_select = cast(ast.SelectQuery, self._parent_select_query(inner_select))
 
         class QueryOrchestrator:
             events_query_builder: QueryAlternator

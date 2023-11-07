@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 import { useLayoutEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
-import Textfit from './Textfit'
 import clsx from 'clsx'
 
 import { insightLogic } from '../../insightLogic'
@@ -9,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartParams, TrendResult } from '~/types'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { ensureTooltipElement } from '../LineGraph/LineGraph'
+import { ensureTooltip } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
@@ -20,6 +18,8 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 import './BoldNumber.scss'
+import { useEffect } from 'react'
+import Textfit from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -37,9 +37,10 @@ function useBoldNumberTooltip({
 
     const divRef = useRef<HTMLDivElement>(null)
 
+    const divRect = divRef.current?.getBoundingClientRect()
+    const [tooltipRoot, tooltipEl] = ensureTooltip()
+
     useLayoutEffect(() => {
-        const divRect = divRef.current?.getBoundingClientRect()
-        const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         if (isTooltipShown) {
             tooltipEl.style.display = 'initial'
@@ -47,7 +48,7 @@ function useBoldNumberTooltip({
 
         const seriesResult = insightData?.result?.[0]
 
-        ReactDOM.render(
+        tooltipRoot.render(
             <InsightTooltip
                 renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
                 seriesData={[
@@ -64,19 +65,19 @@ function useBoldNumberTooltip({
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
                 groupTypeLabel={aggregationLabel(series?.[0].math_group_type_index).plural}
-            />,
-            tooltipEl,
-            () => {
-                const tooltipRect = tooltipEl.getBoundingClientRect()
-                if (divRect) {
-                    const desiredTop = window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-                    const desiredLeft = divRect.left + divRect.width / 2 - tooltipRect.width / 2
-                    tooltipEl.style.top = `${Math.min(desiredTop, window.innerHeight)}px`
-                    tooltipEl.style.left = `${Math.min(desiredLeft, window.innerWidth)}px`
-                }
-            }
+            />
         )
     }, [isTooltipShown])
+
+    useEffect(() => {
+        const tooltipRect = tooltipEl.getBoundingClientRect()
+        if (divRect) {
+            const desiredTop = window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            const desiredLeft = divRect.left + divRect.width / 2 - tooltipRect.width / 2
+            tooltipEl.style.top = `${Math.min(desiredTop, window.innerHeight)}px`
+            tooltipEl.style.left = `${Math.min(desiredLeft, window.innerWidth)}px`
+        }
+    })
 
     return divRef
 }

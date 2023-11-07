@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
-import { ChartDisplayType, InsightLogicProps } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -10,6 +10,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
+    TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
 
@@ -27,6 +28,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    nodeKindToFilterProperty,
 } from '~/queries/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import {
@@ -41,6 +43,7 @@ import {
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -48,8 +51,14 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+import { lemonToast } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping } from 'lib/utils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
@@ -73,7 +82,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     actions({
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
-        updateQuerySource: (querySource: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ querySource }),
+        updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
@@ -184,6 +193,38 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
 
+        activeUsersMath: [
+            (s) => [s.series],
+            (series): BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null =>
+                getActiveUsersMath(series),
+        ],
+        enabledIntervals: [
+            (s) => [s.activeUsersMath],
+            (activeUsersMath) => {
+                const enabledIntervals: Intervals = { ...intervals }
+
+                if (activeUsersMath) {
+                    // Disallow grouping by hour for WAUs/MAUs as it's an expensive query that produces a view that's not useful for users
+                    enabledIntervals.hour = {
+                        ...enabledIntervals.hour,
+                        disabledReason:
+                            'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                    }
+
+                    // Disallow grouping by month for WAUs as the resulting view is misleading to users
+                    if (activeUsersMath === BaseMathType.WeeklyActiveUsers) {
+                        enabledIntervals.month = {
+                            ...enabledIntervals.month,
+                            disabledReason:
+                                'Grouping by month is not supported on insights with weekly active users series.',
+                        }
+                    }
+                }
+
+                return enabledIntervals
+            },
+        ],
+
         erroredQueryId: [
             (s) => [s.insightDataError],
             (insightDataError) => {
@@ -213,7 +254,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: ({ querySource }) => {
             actions.setQuery({
                 ...values.query,
-                source: { ...values.querySource, ...querySource },
+                source: {
+                    ...values.querySource,
+                    ...handleQuerySourceUpdateSideEffects(querySource, values.querySource as InsightQueryNode),
+                },
             } as Node)
         },
         setQuery: ({ query }) => {
@@ -249,3 +293,115 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
     })),
 ])
+
+const getActiveUsersMath = (
+    series: TrendsQuery['series'] | null | undefined
+): BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null => {
+    for (const seriesItem of series || []) {
+        if (seriesItem.math === BaseMathType.WeeklyActiveUsers) {
+            return BaseMathType.WeeklyActiveUsers
+        }
+
+        if (seriesItem.math === BaseMathType.MonthlyActiveUsers) {
+            return BaseMathType.MonthlyActiveUsers
+        }
+    }
+
+    return null
+}
+
+const handleQuerySourceUpdateSideEffects = (
+    update: QuerySourceUpdate,
+    currentState: InsightQueryNode
+): QuerySourceUpdate => {
+    const mergedUpdate = { ...update } as InsightQueryNode
+
+    const maybeChangedSeries = (update as TrendsQuery).series || null
+    const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
+    const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
+    const insightFilter = currentState[nodeKindToFilterProperty[currentState.kind]] as Partial<InsightFilter>
+    const maybeChangedInsightFilter = update[nodeKindToFilterProperty[kind]] as Partial<InsightFilter>
+
+    const interval = (currentState as TrendsQuery).interval
+
+    /*
+     * Series change side effects.
+     */
+
+    // If the user just flipped an event action to use WAUs/MAUs math and their
+    // current interval is unsupported by the math type, switch their interval
+    // to an appropriate allowed interval and inform them of the change via a toast
+    if (maybeChangedActiveUsersMath !== null && (interval === 'hour' || interval === 'month')) {
+        if (interval === 'hour') {
+            lemonToast.info(
+                `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
+            )
+            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+        } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
+            lemonToast.info(
+                `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
+            )
+            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'week'
+        }
+    }
+
+    /*
+     * Date range change side effects.
+     */
+    if (
+        update.dateRange &&
+        update.dateRange.date_from &&
+        (update.dateRange.date_from !== currentState.dateRange?.date_from ||
+            update.dateRange.date_to !== currentState.dateRange?.date_to)
+    ) {
+        const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+
+        if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
+            if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+            } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+            } else {
+                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'month'
+            }
+        } else {
+            // get a defaultInterval for dateOptions that have a default value
+            let newDefaultInterval: IntervalType = 'day'
+            for (const { key, values, defaultInterval } of dateMapping) {
+                if (
+                    values[0] === date_from &&
+                    values[1] === (date_to || undefined) &&
+                    key !== 'Custom' &&
+                    defaultInterval
+                ) {
+                    newDefaultInterval = defaultInterval
+                    break
+                }
+            }
+            ;(mergedUpdate as Partial<TrendsQuery>).interval = newDefaultInterval
+        }
+    }
+
+    /*
+     * Display change side effects.
+     */
+    const display = (insightFilter as Partial<TrendsFilter>)?.display || ChartDisplayType.ActionsLineGraph
+    const maybeChangedDisplay =
+        (maybeChangedInsightFilter as Partial<TrendsFilter>)?.display || ChartDisplayType.ActionsLineGraph
+
+    // For the map, make sure we are breaking down by country
+    if (
+        kind === NodeKind.TrendsQuery &&
+        display !== maybeChangedDisplay &&
+        maybeChangedDisplay === ChartDisplayType.WorldMap
+    ) {
+        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
+
+        mergedUpdate['breakdown'] = {
+            breakdown: '$geoip_country_code',
+            breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
+        }
+    }
+
+    return mergedUpdate
+}
