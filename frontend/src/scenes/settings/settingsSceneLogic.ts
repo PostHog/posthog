@@ -40,13 +40,13 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         ],
     }),
 
-    urlToAction(({ actions }) => ({
-        '/settings/:section': ({ section }, _, hashParams) => {
+    urlToAction(({ actions, values }) => ({
+        '/settings/:section': ({ section }) => {
             // TODO: Should we ensure that a given setting always sets the correct section?
 
-            if (SettingLevelIds.includes(section as SettingLevelId)) {
+            if (SettingLevelIds.includes(section as SettingLevelId) && section !== values.selectedLevel) {
                 actions.selectLevel(section as SettingLevelId)
-            } else if (section) {
+            } else if (section && section !== values.selectedSectionId) {
                 actions.selectSection(section as SettingSectionId)
             }
         },
