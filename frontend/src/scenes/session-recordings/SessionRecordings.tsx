@@ -11,7 +11,6 @@ import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecording
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
-import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -25,6 +24,7 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

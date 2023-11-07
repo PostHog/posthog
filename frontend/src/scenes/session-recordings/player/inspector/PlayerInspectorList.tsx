@@ -10,12 +10,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
-import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { openSessionRecordingSettingsDialog } from '../../settings/SessionRecordingSettings'
 
 function EmptyNetworkTab({
     captureNetworkLogOptIn,

@@ -47,7 +47,7 @@ export function SlackIntegration(): JSX.Element {
                 .
             </p>
 
-            <p>
+            <div>
                 {slackIntegration ? (
                     <div className="rounded border flex justify-between items-center p-2 bg-bg-light">
                         <div className="flex items-center gap-4 ml-2">
@@ -120,7 +120,7 @@ export function SlackIntegration(): JSX.Element {
                         configure it.
                     </p>
                 )}
-            </p>
+            </div>
         </div>
     )
 }
