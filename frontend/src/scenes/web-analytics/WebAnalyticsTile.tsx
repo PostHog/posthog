@@ -1,5 +1,5 @@
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { DataTableNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useActions } from 'kea'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -7,6 +7,7 @@ import { useCallback, useMemo } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { PropertyFilterType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -169,6 +170,35 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             align: 'right',
         },
     },
+}
+
+export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
+    const onWorldMapClick = useCallback(
+        (breakdownValue: string) => {
+            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
+        },
+        [togglePropertyFilter, worldMapPropertyName]
+    )
+
+    const context = useMemo((): QueryContext => {
+        return {
+            ...webAnalyticsDataTableQueryContext,
+            insightProps: {
+                chartRenderingMetadata: {
+                    [ChartDisplayType.WorldMap]: {
+                        worldMapCountryProps: (countryCode) => ({
+                            onClick: () => onWorldMapClick(countryCode),
+                        }),
+                        hidePersons: true,
+                    },
+                },
+            },
+        }
+    }, [onWorldMapClick])
+
+    return <Query query={query} readOnly={true} context={context} />
 }
 
 export const WebStatsTableTile = ({

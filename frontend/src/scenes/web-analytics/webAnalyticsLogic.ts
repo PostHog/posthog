@@ -159,7 +159,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         geographyTab: [
-            GeographyTab.COUNTRIES as string,
+            GeographyTab.MAP as string,
             {
                 setGeographyTab: (_, { tab }) => tab,
             },

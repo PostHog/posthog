@@ -37,6 +37,7 @@ import { QueryContext } from '~/queries/types'
 
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { HTMLProps } from 'react'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -2080,6 +2081,17 @@ export interface HistogramGraphDatum {
     label: string
 }
 
+/** Pass custom rendering metadata to specific kinds of charts **/
+export interface ChartRenderingMetadata {
+    [ChartDisplayType.WorldMap]?: {
+        worldMapCountryProps?: (
+            countryCode: string,
+            countryData: TrendResult | undefined
+        ) => Omit<HTMLProps<SVGElement>, 'key'>
+        hidePersons?: boolean
+    }
+}
+
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
@@ -2093,6 +2105,9 @@ export interface InsightLogicProps {
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
+
+    /** chart-specific rendering context **/
+    chartRenderingMetadata?: ChartRenderingMetadata
 }
 
 export interface SetInsightOptions {
