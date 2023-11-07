@@ -261,7 +261,8 @@ def property_to_Q(
     cohorts_cache: Optional[Dict[int, Cohort]] = None,
     using_database: str = "default",
 ) -> Q:
-    if property.type not in ["person", "group", "cohort"]:
+    if property.type not in ["person", "group", "cohort", "event"]:
+        # We need to support event type for backwards compatibility, even though it's treated as a person property type
         raise ValueError(f"property_to_Q: type is not supported: {repr(property.type)}")
 
     value = property._parse_value(property.value)
