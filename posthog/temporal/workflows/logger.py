@@ -66,7 +66,7 @@ async def configure_logger(
         cache_logger_on_first_use=cache_logger_on_first_use,
     )
     listen_task = asyncio.create_task(
-        KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer).listen_and_produce()
+        KafkaLogProducerFromQueue(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer).listen()
     )
 
     async def worker_shutdown_handler():
@@ -241,26 +241,31 @@ class KafkaLogProducerFromQueue:
             if producer is not None
             else aiokafka.AIOKafkaProducer(
                 bootstrap_servers=settings.KAFKA_HOSTS,
-                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTE1XT",
+                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
                 acks="all",
             )
         )
 
-    async def listen_and_produce(self):
+    async def listen(self):
         """Listen to messages in queue and produce them to Kafka as they come.
 
         This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
         to have messages.
         """
         await self.producer.start()
-
         try:
             while True:
                 msg = await self.queue.get()
-
-                await self.producer.send_and_wait(self.topic, msg, key=self.key)
-
-                self.queue.task_done()
+                await self.produce(msg)
 
         finally:
+            await self.producer.flush()
             await self.producer.stop()
+
+    async def produce(self, msg):
+        fut = await self.producer.send(self.topic, msg, key=self.key)
+        fut.add_done_callback(self.mark_queue_done)
+        await fut
+
+    def mark_queue_done(self, _=None):
+        self.queue.task_done()

@@ -25,7 +25,7 @@ from posthog.clickhouse.log_entries import (
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.workflows.logger import bind_batch_exports_logger, configure_logger
 
-pytestmark = [pytest.mark.asyncio_event_loop, pytest.mark.asyncio]
+pytestmark = pytest.mark.asyncio
 
 
 class LogCapture:
@@ -74,7 +74,7 @@ class CaptureKafkaProducer(aiokafka.AIOKafkaProducer):
         super().__init__(*args, **kwargs)
         self.entries = []
 
-    async def send_and_wait(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
+    async def send(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
         """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
 
         self.entries.append(
@@ -87,7 +87,7 @@ class CaptureKafkaProducer(aiokafka.AIOKafkaProducer):
                 "headers": headers,
             }
         )
-        return await super().send_and_wait(topic, value, key, partition, timestamp_ms, headers)
+        return await super().send(topic, value, key, partition, timestamp_ms, headers)
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -277,7 +277,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     assert message_dict["timestamp"] == "2023-11-02 10:00:00.123123"
 
 
-@pytest.fixture()
+@pytest.fixture
 def log_entries_table():
     """Manage log_entries table for testing."""
     sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL())
@@ -291,7 +291,6 @@ def log_entries_table():
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
 
-@freezegun.freeze_time("2023-11-03 10:00:00.123123")
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_environment",
@@ -324,7 +323,9 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
 
         logger.info("Hi! This is an %s log from an activity", "info")
 
-    await activity_environment.run(log_activity)
+    with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+        await activity_environment.run(log_activity)
+
     assert len(queue.entries) == 1
 
     await queue.join()
@@ -358,12 +359,17 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
     )
 
+    iterations = 0
     while not results:
         # It may take a bit for CH to ingest.
-        time.sleep(2)
+        time.sleep(1)
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table}"
         )
+
+        iterations += 1
+        if iterations > 10:
+            raise TimeoutError("Timedout waiting for logs")
 
     assert len(results) == 1  # type: ignore
 
