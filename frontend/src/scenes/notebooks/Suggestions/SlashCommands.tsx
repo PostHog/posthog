@@ -19,12 +19,7 @@ const Component = ({ editor }: InsertionSuggestionViewProps): JSX.Element => {
             getPos={editor?.getCurrentPosition}
             onClose={() => setVisible(false)}
         >
-            <LemonButton
-                size="small"
-                icon={<IconPlus />}
-                className="NotebookFloatingButton__plus ml-1"
-                onClick={onClick}
-            />
+            <LemonButton size="xsmall" icon={<IconPlus />} onClick={onClick} />
         </SlashCommandsPopover>
     )
 }

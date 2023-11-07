@@ -6,7 +6,7 @@ import { RiseOutlined } from '@ant-design/icons'
 import { dateMapping } from 'lib/utils'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightDateFilterLogic } from 'scenes/insights/filters/InsightDateFilter/insightDateFilterLogic'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
@@ -15,11 +15,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightCommandLogic', key]),
 
-    connect((props: InsightLogicProps) => [
-        commandPaletteLogic,
-        compareFilterLogic(props),
-        insightDateFilterLogic(props),
-    ]),
+    connect((props: InsightLogicProps) => [commandPaletteLogic, compareFilterLogic(props), insightVizDataLogic(props)]),
     events(({ props }) => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
@@ -37,7 +33,10 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                insightDateFilterLogic(props).actions.setDates(values[0], values[1])
+                                insightVizDataLogic(props).actions.updateDateRange({
+                                    date_from: values[0],
+                                    date_to: values[1],
+                                })
                             },
                         })),
                     ],

@@ -36,3 +36,24 @@ For PostHog employees, check the password manager as a set of development creden
 ```bash
 DEBUG=1 REDSHIFT_HOST=workgroup.111222333.region.redshift-serverless.amazonaws.com REDSHIFT_USER=test_user REDSHIFT_PASSWORD=test_password pytest posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py
 ```
+
+Replace the `REDSHIFT_*` environment variables with the values obtained from the setup steps.
+
+## Testing S3 batch exports
+
+S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket. Additional setup is required to run those specific tests:
+
+1. Ensure you are logged in to an AWS account.
+2. Create or choose an existing S3 bucket from that AWS account to use as the test bucket.
+3. Create or choose an existing KMS key id from that AWS account to use in tests.
+4. Make sure the role/user you are logged in as has permissions to use the bucket and KMS key.
+
+For PostHog employees, check your password manager for these details.
+
+With these setup steps done, we can run all tests (MinIO and S3 bucket) from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='your-test-bucket' pytest posthog/temporal/tests/batch_exports/test_s3_batch_export_workflow.py
+```
+
+Replace the `S3_*` environment variables with the values obtained from the setup steps.
