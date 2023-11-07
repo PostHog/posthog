@@ -39,8 +39,8 @@ dependencies:
     specifier: ^0.1.31
     version: 0.1.31(react-dom@18.2.0)(react@18.2.0)
   '@posthog/plugin-scaffold':
-    specifier: ^1.4.3
-    version: 1.4.3
+    specifier: ^1.4.4
+    version: 1.4.4
   '@react-hook/size':
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
@@ -3367,8 +3367,8 @@ packages:
       react-dom: 18.2.0(react@18.2.0)
     dev: false
 
-  /@posthog/plugin-scaffold@1.4.3:
-    resolution: {integrity: sha512-fzWJ8lvAUlbTcffaFVcfhV9QiAVGL4j1OnXDc+p+bqWMP/yTwvljXDiwV96w3mti9r40E1NBz/yQRykyB78+EA==}
+  /@posthog/plugin-scaffold@1.4.4:
+    resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false
