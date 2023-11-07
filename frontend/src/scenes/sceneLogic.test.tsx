@@ -16,7 +16,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: logic } 
 
 const testScenes: Record<string, () => any> = {
     [Scene.Annotations]: sceneImport,
-    [Scene.MySettings]: sceneImport,
+    [Scene.Settings]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -47,7 +47,7 @@ describe('sceneLogic', () => {
         })
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.MySettings,
+            scene: Scene.Settings,
         })
     })
 
@@ -61,7 +61,7 @@ describe('sceneLogic', () => {
         })
 
         const expectedMySettings = partial({
-            name: Scene.MySettings,
+            name: Scene.Settings,
             component: expect.any(Function),
             sceneParams: { hashParams: {}, params: {}, searchParams: {} },
             lastTouch: expect.any(Number),
@@ -80,7 +80,7 @@ describe('sceneLogic', () => {
             .toMatchValues({
                 loadedScenes: partial({
                     [Scene.Annotations]: expectedAnnotation,
-                    [Scene.MySettings]: expectedMySettings,
+                    [Scene.Settings]: expectedMySettings,
                 }),
             })
     })

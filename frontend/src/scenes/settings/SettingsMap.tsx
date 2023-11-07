@@ -36,7 +36,7 @@ import { SurveySettings } from './project/SurveySettings'
 import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 import { SettingSection } from './types'
 
-export const SettingsSections: SettingSection[] = [
+export const SettingsMap: SettingSection[] = [
     // PROJECT
     {
         level: 'project',

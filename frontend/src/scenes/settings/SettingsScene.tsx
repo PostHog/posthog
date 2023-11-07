@@ -1,7 +1,7 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useActions, useValues } from 'kea'
-import { settingsLogic } from './settingsLogic'
+import { settingsSceneLogic } from './settingsSceneLogic'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,10 +9,11 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SettingLevelIds } from './types'
+import { SettingsRenderer } from './SettingsRenderer'
 
 export const scene: SceneExport = {
     component: SettingsScene,
-    logic: settingsLogic,
+    logic: settingsSceneLogic,
 }
 
 /**
@@ -24,8 +25,8 @@ export const scene: SceneExport = {
  */
 
 export function SettingsScene(): JSX.Element {
-    const { selectedSectionId, selectedLevel, settings, sections } = useValues(settingsLogic)
-    const { selectSection, selectLevel, selectSetting } = useActions(settingsLogic)
+    const { selectedSectionId, selectedLevel, settings, sections } = useValues(settingsSceneLogic)
+    const { selectSection, selectLevel, selectSetting } = useActions(settingsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const { location } = useValues(router)
@@ -77,8 +78,8 @@ export function SettingsScene(): JSX.Element {
                             These settings only apply to {currentTeam?.name ?? 'the current project'}.
                         </LemonBanner>
                     )}
-
-                    <div className="space-y-8">
+                    <SettingsRenderer />
+                    {/* <div className="space-y-8">
                         {settings.map((x) => (
                             <div key={x.id} className="relative">
                                 <div
@@ -97,7 +98,7 @@ export function SettingsScene(): JSX.Element {
                                 {x.component}
                             </div>
                         ))}
-                    </div>
+                    </div> */}
                 </div>
             </div>
         </>
