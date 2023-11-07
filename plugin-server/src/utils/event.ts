@@ -23,7 +23,9 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: convertDatabaseElementsToRawElements(event.elementsList ?? []),
+        elements: event.elementsChain
+            ? convertDatabaseElementsToRawElements(chainToElements(event.elementsChain, event.teamId) ?? [])
+            : undefined,
     }
 }
 
@@ -71,11 +73,7 @@ export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsC
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
-        elementsList: skipElementsChain
-            ? []
-            : event.elements_chain
-            ? chainToElements(event.elements_chain, event.team_id)
-            : [],
+        elementsChain: skipElementsChain ? undefined : event.elements_chain,
         person_id: event.person_id,
         person_created_at: event.person_created_at
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)

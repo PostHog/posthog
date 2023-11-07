@@ -27,8 +27,7 @@ export async function processWebhooksStep(
     hookCannon: HookCommander
 ) {
     const actionMatches = await instrumentWebhookStep('actionMatching', async () => {
-        const elements = event.elementsList
-        return await actionMatcher.match(event, elements)
+        return await actionMatcher.match(event)
     })
     await instrumentWebhookStep('findAndfireHooks', async () => {
         await hookCannon.findAndFireHooks(event, actionMatches)

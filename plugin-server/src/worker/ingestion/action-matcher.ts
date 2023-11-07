@@ -19,7 +19,7 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { extractElements } from '../../utils/db/elements-chain'
+import { chainToElements } from '../../utils/db/elements-chain'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
@@ -141,13 +141,10 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
+    public async match(event: PostIngestionEvent): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        if (!elements) {
-            const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? extractElements(rawElements) : []
-        }
+        const elements: Element[] = event.elementsChain ? chainToElements(event.elementsChain, event.teamId) : []
         const teamActionsMatching: boolean[] = await Promise.all(
             teamActions.map((action) => this.checkAction(event, elements, action))
         )

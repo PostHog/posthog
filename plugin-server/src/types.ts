@@ -665,7 +665,8 @@ export interface PreIngestionEvent {
 }
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+export interface PostIngestionEvent extends Omit<BaseIngestionEvent, 'elementsList'> {
+    elementsChain?: string
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties

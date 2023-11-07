@@ -103,12 +103,13 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
     return elements
 }
 
+/** Clean up a user provided elements list, so it could be inserted into the database */
 export function extractElements(elements: Array<Record<string, any>>): Element[] {
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
         tag_name: el['tag_name'],
         href: el['attr__href']?.slice(0, 2048),
-        attr_class: extractAttrClass(el),
+        attr_class: extractAttrClass(el['attr__class']),
         attr_id: el['attr__id'],
         nth_child: el['nth_child'],
         nth_of_type: el['nth_of_type'],
@@ -116,8 +117,7 @@ export function extractElements(elements: Array<Record<string, any>>): Element[]
     }))
 }
 
-function extractAttrClass(el: Record<string, any>): Element['attr_class'] {
-    const attr_class = el['attr__class']
+export function extractAttrClass(attr_class: string | undefined | any[]): Element['attr_class'] {
     if (!attr_class) {
         return undefined
     } else if (Array.isArray(attr_class)) {
