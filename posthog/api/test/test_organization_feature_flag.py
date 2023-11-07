@@ -68,7 +68,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         super().setUp()
 
-    # @snapshot_postgres_queries
+    @snapshot_postgres_queries
     def test_copy_feature_flag_success(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data = {
