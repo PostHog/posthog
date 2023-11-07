@@ -59,26 +59,25 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.team_2 = Team.objects.create(organization=self.organization)
 
         self.feature_flag_key = "copied-flag-key"
-
-        super().setUp()
-
-    # @snapshot_postgres_queries
-    def test_copy_feature_flag_create_new(self):
-        rollout_percentage_to_copy = 65
-        feature_flag_to_copy = FeatureFlag.objects.create(
+        self.rollout_percentage_to_copy = 65
+        self.feature_flag_to_copy = FeatureFlag.objects.create(
             team=self.team_1,
             created_by=self.user,
             key=self.feature_flag_key,
-            filters={"groups": [{"rollout_percentage": rollout_percentage_to_copy}]},
-            rollout_percentage=rollout_percentage_to_copy,
+            filters={"groups": [{"rollout_percentage": self.rollout_percentage_to_copy}]},
+            rollout_percentage=self.rollout_percentage_to_copy,
         )
 
+        super().setUp()
+
+    @snapshot_postgres_queries
+    def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         target_project = self.team_2
 
         data = {
-            "feature_flag_key": feature_flag_to_copy.key,
-            "from_project": feature_flag_to_copy.team_id,
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
             "target_project_ids": [target_project.id],
         }
         response = self.client.post(url, data)
@@ -89,12 +88,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         # Check copied flag in the response
         expected_flag_response = {
-            "key": feature_flag_to_copy.key,
-            "name": feature_flag_to_copy.name,
-            "filters": feature_flag_to_copy.filters,
-            "active": feature_flag_to_copy.active,
-            "ensure_experience_continuity": feature_flag_to_copy.ensure_experience_continuity,
-            "rollout_percentage": rollout_percentage_to_copy,
+            "key": self.feature_flag_to_copy.key,
+            "name": self.feature_flag_to_copy.name,
+            "filters": self.feature_flag_to_copy.filters,
+            "active": self.feature_flag_to_copy.active,
+            "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+            "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": self.user.id,
             "id": "__ignore__",
@@ -128,16 +127,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         )
 
     def test_copy_feature_flag_update_existing(self):
-        rollout_percentage_to_copy = 65
-        feature_flag_to_copy = FeatureFlag.objects.create(
-            team=self.team_1,
-            created_by=self.user,
-            key=self.feature_flag_key,
-            filters={"groups": [{"rollout_percentage": rollout_percentage_to_copy}]},
-            rollout_percentage=rollout_percentage_to_copy,
-            ensure_experience_continuity=True,
-        )
-
         target_project = self.team_2
         rollout_percentage_existing = 99
         self.feature_flag_existing = FeatureFlag.objects.create(
@@ -153,8 +142,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
 
         data = {
-            "feature_flag_key": feature_flag_to_copy.key,
-            "from_project": feature_flag_to_copy.team_id,
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
             "target_project_ids": [target_project.id],
         }
         response = self.client.post(url, data)
@@ -165,12 +154,12 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         # Check copied flag in the response
         expected_flag_response = {
-            "key": feature_flag_to_copy.key,
-            "name": feature_flag_to_copy.name,
-            "filters": feature_flag_to_copy.filters,
-            "active": feature_flag_to_copy.active,
-            "ensure_experience_continuity": feature_flag_to_copy.ensure_experience_continuity,
-            "rollout_percentage": rollout_percentage_to_copy,
+            "key": self.feature_flag_to_copy.key,
+            "name": self.feature_flag_to_copy.name,
+            "filters": self.feature_flag_to_copy.filters,
+            "active": self.feature_flag_to_copy.active,
+            "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+            "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
             "created_by": self.user.id,
             "id": "__ignore__",
@@ -233,7 +222,6 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
 
         response = self.client.post(url, data)
-
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["success"]), 0)
         self.assertEqual(len(response.json()["failed"]), 1)
