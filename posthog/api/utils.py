@@ -232,8 +232,8 @@ def check_definition_ids_inclusion_field_sql(
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
 SURROGATES_SUBSTITUTED_COUNTER = Counter(
-    "django_surrogates_substituted_total",
-    "UTF16 surrogates detected and removed from user input",
+    "surrogates_substituted_total",
+    "Stray UTF16 surrogates detected and removed from user input.",
 )
 
 
