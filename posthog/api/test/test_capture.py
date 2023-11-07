@@ -15,7 +15,8 @@ from urllib.parse import quote
 import lzstring
 import pytest
 import structlog
-from django.test.client import Client
+from django.http import HttpResponse
+from django.test.client import Client, MULTIPART_CONTENT
 from django.utils import timezone
 from freezegun import freeze_time
 from kafka.errors import KafkaError
@@ -59,6 +60,88 @@ openapi_spec = cast(Dict[str, Any], parser.specification)
 large_data_array = [
     {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
+
+android_json = {
+    "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
+    "event": "$snapshot",
+    "properties": {
+        "$screen_density": 2.75,
+        "$screen_height": 2154,
+        "$screen_width": 1080,
+        "$app_version": "1.0",
+        "$app_namespace": "com.posthog.android.sample",
+        "$app_build": 1,
+        "$app_name": "PostHog Android Sample",
+        "$device_manufacturer": "Google",
+        "$device_model": "sdk_gphone64_arm64",
+        "$device_name": "emu64a",
+        "$device_type": "Mobile",
+        "$os_name": "Android",
+        "$os_version": "14",
+        "$lib": "posthog-android",
+        "$lib_version": "3.0.0-beta.3",
+        "$locale": "en-US",
+        "$user_agent": "Dalvik/2.1.0 (Linux; U; Android 14; sdk_gphone64_arm64 Build/UPB5.230623.003)",
+        "$timezone": "Europe/Vienna",
+        "$network_wifi": True,
+        "$network_bluetooth": False,
+        "$network_cellular": False,
+        "$network_carrier": "T-Mobile",
+        "$snapshot_data": [
+            {"timestamp": 1699354586963, "type": 0},
+            {"timestamp": 1699354586963, "type": 1},
+            {
+                "data": {"href": "http://localhost", "width": 1080, "height": 2220},
+                "timestamp": 1699354586963,
+                "type": 4,
+            },
+            {
+                "data": {
+                    "node": {
+                        "id": 1,
+                        "type": 0,
+                        "childNodes": [
+                            {"type": 1, "name": "html", "id": 2, "childNodes": []},
+                            {
+                                "id": 3,
+                                "type": 2,
+                                "tagName": "html",
+                                "childNodes": [
+                                    {
+                                        "id": 5,
+                                        "type": 2,
+                                        "tagName": "body",
+                                        "childNodes": [
+                                            {
+                                                "type": 2,
+                                                "tagName": "canvas",
+                                                "id": 7,
+                                                "attributes": {
+                                                    "id": "canvas",
+                                                    "width": "1080",
+                                                    "height": "2220",
+                                                },
+                                                "childNodes": [],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                        "initialOffset": {"left": 0, "top": 0},
+                    }
+                },
+                "timestamp": 1699354586963,
+                "type": 2,
+            },
+        ],
+        "$session_id": "bceaa9ce-dc9d-4728-8a90-4a7c249604b1",
+        "$window_id": "31bfffdc-79fc-4504-9ff4-0216a58bf7f6",
+        "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
+    },
+    "timestamp": "2023-11-07T10:56:46.601Z",
+    "uuid": "deaa7e00-e1a4-480d-9145-fb8461678dae",
+}
 
 
 class TestCapture(BaseTest):
@@ -144,7 +227,8 @@ class TestCapture(BaseTest):
         window_id="def456",
         distinct_id="ghi789",
         timestamp=1658516991883,
-    ) -> Dict:
+        content_type: str | None = None,
+    ) -> HttpResponse:
         if event_data is None:
             # event_data is an array of RRWeb events
             event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
@@ -168,15 +252,14 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
-        self.client.post(
+        return self.client.post(
             "/s/",
             data={
                 "data": json.dumps([event for _ in range(number_of_events)]),
                 "api_key": self.team.api_token,
             },
+            content_type=content_type or MULTIPART_CONTENT,
         )
-
-        return event
 
     def test_is_randomly_parititoned(self):
         """Test is_randomly_partitioned under local configuration."""
@@ -295,108 +378,24 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event(self, _kafka_produce: MagicMock) -> None:
-        data = self._send_august_2023_version_session_recording_event()
-
-        response = self.client.post(
-            "/s/",
-            data={
-                "data": json.dumps([data]),
-                "api_key": self.team.api_token,
-            },
-        )
+        response = self._send_august_2023_version_session_recording_event()
         assert response.status_code == 200
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_snapshot_event_from_android(self, _kafka_produce: MagicMock) -> None:
-        data = {
-            "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
-            "event": "$snapshot",
-            "properties": {
-                "$screen_density": 2.75,
-                "$screen_height": 2154,
-                "$screen_width": 1080,
-                "$app_version": "1.0",
-                "$app_namespace": "com.posthog.android.sample",
-                "$app_build": 1,
-                "$app_name": "PostHog Android Sample",
-                "$device_manufacturer": "Google",
-                "$device_model": "sdk_gphone64_arm64",
-                "$device_name": "emu64a",
-                "$device_type": "Mobile",
-                "$os_name": "Android",
-                "$os_version": "14",
-                "$lib": "posthog-android",
-                "$lib_version": "3.0.0-beta.3",
-                "$locale": "en-US",
-                "$user_agent": "Dalvik/2.1.0 (Linux; U; Android 14; sdk_gphone64_arm64 Build/UPB5.230623.003)",
-                "$timezone": "Europe/Vienna",
-                "$network_wifi": True,
-                "$network_bluetooth": False,
-                "$network_cellular": False,
-                "$network_carrier": "T-Mobile",
-                "$snapshot_data": [
-                    {"timestamp": 1699354586963, "type": 0},
-                    {"timestamp": 1699354586963, "type": 1},
-                    {
-                        "data": {"href": "http://localhost", "width": 1080, "height": 2220},
-                        "timestamp": 1699354586963,
-                        "type": 4,
-                    },
-                    {
-                        "data": {
-                            "node": {
-                                "id": 1,
-                                "type": 0,
-                                "childNodes": [
-                                    {"type": 1, "name": "html", "id": 2, "childNodes": []},
-                                    {
-                                        "id": 3,
-                                        "type": 2,
-                                        "tagName": "html",
-                                        "childNodes": [
-                                            {
-                                                "id": 5,
-                                                "type": 2,
-                                                "tagName": "body",
-                                                "childNodes": [
-                                                    {
-                                                        "type": 2,
-                                                        "tagName": "canvas",
-                                                        "id": 7,
-                                                        "attributes": {
-                                                            "id": "canvas",
-                                                            "width": "1080",
-                                                            "height": "2220",
-                                                        },
-                                                        "childNodes": [],
-                                                    }
-                                                ],
-                                            }
-                                        ],
-                                    },
-                                ],
-                                "initialOffset": {"left": 0, "top": 0},
-                            }
-                        },
-                        "timestamp": 1699354586963,
-                        "type": 2,
-                    },
-                ],
-                "$session_id": "bceaa9ce-dc9d-4728-8a90-4a7c249604b1",
-                "$window_id": "31bfffdc-79fc-4504-9ff4-0216a58bf7f6",
-                "distinct_id": "e3de4e90-491f-4164-9aed-40a3d7881978",
-            },
-            "timestamp": "2023-11-07T10:56:46.601Z",
-            "uuid": "deaa7e00-e1a4-480d-9145-fb8461678dae",
-        }
-
-        response = self.client.post(
-            "/s/",
-            data={
-                "data": json.dumps([data]),
-                "api_key": self.team.api_token,
-            },
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=android_json,
+            content_type=MULTIPART_CONTENT,
         )
+        assert response.status_code == 200
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_snapshot_event_from_android_as_json(self, _kafka_produce: MagicMock) -> None:
+        response = self._send_august_2023_version_session_recording_event(
+            event_data=android_json,
+            content_type="application/json",
+        )
+
         assert response.status_code == 200
 
     @patch("axes.middleware.AxesMiddleware")
