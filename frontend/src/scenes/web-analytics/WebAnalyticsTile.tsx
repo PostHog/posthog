@@ -188,12 +188,12 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             insightProps: {
                 chartRenderingMetadata: {
                     [ChartDisplayType.WorldMap]: {
-                        worldMapCountryProps: (countryCode) => ({
+                        countryProps: (countryCode) => ({
                             onClick: () => onWorldMapClick(countryCode),
                         }),
-                        hidePersons: true,
                     },
                 },
+                hidePersonsModal: true,
             },
         }
     }, [onWorldMapClick])

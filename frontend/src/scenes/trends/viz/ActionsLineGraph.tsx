@@ -52,7 +52,7 @@ export function ActionsLineGraph({
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
-            showPersonsModal={showPersonsModal}
+            showPersonsModal={showPersonsModal && !insightProps.hidePersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
             showValueOnSeries={showValueOnSeries}
@@ -76,7 +76,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(formula)
+                !showPersonsModal || insightProps.hidePersonsModal || isMultiSeriesFormula(formula)
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset } = payload

@@ -2084,11 +2084,7 @@ export interface HistogramGraphDatum {
 /** Pass custom rendering metadata to specific kinds of charts **/
 export interface ChartRenderingMetadata {
     [ChartDisplayType.WorldMap]?: {
-        worldMapCountryProps?: (
-            countryCode: string,
-            countryData: TrendResult | undefined
-        ) => Omit<HTMLProps<SVGElement>, 'key'>
-        hidePersons?: boolean
+        countryProps?: (countryCode: string, countryData: TrendResult | undefined) => Omit<HTMLProps<SVGElement>, 'key'>
     }
 }
 
@@ -2106,6 +2102,7 @@ export interface InsightLogicProps {
     query?: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
 
+    hidePersonsModal?: boolean
     /** chart-specific rendering context **/
     chartRenderingMetadata?: ChartRenderingMetadata
 }

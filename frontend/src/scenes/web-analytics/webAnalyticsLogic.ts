@@ -38,6 +38,12 @@ export interface TabsTile extends BaseTile {
 
 export type WebDashboardTile = QueryTile | TabsTile
 
+export enum GraphsTab {
+    UNIQUE_USERS = 'UNIQUE_USERS',
+    PAGE_VIEWS = 'PAGE_VIEWS',
+    NUM_SESSION = 'NUM_SESSION',
+}
+
 export enum SourceTab {
     REFERRING_DOMAIN = 'REFERRING_DOMAIN',
     UTM_SOURCE = 'UTM_SOURCE',
@@ -77,6 +83,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             type,
             key,
             value,
+        }),
+        setGraphsTab: (tab: string) => ({
+            tab,
         }),
         setSourceTab: (tab: string) => ({
             tab,
@@ -140,6 +149,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
             },
         ],
+        graphsTab: [
+            GraphsTab.UNIQUE_USERS as string,
+            {
+                setGraphsTab: (_, { tab }) => tab,
+            },
+        ],
         sourceTab: [
             SourceTab.REFERRING_DOMAIN as string,
             {
@@ -179,9 +194,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     }),
     selectors(({ actions }) => ({
         tiles: [
-            (s) => [s.webAnalyticsFilters, s.pathTab, s.deviceTab, s.sourceTab, s.geographyTab, s.dateFrom, s.dateTo],
+            (s) => [
+                s.webAnalyticsFilters,
+                s.graphsTab,
+                s.pathTab,
+                s.deviceTab,
+                s.sourceTab,
+                s.geographyTab,
+                s.dateFrom,
+                s.dateTo,
+            ],
             (
                 webAnalyticsFilters,
+                graphsTab,
                 pathTab,
                 deviceTab,
                 sourceTab,
@@ -203,6 +228,96 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             properties: webAnalyticsFilters,
                             dateRange,
                         },
+                    },
+                    {
+                        layout: {
+                            colSpan: 6,
+                        },
+                        activeTabId: graphsTab,
+                        setTabId: actions.setGraphsTab,
+                        tabs: [
+                            {
+                                id: GraphsTab.UNIQUE_USERS,
+                                title: 'Unique visitors',
+                                linkText: 'Visitors',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval: 'day',
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueUsers,
+                                                name: '$pageview',
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            compare: true,
+                                            display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                },
+                            },
+                            {
+                                id: GraphsTab.PAGE_VIEWS,
+                                title: 'Page Views',
+                                linkText: 'Page Views',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval: 'day',
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.TotalCount,
+                                                name: '$pageview',
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            compare: true,
+                                            display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                },
+                            },
+                            {
+                                id: GraphsTab.NUM_SESSION,
+                                title: 'Sessions',
+                                linkText: 'Sessions',
+                                query: {
+                                    kind: NodeKind.InsightVizNode,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval: 'day',
+                                        series: [
+                                            {
+                                                event: '$pageview',
+                                                kind: NodeKind.EventsNode,
+                                                math: BaseMathType.UniqueSessions,
+                                                name: '$pageview',
+                                            },
+                                        ],
+                                        trendsFilter: {
+                                            compare: true,
+                                            display: ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        filterTestAccounts: true,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                },
+                            },
+                        ],
                     },
                     {
                         layout: {
@@ -351,34 +466,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    // {
-                    //     title: 'Unique visitors',
-                    //     layout: {
-                    //         colSpan: 6,
-                    //     },
-                    //     query: {
-                    //         kind: NodeKind.InsightVizNode,
-                    //         source: {
-                    //             kind: NodeKind.TrendsQuery,
-                    //             dateRange,
-                    //             interval: 'day',
-                    //             series: [
-                    //                 {
-                    //                     event: '$pageview',
-                    //                     kind: NodeKind.EventsNode,
-                    //                     math: BaseMathType.UniqueUsers,
-                    //                     name: '$pageview',
-                    //                 },
-                    //             ],
-                    //             trendsFilter: {
-                    //                 compare: true,
-                    //                 display: ChartDisplayType.ActionsLineGraph,
-                    //             },
-                    //             filterTestAccounts: true,
-                    //             properties: webAnalyticsFilters,
-                    //         },
-                    //     },
-                    // },
+
                     {
                         layout: {
                             colSpan: 6,

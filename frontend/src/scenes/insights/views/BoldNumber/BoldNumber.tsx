@@ -85,6 +85,7 @@ function useBoldNumberTooltip({
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { hidePersonsModal } = insightProps
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
@@ -99,7 +100,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
                         // != is intentional to catch undefined too
-                        showPersonsModal && resultSeries.aggregated_value != null
+                        showPersonsModal && !hidePersonsModal && resultSeries.aggregated_value != null
                             ? () => {
                                   if (resultSeries.persons?.url) {
                                       openPersonsModal({
@@ -117,7 +118,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     {formatAggregationAxisValue(trendsFilter, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
-            {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
+            {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal && !hidePersonsModal} />}
         </div>
     ) : (
         <InsightEmptyState />
