@@ -31,13 +31,12 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+            await expectLogic(logic).toDispatchActions(['fetchActivity', 'fetchActivitySuccess'])
         })
 
         it('can load a page of activity', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                nextPageLoading: false,
-                previousPageLoading: false,
+                activityLoading: false,
             })
 
             // react fragments confuse equality check so,
@@ -69,7 +68,7 @@ describe('the activity log logic', () => {
         })
 
         it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+            await expectLogic(logic).toDispatchActions(['fetchActivity', 'fetchActivitySuccess'])
         })
     })
 
@@ -105,7 +104,7 @@ describe('the activity log logic', () => {
         })
 
         it('loads data from page 4 on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
+            await expectLogic(logic).toDispatchActions(['fetchActivity', 'fetchActivitySuccess'])
 
             expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
                 JSON.stringify(humanize(featureFlagsActivityResponseJson, describerFor))

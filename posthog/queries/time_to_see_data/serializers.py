@@ -2,7 +2,6 @@ from functools import cached_property
 
 from rest_framework import serializers
 
-from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
 
@@ -35,6 +34,8 @@ class SessionResponseSerializer(serializers.Serializer):
     user = serializers.SerializerMethodField()
 
     def get_user(self, session):
+        from posthog.api.shared import UserBasicSerializer
+
         user = self.context.get("user_lookup", UserLookup([session])).get(session["user_id"])
         return UserBasicSerializer(user).data
 

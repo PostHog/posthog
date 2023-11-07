@@ -1,4 +1,5 @@
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
@@ -8,7 +9,6 @@ import {
     listeners,
     path,
     props,
-    propsChanged,
     reducers,
     selectors,
 } from 'kea'
@@ -16,29 +16,20 @@ import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    AvailableFeature,
-    MatchedRecording,
-    RecordingSegment,
-    SessionPlayerData,
-    SessionPlayerState,
-    SessionRecordingId,
-    SessionRecordingType,
-} from '~/types'
+import { AvailableFeature, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import equal from 'fast-deep-equal'
 import { clamp, downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import {
-    MatchingEventsMatchType,
-    sessionRecordingsListLogic,
-} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
@@ -46,7 +37,13 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
+import { COMMON_REPLAYER_CONFIG, CorsPlugin } from './rrweb'
 import { now } from 'lib/dayjs'
+import { ReplayPlugin } from 'rrweb/typings/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -77,24 +74,19 @@ export enum SessionRecordingPlayerMode {
     Standard = 'standard',
     Sharing = 'sharing',
     Notebook = 'notebook',
+    Preview = 'preview',
 }
 
-// This is the basic props used by most sub-logics
-export interface SessionRecordingLogicProps {
-    sessionRecordingId: SessionRecordingId
+export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {
     playerKey: string
-}
-
-export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
-    playlistShortId?: string
-    matching?: MatchedRecording[]
     matchingEventsMatchType?: MatchingEventsMatchType
-    recordingStartTime?: string
-    nextSessionRecording?: Partial<SessionRecordingType>
+    playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
+    pinned?: boolean
+    setPinned?: (pinned: boolean) => void
 }
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
@@ -116,7 +108,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['user', 'hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
@@ -126,6 +122,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadRecordingSnapshotsSuccess',
                 'loadRecordingSnapshotsFailure',
                 'loadRecordingMetaSuccess',
+                'maybePersistRecording',
             ],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
@@ -138,12 +135,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ],
         ],
     })),
-    propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
-        // Ensures that if filter results change, then matching results in this player logic will also change
-        if (!equal(matching, oldMatching)) {
-            actions.setMatching(matching)
-        }
-    }),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
@@ -175,7 +166,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         initializePlayerFromStart: true,
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
-        setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
         deleteRecording: true,
@@ -186,7 +176,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
         incrementClickCount: true,
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         clickCount: [
             0,
             {
@@ -316,14 +306,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
 
-        errorCount: [0, { incrementErrorCount: (prevErrorCount, {}) => prevErrorCount + 1 }],
+        errorCount: [0, { incrementErrorCount: (prevErrorCount) => prevErrorCount + 1 }],
         warningCount: [0, { incrementWarningCount: (prevWarningCount, { count }) => prevWarningCount + count }],
-        matching: [
-            props.matching ?? ([] as SessionRecordingType['matching_events']),
-            {
-                setMatching: (_, { matching }) => matching,
-            },
-        ],
         endReached: [
             false,
             {
@@ -350,6 +334,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // Prop references for use by other logics
         sessionRecordingId: [() => [(_, props) => props], (props): string => props.sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
+        playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
         currentPlayerState: [
             (s) => [
@@ -431,14 +416,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
-        matchingEvents: [
-            (s) => [s.matching],
-            (matching) => (matching ?? []).map((filterMatches) => filterMatches.events).flat(),
-        ],
 
         playerSpeed: [
-            (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp],
-            (speed, isSkippingInactivity, currentSegment, currentTimestamp) => {
+            (s) => [s.speed, s.isSkippingInactivity, s.currentSegment, s.currentTimestamp, (_, props) => props.mode],
+            (speed, isSkippingInactivity, currentSegment, currentTimestamp, mode) => {
+                if (mode === SessionRecordingPlayerMode.Preview) {
+                    // default max speed in rrweb https://github.com/rrweb-io/rrweb/blob/58c9104eddc8b7994a067a97daae5684e42f892f/packages/rrweb/src/replay/index.ts#L178
+                    return 360
+                }
+
                 if (isSkippingInactivity) {
                     const secondsToSkip = ((currentSegment?.endTimestamp ?? 0) - (currentTimestamp ?? 0)) / 1000
                     return Math.max(50, secondsToSkip)
@@ -498,13 +484,32 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
+            const plugins: ReplayPlugin[] = []
+
+            // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
+            if (
+                values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CORS_PROXY] &&
+                (values.preflight?.cloud || window.location.hostname === 'localhost')
+            ) {
+                plugins.push(CorsPlugin)
+            }
+
+            cache.debug?.('tryInitReplayer', {
+                windowId,
+                rootFrame: values.rootFrame,
+                snapshots: values.sessionPlayerData.snapshotsByWindowId[windowId],
+            })
+
             const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
                 root: values.rootFrame,
-                triggerFocus: false,
-                insertStyleRules: [
-                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
-                ],
+                ...COMMON_REPLAYER_CONFIG,
+                // these two settings are attempts to improve performance of running two Replayers at once
+                // the main player and a preview player
+                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
+                useVirtualDom: false,
+                plugins,
             })
+
             actions.setPlayer({ replayer, windowId })
         },
         setPlayer: ({ player }) => {
@@ -597,7 +602,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
-            if (!!values.player?.replayer) {
+            if (values.player?.replayer) {
                 for (const event of eventsToAdd) {
                     await values.player?.replayer?.addEvent(event)
                 }
@@ -657,6 +662,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
+
+            cache.debug?.('pause', {
+                currentTimestamp: values.currentTimestamp,
+                currentSegment: values.currentSegment,
+            })
         },
         setEndReached: ({ reached }) => {
             if (reached) {
@@ -709,6 +719,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
+                // NOTE: when we show a preview pane, this branch runs
+                // in very large recordings this call to pause
+                // can consume 100% CPU and freeze the entire page
                 values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
                 actions.endBuffer()
                 actions.setErrorPlayerState(false)
@@ -749,15 +762,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
-            // If buffering, toggle is a noop
-            if (values.currentPlayerState === SessionPlayerState.BUFFER) {
-                return
-            }
             // If paused, start playing
-            if (
-                values.currentPlayerState === SessionPlayerState.PAUSE ||
-                values.currentPlayerState === SessionPlayerState.READY
-            ) {
+            if (values.playingState === SessionPlayerState.PAUSE) {
                 actions.setPlay()
             }
             // If playing, pause
@@ -778,6 +784,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentPlayerState === SessionPlayerState.SKIP) &&
                 values.timestampChangeTracking.timestampMatchesPrevious > 10
             ) {
+                // NOTE: We should investigate if this is still happening - logging to posthog recording so we can find this in the future
+                posthog.sessionRecording?.log(
+                    'stuck session player detected - this indicates an issue with the segmenter',
+                    'warn'
+                )
+                cache.debug?.('stuck session player detected', {
+                    timestampChangeTracking: values.timestampChangeTracking,
+                    currentSegment: values.currentSegment,
+                    snapshots: values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId ?? ''],
+                    player: values.player,
+                    meta: values.player?.replayer.getMetaData(),
+                    rrwebPlayerTime,
+                    segments: values.sessionPlayerData.segments,
+                    segmentIndex:
+                        values.currentSegment && values.sessionPlayerData.segments.indexOf(values.currentSegment),
+                })
+
                 actions.skipPlayerForward(rrwebPlayerTime, skip)
                 newTimestamp = newTimestamp + skip
             }
@@ -785,7 +808,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (newTimestamp == undefined && values.currentTimestamp) {
                 // This can happen if the player is not loaded due to us being in a "gap" segment
                 // In this case, we should progress time forward manually
+
                 if (values.currentSegment?.kind === 'gap') {
+                    cache.debug?.('gap segment: skipping forward')
                     newTimestamp = values.currentTimestamp + skip
                 }
             }
@@ -798,6 +823,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                     actions.setCurrentSegment(nextSegment)
                 } else {
+                    cache.debug('end of recording reached', {
+                        newTimestamp,
+                        segments: values.sessionPlayerData.segments,
+                        currentSegment: values.currentSegment,
+                        nextSegment,
+                        segmentIndex: values.sessionPlayerData.segments.indexOf(values.currentSegment),
+                    })
                     // At the end of the recording. Pause the player and set fully to the end
                     actions.setEndReached()
                 }
@@ -811,6 +843,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.player?.replayer?.pause()
                 actions.startBuffer()
                 actions.setErrorPlayerState(false)
+                cache.debug('buffering')
                 return
             }
 
@@ -850,7 +883,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
+            if (!values.user?.is_impersonated && !values.hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)) {
                 openBillingPopupModal({
                     title: 'Unlock recording exports',
                     description:
@@ -873,7 +906,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
 
                 const recordingFile = new File(
-                    [JSON.stringify(payload)],
+                    [JSON.stringify(payload, null, 2)],
                     `export-${props.sessionRecordingId}.ph-recording.json`,
                     { type: 'application/json' }
                 )
@@ -891,19 +924,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            const listLogic =
-                !!props.playlistShortId &&
-                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
-                    ? // On playlist page
-                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
-                    : // In any other context with a list of recordings (recent recordings)
-                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
-
-            if (listLogic) {
-                listLogic.actions.loadAllRecordings()
+            if (props.playlistLogic) {
+                props.playlistLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
-                listLogic.actions.setSelectedRecordingId(null)
+                props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
                 // On a page that displays a single recording `replay/:id` that doesn't contain a list
                 router.actions.push(urls.replay())
@@ -939,17 +963,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
     windowValues({
-        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
 
-    beforeUnmount(({ values, actions, cache }) => {
-        cache.resetConsoleWarn?.()
+    beforeUnmount(({ values, actions, cache, props }) => {
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            values.player?.replayer?.destroy()
+            return
+        }
+
+        delete (window as any).__debug_player
+
+        actions.stopAnimation()
+
         cache.hasInitialized = false
-        clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         cache.pausedMediaElements = []
         values.player?.replayer?.pause()
         actions.setPlayer(null)
+        cache.unmountConsoleWarns?.()
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
@@ -971,7 +1003,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         )
     }),
 
-    afterMount(({ props, actions, cache }) => {
+    afterMount(({ props, actions, cache, values }) => {
+        cache.debugging = localStorage.getItem('ph_debug_player') === 'true'
+        cache.debug = (...args: any[]) => {
+            if (cache.debugging) {
+                // eslint-disable-next-line no-console
+                console.log('[⏯️ PostHog Replayer]', ...args)
+            }
+        }
+        ;(window as any).__debug_player = () => {
+            cache.debugging = !cache.debugging
+            localStorage.setItem('ph_debug_player', JSON.stringify(cache.debugging))
+            cache.debug('player data', values.sessionPlayerData)
+        }
+
+        if (props.mode === SessionRecordingPlayerMode.Preview) {
+            return
+        }
+
         cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
             actions.setIsFullScreen(document.fullscreenElement !== null)
@@ -985,28 +1034,57 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.openTime = performance.now()
 
-        // NOTE: RRWeb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
-        let warningCount = 0
-        cache.consoleWarnDebounceTimer = null
-
-        const debouncedCounter = (): void => {
-            warningCount += 1
-
-            if (!cache.consoleWarnDebounceTimer) {
-                cache.consoleWarnDebounceTimer = setTimeout(() => {
-                    cache.consoleWarnDebounceTimer = null
-                    actions.incrementWarningCount(warningCount)
-                    warningCount = 0
-                }, 1000)
-            }
-        }
-
-        cache.resetConsoleWarn = wrapConsole('warn', (args) => {
-            if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
-                debouncedCounter()
-            }
-
-            return true
-        })
+        cache.unmountConsoleWarns = manageConsoleWarns(cache, actions.incrementWarningCount)
     }),
 ])
+
+export const getCurrentPlayerTime = (logicProps: SessionRecordingPlayerLogicProps): number => {
+    // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+    const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+    return Math.floor(playerTime / 1000)
+}
+
+export const manageConsoleWarns = (cache: any, onIncrement: (count: number) => void): (() => void) => {
+    // NOTE: RRWeb can log _alot_ of warnings, so we debounce the count otherwise we just end up making the performance worse
+    // We also don't log the warnings directly. Sometimes the sheer size of messages and warnings can cause the browser to crash deserializing it all
+    ;(window as any).__posthog_player_warnings = []
+    const warnings: any[][] = (window as any).__posthog_player_warnings
+
+    let counter = 0
+
+    let consoleWarnDebounceTimer: NodeJS.Timeout | null = null
+
+    const actualConsoleWarn = console.warn
+
+    const debouncedCounter = (args: any[]): void => {
+        warnings.push(args)
+        counter += 1
+
+        if (!consoleWarnDebounceTimer) {
+            consoleWarnDebounceTimer = setTimeout(() => {
+                consoleWarnDebounceTimer = null
+                onIncrement(warnings.length)
+
+                actualConsoleWarn(
+                    `[PostHog Replayer] ${counter} warnings (window.__posthog_player_warnings to safely log them)`
+                )
+                counter = 0
+            }, 1000)
+        }
+    }
+
+    const resetConsoleWarn = wrapConsole('warn', (args) => {
+        if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
+            debouncedCounter(args)
+            // WARNING: Logging these out can cause the browser to completely crash, so we want to delay it and
+            return false
+        }
+
+        return true
+    })
+
+    return () => {
+        resetConsoleWarn()
+        clearTimeout(cache.consoleWarnDebounceTimer)
+    }
+}

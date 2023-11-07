@@ -43,7 +43,7 @@ export const funnelTitle = (props: {
                     <PropertyKeyInfo value={props.label || ''} disablePopover />{' '}
                 </>
             )}
-            {!!props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
+            {props?.breakdown_value ? `• ${props.breakdown_value}` : ''}
         </>
     )
 }

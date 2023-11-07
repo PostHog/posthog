@@ -5,13 +5,14 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useMountedLogic } from 'kea'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
-export default {
+const meta: Meta<typeof TaxonomicPopover> = {
     title: 'Filters/TaxonomicPopover',
     component: TaxonomicPopover,
     decorators: [taxonomicFilterMocksDecorator],
-} as ComponentMeta<typeof TaxonomicPopover>
+}
+export default meta
 
 export function TaxonomicStringPopoverOneCategory(): JSX.Element {
     useMountedLogic(cohortsModel)

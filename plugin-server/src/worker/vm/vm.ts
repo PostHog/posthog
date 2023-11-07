@@ -11,7 +11,7 @@ import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
-import { imports } from './imports'
+import { AVAILABLE_IMPORTS } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
@@ -44,7 +44,7 @@ export function createPluginConfigVM(
         })
     }
 
-    const transformedCode = transformCode(indexJs, hub, imports)
+    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS)
 
     // Create virtual machine
     const vm = new VM({
@@ -57,10 +57,10 @@ export function createPluginConfigVM(
     vm.freeze(createPosthog(hub, pluginConfig), 'posthog')
 
     // Add non-PostHog utilities to virtual machine
-    vm.freeze(imports['node-fetch'], 'fetch')
+    vm.freeze(AVAILABLE_IMPORTS['node-fetch'], 'fetch')
     vm.freeze(createGoogle(), 'google')
 
-    vm.freeze(imports, '__pluginHostImports')
+    vm.freeze(AVAILABLE_IMPORTS, '__pluginHostImports')
 
     if (process.env.NODE_ENV === 'test') {
         vm.freeze(setTimeout, '__jestSetTimeout')

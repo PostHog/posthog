@@ -100,7 +100,7 @@ export function SignupLeftContainer(): JSX.Element {
                 {productBenefits.map((benefit, i) => (
                     <div className="flex flex-row gap-4 mb-4" key={i}>
                         <div>
-                            <IconCheckCircleOutline className="mt-2 w-4 h-4 text-primary" />
+                            <IconCheckCircleOutline className="mt-2 w-4 h-4 text-link" />
                         </div>
                         <div>
                             <h3 className="mb-1 font-bold leading-6">{benefit.benefit}</h3>

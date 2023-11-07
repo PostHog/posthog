@@ -7,15 +7,14 @@ import { useActions } from 'kea'
 import { navigationLogic } from './navigationLogic'
 import { useEffect } from 'react'
 
-export default {
+const meta: Meta = {
     title: 'Layout/Navigation',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 function BaseAppPage(): JSX.Element {
     return (
         <>

@@ -12,10 +12,9 @@ const allHedgehogs: HedgehogDefinition[] = Object.entries(hedgehogs).map(([key, 
     hedgehog: Hedgehog,
 }))
 
-export default {
+const meta: Meta = {
     title: 'Lemon UI/Hog illustrations',
     parameters: {
-        options: { showPanel: false },
         testOptions: { skip: true }, // Not valuable to take snapshots of these hedgehogs
         docs: {
             description: {
@@ -38,8 +37,9 @@ she will get to it dependant on work load.
             },
         },
     },
-} as Meta
-
+    tags: ['autodocs'],
+}
+export default meta
 export function Library(): JSX.Element {
     return (
         <div className="space-y-2">

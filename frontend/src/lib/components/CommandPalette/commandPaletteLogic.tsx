@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { router } from 'kea-router'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
@@ -112,14 +112,14 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<commandPaletteLogicType>({
-    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
-    connect: {
+export const commandPaletteLogic = kea<commandPaletteLogicType>([
+    path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
+    connect({
         actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
         logic: [preflightLogic],
-    },
-    actions: {
+    }),
+    actions({
         hidePalette: true,
         showPalette: true,
         togglePalette: true,
@@ -135,8 +135,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-    },
-    reducers: {
+    }),
+    reducers({
         isPaletteShown: [
             false,
             {
@@ -196,67 +196,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 },
             },
         ],
-    },
-
-    listeners: ({ actions, values }) => ({
-        showPalette: () => {
-            posthog.capture('palette shown', { isMobile: isMobile() })
-        },
-        togglePalette: () => {
-            if (values.isPaletteShown) {
-                posthog.capture('palette shown', { isMobile: isMobile() })
-            }
-        },
-        executeResult: ({ result }: { result: CommandResult }) => {
-            if (result.executor === true) {
-                actions.activateFlow(null)
-                actions.hidePalette()
-            } else {
-                const possibleFlow = result.executor?.() || null
-                actions.activateFlow(possibleFlow)
-                if (!possibleFlow) {
-                    actions.hidePalette()
-                }
-            }
-            // Capture command execution, without useless data
-            const { icon, index, ...cleanedResult }: Record<string, any> = result
-            const { resolver, ...cleanedCommand } = cleanedResult.source
-            cleanedResult.source = cleanedCommand
-            cleanedResult.isMobile = isMobile()
-            posthog.capture('palette command executed', cleanedResult)
-        },
-        deregisterScope: ({ scope }) => {
-            for (const command of Object.values(values.commandRegistrations)) {
-                if (command.scope === scope) {
-                    actions.deregisterCommand(command.key)
-                }
-            }
-        },
-        setInput: async ({ input }, breakpoint) => {
-            await breakpoint(300)
-            if (input.length > 8) {
-                const response = await api.persons.list({ search: input })
-                const person = response.results[0]
-                if (person) {
-                    actions.registerCommand({
-                        key: `person-${person.distinct_ids[0]}`,
-                        resolver: [
-                            {
-                                icon: IconPersonFilled,
-                                display: `View person ${input}`,
-                                executor: () => {
-                                    const { push } = router.actions
-                                    push(urls.person(person.distinct_ids[0]))
-                                },
-                            },
-                        ],
-                        scope: GLOBAL_COMMAND_SCOPE,
-                    })
-                }
-            }
-        },
     }),
-    selectors: {
+    selectors({
         isSqueak: [
             (selectors) => [selectors.input],
             (input: string) => {
@@ -390,9 +331,66 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 return resultsGroupedInOrder
             },
         ],
-    },
-
-    events: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
+        showPalette: () => {
+            posthog.capture('palette shown', { isMobile: isMobile() })
+        },
+        togglePalette: () => {
+            if (values.isPaletteShown) {
+                posthog.capture('palette shown', { isMobile: isMobile() })
+            }
+        },
+        executeResult: ({ result }: { result: CommandResult }) => {
+            if (result.executor === true) {
+                actions.activateFlow(null)
+                actions.hidePalette()
+            } else {
+                const possibleFlow = result.executor?.() || null
+                actions.activateFlow(possibleFlow)
+                if (!possibleFlow) {
+                    actions.hidePalette()
+                }
+            }
+            // Capture command execution, without useless data
+            const { icon, index, ...cleanedResult }: Record<string, any> = result
+            const { resolver, ...cleanedCommand } = cleanedResult.source
+            cleanedResult.source = cleanedCommand
+            cleanedResult.isMobile = isMobile()
+            posthog.capture('palette command executed', cleanedResult)
+        },
+        deregisterScope: ({ scope }) => {
+            for (const command of Object.values(values.commandRegistrations)) {
+                if (command.scope === scope) {
+                    actions.deregisterCommand(command.key)
+                }
+            }
+        },
+        setInput: async ({ input }, breakpoint) => {
+            await breakpoint(300)
+            if (input.length > 8) {
+                const response = await api.persons.list({ search: input })
+                const person = response.results[0]
+                if (person) {
+                    actions.registerCommand({
+                        key: `person-${person.distinct_ids[0]}`,
+                        resolver: [
+                            {
+                                icon: IconPersonFilled,
+                                display: `View person ${input}`,
+                                executor: () => {
+                                    const { push } = router.actions
+                                    push(urls.personByDistinctId(person.distinct_ids[0]))
+                                },
+                            },
+                        ],
+                        scope: GLOBAL_COMMAND_SCOPE,
+                    })
+                }
+            }
+        },
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             const { push } = actions
 
@@ -731,13 +729,6 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                 }),
                             },
                             {
-                                icon: IconRecording,
-                                display: 'Schedule Quick Call',
-                                executor: () => {
-                                    open('https://calendly.com/posthog-feedback')
-                                },
-                            },
-                            {
                                 icon: IconGithub,
                                 display: 'Create GitHub Issue',
                                 executor: () => {
@@ -768,5 +759,5 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             actions.deregisterCommand('share-feedback')
             actions.deregisterCommand('debug-copy-session-recording-url')
         },
-    }),
-})
+    })),
+])

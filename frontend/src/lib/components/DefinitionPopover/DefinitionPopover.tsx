@@ -12,6 +12,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode
@@ -69,12 +70,12 @@ function Header({
                         {!hideEdit &&
                             isViewable &&
                             (hasTaxonomyFeatures ? (
-                                <a onClick={onEdit}>Edit</a>
+                                <Link onClick={onEdit}>Edit</Link>
                             ) : (
                                 <Tooltip title="Creating and editing definitions require a premium license">
-                                    <a onClick={onEdit} className="definition-popover-disabled-button">
+                                    <Link onClick={onEdit} className="definition-popover-disabled-button">
                                         Edit
-                                    </a>
+                                    </Link>
                                 </Tooltip>
                             ))}
                         {!hideView && isViewable && (
@@ -98,7 +99,13 @@ function Header({
 }
 
 function Description({ description }: { description: React.ReactNode }): JSX.Element {
-    return <div className="definition-popover-description">{description}</div>
+    return typeof description === 'string' ? (
+        <LemonMarkdown className="definition-popover-description" lowKeyHeadings>
+            {description}
+        </LemonMarkdown>
+    ) : (
+        <div className="definition-popover-description">{description}</div>
+    )
 }
 
 function DescriptionEmpty(): JSX.Element {
@@ -194,7 +201,11 @@ interface GridProps {
 
 function Grid({ children, cols }: GridProps): JSX.Element {
     return (
-        <div className="definition-popover-grid" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
+        <div
+            className="definition-popover-grid"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}
+        >
             {children}
         </div>
     )
@@ -214,7 +225,11 @@ function Card({
     alignItems?: 'baseline' | 'center' | 'end'
 }): JSX.Element {
     return (
-        <div className="definition-popover-grid-card" style={{ alignItems }}>
+        <div
+            className="definition-popover-grid-card"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ alignItems }}
+        >
             <div className="definition-popover-grid-card-title">{title}</div>
             {value && <div className="definition-popover-grid-card-content">{value}</div>}
         </div>

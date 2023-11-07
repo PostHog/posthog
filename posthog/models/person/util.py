@@ -4,7 +4,7 @@ from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
 from uuid import UUID
 
-import pytz
+from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -13,7 +13,11 @@ from django.utils.timezone import now
 
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_OVERRIDES
+from posthog.kafka_client.topics import (
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_OVERRIDES,
+)
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
@@ -53,12 +57,22 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        _delete_person(instance.team.id, instance.uuid, int(instance.version or 0), instance.created_at, sync=True)
+        _delete_person(
+            instance.team.id,
+            instance.uuid,
+            int(instance.version or 0),
+            instance.created_at,
+            sync=True,
+        )
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         _delete_ch_distinct_id(
-            instance.team.pk, instance.person.uuid, instance.distinct_id, instance.version or 0, sync=True
+            instance.team.pk,
+            instance.person.uuid,
+            instance.distinct_id,
+            instance.version or 0,
+            sync=True,
         )
 
     try:
@@ -83,7 +97,11 @@ if TEST:
         for index, person in enumerate(inserted):
             for distinct_id in persons_list[index]["distinct_ids"]:
                 distinct_ids.append(
-                    PersonDistinctId(person_id=person.pk, distinct_id=distinct_id, team_id=person.team_id)
+                    PersonDistinctId(
+                        person_id=person.pk,
+                        distinct_id=distinct_id,
+                        team_id=person.team_id,
+                    )
                 )
                 distinct_id_inserts.append(f"('{distinct_id}', '{person.uuid}', {person.team_id}, 0, 0, now(), 0, 0)")
                 person_mapping[distinct_id] = person
@@ -96,7 +114,10 @@ if TEST:
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
         sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
-        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
+        sync_execute(
+            BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts),
+            flush=False,
+        )
 
         return person_mapping
 
@@ -124,12 +145,12 @@ def create_person(
     if isinstance(timestamp, str):
         timestamp = isoparse(timestamp)
     else:
-        timestamp = timestamp.astimezone(pytz.utc)
+        timestamp = timestamp.astimezone(ZoneInfo("UTC"))
 
     if created_at is None:
         created_at = timestamp
     else:
-        created_at = created_at.astimezone(pytz.utc)
+        created_at = created_at.astimezone(ZoneInfo("UTC"))
 
     data = {
         "id": str(uuid),
@@ -147,7 +168,12 @@ def create_person(
 
 
 def create_person_distinct_id(
-    team_id: int, distinct_id: str, person_id: str, version=0, is_deleted: bool = False, sync: bool = False
+    team_id: int,
+    distinct_id: str,
+    person_id: str,
+    version=0,
+    is_deleted: bool = False,
+    sync: bool = False,
 ) -> None:
     p = ClickhouseProducer()
     p.produce(
@@ -191,7 +217,9 @@ def create_person_override(
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
     return Person.objects.filter(
-        team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
+        team_id=team_id,
+        persondistinctid__team_id=team_id,
+        persondistinctid__distinct_id__in=distinct_ids,
     )
 
 
@@ -208,7 +236,11 @@ def delete_person(person: Person, sync: bool = False) -> None:
 
 
 def _delete_person(
-    team_id: int, uuid: UUID, version: int, created_at: Optional[datetime.datetime] = None, sync: bool = False
+    team_id: int,
+    uuid: UUID,
+    version: int,
+    created_at: Optional[datetime.datetime] = None,
+    sync: bool = False,
 ) -> None:
     create_person(
         uuid=str(uuid),

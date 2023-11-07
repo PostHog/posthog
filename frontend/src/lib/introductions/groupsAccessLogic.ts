@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, selectors } from 'kea'
 import { AvailableFeature } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -13,12 +13,12 @@ export enum GroupsAccessStatus {
     Hidden,
 }
 
-export const groupsAccessLogic = kea<groupsAccessLogicType>({
-    path: ['lib', 'introductions', 'groupsAccessLogic'],
-    connect: {
+export const groupsAccessLogic = kea<groupsAccessLogicType>([
+    path(['lib', 'introductions', 'groupsAccessLogic']),
+    connect({
         values: [teamLogic, ['currentTeam'], preflightLogic, ['preflight'], userLogic, ['hasAvailableFeature']],
-    },
-    selectors: {
+    }),
+    selectors({
         groupsEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS),
@@ -26,13 +26,13 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>({
         // Used to toggle various introduction views related to groups
         groupsAccessStatus: [
             (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
-            (isEnabled, currentTeam, preflight): GroupsAccessStatus => {
+            (groupsEnabled, currentTeam, preflight): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
                 if (preflight?.instance_preferences?.disable_paid_fs) {
                     return GroupsAccessStatus.Hidden
-                } else if (isEnabled && hasGroups) {
+                } else if (groupsEnabled && hasGroups) {
                     return GroupsAccessStatus.AlreadyUsing
-                } else if (isEnabled) {
+                } else if (groupsEnabled) {
                     return GroupsAccessStatus.HasAccess
                 } else if (hasGroups) {
                     return GroupsAccessStatus.HasGroupTypes
@@ -50,5 +50,5 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>({
             (s) => [s.groupsAccessStatus],
             (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
         ],
-    },
-})
+    }),
+])

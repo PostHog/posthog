@@ -21,7 +21,12 @@ class TestElement(ClickhouseTestMixin, BaseTest):
                     nth_child=1,
                     nth_of_type=0,
                 ),
-                Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
+                Element(
+                    tag_name="button",
+                    attr_class=["btn", "btn-primary"],
+                    nth_child=0,
+                    nth_of_type=0,
+                ),
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0, attr_id="nested"),
             ]
@@ -66,7 +71,10 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         elements_string = elements_to_string(
             elements=[
                 Element(
-                    tag_name="a", href="/a-url", attr_class=['small"', "xy:z"], attributes={"attr_class": 'xyz small"'}
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=['small"', "xy:z"],
+                    attributes={"attr_class": 'xyz small"'},
                 )
             ]
         )

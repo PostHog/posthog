@@ -67,6 +67,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     },
     autocapture_opt_out: true,
     session_recording_opt_in: true,
+    session_recording_sample_rate: '1.0',
+    session_recording_minimum_duration_milliseconds: null,
+    session_recording_linked_flag: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
     autocapture_exceptions_opt_in: false,
@@ -93,10 +96,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     available_features: [],
     is_member_join_email_enabled: true,
-    metadata: {
-        taxonomy_set_events_count: 60,
-        taxonomy_set_properties_count: 17,
-    },
+    metadata: {},
     available_product_features: [],
 }
 

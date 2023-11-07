@@ -46,7 +46,7 @@ export function DataWarehouseTablesContainer(): JSX.Element {
                                             status="danger"
                                             onClick={() => {
                                                 deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/warehouse_table`,
+                                                    endpoint: `projects/${currentTeamId}/warehouse_tables`,
                                                     object: { name: warehouseTable.name, id: warehouseTable.id },
                                                     callback: loadDataWarehouse,
                                                 })

@@ -33,6 +33,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/@current/dashboard_templates/repository/': [],
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/groups_types/': [],
         '/api/projects/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
@@ -56,6 +57,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/@current/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/@current/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/@current/plugins/repository/': [],
+        '/api/organizations/@current/plugins/unused/': [],
         '/api/plugin_config/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN_CONFIG]),
         [`/api/projects/${MOCK_TEAM_ID}/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
         '/api/projects/@current/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
@@ -81,6 +83,10 @@ export const defaultMocks: Mocks = {
         },
         // We don't want to show the "new version available" banner in tests
         'https://api.github.com/repos/posthog/posthog-js/tags': () => [200, []],
+        'https://www.gravatar.com/avatar/:gravatar_id': () => [404, ''],
+        'https://app.posthog.com/api/early_access_features': {
+            earlyAccessFeatures: [],
+        },
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

@@ -10,14 +10,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
-from posthog.temporal.workflows.base import (
+from posthog.temporal.workflows.base import PostHogWorkflow
+from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
-    PostHogWorkflow,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
-    update_export_run_status,
-)
-from posthog.temporal.workflows.batch_exports import (
+    execute_batch_export_insert_activity,
+    get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
@@ -62,6 +61,8 @@ class SnowflakeInsertInputs:
     data_interval_start: str
     data_interval_end: str
     role: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -97,7 +98,12 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
     """
-    activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    logger = get_batch_exports_logger(inputs=inputs)
+    logger.info(
+        "Running Snowflake export batch %s - %s",
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+    )
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -108,17 +114,19 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
 
         if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
+            logger.info(
+                "Nothing to export in batch %s - %s",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
             return
 
-        activity.logger.info("BatchExporting %s rows to Snowflake", count)
+        logger.info("BatchExporting %s rows to Snowflake", count)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -161,6 +169,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 team_id=inputs.team_id,
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
+                exclude_events=inputs.exclude_events,
+                include_events=inputs.include_events,
             )
             result = None
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
@@ -173,7 +183,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     except json.JSONDecodeError:
-                        activity.logger.info(
+                        logger.info(
                             "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
                         )
                         # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -209,7 +219,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.tell()
                         and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
                     ):
-                        activity.logger.info("Uploading to Snowflake")
+                        logger.info("Uploading to Snowflake")
 
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
@@ -283,8 +293,14 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
-        """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
+        """Workflow implementation to export data to Snowflake table."""
+        logger = get_batch_exports_logger(inputs=inputs)
+        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        logger.info(
+            "Starting Snowflake export batch %s - %s",
+            data_interval_start,
+            data_interval_end,
+        )
 
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
@@ -320,45 +336,23 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             role=inputs.role,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
-        try:
-            await workflow.execute_activity(
-                insert_into_snowflake_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[
-                        # Raised when we cannot connect to Snowflake.
-                        "DatabaseError",
-                        # Raised by Snowflake when a query cannot be compiled.
-                        # Usually this means we don't have table permissions or something doesn't exist (db, schema).
-                        "ProgrammingError",
-                        # Raised by Snowflake with an incorrect account name.
-                        "ForbiddenError",
-                    ],
-                ),
-            )
 
-        except Exception as e:
-            workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
-            update_inputs.status = "Failed"
-            # Note: This shallows the exception type, but the message should be enough.
-            # If not, swap to repr(e)
-            update_inputs.latest_error = str(e)
-            raise
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_snowflake_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # Raised when we cannot connect to Snowflake.
+                "DatabaseError",
+                # Raised by Snowflake when a query cannot be compiled.
+                # Usually this means we don't have table permissions or something doesn't exist (db, schema).
+                "ProgrammingError",
+                # Raised by Snowflake with an incorrect account name.
+                "ForbiddenError",
+            ],
+            update_inputs=update_inputs,
+            # Disable heartbeat timeout until we add heartbeat support.
+            heartbeat_timeout_seconds=None,
+        )

@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
@@ -15,8 +15,8 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    hogQLTable?: string
     showNestedArrow?: boolean
     eventNames?: string[]
     logicalRowDivider?: boolean
@@ -27,6 +27,7 @@ interface PropertyFiltersProps {
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
     errorMessages?: JSX.Element[] | null
+    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
 export function PropertyFilters({
@@ -36,7 +37,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
-    style = {},
+    hogQLTable,
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
@@ -47,6 +48,7 @@ export function PropertyFilters({
     sendAllKeyUpdates = false,
     allowNew = true,
     errorMessages = null,
+    propertyAllowList,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -58,7 +60,7 @@ export function PropertyFilters({
     }, [propertyFilters])
 
     return (
-        <div className="PropertyFilters" style={style}>
+        <div className="PropertyFilters">
             {showNestedArrow && !disablePopover && <div className="PropertyFilters__prefix">{<>&#8627;</>}</div>}
             <div className="PropertyFilters__content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
@@ -88,6 +90,7 @@ export function PropertyFilters({
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
+                                            hogQLTable={hogQLTable}
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}
@@ -97,6 +100,7 @@ export function PropertyFilters({
                                                 delayBeforeAutoOpen: 150,
                                                 placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                             }}
+                                            propertyAllowList={propertyAllowList}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

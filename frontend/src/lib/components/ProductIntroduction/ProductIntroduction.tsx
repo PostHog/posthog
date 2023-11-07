@@ -77,8 +77,8 @@ export const ProductIntroduction = ({
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
                         <p className="ml-0">
-                            Your team has already started using {productName}. You can jump in to see what your team has
-                            made, or create a new one yourself.
+                            Your team is already using {productName}. You can take a look at what they're doing, or get
+                            started yourself.
                         </p>
                     )}
                     <div className="flex items-center gap-x-4 mt-6">
@@ -100,7 +100,7 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted-alt"
+                                status="muted"
                                 sideIcon={<IconOpenInNew className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"

@@ -19,6 +19,8 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
     size?: 'small' | 'medium'
+    className?: string
+    fullWidth?: boolean
 }
 
 interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
@@ -32,6 +34,8 @@ export function LemonSegmentedButton<T extends React.Key>({
     onChange,
     options,
     size,
+    fullWidth,
+    className,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
         HTMLDivElement,
@@ -40,7 +44,7 @@ export function LemonSegmentedButton<T extends React.Key>({
 
     return (
         <div
-            className="LemonSegmentedButton"
+            className={clsx('LemonSegmentedButton', fullWidth && 'LemonSegmentedButton--full-width', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -76,6 +80,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                         <LemonButton /* The ref is on the button and not on the list item so that the border isn't counted */
                             ref={option.value === value ? selectionRef : undefined}
                             size={size}
+                            fullWidth
                             disabledReason={option.disabledReason}
                             onClick={() => {
                                 if (!option.disabledReason) {

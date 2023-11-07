@@ -71,10 +71,12 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                                 label: 'Persons',
                             },
                             ...Object.fromEntries(
-                                groupTypes.map((type) => [
-                                    `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
-                                    { label: aggregationLabel(type.group_type_index).plural },
-                                ])
+                                Array.from(groupTypes.values())
+                                    .map((type) => [
+                                        `${ActorGroupType.GroupPrefix}_${type.group_type_index}`,
+                                        { label: aggregationLabel(type.group_type_index).plural },
+                                    ])
+                                    .filter(Boolean)
                             ),
                         },
                     },
@@ -92,10 +94,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                     : null,
         ],
         calculatedValueLoading: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],
@@ -113,10 +115,10 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 },
         ],
         calculatedValue: [
-            (s) => [
+            (s, p) => [
                 s.value,
-                (_, props) => props.criteria,
-                (_, props) => props.fieldKey,
+                p.criteria,
+                p.fieldKey,
                 cohortsModel.selectors.cohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],

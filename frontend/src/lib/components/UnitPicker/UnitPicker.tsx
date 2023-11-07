@@ -125,7 +125,7 @@ export function UnitPicker(): JSX.Element {
                                     fullWidth
                                 >
                                     Custom prefix
-                                    {!!trendsFilter?.aggregation_axis_prefix
+                                    {trendsFilter?.aggregation_axis_prefix
                                         ? `: ${trendsFilter?.aggregation_axis_prefix}...`
                                         : '...'}
                                 </LemonButton>
@@ -136,7 +136,7 @@ export function UnitPicker(): JSX.Element {
                                     fullWidth
                                 >
                                     Custom postfix
-                                    {!!trendsFilter?.aggregation_axis_postfix
+                                    {trendsFilter?.aggregation_axis_postfix
                                         ? `: ${trendsFilter?.aggregation_axis_postfix}...`
                                         : '...'}
                                 </LemonButton>

@@ -9,9 +9,11 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterT
 export function TestAccountFilter({
     filters,
     onChange,
+    disabledReason,
 }: {
     filters: Partial<FilterType>
     onChange: (filters: Partial<FilterType>) => void
+    disabledReason?: string | null | false
 }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -40,7 +42,7 @@ export function TestAccountFilter({
                 </div>
             }
             fullWidth
-            disabled={!hasFilters}
+            disabledReason={!hasFilters ? "You haven't set any internal and test filters" : disabledReason}
         />
     )
 }

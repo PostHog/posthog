@@ -35,7 +35,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -105,7 +105,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(11)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN

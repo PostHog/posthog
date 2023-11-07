@@ -1,3 +1,4 @@
-.PersonsModal__tabs ul {
-    padding: 0px 1rem;
+.PersonsModal__tabs [role='tablist'] {
+    padding: 0 1rem;
+    margin-bottom: 0;
 }

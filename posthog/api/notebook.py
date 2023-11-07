@@ -1,10 +1,17 @@
-from typing import Dict, List, Optional
-
+from typing import Dict, List, Optional, Any
+from django.db.models import Q
 import structlog
-from django.db.models import QuerySet
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiParameter,
+    extend_schema_view,
+    OpenApiExample,
+)
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -14,14 +21,36 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions import Conflict
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity, load_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+    load_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
+from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+
+
+def depluralize(string: str | None) -> str | None:
+    if not string:
+        return None
+
+    if string.endswith("ies"):
+        return string[:-3] + "y"
+    elif string.endswith("s"):
+        return string[:-1]
+    else:
+        return string
 
 
 def log_notebook_activity(
@@ -53,6 +82,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             "short_id",
             "title",
             "content",
+            "text_content",
             "version",
             "deleted",
             "created_at",
@@ -78,7 +108,10 @@ class NotebookSerializer(serializers.ModelSerializer):
 
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
-            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            team=team,
+            created_by=created_by,
+            last_modified_by=request.user,
+            **validated_data,
         )
 
         log_notebook_activity(
@@ -131,14 +164,73 @@ class NotebookSerializer(serializers.ModelSerializer):
         return updated_notebook
 
 
+@extend_schema(
+    description="The API for interacting with Notebooks. This feature is in early access and the API can have "
+    "breaking changes without announcement.",
+)
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("short_id", exclude=True),
+            OpenApiParameter(
+                "created_by",
+                OpenApiTypes.INT,
+                description="The UUID of the Notebook's creator",
+                required=False,
+            ),
+            OpenApiParameter(
+                "user",
+                description="If any value is provided for this parameter, return notebooks created by the logged in user.",
+                required=False,
+            ),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATETIME,
+                description="Filter for notebooks created after this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATETIME,
+                description="Filter for notebooks created before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "contains",
+                description="""Filter for notebooks that match a provided filter.
+                Each match pair is separated by a colon,
+                multiple match pairs can be sent separated by a space or a comma""",
+                examples=[
+                    OpenApiExample(
+                        "Filter for notebooks that have any recording",
+                        value="recording:true",
+                    ),
+                    OpenApiExample(
+                        "Filter for notebooks that do not have any recording",
+                        value="recording:false",
+                    ),
+                    OpenApiExample(
+                        "Filter for notebooks that have a specific recording",
+                        value="recording:the-session-recording-id",
+                    ),
+                ],
+                required=False,
+            ),
+        ],
+    )
+)
 class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
     serializer_class = NotebookSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id", "created_by"]
+    filterset_fields = ["short_id"]
     # TODO: Remove this once we have released notebooks
-    include_in_docs = False
+    include_in_docs = DEBUG
     lookup_field = "short_id"
 
     def get_queryset(self) -> QuerySet:
@@ -167,10 +259,73 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         for key in filters:
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "created_by":
+                queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
             elif key == "date_from":
-                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(
+                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
+                )
             elif key == "date_to":
-                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(
+                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
+                )
+            elif key == "search":
+                queryset = queryset.filter(
+                    # some notebooks have no text_content until next saved, so we need to check the title too
+                    # TODO this can be removed once all/most notebooks have text_content
+                    Q(title__search=request.GET["search"]) | Q(text_content__search=request.GET["search"])
+                )
+            elif key == "contains":
+                contains = request.GET["contains"]
+                match_pairs = contains.replace(",", " ").split(" ")
+                # content is a JSONB field that has an array of objects under the key "content"
+                # each of those (should) have a "type" field
+                # and for recordings that type is "ph-recording"
+                # each of those objects can have attrs which is a dict with id for the recording
+                for match_pair in match_pairs:
+                    splat = match_pair.split(":")
+                    target = depluralize(splat[0])
+                    match = splat[1] if len(splat) > 1 else None
+
+                    if target:
+                        # the JSONB query requires a specific structure
+                        basic_structure = List[Dict[str, Any]]
+                        nested_structure = basic_structure | List[Dict[str, basic_structure]]
+
+                        presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
+
+                        try:
+                            # We try to parse the match as a number, as query params are always strings,
+                            # but an id could be an integer and wouldn't match
+                            if isinstance(match, str):  # because mypy
+                                match = int(match)
+                        except (ValueError, TypeError):
+                            pass
+
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        if target == "replay-timestamp":
+                            # replay timestamps are not at the top level, they're one-level down in a content array
+                            presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                        elif target == "query":
+                            id_match_structure = [
+                                {
+                                    "attrs": {
+                                        "query": {
+                                            "kind": "SavedInsightNode",
+                                            "shortId": match,
+                                        }
+                                    }
+                                }
+                            ]
+
+                        if match == "true" or match is None:
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
+                        elif match == "false":
+                            queryset = queryset.exclude(content__content__contains=presence_match_structure)
+                        else:
+                            queryset = queryset.filter(content__content__contains=presence_match_structure)
+                            queryset = queryset.filter(content__content__contains=id_match_structure)
 
         return queryset
 
@@ -180,4 +335,19 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
+        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["GET"], url_path="activity", detail=True)
+    def activity(self, request: request.Request, **kwargs):
+        notebook = self.get_object()
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        activity_page = load_activity(
+            scope="Notebook",
+            team_id=self.team_id,
+            item_id=notebook.id,
+            limit=limit,
+            page=page,
+        )
         return activity_page_response(activity_page, limit, page, request)

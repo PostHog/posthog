@@ -17,6 +17,10 @@ import {
     FeatureFlagGroupType,
     UserBlastRadiusType,
     DashboardBasicType,
+    NewEarlyAccessFeatureType,
+    EarlyAccessFeatureType,
+    Survey,
+    SurveyQuestionType,
 } from '~/types'
 import api from 'lib/api'
 import { router, urlToAction } from 'kea-router'
@@ -37,6 +41,9 @@ import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { userLogic } from 'scenes/userLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { organizationLogic } from '../organizationLogic'
+import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
+import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
@@ -70,6 +77,7 @@ const NEW_FLAG: FeatureFlagType = {
     experiment_set: null,
     features: [],
     rollback_conditions: [],
+    surveys: null,
     performed_rollback: false,
     can_edit: true,
     tags: [],
@@ -88,38 +96,6 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
-
-export const defaultEntityFilterOnFlag = (flagKey: string): Partial<FilterType> => ({
-    events: [
-        {
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: defaultPropertyOnFlag(flagKey),
-        },
-    ],
-})
-
-export const defaultPropertyOnFlag = (flagKey: string): AnyPropertyFilter[] => [
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: ['false'],
-        operator: PropertyOperator.IsNot,
-    },
-    {
-        key: '$feature/' + flagKey,
-        type: PropertyFilterType.Event,
-        value: 'is_set',
-        operator: PropertyOperator.IsSet,
-    },
-    {
-        key: '$feature_flag',
-        type: PropertyFilterType.Event,
-        value: flagKey,
-        operator: PropertyOperator.Exact,
-    },
-]
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -202,6 +178,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['hasAvailableFeature'],
             dashboardsLogic,
             ['dashboards'],
+            organizationLogic,
+            ['currentOrganization'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -243,6 +221,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
+        enrichUsageDashboard: true,
+        setCopyDestinationProject: (id: number | null) => ({ id }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -290,7 +270,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: 0, variant: null }]
+                    const groups = [
+                        ...(state?.filters?.groups || []),
+                        { properties: [], rollout_percentage: 0, variant: null },
+                    ]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -315,7 +298,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
 
-                    const groups = [...state?.filters.groups]
+                    const groups = [...(state?.filters?.groups || [])]
                     if (newRolloutPercentage !== undefined) {
                         groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
                     }
@@ -433,9 +416,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
+                createEarlyAccessFeatureSuccess: (state, { newEarlyAccessFeature }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        features: [...(state.features || []), newEarlyAccessFeature],
+                    }
+                },
+                createSurveySuccess: (state, { newSurvey }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        surveys: [...(state.surveys || []), newSurvey],
+                    }
+                },
             },
         ],
-
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
         isEditingFlag: [
             false,
@@ -453,7 +453,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         affectedUsers: [
-            {},
+            { 0: -1 },
             {
                 setAffectedUsers: (state, { index, count }) => ({
                     ...state,
@@ -469,15 +469,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        copyDestinationProject: [
+            null as number | null,
+            {
+                setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
-                        const retrievedFlag: FeatureFlagType = await api.get(
-                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
-                        )
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
@@ -536,6 +540,48 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        // used to generate a new early access feature
+        // but all subsequent operations after generation should occur via the earlyAccessFeatureLogic
+        newEarlyAccessFeature: [
+            null as EarlyAccessFeatureType | null,
+            {
+                createEarlyAccessFeature: async () => {
+                    const newEarlyAccessFeature = {
+                        ...NEW_EARLY_ACCESS_FEATURE,
+                        name: `Early access: ${values.featureFlag.key}`,
+                        feature_flag_id: values.featureFlag.id,
+                    }
+                    return await api.earlyAccessFeatures.create(newEarlyAccessFeature as NewEarlyAccessFeatureType)
+                },
+            },
+        ],
+        // used to generate a new survey
+        // but all subsequent operations after generation should occur via the surveyLogic
+        newSurvey: [
+            null as Survey | null,
+            {
+                createSurvey: async () => {
+                    const newSurvey = {
+                        ...NEW_SURVEY,
+                        name: `Survey: ${values.featureFlag.key}`,
+                        linked_flag_id: values.featureFlag.id,
+                        questions: [
+                            {
+                                type: SurveyQuestionType.Open,
+                                question: `What do you think of ${values.featureFlag.key}?`,
+                            },
+                        ],
+                    }
+                    return await api.surveys.create(newSurvey as NewSurvey)
+                },
+            },
+        ],
+        projectsWithCurrentFlag: {
+            __default: [] as Record<string, string>[],
+            loadProjectsWithCurrentFlag: async () => {
+                return []
+            },
+        },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
@@ -547,6 +593,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
+            }
+        },
+        enrichUsageDashboard: async (_, breakpoint) => {
+            if (props.id) {
+                await breakpoint(1000) // in ms
+                await api.create(
+                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                )
             }
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
@@ -711,9 +765,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 variantRolloutSum === 100,
         ],
         aggregationTargetName: [
-            (s) => [s.featureFlag, s.groupTypes, s.aggregationLabel],
-            (featureFlag, groupTypes, aggregationLabel): string => {
-                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null && groupTypes.length > 0) {
+            (s) => [s.featureFlag, s.aggregationLabel],
+            (featureFlag, aggregationLabel): string => {
+                if (featureFlag && featureFlag.filters.aggregation_group_type_index != null) {
                     return aggregationLabel(featureFlag.filters.aggregation_group_type_index).plural
                 }
                 return 'users'
@@ -766,7 +820,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     effectiveRolloutPercentage = 100
                 }
 
-                if (affectedUsers[index] === -1 || totalUsers === -1 || !totalUsers) {
+                if (
+                    affectedUsers[index] === -1 ||
+                    totalUsers === -1 ||
+                    !totalUsers ||
+                    affectedUsers[index] === undefined
+                ) {
                     return effectiveRolloutPercentage
                 }
 
@@ -803,6 +862,85 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return dashboards.filter((dashboard: DashboardBasicType) => {
                     return featureFlag.analytics_dashboards?.includes(dashboard.id)
                 })
+            },
+        ],
+        recordingFilterForFlag: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                const flagKey = featureFlag?.key
+                if (!flagKey) {
+                    return {}
+                }
+
+                const defaultEntityFilterOnFlag: Partial<FilterType> = {
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            name: '$feature_flag_called',
+                            type: 'events',
+                            properties: [
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: ['false'],
+                                    operator: PropertyOperator.IsNot,
+                                },
+                                {
+                                    key: '$feature/' + flagKey,
+                                    type: PropertyFilterType.Event,
+                                    value: 'is_set',
+                                    operator: PropertyOperator.IsSet,
+                                },
+                                {
+                                    key: '$feature_flag',
+                                    type: PropertyFilterType.Event,
+                                    value: flagKey,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                }
+
+                if (featureFlag.has_enriched_analytics) {
+                    return {
+                        events: [
+                            {
+                                id: '$feature_interaction',
+                                type: 'events',
+                                order: 0,
+                                name: '$feature_interaction',
+                                properties: [
+                                    { key: 'feature_flag', value: [flagKey], operator: 'exact', type: 'event' },
+                                ],
+                            },
+                        ],
+                    }
+                } else {
+                    return defaultEntityFilterOnFlag
+                }
+            },
+        ],
+        hasEarlyAccessFeatures: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return (featureFlag?.features?.length || 0) > 0
+            },
+        ],
+        canCreateEarlyAccessFeature: [
+            (s) => [s.featureFlag, s.variants],
+            (featureFlag, variants) => {
+                return (
+                    featureFlag &&
+                    featureFlag.filters.aggregation_group_type_index == undefined &&
+                    variants.length === 0
+                )
+            },
+        ],
+        hasSurveys: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.surveys && featureFlag.surveys.length > 0
             },
         ],
     }),

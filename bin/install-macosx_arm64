@@ -1,16 +1,29 @@
 #!/bin/bash
 
-# Install scripts for M1 Macs
-# See https://github.com/PostHog/posthog/issues/2916
-# NB: use cryptography==3.4.7
+## NOTE: This is a helper script to simplify the process of getting setup on macOS. If in doubt check https://posthog.com/handbook/engineering/developing-locally
 
-# Set ld flags to use OpenSSL installed with brew
-export LDFLAGS="-L$(brew --prefix openssl)/lib"
-export CPPFLAGS="-I$(brew --prefix openssl)/include"
+set -e
 
-# Use system OpenSSL instead of BoringSSL for GRPC
-export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
-export GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1
+echo "Attempting to install all dependencies and setup virtualenv..."
+echo ""
 
-pip cache purge
-pip install -r requirements.txt
+# Ensure we are in a directory ending with "posthog"
+if [[ "$PWD" != *"/posthog" ]]; then
+    echo "Please run this script from a directory ending with 'posthog'"
+    exit 1
+fi
+
+if [[ $* == *--reset* ]]; then
+    rm -rf env/
+fi
+
+python3.10 -m venv env
+source env/bin/activate
+
+brew install openssl
+CFLAGS="-I /opt/homebrew/opt/openssl/include $(python3.10-config --includes)" LDFLAGS="-L /opt/homebrew/opt/openssl/lib" GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 pip install -r requirements.txt
+
+pip install -r requirements-dev.txt
+
+echo ""
+echo "🚀 Done!"

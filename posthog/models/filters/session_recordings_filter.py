@@ -1,5 +1,5 @@
-from posthog.models import Filter
-from posthog.models.filters.mixins.session_recordings import PersonUUIDMixin, SessionRecordingsMixin
+from .filter import Filter
+from .mixins.session_recordings import PersonUUIDMixin, SessionRecordingsMixin
 
 
 class SessionRecordingsFilter(SessionRecordingsMixin, PersonUUIDMixin, Filter):

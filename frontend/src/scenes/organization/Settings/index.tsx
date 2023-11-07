@@ -1,9 +1,10 @@
+import { actionToUrl, urlToAction } from 'kea-router'
 import { useState } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
 import { organizationLogic } from '../../organizationLogic'
-import { kea, useActions, useValues } from 'kea'
+import { kea, useActions, useValues, path, actions, reducers } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -82,30 +83,30 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
     )
 }
 
-const organizationSettingsTabsLogic = kea<organizationSettingsTabsLogicType>({
-    path: ['scenes', 'organization', 'Settings', 'index'],
-    actions: {
+const organizationSettingsTabsLogic = kea<organizationSettingsTabsLogicType>([
+    path(['scenes', 'organization', 'Settings', 'index']),
+    actions({
         setTab: (tab: OrganizationSettingsTabs) => ({ tab }),
-    },
-    reducers: {
+    }),
+    reducers({
         tab: [
             OrganizationSettingsTabs.GENERAL as OrganizationSettingsTabs,
             {
                 setTab: (_, { tab }) => tab,
             },
         ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => `${urls.organizationSettings()}?tab=${tab}`,
     }),
-    urlToAction: ({ values, actions }) => ({
+    actionToUrl(() => ({
+        setTab: ({ tab }) => `${urls.organizationSettings()}?tab=${tab}`,
+    })),
+    urlToAction(({ values, actions }) => ({
         [urls.organizationSettings()]: (_, searchParams) => {
             if (searchParams['tab'] && values.tab !== searchParams['tab']) {
                 actions.setTab(searchParams['tab'])
             }
         },
-    }),
-})
+    })),
+])
 
 export function OrganizationSettings(): JSX.Element {
     const { user } = useValues(userLogic)

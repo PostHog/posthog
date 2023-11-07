@@ -50,7 +50,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                     )
                 )
                 lemonToast.success(
-                    `Added ${newMembers.length} members${newMembers.length !== 1 && 's'} to the project.`
+                    `Added ${newMembers.length} member${newMembers.length !== 1 ? 's' : ''} to the project.`
                 )
                 return [...values.explicitMembers, ...newMembers]
             },

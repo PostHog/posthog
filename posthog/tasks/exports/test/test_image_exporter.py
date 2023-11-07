@@ -20,7 +20,11 @@ TEST_PREFIX = "Test-Exports"
 
 @patch("posthog.tasks.exports.image_exporter.synchronously_update_cache")
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
-@patch("posthog.tasks.exports.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+@patch(
+    "posthog.tasks.exports.image_exporter.open",
+    new_callable=mock_open,
+    read_data=b"image_data",
+)
 @patch("os.remove")
 class TestImageExporter(APIBaseTest):
     exported_asset: ExportedAsset
@@ -28,7 +32,9 @@ class TestImageExporter(APIBaseTest):
     def setup_method(self, method):
         insight = Insight.objects.create(team=self.team)
         asset = ExportedAsset.objects.create(
-            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, insight=insight
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
         )
         self.exported_asset = asset
 

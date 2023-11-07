@@ -21,7 +21,9 @@ class FunnelEventQuery(EventQuery):
         # Aggregating by group
         if self._filter.aggregation_group_type_index is not None:
             aggregation_target = get_aggregation_target_field(
-                self._filter.aggregation_group_type_index, self.EVENT_TABLE_ALIAS, self._person_id_alias
+                self._filter.aggregation_group_type_index,
+                self.EVENT_TABLE_ALIAS,
+                self._person_id_alias,
             )
 
         # Aggregating by HogQL

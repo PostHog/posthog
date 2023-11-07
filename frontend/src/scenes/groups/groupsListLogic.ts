@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,11 +19,11 @@ export interface GroupsListLogicProps {
     groupTypeIndex: number
 }
 
-export const groupsListLogic = kea<groupsListLogicType>({
-    props: {} as GroupsListLogicProps,
-    key: (props: GroupsListLogicProps) => props.groupTypeIndex,
-    path: ['groups', 'groupsListLogic'],
-    connect: {
+export const groupsListLogic = kea<groupsListLogicType>([
+    props({} as GroupsListLogicProps),
+    key((props: GroupsListLogicProps) => props.groupTypeIndex),
+    path(['groups', 'groupsListLogic']),
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -31,37 +32,38 @@ export const groupsListLogic = kea<groupsListLogicType>({
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         loadGroups: (url?: string | null) => ({ url }),
         setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
-    }),
-    loaders: ({ props, values }) => ({
+    })),
+    loaders(({ props, values }) => ({
         groups: [
             { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
                 loadGroups: async ({ url }) => {
-                    if (values.groupsEnabled) {
-                        url =
-                            url ||
-                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
-                                values.search ? '&search=' + encodeURIComponent(values.search) : ''
-                            }`
-                        return await api.get(url)
+                    if (!values.groupsEnabled) {
+                        return values.groups
                     }
+                    url =
+                        url ||
+                        `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
+                            values.search ? '&search=' + encodeURIComponent(values.search) : ''
+                        }`
+                    return await api.get(url)
                 },
             },
         ],
-    }),
-    reducers: {
+    })),
+    reducers({
         search: [
             '',
             {
                 setSearch: (_, { search }) => search,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         groupTypeName: [
             (s, p) => [p.groupTypeIndex, s.aggregationLabel],
             (groupTypeIndex, aggregationLabel): Noun =>
@@ -76,18 +78,18 @@ export const groupsListLogic = kea<groupsListLogicType>({
                 },
             ],
         ],
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         setSearch: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(300)
             }
             actions.loadGroups()
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadGroups()
         },
-    }),
-})
+    })),
+])

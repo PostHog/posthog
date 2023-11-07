@@ -20,6 +20,7 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
+    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
 )
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -38,7 +39,9 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
     dashboard.filters = {DATE_FROM: "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         tag, _ = Tag.objects.get_or_create(
-            name="marketing", team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+            name="marketing",
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
         )
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
@@ -49,7 +52,13 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Website Unique Users (Total)",
         description="Shows the number of unique users that use your app every day.",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": UNIQUE_USERS, "type": TREND_FILTER_TYPE_EVENTS}],
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$pageview",
+                    "math": UNIQUE_USERS,
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
+            ],
             INTERVAL: "day",
             INSIGHT: INSIGHT_TRENDS,
             DATE_FROM: "-30d",
@@ -76,7 +85,13 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Organic SEO Unique Users (Total)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": UNIQUE_USERS, "type": TREND_FILTER_TYPE_EVENTS}],
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$pageview",
+                    "math": UNIQUE_USERS,
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
+            ],
             INTERVAL: "day",
             INSIGHT: INSIGHT_TRENDS,
             DATE_FROM: "-30d",
@@ -88,8 +103,18 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                            {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
+                            {
+                                "key": "$referring_domain",
+                                "type": "event",
+                                "value": "google",
+                                "operator": "icontains",
+                            },
+                            {
+                                "key": "utm_source",
+                                "type": "event",
+                                "value": "is_not_set",
+                                "operator": "is_not_set",
+                            },
                         ],
                     }
                 ],
@@ -116,7 +141,13 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
         name="Website Unique Users (Breakdown)",
         description="",
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": UNIQUE_USERS, "type": TREND_FILTER_TYPE_EVENTS}],
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$pageview",
+                    "math": UNIQUE_USERS,
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
+            ],
             INTERVAL: "week",
             INSIGHT: INSIGHT_TRENDS,
             DATE_FROM: "-30d",
@@ -148,8 +179,18 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
                     "math": UNIQUE_USERS,
                     "type": TREND_FILTER_TYPE_EVENTS,
                     PROPERTIES: [
-                        {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
-                        {"key": "utm_source", "type": "event", "value": "is_not_set", "operator": "is_not_set"},
+                        {
+                            "key": "$referring_domain",
+                            "type": "event",
+                            "value": "google",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "utm_source",
+                            "type": "event",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
                     ],
                 }
             ],
@@ -282,7 +323,14 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"}],
+                        "values": [
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "?",
+                                "operator": "not_icontains",
+                            }
+                        ],
                     }
                 ],
             },
@@ -328,8 +376,18 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$current_url", "type": "event", "value": "?", "operator": "not_icontains"},
-                            {"key": "$referring_domain", "type": "event", "value": "google", "operator": "icontains"},
+                            {
+                                "key": "$current_url",
+                                "type": "event",
+                                "value": "?",
+                                "operator": "not_icontains",
+                            },
+                            {
+                                "key": "$referring_domain",
+                                "type": "event",
+                                "value": "google",
+                                "operator": "icontains",
+                            },
                         ],
                     }
                 ],
@@ -402,7 +460,9 @@ def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> N
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
-                name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+                name=template_tag,
+                team_id=dashboard.team_id,
+                defaults={"team_id": dashboard.team_id},
             )
             dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
@@ -489,7 +549,9 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     dashboard.filters = {DATE_FROM: "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         tag, _ = Tag.objects.get_or_create(
-            name="feature flags", team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+            name="feature flags",
+            team_id=dashboard.team_id,
+            defaults={"team_id": dashboard.team_id},
         )
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
@@ -501,7 +563,11 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
-                {"id": "$feature_flag_called", "name": "$feature_flag_called", "type": TREND_FILTER_TYPE_EVENTS}
+                {
+                    "id": "$feature_flag_called",
+                    "name": "$feature_flag_called",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
             ],
             INTERVAL: "day",
             INSIGHT: INSIGHT_TRENDS,
@@ -513,7 +579,11 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                            {
+                                "key": "$feature_flag",
+                                "type": "event",
+                                "value": feature_flag.key,
+                            },
                         ],
                     }
                 ],
@@ -561,7 +631,11 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                     {
                         "type": "AND",
                         "values": [
-                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                            {
+                                "key": "$feature_flag",
+                                "type": "event",
+                                "value": feature_flag.key,
+                            },
                         ],
                     }
                 ],
@@ -583,4 +657,93 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
             },
         },
         color="green",
+    )
+
+
+def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
+    # 1 row
+    _create_tile_for_insight(
+        dashboard,
+        name=f"{ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER} Total Volume",
+        description="Shows the total number of times this feature was viewed and interacted with",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$feature_view",
+                    "name": "Feature View - Total",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                },
+                {
+                    "id": "$feature_view",
+                    "name": "Feature View - Unique users",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": UNIQUE_USERS,
+                },
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "feature_flag",
+                                "type": "event",
+                                "value": feature_flag.key,
+                            },
+                        ],
+                    }
+                ],
+            },
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={},
+        color=None,
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Feature Interaction Total Volume",
+        description="Shows the total number of times this feature was viewed and interacted with",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$feature_interaction",
+                    "name": "Feature Interaction - Total",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                },
+                {
+                    "id": "$feature_interaction",
+                    "name": "Feature Interaction - Unique users",
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                    "math": UNIQUE_USERS,
+                },
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "feature_flag",
+                                "type": "event",
+                                "value": feature_flag.key,
+                            },
+                        ],
+                    }
+                ],
+            },
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={},
+        color=None,
     )

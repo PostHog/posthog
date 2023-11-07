@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from posthog.hogql.database.models import (
     IntegerDatabaseField,
@@ -14,9 +14,9 @@ NUMBERS_TABLE_FIELDS = {
 class NumbersTable(FunctionCallTable):
     fields: Dict[str, FieldOrTable] = NUMBERS_TABLE_FIELDS
 
-    name = "numbers"
-    min_args = 1
-    max_args = 2
+    name: str = "numbers"
+    min_args: Optional[int] = 1
+    max_args: Optional[int] = 2
 
     def to_printed_clickhouse(self, context):
         return "numbers"

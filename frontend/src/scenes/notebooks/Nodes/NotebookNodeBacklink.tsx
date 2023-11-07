@@ -7,9 +7,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { openNotebook } from '../Notebook/notebooksListLogic'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
 import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
+
+import { openNotebook } from '~/models/notebooksModel'
+import { IconNotebook } from '../IconNotebook'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -19,6 +23,7 @@ const ICON_MAP = {
     events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
+    notebooks: <IconNotebook />,
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -55,7 +60,7 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
     } else if (type === TaxonomicFilterGroupType.Cohorts) {
         return urls.cohort(id)
     } else if (type === TaxonomicFilterGroupType.Persons) {
-        return urls.person(id)
+        return urls.personByDistinctId(id)
     } else if (type === TaxonomicFilterGroupType.Insights) {
         return urls.insightView(id as InsightModel['short_id'])
     } else if (type === TaxonomicFilterGroupType.FeatureFlags) {
@@ -64,6 +69,8 @@ function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
         return urls.experiment(id)
     } else if (type === TaxonomicFilterGroupType.Dashboards) {
         return urls.dashboard(id)
+    } else if (type === TaxonomicFilterGroupType.Notebooks) {
+        return urls.notebook(id)
     }
     return ''
 }
@@ -83,11 +90,7 @@ export const NotebookNodeBacklink = Node.create({
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Backlink,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Backlink }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -96,5 +99,60 @@ export const NotebookNodeBacklink = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.eventDefinition('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.cohort('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.cohorts.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.experiment('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const experiment = await api.experiments.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Experiments, title: experiment.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.dashboard('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const dashboard = await api.dashboards.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.notebook('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const notebook = await api.notebooks.get(id)
+                    return { id: id, type: TaxonomicFilterGroupType.Notebooks, title: notebook.title }
+                },
+            }),
+        ]
     },
 })

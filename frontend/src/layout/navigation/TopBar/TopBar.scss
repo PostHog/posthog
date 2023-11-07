@@ -99,8 +99,8 @@
         font-weight: 700;
     }
 
-    a:link {
-        color: inherit;
+    a {
+        color: var(--brand-red);
         text-decoration: underline;
     }
 }

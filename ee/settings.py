@@ -30,7 +30,10 @@ SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
 SOCIAL_AUTH_SAML_SP_PUBLIC_CERT = ""
 SOCIAL_AUTH_SAML_SP_PRIVATE_KEY = ""
 SOCIAL_AUTH_SAML_ORG_INFO = {"en-US": {"name": "posthog", "displayname": "PostHog", "url": "https://posthog.com"}}
-SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {"givenName": "PostHog Support", "emailAddress": "hey@posthog.com"}
+SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {
+    "givenName": "PostHog Support",
+    "emailAddress": "hey@posthog.com",
+}
 SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
@@ -64,3 +67,5 @@ BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posth
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
+
+ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env("ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10, type_cast=int)

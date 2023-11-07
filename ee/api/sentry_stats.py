@@ -43,7 +43,6 @@ def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
 def get_tagged_issues_stats(
     start_time: str, end_time: str, tags: Dict[str, str], target_issues: List[str]
 ) -> Dict[str, Any]:
-
     sentry_config: Dict[str, str] = get_instance_settings(["SENTRY_AUTH_TOKEN", "SENTRY_ORGANIZATION"])
 
     org_slug = sentry_config.get("SENTRY_ORGANIZATION")
@@ -92,7 +91,6 @@ def get_stats_for_timerange(
     target_end_time: str,
     tags: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, int]:
-
     base_counts, base_total_count = get_sentry_stats(base_start_time, base_end_time)
     target_counts, target_total_count = get_sentry_stats(target_start_time, target_end_time)
 
@@ -101,7 +99,6 @@ def get_stats_for_timerange(
 
 @api_view(["GET"])
 def sentry_stats(request: HttpRequest):
-
     try:
         current_time = datetime.utcnow()
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")

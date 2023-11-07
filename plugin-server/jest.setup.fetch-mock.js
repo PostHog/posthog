@@ -6,7 +6,11 @@ import fetch from 'node-fetch'
 
 import { status } from './src/utils/status'
 
-jest.mock('node-fetch')
+jest.mock('node-fetch', () => ({
+    __esModule: true,
+    ...jest.requireActual('node-fetch'), // Only mock fetch(), leave Request, Response, FetchError, etc. alone
+    default: jest.fn(),
+}))
 
 beforeEach(() => {
     const responsesToUrls = {
@@ -21,7 +25,7 @@ beforeEach(() => {
         ]),
     }
 
-    fetch.mockImplementation(
+    jest.mocked(fetch).mockImplementation(
         (url, options) =>
             new Promise((resolve) =>
                 resolve({

@@ -68,8 +68,20 @@ jobs:
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
+                  tags: posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Build and push unit container image
+              id: build-unit
+              uses: depot/build-push-action@v1
+              with:
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  file: production-unit.Dockerfile
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
+                  platforms: linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
 
             - name: get deployer token
               id: deployer
@@ -106,6 +118,24 @@ jobs:
                   repo: charts
                   owner: PostHog
                   event_type: ingestion_deploy
+                  message: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}"
+                      }
+
+            - name: Check for changes that affect temporal worker
+              id: check_changes_temporal_worker
+              run: |
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)"
+
+            - name: Trigger Temporal Worker Cloud deployment
+              if: steps.check_changes_temporal_worker.outputs.changed != ''
+              uses: mvasigh/dispatch-action@main
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: temporal_worker_deploy
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}"

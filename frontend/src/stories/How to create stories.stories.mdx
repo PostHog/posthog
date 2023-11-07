@@ -39,11 +39,12 @@ There are a few differences between component and scene stories:
 
 ```tsx
 // frontend/src/lib/lemon-ui/LemonSwitch/LemonSwitch.stories.tsx
-import { ComponentMeta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { LemonSwitch, LemonSwitchProps } from './LemonSwitch'
 
-export default {
+type Story = StoryObj<typeof LemonSwitch>
+const meta: Meta<typeof LemonSwitch> = {
     title: 'Lemon UI/Lemon Switch',
     component: LemonSwitch,
     argTypes: {
@@ -66,7 +67,9 @@ export default {
             },
         },
     },
-} as ComponentMeta<typeof LemonSwitch>
+    tags: ['autodocs'],
+}
+export default meta
 
 export function LemonSwitch_(props: LemonSwitchProps): JSX.Element {
     const [isChecked, setIsChecked] = useState(false)

@@ -23,6 +23,10 @@ import { pluralize } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useState } from 'react'
 
+export interface InfiniteListProps {
+    popupAnchorElement: HTMLDivElement | null
+}
+
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
     return (
         <Tooltip
@@ -148,7 +152,7 @@ const selectedItemHasPopover = (
     )
 }
 
-export function InfiniteList(): JSX.Element {
+export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -191,7 +195,11 @@ export function InfiniteList(): JSX.Element {
             // if the popover is not enabled then don't leave the row selected when the mouse leaves it
             onMouseLeave: () => (mouseInteractionsEnabled && !showPopover ? setIndex(NO_ITEM_SELECTED) : null),
             style: style,
-            ref: isHighlighted ? (element) => setHighlightedItemElement(element) : null,
+            ref: isHighlighted
+                ? (element) => {
+                      setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
+                  }
+                : null,
         }
 
         return item && group ? (

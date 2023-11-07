@@ -78,7 +78,7 @@ class UUIDT(uuid.UUID):
 
     @classmethod
     def is_valid_uuid(cls, candidate: Any) -> bool:
-        if type(candidate) != str:
+        if not isinstance(candidate, str):
             return False
         hex = candidate.replace("urn:", "").replace("uuid:", "")
         hex = hex.strip("{}").replace("-", "")
@@ -205,7 +205,9 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
 
 
 def get_deferred_field_set_for_model(
-    model: Type[models.Model], fields_not_deferred: Set[str] = set(), field_prefix: str = ""
+    model: Type[models.Model],
+    fields_not_deferred: Set[str] = set(),
+    field_prefix: str = "",
 ) -> Set[str]:
     """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`
 

@@ -95,11 +95,11 @@ export function DashboardItems(): JSX.Element {
                         isDragging.current = false
                     }, 250)
                 }}
-                draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popover"
+                draggableCancel=".anticon,.ant-dropdown,table,button,.Popover"
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
-                    if (!!insight) {
+                    if (insight) {
                         return (
                             <InsightCard
                                 key={tile.id}
@@ -144,7 +144,7 @@ export function DashboardItems(): JSX.Element {
                             />
                         )
                     }
-                    if (!!text) {
+                    if (text) {
                         return (
                             <TextCard
                                 dashboardId={dashboard?.id}

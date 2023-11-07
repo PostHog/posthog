@@ -25,7 +25,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'compare',
                 'interval',
                 'breakdown',
-                'shownAs',
                 'showValueOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
@@ -144,7 +143,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
             actions.setInsightData({
                 ...values.insightData,
-                result: [...values.insightData?.result, ...(response.result ? response.result : [])],
+                result: [...values.insightData.result, ...(response.result ? response.result : [])],
                 next: response.next,
             })
 

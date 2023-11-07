@@ -23,7 +23,8 @@
 }
 
 .Popover__box {
-    transition: opacity 100ms ease, transform 100ms ease;
+    position: relative; // For arrow
+    transition: opacity 50ms ease, transform 50ms ease;
     transform-origin: top;
     box-shadow: var(--shadow-elevation);
     background: var(--bg-light);
@@ -38,38 +39,58 @@
         border-color: var(--primary);
     }
 
+    // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between
+    // the reference and the floating element. This makes hover-based popovers possible
+
     .Popover[data-placement^='bottom'] & {
         transform-origin: top;
+        margin-top: 0.25rem;
+    }
+    .Popover[data-placement^='bottom'].Popover--with-arrow & {
+        margin-top: 0.5rem;
     }
 
     .Popover[data-placement^='top'] & {
         transform-origin: bottom;
+        margin-bottom: 0.25rem;
+    }
+    .Popover[data-placement^='top'].Popover--with-arrow & {
+        margin-bottom: 0.5rem;
     }
 
     .Popover[data-placement^='left'] & {
         transform-origin: right;
+        margin-right: 0.25rem;
+    }
+    .Popover[data-placement^='left'].Popover--with-arrow & {
+        margin-right: 0.5rem;
     }
 
     .Popover[data-placement^='right'] & {
         transform-origin: left;
+        margin-left: 0.25rem;
+    }
+    .Popover[data-placement^='right'].Popover--with-arrow & {
+        margin-left: 0.5rem;
     }
 
     .Popover[data-placement^='bottom'] & {
-        transform: rotateX(-12deg);
+        transform: rotateX(-6deg);
     }
 
     .Popover[data-placement^='top'] & {
-        transform: rotateX(12deg);
+        transform: rotateX(6deg);
     }
 
     .Popover[data-placement^='left'] & {
-        transform: rotateY(-12deg);
+        transform: rotateY(-6deg);
     }
 
     .Popover[data-placement^='right'] & {
-        transform: rotateY(12deg);
+        transform: rotateY(6deg);
     }
 
+    .Popover.Popover--enter-active &,
     .Popover.Popover--enter-done & {
         opacity: 1;
         transform: none;

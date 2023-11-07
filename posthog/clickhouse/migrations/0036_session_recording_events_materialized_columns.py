@@ -1,12 +1,13 @@
 from infi.clickhouse_orm import migrations
 
 from posthog.client import sync_execute
-from posthog.models.session_recording_event.sql import MATERIALIZED_COLUMNS
+from posthog.session_recordings.sql.session_recording_event_sql import (
+    MATERIALIZED_COLUMNS,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 
 def create_events_summary_mat_columns(database):
-
     columns_to_add = [
         "events_summary",
         "click_count",

@@ -1,7 +1,7 @@
-import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ENTITY_MATCH_TYPE } from 'lib/constants'
+import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
@@ -9,12 +9,12 @@ import {
     CohortGroupType,
     CohortType,
     FilterLogicalOperator,
+    PropertyFilterType,
 } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { actionToUrl } from 'kea-router'
+import { actionToUrl, router } from 'kea-router'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import {
@@ -27,15 +27,22 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { processCohort } from 'lib/utils'
-import { DataTableNode, NodeKind, Node } from '~/queries/schema'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { isDataTableNode } from '~/queries/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+export type CohortLogicProps = {
+    id?: CohortType['id']
+}
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => props.id || 'new'),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
 
     actions({
         saveCohort: (cohortParams = {}) => ({ cohortParams }),
@@ -58,10 +65,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             criteriaIndex,
         }),
         setQuery: (query: Node) => ({ query }),
-        duplicateToStaticCohort: true,
+        duplicateCohort: (asStatic: boolean) => ({ asStatic }),
     }),
 
-    reducers(({ props }) => ({
+    selectors({
+        usePersonsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
+    }),
+
+    reducers(({ props, selectors }) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -154,15 +165,27 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         query: [
-            {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.PersonsNode,
-                    cohort: props.id,
-                },
-                columns: undefined,
-                full: true,
-            } as DataTableNode,
+            ((state: Record<string, any>) =>
+                selectors.usePersonsQuery(state)
+                    ? {
+                          kind: NodeKind.DataTableNode,
+                          source: {
+                              kind: NodeKind.PersonsQuery,
+                              fixedProperties: [
+                                  { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
+                              ],
+                          },
+                          full: true,
+                      }
+                    : {
+                          kind: NodeKind.DataTableNode,
+                          source: {
+                              kind: NodeKind.PersonsNode,
+                              cohort: props.id,
+                          },
+                          columns: undefined,
+                          full: true,
+                      }) as any as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
             },
@@ -253,17 +276,24 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
-        duplicatedStaticCohort: [
+        duplicatedCohort: [
             null as CohortType | null,
             {
-                duplicateToStaticCohort: async (_, breakpoint) => {
+                duplicateCohort: async ({ asStatic }: { asStatic: boolean }, breakpoint) => {
+                    let cohort: CohortType
                     try {
                         await breakpoint(200)
-                        const cohort = await api.cohorts.duplicate(values.cohort.id)
+                        if (asStatic) {
+                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                        } else {
+                            const data = { ...values.cohort }
+                            data.name += ' (dynamic copy)'
+                            cohort = await api.cohorts.create(data)
+                        }
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
                             {
-                                toastId: `cohort-duplicated-${values.cohort.id}`,
+                                toastId: `cohort-duplicated-${cohort.id}`,
                                 button: {
                                     label: 'View cohort',
                                     action: () => {

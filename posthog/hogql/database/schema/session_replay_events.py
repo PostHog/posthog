@@ -15,6 +15,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
+from posthog.schema import HogQLQueryModifiers
 
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
@@ -31,6 +32,8 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
     "console_error_count": IntegerDatabaseField(name="console_error_count"),
     "size": IntegerDatabaseField(name="size"),
+    "event_count": IntegerDatabaseField(name="event_count"),
+    "message_count": IntegerDatabaseField(name="message_count"),
     "pdi": LazyJoin(
         from_field="distinct_id",
         join_table=PersonDistinctIdsTable(),
@@ -77,6 +80,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         "console_error_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_error_count"])]),
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
+        "event_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "event_count"])]),
+        "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
     }
 
     select_fields: List[ast.Expr] = []
@@ -104,7 +109,7 @@ class SessionReplayEventsTable(LazyTable):
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

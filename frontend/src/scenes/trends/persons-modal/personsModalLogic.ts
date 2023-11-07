@@ -1,4 +1,4 @@
-import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
+import { kea, connect, path, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
 import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
 import { loaders } from 'kea-loaders'
@@ -29,7 +29,6 @@ export interface ListActorsResponse {
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
-    key((props) => props.url),
     actions({
         setSearchTerm: (search: string) => ({ search }),
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
@@ -104,7 +103,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, props }) => ({
-        setSearchTerm: async ({}, breakpoint) => {
+        setSearchTerm: async (_, breakpoint) => {
             await breakpoint(500)
             actions.loadActors({ url: props.url, clear: true })
         },

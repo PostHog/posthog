@@ -7,7 +7,10 @@ from posthog.models.utils import UUIDModel, sane_repr
 # We call models that grant a user access to some resource (which isn't a grouping of users) a "privilege"
 class DashboardPrivilege(UUIDModel):
     dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.CASCADE, related_name="privileges", related_query_name="privilege"
+        "posthog.Dashboard",
+        on_delete=models.CASCADE,
+        related_name="privileges",
+        related_query_name="privilege",
     )
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",

@@ -52,6 +52,7 @@ The way we write the `person_id` to each event has some implications for the num
    The source of truth for data is the events table. Since this is point-in-time data, it is not possible to determine whether two `person_id`'s were later merged into a single user, which results in them being counted separately.
 2. In the person modal, the count may be lower than the count displayed in the graph.
    Persons who've been merged into one have one of their old IDs deleted. We remove these people from the persons modal, as there's no place to link them to.
+3. If a merge happens in the middle of a funnel, the user will show as having dropped off, instead of completed the funnel.
 
 To understand better how these scenarios can arise, let's take a look at some specific examples.
 
@@ -67,6 +68,8 @@ She then logs in to her account, which sends an identify event that merges `user
 This mean that we delete `user-2` from the persons table and all future events from `anon-1` will be tied to `user-1` (note that we never alter the events table to reflect this).
 
 In this case, we’d show 1 unique user in the trend graph for pageviews, but since `user-2` was deleted during the merge, we would show 0 users in the person modal.
+
+If we had a funnel that tracked `pageview` -> `identify`, Alice would show as having dropped off in that funnel (whereas without PoEv1 it would show as being completed).
 
 To continue the example, let's say that Alice views the homepage again now that she is logged in.
 

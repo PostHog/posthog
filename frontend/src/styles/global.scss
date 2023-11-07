@@ -552,6 +552,11 @@ input::-ms-clear {
     &.main-app-content--plain {
         padding: 0;
     }
+
+    &.main-app-content--container {
+        max-width: 72rem;
+        align-self: center;
+    }
 }
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
@@ -571,6 +576,7 @@ body {
     --glass-bg-3000: var(--bg-light);
     --glass-border-3000: var(--border);
     --bg-light: #fff;
+    --link: var(--primary);
 
     &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
@@ -587,6 +593,7 @@ body {
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
+        --link: var(--link-3000-light);
     }
 
     &.posthog-3000[theme='dark'] {
@@ -605,6 +612,7 @@ body {
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
         --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+        --link: var(--link-3000-dark);
     }
 
     &.posthog-3000 {
@@ -617,7 +625,6 @@ body {
         --mid: var(--bg-3000);
         --side: var(--bg-3000);
         background: var(--bg-3000);
-        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
         * > {
             ::-webkit-scrollbar {
@@ -661,6 +668,10 @@ body {
         font-family: var(--font-mono);
     }
 
+    a {
+        color: var(--link);
+    }
+
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
@@ -696,10 +707,27 @@ body {
     }
     .ant-select-dropdown {
         z-index: var(--z-ant-select-dropdown);
+        background-color: var(--bg-3000);
+
+        .ant-select-item.ant-select-item-option {
+            background-color: var(--bg-3000);
+
+            &.ant-select-item-option-active {
+                background-color: var(--border-3000);
+            }
+        }
+    }
+
+    .ant-input-number-group-addon {
+        background: var(--bg-3000);
     }
 
     .ant-picker-dropdown {
         z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-popconfirm {
+        z-index: var(--z-bottom-notice);
     }
 
     .ant-card-bordered {
@@ -756,7 +784,7 @@ body {
     *,
     *::before,
     *::after {
-        transition: none !important;
+        transition-duration: 0ms !important;
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;

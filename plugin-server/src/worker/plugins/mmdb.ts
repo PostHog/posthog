@@ -1,5 +1,6 @@
 import { Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { DateTime } from 'luxon'
+import fetch from 'node-fetch'
 import * as schedule from 'node-schedule'
 import prettyBytes from 'pretty-bytes'
 import { brotliDecompress } from 'zlib'
@@ -11,7 +12,7 @@ import {
     MMDB_STATUS_REDIS_KEY,
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
-import fetch from '../../utils/fetch'
+import { PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 
@@ -30,7 +31,7 @@ export async function setupMmdb(hub: Hub): Promise<schedule.Job | undefined> {
 
 /** Check if MMDB is being currently fetched by any other plugin server worker in the cluster. */
 async function getMmdbStatus(hub: Hub): Promise<MMDBFileStatus> {
-    return (await hub.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)) as MMDBFileStatus
+    return (await hub.db.redisGet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle, 'getMmdbStatus')) as MMDBFileStatus
 }
 
 /** Decompress a Brotli-compressed MMDB buffer and open a reader from it. */
@@ -69,7 +70,8 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
     status.info('✅', `Downloaded ${filename} of ${prettyBytes(brotliContents.byteLength)}`)
 
     // Insert new attachment
-    const newAttachmentResults = await db.postgresQuery<PluginAttachmentDB>(
+    const newAttachmentResults = await db.postgres.query<PluginAttachmentDB>(
+        PostgresUse.COMMON_WRITE,
         `
         INSERT INTO posthog_pluginattachment (
             key, content_type, file_name, file_size, contents, plugin_config_id, team_id
@@ -79,7 +81,8 @@ async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
         'insertGeoIpAttachment'
     )
     // Ensure that there's no old attachments lingering
-    await db.postgresQuery(
+    await db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `
         DELETE FROM posthog_pluginattachment WHERE key = $1 AND id != $2
     `,
@@ -111,14 +114,19 @@ async function distributableFetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderMod
         return prepareMmdb(hub)
     }
     // Allow 120 seconds of download until another worker retries
-    await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 120)
+    await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Fetching, 'distributableFetchAndInsertFreshMmdb', 120)
     try {
         const mmdb = await fetchAndInsertFreshMmdb(hub)
-        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle)
+        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Idle, 'distributableFetchAndInsertFreshMmdb')
         return mmdb
     } catch (e) {
         // In case of an error mark the MMDB feature unavailable for an hour
-        await hub.db.redisSet(MMDB_STATUS_REDIS_KEY, MMDBFileStatus.Unavailable, 120)
+        await hub.db.redisSet(
+            MMDB_STATUS_REDIS_KEY,
+            MMDBFileStatus.Unavailable,
+            'distributableFetchAndInsertFreshMmdb',
+            120
+        )
         status.error('❌', 'An error occurred during MMDB fetch and insert:', e)
         return null
     }
@@ -139,7 +147,8 @@ export async function prepareMmdb(hub: Hub, onlyBackground: true): Promise<boole
 export async function prepareMmdb(hub: Hub, onlyBackground = false): Promise<ReaderModel | null | boolean> {
     const { db } = hub
 
-    const readResults = await db.postgresQuery<PluginAttachmentDB>(
+    const readResults = await db.postgres.query<PluginAttachmentDB>(
+        PostgresUse.COMMON_WRITE,
         `
             SELECT *
             FROM posthog_pluginattachment

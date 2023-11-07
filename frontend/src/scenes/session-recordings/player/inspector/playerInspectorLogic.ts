@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -9,15 +9,17 @@ import {
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getKeyMapping } from 'lib/taxonomy'
-import { eventToDescription } from 'lib/utils'
+import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 const NETWORK_PLUGIN_NAME = 'posthog/network@1'
@@ -91,7 +93,6 @@ export const PerformanceEventReverseMapping: { [key: number]: keyof PerformanceE
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
 type InspectorListItemBase = {
@@ -119,7 +120,7 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
 
-export interface PlayerInspectorLogicProps extends SessionRecordingLogicProps {
+export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
@@ -160,7 +161,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
-    reducers(({}) => ({
+    reducers(() => ({
         windowIdFilter: [
             null as string | null,
             {
@@ -189,23 +190,40 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
-        matchingEvents: [
-            () => [(_, props) => props.matching],
-            (matchingEvents): MatchedRecordingEvent[] => {
-                // matching events were a dictionary in v1 and v2, but we only used the UUID
-                // so in v3 we just return the UUIDs
-                return matchingEvents?.map((x: any) => (typeof x === 'string' ? { uuid: x } : x.events)).flat() ?? []
+    loaders(({ props }) => ({
+        matchingEventUUIDs: [
+            [] as MatchedRecordingEvent[] | null,
+            {
+                loadMatchingEvents: async () => {
+                    const matchingEventsMatchType = props.matchingEventsMatchType
+                    const matchType = matchingEventsMatchType?.matchType
+                    if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
+                        return null
+                    }
+
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.eventUUIDs) {
+                            console.error('UUID matching events type must include its event ids')
+                        }
+                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                    }
+
+                    const filters = matchingEventsMatchType?.filters
+                    if (!filters) {
+                        throw new Error('Backend matching events type must include its filters')
+                    }
+                    const params = toParams({ ...filters, session_ids: [props.sessionRecordingId] })
+                    const response = await api.recordings.getMatchingEvents(params)
+                    return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
+                },
             },
         ],
-
+    })),
+    selectors(({ props }) => ({
         showMatchingEventsFilter: [
-            (s) => [s.matchingEvents, s.tab],
-            (matchingEvents, tab): boolean => {
-                return (
-                    tab === SessionRecordingPlayerTab.EVENTS &&
-                    (matchingEvents.length > 0 || props.matchingEventsMatchType?.matchType === 'simple')
-                )
+            (s) => [s.tab],
+            (tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && props.matchingEventsMatchType?.matchType !== 'none'
             },
         ],
 
@@ -290,8 +308,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
-            (start, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
+            (s) => [s.start, s.allPerformanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEventUUIDs],
+            (start, performanceEvents, consoleLogs, eventsData, matchingEventUUIDs): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
@@ -351,9 +369,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 for (const event of eventsData || []) {
                     let isMatchingEvent = false
 
-                    if (!!matchingEvents.length) {
-                        isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
-                    } else if (props.matchingEventsMatchType?.matchType === 'simple') {
+                    if (matchingEventUUIDs?.length) {
+                        isMatchingEvent = !!matchingEventUUIDs.find((x) => x.uuid === String(event.id))
+                    } else if (props.matchingEventsMatchType?.matchType === 'name') {
                         isMatchingEvent = props.matchingEventsMatchType?.eventNames?.includes(event.event)
                     }
 
@@ -695,6 +713,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     findAllMatches: true,
                     ignoreLocation: true,
                     shouldSort: false,
+                    useExtendedSearch: true,
                 }),
         ],
 
@@ -721,4 +740,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             }
         },
     })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadMatchingEvents()
+        },
+    })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!objectsEqual(props.matchingEventsMatchType, oldProps.matchingEventsMatchType)) {
+            actions.loadMatchingEvents()
+        }
+    }),
 ])

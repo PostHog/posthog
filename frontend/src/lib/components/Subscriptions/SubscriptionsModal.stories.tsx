@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 import { AvailableFeature, InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -9,16 +9,16 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
-export default {
+const meta: Meta<typeof SubscriptionsModal> = {
     title: 'Components/Subscriptions',
     component: SubscriptionsModal,
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-01-31 12:00:00',
     },
-} as ComponentMeta<typeof SubscriptionsModal>
+}
+export default meta
 
 const Template = (
     args: Partial<SubscriptionsModalProps> & { noIntegrations?: boolean; featureAvailable?: boolean }

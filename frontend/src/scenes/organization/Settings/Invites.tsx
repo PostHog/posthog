@@ -14,7 +14,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
     return invite.is_expired ? (
-        <b>Expired! Delete and recreate</b>
+        <b>Expired – please recreate</b>
     ) : (
         <CopyToClipboardInline data-attr="invite-link" description="invite link">
             {url}
@@ -98,7 +98,7 @@ export function Invites(): JSX.Element {
 
     return (
         <div>
-            <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
+            <h2 id="invites" className="subtitle justify-between">
                 Pending Invites
                 <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                     Invite team member

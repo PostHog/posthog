@@ -12,7 +12,10 @@ class EarlyAccessFeature(UUIDModel):
         ARCHIVED = "archived", "archived"
 
     team: models.ForeignKey = models.ForeignKey(
-        "posthog.Team", on_delete=models.CASCADE, related_name="features", related_query_name="feature"
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="features",
+        related_query_name="feature",
     )
     feature_flag: models.ForeignKey = models.ForeignKey(
         "posthog.FeatureFlag",

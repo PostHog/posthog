@@ -4,17 +4,23 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS, cohort
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable, SavedQuery
+from posthog.hogql.database.models import (
+    StringJSONDatabaseField,
+    FunctionCallTable,
+    LazyTable,
+    SavedQuery,
+)
 from posthog.hogql.errors import ResolverException
-from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import convert_hogqlx_tag, lookup_cte_by_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
-
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.s3_table import S3Table
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
@@ -47,7 +53,9 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types(
-    node: ast.Expr, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None
+    node: ast.Expr,
+    context: HogQLContext,
+    scopes: Optional[List[ast.SelectQueryType]] = None,
 ) -> ast.Expr:
     return Resolver(scopes=scopes, context=context).visit(node)
 
@@ -59,6 +67,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
+        self.current_view_depth: int = 0
         self.context = context
         self.database = context.database
         self.cte_counter = 0
@@ -145,6 +154,7 @@ class Resolver(CloningVisitor):
         new_node.window_exprs = (
             {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
         )
+        new_node.settings = node.settings.model_copy() if node.settings is not None else None
 
         self.scopes.pop()
 
@@ -187,6 +197,9 @@ class Resolver(CloningVisitor):
 
         scope = self.scopes[-1]
 
+        if isinstance(node.table, ast.HogQLXTag):
+            node.table = convert_hogqlx_tag(node.table, self.context.team_id)
+
         # If selecting from a CTE, expand and visit the new node
         if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
             table_name = node.table.chain[0]
@@ -211,9 +224,16 @@ class Resolver(CloningVisitor):
                 database_table = self.database.get_table(table_name)
 
                 if isinstance(database_table, SavedQuery):
+                    self.current_view_depth += 1
+
+                    if self.current_view_depth > self.context.max_view_depth:
+                        raise ResolverException("Nested views are not supported")
+
                     node.table = parse_select(str(database_table.query))
                     node.alias = table_alias or database_table.name
                     node = self.visit(node)
+
+                    self.current_view_depth -= 1
                     return node
 
                 if isinstance(database_table, LazyTable):
@@ -237,6 +257,16 @@ class Resolver(CloningVisitor):
                 if node.table_args is not None:
                     node.table_args = [self.visit(arg) for arg in node.table_args]
                 node.next_join = self.visit(node.next_join)
+
+                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+                if isinstance(node.type, ast.TableAliasType):
+                    is_global = isinstance(node.type.table_type.table, EventsTable) and self._is_next_s3(node.next_join)
+                else:
+                    is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
+
+                if is_global:
+                    node.next_join.join_type = "GLOBAL JOIN"
+
                 node.constraint = self.visit(node.constraint)
                 node.sample = self.visit(node.sample)
 
@@ -271,6 +301,9 @@ class Resolver(CloningVisitor):
             return node
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        return self.visit(convert_hogqlx_tag(node, self.context.team_id))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -312,7 +345,10 @@ class Resolver(CloningVisitor):
                 else:
                     param_types.append(ast.UnknownType())
         node.type = ast.CallType(
-            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+            name=node.name,
+            arg_types=arg_types,
+            param_types=param_types,
+            return_type=ast.UnknownType(),
         )
         return node
 
@@ -393,14 +429,22 @@ class Resolver(CloningVisitor):
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         loop_type = type
         chain_to_parse = node.chain[1:]
+        previous_types = []
         while True:
             if isinstance(loop_type, FieldTraverserType):
                 chain_to_parse = loop_type.chain + chain_to_parse
                 loop_type = loop_type.table_type
                 continue
+            previous_types.append(loop_type)
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if next_chain == "..":  # only support one level of ".."
+                previous_types.pop()
+                previous_types.pop()
+                loop_type = previous_types[-1]
+                next_chain = chain_to_parse.pop(0)
+
             loop_type = loop_type.get_child(next_chain)
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
@@ -426,7 +470,10 @@ class Resolver(CloningVisitor):
                 (isinstance(node.array.type, ast.PropertyType))
                 or (
                     isinstance(node.array.type, ast.FieldType)
-                    and isinstance(node.array.type.resolve_database_field(), StringJSONDatabaseField)
+                    and isinstance(
+                        node.array.type.resolve_database_field(),
+                        StringJSONDatabaseField,
+                    )
                 )
             )
         ):
@@ -473,50 +520,66 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        if node.op == ast.CompareOperationOp.InCohort:
+        if (
+            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            and self._is_events_table(self.visit(node.left))
+            and self._is_s3_cluster(self.visit(node.right))
+        ):
             return self.visit(
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
+                    op=ast.CompareOperationOp.GlobalIn
+                    if node.op == ast.CompareOperationOp.In
+                    else ast.CompareOperationOp.GlobalNotIn,
                     left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                    right=node.right,
                 )
             )
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            return self.visit(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotIn,
-                    left=node.left,
-                    right=cohort(node=node.right, args=[node.right], context=self.context),
+
+        if self.context.modifiers.inCohortVia != "leftjoin":
+            if node.op == ast.CompareOperationOp.InCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
                 )
-            )
+            elif node.op == ast.CompareOperationOp.NotInCohort:
+                return self.visit(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn,
+                        left=node.left,
+                        right=cohort(node=node.right, args=[node.right], context=self.context),
+                    )
+                )
 
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
         return node
 
+    def _is_events_table(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Field) and isinstance(node.type, ast.FieldType):
+            if isinstance(node.type.table_type, ast.TableAliasType):
+                return isinstance(node.type.table_type.table_type.table, EventsTable)
+            if isinstance(node.type.table_type, ast.TableType):
+                return isinstance(node.type.table_type.table, EventsTable)
+        return False
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
-    """Looks for a field in the scope's list of aliases and children for each joined table."""
-    if name in scope.aliases:
-        return scope.aliases[name]
-    else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name)]
-        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
-        tables_with_field = named_tables + anonymous_tables
+    def _is_s3_cluster(self, node: ast.Expr) -> bool:
+        if (
+            isinstance(node, ast.SelectQuery)
+            and node.select_from
+            and isinstance(node.select_from.type, ast.BaseTableType)
+        ):
+            if isinstance(node.select_from.type, ast.TableAliasType):
+                return isinstance(node.select_from.type.table_type.table, S3Table)
+            elif isinstance(node.select_from.type, ast.TableType):
+                return isinstance(node.select_from.type.table, S3Table)
+        return False
 
-        if len(tables_with_field) > 1:
-            raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
-        elif len(tables_with_field) == 1:
-            return tables_with_field[0].get_child(name)
-
-        if scope.parent:
-            return lookup_field_by_name(scope.parent, name)
-
-        return None
-
-
-def lookup_cte_by_name(scopes: List[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
-    for scope in reversed(scopes):
-        if scope and scope.ctes and name in scope.ctes:
-            return scope.ctes[name]
-    return None
+    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+        if node is None:
+            return False
+        if isinstance(node.type, ast.TableAliasType):
+            return isinstance(node.type.table_type.table, S3Table)
+        return False

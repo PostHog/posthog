@@ -23,7 +23,6 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0105_cohort_errors_calculating"),
     ]

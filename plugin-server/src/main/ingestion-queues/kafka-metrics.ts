@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer } from 'kafkajs'
-import { KafkaConsumer } from 'node-rdkafka-acosom'
+import { KafkaConsumer } from 'node-rdkafka'
 
 import { Hub } from '../../types'
 

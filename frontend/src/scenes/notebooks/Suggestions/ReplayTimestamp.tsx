@@ -22,7 +22,7 @@ const insertTimestamp = ({
             sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
                 .currentPlayerTime || 0
 
-        editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
+        editor.insertContent([buildTimestampCommentContent({ playbackTime: currentPlayerTime, sessionRecordingId })])
     }
 }
 
@@ -48,7 +48,7 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
 
 export default InsertionSuggestion.create({
     shouldShow: ({ previousNode }) => {
-        return !!previousNode
+        return previousNode
             ? previousNode.type.name === NotebookNodeType.Recording ||
                   hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp)
             : false

@@ -5,9 +5,19 @@ from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
+from posthog.models.cohort.util import (
+    format_static_cohort_query,
+    get_count_operator,
+    get_entity_query,
+)
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
+from posthog.models.property import (
+    BehavioralPropertyType,
+    OperatorInterval,
+    Property,
+    PropertyGroup,
+    PropertyName,
+)
 from posthog.models.property.util import prop_filter_json_extract
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
@@ -17,7 +27,14 @@ Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
 
 
-INTERVAL_TO_SECONDS = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800, "month": 2592000, "year": 31536000}
+INTERVAL_TO_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+    "year": 31536000,
+}
 
 
 def relative_date_to_seconds(date: Tuple[Optional[int], Union[OperatorInterval, None]]):
@@ -101,7 +118,6 @@ def if_condition(condition: str, true_res: str, false_res: str) -> str:
 
 
 class FOSSCohortQuery(EventQuery):
-
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
     FUNNEL_QUERY_ALIAS = "funnel_query"
     SEQUENCE_FIELD_ALIAS = "steps"
@@ -205,7 +221,13 @@ class FOSSCohortQuery(EventQuery):
                                 new_property_group_list.append(
                                     PropertyGroup(
                                         type=PropertyOperatorType.AND,
-                                        values=[Property(key="fake_key_01r2ho", value=0, type="person")],
+                                        values=[
+                                            Property(
+                                                key="fake_key_01r2ho",
+                                                value=0,
+                                                type="person",
+                                            )
+                                        ],
                                     )
                                 )
                         else:
@@ -228,7 +250,6 @@ class FOSSCohortQuery(EventQuery):
 
     # Implemented in /ee
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
@@ -240,7 +261,11 @@ class FOSSCohortQuery(EventQuery):
 
         subq = []
 
-        behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
+        (
+            behavior_subquery,
+            behavior_subquery_params,
+            behavior_query_alias,
+        ) = self._get_behavior_subquery()
         subq.append((behavior_subquery, behavior_query_alias))
         self.params.update(behavior_subquery_params)
 
@@ -302,7 +327,6 @@ class FOSSCohortQuery(EventQuery):
 
         query, params = "", {}
         if self._should_join_behavioral_query:
-
             _fields = [
                 f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
@@ -328,7 +352,12 @@ class FOSSCohortQuery(EventQuery):
 
             query, params = (
                 query,
-                {"team_id": self._team_id, event_param_name: self._events, **date_params, **person_prop_params},
+                {
+                    "team_id": self._team_id,
+                    event_param_name: self._events,
+                    **date_params,
+                    **person_prop_params,
+                },
             )
 
         return query, params, self.BEHAVIOR_QUERY_ALIAS
@@ -389,7 +418,6 @@ class FOSSCohortQuery(EventQuery):
 
     # Implemented in /ee
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-
         res: str = ""
         params: Dict[str, Any] = {}
 
@@ -412,7 +440,12 @@ class FOSSCohortQuery(EventQuery):
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         if self._outer_property_groups and len(self._outer_property_groups.flat):
             return prop_filter_json_extract(
-                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
+                prop,
+                idx,
+                prepend,
+                prop_var="person_props",
+                allow_denormalized_props=True,
+                property_operator="",
             )
         else:
             return "", {}
@@ -440,7 +473,10 @@ class FOSSCohortQuery(EventQuery):
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return f"{'NOT' if prop.negation else ''} {column_name}", {f"{date_param}": date_value, **entity_params}
+        return f"{'NOT' if prop.negation else ''} {column_name}", {
+            f"{date_param}": date_value,
+            **entity_params,
+        }
 
     def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         event = (prop.event_type, prop.key)
@@ -461,7 +497,11 @@ class FOSSCohortQuery(EventQuery):
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
         return (
             f"{'NOT' if prop.negation else ''} {column_name}",
-            {f"{operator_value_param}": count, f"{date_param}": date_value, **entity_params},
+            {
+                f"{operator_value_param}": count,
+                f"{date_param}": date_value,
+                **entity_params,
+            },
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
@@ -497,7 +537,10 @@ class FOSSCohortQuery(EventQuery):
         pass
 
     def _get_entity(
-        self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
+        self,
+        event: Tuple[Optional[str], Optional[Union[int, str]]],
+        prepend: str,
+        idx: int,
     ) -> Tuple[str, Dict[str, Any]]:
         res: str = ""
         params: Dict[str, Any] = {}
@@ -508,12 +551,20 @@ class FOSSCohortQuery(EventQuery):
         if event[0] == "actions":
             self._add_action(int(event[1]))
             res, params = get_entity_query(
-                None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+                None,
+                int(event[1]),
+                self._team_id,
+                f"{prepend}_entity_{idx}",
+                self._filter.hogql_context,
             )
         elif event[0] == "events":
             self._add_event(str(event[1]))
             res, params = get_entity_query(
-                str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+                str(event[1]),
+                None,
+                self._team_id,
+                f"{prepend}_entity_{idx}",
+                self._filter.hogql_context,
             )
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")

@@ -48,7 +48,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
@@ -110,7 +110,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
@@ -168,7 +168,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
@@ -248,7 +248,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -333,7 +333,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
@@ -424,7 +424,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -512,7 +512,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
@@ -540,7 +540,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -589,7 +589,7 @@
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
@@ -644,7 +644,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
@@ -667,7 +667,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
@@ -700,7 +700,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC'))
@@ -733,7 +733,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-14 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-14 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), toDateTime('2012-01-14 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
@@ -766,7 +766,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-16 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2012-01-16 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), toDateTime('2012-01-16 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
@@ -799,7 +799,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
@@ -850,7 +850,7 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))

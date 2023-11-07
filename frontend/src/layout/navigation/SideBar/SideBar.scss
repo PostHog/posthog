@@ -109,5 +109,10 @@
     .LaunchToolbarButton {
         padding-left: 0.5em;
         padding-right: 0.5em;
+
+        .LemonButton__content {
+            display: block;
+            text-overflow: ellipsis;
+        }
     }
 }

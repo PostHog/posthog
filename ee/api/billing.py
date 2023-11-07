@@ -17,6 +17,7 @@ from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +44,7 @@ class BillingViewset(viewsets.GenericViewSet):
     ]
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         if license and not license.is_v2_license:
             raise NotFound("Billing V2 is not supported for this license type")
 
@@ -62,7 +63,7 @@ class BillingViewset(viewsets.GenericViewSet):
     @action(methods=["PATCH"], detail=False, url_path="/")
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         if not license:
             raise Exception("There is no license configured for this instance yet.")
 
@@ -73,7 +74,11 @@ class BillingViewset(viewsets.GenericViewSet):
                 BillingManager(license).update_billing(org, {"custom_limits_usd": custom_limits_usd})
 
                 if distinct_id:
-                    posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                    posthoganalytics.capture(
+                        distinct_id,
+                        "billing limits updated",
+                        properties={**custom_limits_usd},
+                    )
                     posthoganalytics.group_identify(
                         "organization",
                         str(org.id),
@@ -84,7 +89,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def activation(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         organization = self._get_org_required()
 
         redirect_path = request.GET.get("redirect_path") or "organization/billing"
@@ -114,7 +119,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def deactivate(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
         organization = self._get_org_required()
 
         product = request.GET.get("products", None)
@@ -126,7 +131,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        license = License.objects.first_valid()
+        license = get_cached_instance_license()
 
         if license:
             raise PermissionDenied(
@@ -142,7 +147,8 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License(key=serializer.validated_data["license"])
 
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing", headers=BillingManager(license).get_auth_headers(organization)
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=BillingManager(license).get_auth_headers(organization),
         )
 
         if res.status_code != 200:

@@ -17,6 +17,23 @@ export type SavedSessionRecordingPlaylistsProps = {
     tab: ReplayTabs.Playlists
 }
 
+function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
+    return {
+        title: 'Name',
+        dataIndex: 'name',
+        render: function Render(name, { short_id, derived_name, description }) {
+            return (
+                <>
+                    <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
+                        {name || derived_name || '(Untitled)'}
+                    </Link>
+                    {description ? <div className="truncate">{description}</div> : null}
+                </>
+            )
+        },
+    }
+}
+
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
@@ -38,20 +55,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 )
             },
         },
-        {
-            title: 'Name',
-            dataIndex: 'name',
-            render: function Render(name, { short_id, derived_name, description }) {
-                return (
-                    <>
-                        <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
-                            {name || derived_name || '(Untitled)'}
-                        </Link>
-                        {description ? <div className="truncate">{description}</div> : null}
-                    </>
-                )
-            },
-        },
+        nameColumn() as LemonTableColumn<SessionRecordingPlaylistType, keyof SessionRecordingPlaylistType | undefined>,
         {
             ...(createdByColumn<SessionRecordingPlaylistType>() as LemonTableColumn<
                 SessionRecordingPlaylistType,

@@ -12,7 +12,7 @@ export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClic
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
     title?: React.ReactNode
-    highlight?: 'beta' | 'new'
+    highlight?: 'alpha' | 'beta' | 'new'
 }
 
 export function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }: PageButtonProps): JSX.Element {
@@ -59,7 +59,11 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                     {...buttonProps}
                 >
                     <span className="text-default grow">{title}</span>
-                    {highlight === 'beta' ? (
+                    {highlight === 'alpha' ? (
+                        <LemonTag type="completion" className="ml-1 float-right uppercase">
+                            Alpha
+                        </LemonTag>
+                    ) : highlight === 'beta' ? (
                         <LemonTag type="warning" className="ml-1 float-right uppercase">
                             Beta
                         </LemonTag>

@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 
 import { DB } from '../../../../utils/db/db'
+import { PostgresUse } from '../../../../utils/db/postgres'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { generateRandomToken, UUIDT } from '../../../../utils/utils'
 import { OrganizationMembershipLevel, RawOrganization } from './../../../../types'
@@ -37,7 +38,7 @@ export class PluginsApiKeyManager {
         }
 
         const cachedKeyRedisKey = `plugins-api-key-manager/${organizationId}`
-        const cachedKey = await this.db.redisGet<string | null>(cachedKeyRedisKey, null)
+        const cachedKey = await this.db.redisGet<string | null>(cachedKeyRedisKey, null, 'fetchOrCreatePersonalApiKey')
         if (cachedKey) {
             return cachedKey as string
         }
@@ -45,7 +46,8 @@ export class PluginsApiKeyManager {
         const timeout = timeoutGuard(`Still running "fetchOrCreatePersonalApiKey". Timeout warning after 30 sec!`)
         try {
             let key: string | null = null
-            const userResult = await this.db.postgresQuery(
+            const userResult = await this.db.postgres.query(
+                PostgresUse.COMMON_WRITE, // Happens on redis cache miss, so let's use the master to reduce races between pods
                 `SELECT id FROM posthog_user WHERE current_organization_id = $1 AND email LIKE $2`,
                 [organizationId, `%@${POSTHOG_BOT_USER_EMAIL_DOMAIN}`],
                 'fetchPluginsUser'
@@ -82,7 +84,7 @@ export class PluginsApiKeyManager {
                 throw new Error('Unable to find or create a personal API key')
             }
 
-            await this.db.redisSet(cachedKeyRedisKey, key, 86_400 * 14) // Don't cache keys longer than 14 days
+            await this.db.redisSet(cachedKeyRedisKey, key, 'fetchOrCreatePersonalApiKey', 86_400 * 14) // Don't cache keys longer than 14 days
 
             return key
         } finally {

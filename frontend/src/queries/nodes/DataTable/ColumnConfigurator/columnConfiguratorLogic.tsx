@@ -7,6 +7,7 @@ export interface ColumnConfiguratorLogicProps {
     key: string
     columns: string[]
     setColumns: (columns: string[]) => void
+    isPersistent?: boolean
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
@@ -61,7 +62,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ values, props }) => ({
         save: () => {
-            if (values.saveAsDefault) {
+            if (props.isPersistent && values.saveAsDefault) {
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
             props.setColumns(values.columns)

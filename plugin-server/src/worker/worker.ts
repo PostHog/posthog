@@ -34,7 +34,21 @@ export async function createWorker(config: PluginsServerConfig, hub: Hub): Promi
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 if (updateJob) {
-                    process.on(signal, updateJob.cancel)
+                    process.on(signal, () => {
+                        try {
+                            updateJob.cancel()
+                        } catch (err) {
+                            if (
+                                err instanceof TypeError &&
+                                err.message.includes("Cannot read properties of undefined (reading 'length')")
+                            ) {
+                                // Ignore the annoying error node-schedule throws
+                                return
+                            }
+
+                            throw err
+                        }
+                    })
                 }
             }
 
@@ -86,16 +100,8 @@ export const createTaskRunner =
                 }
                 return response
             },
-            (transactionDuration: number) => {
-                if (
-                    task === 'runEventPipeline' ||
-                    task === 'runWebhooksHandlersEventPipeline' ||
-                    task === 'runAppsOnEventPipeline'
-                ) {
-                    return transactionDuration > 0.5 ? 1 : 0.01
-                } else {
-                    return 1
-                }
+            (_) => {
+                return 1
             }
         )
 

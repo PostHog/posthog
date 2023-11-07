@@ -36,6 +36,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
+    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -63,7 +64,8 @@ class TestFeatureFlag(APIBaseTest):
         count = FeatureFlag.objects.count()
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags", {"name": "Beta feature", "key": "red_button"}
+            f"/api/projects/{self.team.id}/feature_flags",
+            {"name": "Beta feature", "key": "red_button"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -79,7 +81,11 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_cant_update_flag_with_duplicate_key(self):
         another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+            team=self.team,
+            rollout_percentage=50,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
         )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{another_feature_flag.pk}",
@@ -110,7 +116,11 @@ class TestFeatureFlag(APIBaseTest):
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": "Beta feature", "key": "beta-feature", "filters": {"groups": [{"rollout_percentage": 65}]}},
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"groups": [{"rollout_percentage": 65}]},
+            },
             format="json",
         ).json()
         self.assertTrue(feature_flag["is_simple_flag"])
@@ -127,7 +137,12 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "rollout_percentage": 65,
                             "properties": [
-                                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": "icontains",
+                                }
                             ],
                         }
                     ]
@@ -144,7 +159,10 @@ class TestFeatureFlag(APIBaseTest):
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
-                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 65}],
+                },
             },
             format="json",
         ).json()
@@ -170,10 +188,13 @@ class TestFeatureFlag(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_capture):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -220,9 +241,10 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
-
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", {"key": "omega-feature"}, format="json"
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "omega-feature"},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["key"], "omega-feature")
@@ -250,7 +272,6 @@ class TestFeatureFlag(APIBaseTest):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -260,9 +281,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -300,9 +333,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 0,
+                            },
                         ]
                     },
                 },
@@ -312,7 +357,8 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
-            response.json().get("detail"), "Invalid variant definitions: Variant rollout percentages must sum to 100."
+            response.json().get("detail"),
+            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
         )
 
     def test_cant_create_multivariate_feature_flag_with_variant_rollout_gt_100(self):
@@ -325,9 +371,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 50},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 50,
+                            },
                         ]
                     },
                 },
@@ -337,7 +395,8 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
-            response.json().get("detail"), "Invalid variant definitions: Variant rollout percentages must sum to 100."
+            response.json().get("detail"),
+            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
         )
 
     def test_cant_create_feature_flag_without_key(self):
@@ -346,7 +405,12 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "key"},
+            {
+                "type": "validation_error",
+                "code": "required",
+                "detail": "This field is required.",
+                "attr": "key",
+            },
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
@@ -357,12 +421,30 @@ class TestFeatureFlag(APIBaseTest):
                 "name": "Multivariate feature",
                 "key": "multivariate-feature",
                 "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": None,
+                            "variant": "unknown-variant",
+                        }
+                    ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -371,7 +453,10 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("type"), "validation_error")
-        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+        self.assertEqual(
+            response.json().get("detail"),
+            "Filters are not valid (variant override does not exist)",
+        )
 
     def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
         response = self.client.post(
@@ -380,12 +465,30 @@ class TestFeatureFlag(APIBaseTest):
                 "name": "Multivariate feature",
                 "key": "multivariate-feature",
                 "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "second-variant"}],
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": None,
+                            "variant": "second-variant",
+                        }
+                    ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -400,12 +503,30 @@ class TestFeatureFlag(APIBaseTest):
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
             {
                 "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": None,
+                            "variant": "unknown-variant",
+                        }
+                    ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 0,
+                            },
                         ]
                     },
                 },
@@ -414,7 +535,10 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("type"), "validation_error")
-        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+        self.assertEqual(
+            response.json().get("detail"),
+            "Filters are not valid (variant override does not exist)",
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
@@ -438,7 +562,12 @@ class TestFeatureFlag(APIBaseTest):
                             {
                                 "rollout_percentage": 65,
                                 "properties": [
-                                    {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "@posthog.com",
+                                        "operator": "icontains",
+                                    }
                                 ],
                             }
                         ]
@@ -473,7 +602,10 @@ class TestFeatureFlag(APIBaseTest):
             flag_id,
             [
                 {
-                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
                     "activity": "updated",
                     "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
@@ -516,7 +648,10 @@ class TestFeatureFlag(APIBaseTest):
                     },
                 },
                 {
-                    "user": {"first_name": self.user.first_name, "email": self.user.email},
+                    "user": {
+                        "first_name": self.user.first_name,
+                        "email": self.user.email,
+                    },
                     "activity": "created",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
@@ -578,7 +713,10 @@ class TestFeatureFlag(APIBaseTest):
             flag_id,
             [
                 {
-                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "user": {
+                        "first_name": new_user.first_name,
+                        "email": new_user.email,
+                    },
                     "activity": "updated",
                     "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
@@ -600,7 +738,10 @@ class TestFeatureFlag(APIBaseTest):
                     },
                 },
                 {
-                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "user": {
+                        "first_name": new_user.first_name,
+                        "email": new_user.email,
+                    },
                     "activity": "created",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
@@ -649,7 +790,8 @@ class TestFeatureFlag(APIBaseTest):
             frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
 
             second_create_response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/", {"name": "a second feature flag", "key": "flag-two"}
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "a second feature flag", "key": "flag-two"},
             )
 
             self.assertEqual(second_create_response.status_code, status.HTTP_201_CREATED)
@@ -659,15 +801,27 @@ class TestFeatureFlag(APIBaseTest):
             flag_id=None,
             expected=[
                 {
-                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "user": {
+                        "first_name": new_user.first_name,
+                        "email": new_user.email,
+                    },
                     "activity": "created",
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "trigger": None, "type": None, "name": "flag-two", "short_id": None},
+                    "detail": {
+                        "changes": None,
+                        "trigger": None,
+                        "type": None,
+                        "name": "flag-two",
+                        "short_id": None,
+                    },
                 },
                 {
-                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "user": {
+                        "first_name": new_user.first_name,
+                        "email": new_user.email,
+                    },
                     "activity": "updated",
                     "created_at": "2021-08-25T22:19:14.252000Z",
                     "scope": "FeatureFlag",
@@ -689,7 +843,10 @@ class TestFeatureFlag(APIBaseTest):
                     },
                 },
                 {
-                    "user": {"first_name": new_user.first_name, "email": new_user.email},
+                    "user": {
+                        "first_name": new_user.first_name,
+                        "email": new_user.email,
+                    },
                     "activity": "created",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "FeatureFlag",
@@ -784,37 +941,54 @@ class TestFeatureFlag(APIBaseTest):
         # user in org 1 gets activity
         self.client.force_login(org_one_user)
         self._get_feature_flag_activity(
-            flag_id=team_one_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+            flag_id=team_one_flag_one,
+            team_id=org_one_team.id,
+            expected_status=status.HTTP_200_OK,
         )
         self._get_feature_flag_activity(
-            flag_id=team_one_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_200_OK
+            flag_id=team_one_flag_two,
+            team_id=org_one_team.id,
+            expected_status=status.HTTP_200_OK,
         )
         self._get_feature_flag_activity(
-            flag_id=team_two_flag_one, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+            flag_id=team_two_flag_one,
+            team_id=org_one_team.id,
+            expected_status=status.HTTP_404_NOT_FOUND,
         )
         self._get_feature_flag_activity(
-            flag_id=team_two_flag_two, team_id=org_one_team.id, expected_status=status.HTTP_404_NOT_FOUND
+            flag_id=team_two_flag_two,
+            team_id=org_one_team.id,
+            expected_status=status.HTTP_404_NOT_FOUND,
         )
 
         # user in org 2 gets activity
         self.client.force_login(org_two_user)
         self._get_feature_flag_activity(
-            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+            flag_id=team_one_flag_two,
+            team_id=org_two_team.id,
+            expected_status=status.HTTP_404_NOT_FOUND,
         )
         self._get_feature_flag_activity(
-            flag_id=team_one_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_404_NOT_FOUND
+            flag_id=team_one_flag_two,
+            team_id=org_two_team.id,
+            expected_status=status.HTTP_404_NOT_FOUND,
         )
         self._get_feature_flag_activity(
-            flag_id=team_two_flag_one, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+            flag_id=team_two_flag_one,
+            team_id=org_two_team.id,
+            expected_status=status.HTTP_200_OK,
         )
         self._get_feature_flag_activity(
-            flag_id=team_two_flag_two, team_id=org_two_team.id, expected_status=status.HTTP_200_OK
+            flag_id=team_two_flag_two,
+            team_id=org_two_team.id,
+            expected_status=status.HTTP_200_OK,
         )
 
     def test_paging_all_feature_flag_activity(self):
         for x in range(15):
             create_response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/", {"name": f"feature flag {x}", "key": f"{x}"}
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": f"feature flag {x}", "key": f"{x}"},
             )
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 
@@ -840,7 +1014,8 @@ class TestFeatureFlag(APIBaseTest):
         second_page_json = second_page_response.json()
 
         self.assertEqual(
-            [log_item["detail"]["name"] for log_item in second_page_json["results"]], ["4", "3", "2", "1", "0"]
+            [log_item["detail"]["name"] for log_item in second_page_json["results"]],
+            ["4", "3", "2", "1", "0"],
         )
         self.assertEqual(second_page_json["next"], None)
         self.assertEqual(
@@ -855,7 +1030,9 @@ class TestFeatureFlag(APIBaseTest):
 
         for x in range(1, 15):
             update_response = self.client.patch(
-                f"/api/projects/{self.team.id}/feature_flags/{flag_id}", {"key": str(x)}, format="json"
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"key": str(x)},
+                format="json",
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
@@ -913,7 +1090,8 @@ class TestFeatureFlag(APIBaseTest):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/", {"name": "Alpha feature", "key": "alpha-feature"}
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.json()["id"])
@@ -925,7 +1103,9 @@ class TestFeatureFlag(APIBaseTest):
         instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}", {"key": "alpha-feature"}, format="json"
+            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
+            {"key": "alpha-feature"},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         instance.refresh_from_db()
@@ -934,44 +1114,60 @@ class TestFeatureFlag(APIBaseTest):
     def test_my_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5}]}},
+            data={
+                "name": f"flag",
+                "key": f"flag",
+                "filters": {"groups": [{"rollout_percentage": 5}]},
+            },
             format="json",
         ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(1, 4):
             self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
-                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5}]}},
+                data={
+                    "name": f"flag",
+                    "key": f"flag_{i}",
+                    "filters": {"groups": [{"rollout_percentage": 5}]},
+                },
                 format="json",
             ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5}]}},
+            data={
+                "name": f"flag",
+                "key": f"flag_0",
+                "filters": {"groups": [{"rollout_percentage": 5}]},
+            },
             format="json",
         ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(11, 12)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(1, 5):
             self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
-                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5}]}},
+                data={
+                    "name": f"flag",
+                    "key": f"flag_{i}",
+                    "filters": {"groups": [{"rollout_percentage": 5}]},
+                },
                 format="json",
             ).json()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(FuzzyInt(11, 12)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -986,9 +1182,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"rollout_percentage": 20}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1045,7 +1253,10 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "name": "groups flag",
                 "key": "groups-flag",
-                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}]},
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 100}],
+                },
             },
             format="json",
         )
@@ -1059,11 +1270,352 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(groups_flag["value"], False)
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my_flags", data={"groups": json.dumps({"organization": "7"})}
+            f"/api/projects/{self.team.id}/feature_flags/my_flags",
+            data={"groups": json.dumps({"organization": "7"})},
         )
         groups_flag = response.json()[0]
         self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
         self.assertEqual(groups_flag["value"], True)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_usage_dashboard(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        instance = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(instance.key, "alpha-feature")
+
+        dashboard = instance.usage_dashboard
+        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+
+        self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
+        self.assertEqual(
+            dashboard.description,
+            "This dashboard was generated by the feature flag with key (alpha-feature)",
+        )
+        self.assertEqual(dashboard.filters, {"date_from": "-30d"})
+        self.assertEqual(len(tiles), 2)
+        self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
+        self.assertEqual(
+            tiles[0].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_flag_called",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$feature_flag_response",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "breakdown_type": "event",
+                "filter_test_accounts": False,
+            },
+        )
+        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            tiles[1].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_flag_called",
+                        "math": "dau",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                    }
+                ],
+                "display": "ActionsTable",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$feature_flag_response",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "breakdown_type": "event",
+                "filter_test_accounts": False,
+            },
+        )
+
+        # now enable enriched analytics
+        instance.has_enriched_analytics = True
+        instance.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        instance.refresh_from_db()
+
+        dashboard = instance.usage_dashboard
+        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+
+        self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
+        self.assertEqual(
+            dashboard.description,
+            "This dashboard was generated by the feature flag with key (alpha-feature)",
+        )
+        self.assertEqual(dashboard.filters, {"date_from": "-30d"})
+        self.assertEqual(len(tiles), 4)
+        self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
+        self.assertEqual(
+            tiles[0].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_flag_called",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$feature_flag_response",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "breakdown_type": "event",
+                "filter_test_accounts": False,
+            },
+        )
+        self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
+        self.assertEqual(
+            tiles[1].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_flag_called",
+                        "math": "dau",
+                        "name": "$feature_flag_called",
+                        "type": "events",
+                    }
+                ],
+                "display": "ActionsTable",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$feature_flag_response",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "breakdown_type": "event",
+                "filter_test_accounts": False,
+            },
+        )
+
+        # enriched insights
+        self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
+        self.assertEqual(
+            tiles[2].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_interaction",
+                        "name": "Feature Interaction - Total",
+                        "type": "events",
+                    },
+                    {
+                        "id": "$feature_interaction",
+                        "math": "dau",
+                        "name": "Feature Interaction - Unique users",
+                        "type": "events",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "filter_test_accounts": False,
+            },
+        )
+        self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
+        self.assertEqual(
+            tiles[3].insight.filters,
+            {
+                "events": [
+                    {
+                        "id": "$feature_view",
+                        "name": "Feature View - Total",
+                        "type": "events",
+                    },
+                    {
+                        "id": "$feature_view",
+                        "math": "dau",
+                        "name": "Feature View - Unique users",
+                        "type": "events",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-30d",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "feature_flag",
+                                    "type": "event",
+                                    "value": "alpha-feature",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "filter_test_accounts": False,
+            },
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_dashboard_enrichment_fails_if_already_enriched(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        instance = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(instance.key, "alpha-feature")
+
+        # now enable enriched analytics
+        instance.has_enriched_analytics = True
+        instance.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # now try enriching again
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "Usage dashboard already has enriched data", "success": False},
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_dashboard_enrichment_fails_if_no_enriched_data(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        instance = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(instance.key, "alpha-feature")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "error": "No enriched analytics available for this feature flag",
+                "success": False,
+            },
+        )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation(self, mock_capture):
@@ -1080,9 +1632,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"rollout_percentage": 20}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1095,7 +1659,10 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "name": "Group feature",
                 "key": "group-feature",
-                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 21}]},
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 21}],
+                },
             },
             format="json",
         )
@@ -1152,9 +1719,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"rollout_percentage": 20}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1170,7 +1749,10 @@ class TestFeatureFlag(APIBaseTest):
                 "key": "beta-feature",
                 "filters": {
                     "groups": [
-                        {"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}
+                        {
+                            "properties": [{"key": "beta-property", "value": "beta-value"}],
+                            "rollout_percentage": 51,
+                        }
                     ]
                 },
                 "deleted": False,
@@ -1183,7 +1765,10 @@ class TestFeatureFlag(APIBaseTest):
             {
                 "name": "Group feature",
                 "key": "group-feature",
-                "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0},
+                "filters": {
+                    "groups": [{"rollout_percentage": 21}],
+                    "aggregation_group_type_index": 0,
+                },
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
@@ -1206,8 +1791,16 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -1225,14 +1818,32 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [
                         {
                             "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
                         }
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1263,19 +1874,171 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
+                            "properties": [
+                                {
+                                    "key": "$some_prop",
+                                    "type": "person",
+                                    "value": "nomatchihope",
+                                }
+                            ],
                             "rollout_percentage": 20,
                         },
                         {
-                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "properties": [
+                                {
+                                    "key": "$some_prop2",
+                                    "type": "person",
+                                    "value": "nomatchihope2",
+                                }
+                            ],
                             "rollout_percentage": 20,
                         },
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "ensure_experience_continuity": False,
+            },
+            sorted_flags[0],
+        )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        cohort_valid_for_ff = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "variant": "test",
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        },
+                        {
+                            "variant": "test",
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": "icontains",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        },
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "", "rollout_percentage": 100},
+                            {"key": "test", "name": "", "rollout_percentage": 0},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 1)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [
+                        {
+                            "variant": "test",
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        },
+                        {
+                            "variant": "test",
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": "icontains",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        },
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "", "rollout_percentage": 100},
+                            {"key": "test", "name": "", "rollout_percentage": 0},
                         ]
                     },
                 },
@@ -1305,14 +2068,32 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [
                         {
                             "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
                         }
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1342,14 +2123,32 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [
                         {
                             "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
                         }
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1378,8 +2177,16 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -1397,9 +2204,22 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
-                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
-                                {"key": "id", "value": cohort_valid_for_ff.pk, "type": "cohort", "negation": True},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "value": "nomatchihope2",
+                                    "type": "person",
+                                },
+                                {
+                                    "key": "id",
+                                    "value": cohort_valid_for_ff.pk,
+                                    "type": "cohort",
+                                    "negation": True,
+                                },
                             ],
                         }
                     ],
@@ -1422,9 +2242,21 @@ class TestFeatureFlag(APIBaseTest):
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1441,7 +2273,13 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [
                         {
                             "rollout_percentage": 20,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
                         }
                     ],
                 },
@@ -1474,8 +2312,16 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
+                                {
+                                    "key": "$some_prop",
+                                    "type": "person",
+                                    "value": "nomatchihope",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "type": "person",
+                                    "value": "nomatchihope2",
+                                },
                             ],
                         }
                     ],
@@ -1486,9 +2332,22 @@ class TestFeatureFlag(APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$some_prop", "type": "person", "value": "nomatchihope"},
-                                {"key": "$some_prop2", "type": "person", "value": "nomatchihope2"},
-                                {"key": "id", "type": "cohort", "value": cohort_valid_for_ff.pk, "negation": True},
+                                {
+                                    "key": "$some_prop",
+                                    "type": "person",
+                                    "value": "nomatchihope",
+                                },
+                                {
+                                    "key": "$some_prop2",
+                                    "type": "person",
+                                    "value": "nomatchihope2",
+                                },
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                    "negation": True,
+                                },
                             ],
                         }
                     ],
@@ -1509,9 +2368,21 @@ class TestFeatureFlag(APIBaseTest):
                     ],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                 },
@@ -1529,11 +2400,13 @@ class TestFeatureFlag(APIBaseTest):
                 "filters": {
                     "groups": [
                         {
-                            "properties": [{"key": "$some_prop", "type": "person", "value": "nomatchihope"}],
-                            "rollout_percentage": 20,
-                        },
-                        {
-                            "properties": [{"key": "$some_prop2", "type": "person", "value": "nomatchihope2"}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_valid_for_ff.pk,
+                                }
+                            ],
                             "rollout_percentage": 20,
                         },
                     ],
@@ -1592,7 +2465,10 @@ class TestFeatureFlag(APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"1"})
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                {b"165192618": b"1"},
+            )
 
             for _ in range(5):
                 response = self.client.get(
@@ -1601,7 +2477,89 @@ class TestFeatureFlag(APIBaseTest):
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"6"})
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                {b"165192618": b"6"},
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
+        FeatureFlag.objects.all().delete()
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
+
+        client = redis.get_client()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        # request made while logged in, via client cookie auth
+        response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+        # shouldn't add to local eval requests
+        self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        with freeze_time("2022-05-07 12:23:07"):
+            # missing API key
+            response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(f"/api/feature_flag/")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(
+                f"/api/feature_flag/?token={self.team.api_token}",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                {b"165192618": b"1"},
+            )
+
+            for _ in range(4):
+                response = self.client.get(
+                    f"/api/feature_flag/?token={self.team.api_token}",
+                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # local evaluation still works
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"),
+                {b"165192618": b"6"},
+            )
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
@@ -1623,9 +2581,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"rollout_percentage": 20}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ],
                     },
                 },
@@ -1806,7 +2776,15 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(
-            "person-flag", [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}]
+            "person-flag",
+            [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "@posthog.com",
+                    "operator": "icontains",
+                }
+            ],
         )
         self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
 
@@ -1817,7 +2795,9 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
 
         event_request = self._create_flag_with_properties(
-            "illegal-event-flag", [{"key": "id", "value": 5}], expected_status=status.HTTP_400_BAD_REQUEST
+            "illegal-event-flag",
+            [{"key": "id", "value": 5}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(
             event_request.json(),
@@ -1831,7 +2811,14 @@ class TestFeatureFlag(APIBaseTest):
 
         groups_request = self._create_flag_with_properties(
             "illegal-groups-flag",
-            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            [
+                {
+                    "key": "industry",
+                    "value": "finance",
+                    "type": "group",
+                    "group_type_index": 0,
+                }
+            ],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
         self.assertEqual(
@@ -1846,7 +2833,9 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_creating_feature_flag_with_non_existant_cohort(self):
         cohort_request = self._create_flag_with_properties(
-            "cohort-flag", [{"key": "id", "type": "cohort", "value": 5151}], expected_status=status.HTTP_400_BAD_REQUEST
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": 5151}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
         self.assertDictContainsSubset(
@@ -1862,13 +2851,27 @@ class TestFeatureFlag(APIBaseTest):
     def test_validation_payloads(self):
         self._create_flag_with_properties(
             "person-flag",
-            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+            [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "@posthog.com",
+                    "operator": "icontains",
+                }
+            ],
             payloads={"true": 300},
             expected_status=status.HTTP_201_CREATED,
         )
         self._create_flag_with_properties(
             "person-flag",
-            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+            [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "@posthog.com",
+                    "operator": "icontains",
+                }
+            ],
             payloads={"some-fake-key": 300},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
@@ -1882,9 +2885,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                     "payloads": {"first-variant": {"some": "payload"}},
@@ -1903,12 +2918,27 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
-                    "payloads": {"first-variant": {"some": "payload"}, "fourth-variant": {"some": "payload"}},
+                    "payloads": {
+                        "first-variant": {"some": "payload"},
+                        "fourth-variant": {"some": "payload"},
+                    },
                 },
             },
             format="json",
@@ -1924,9 +2954,21 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            {
+                                "key": "first-variant",
+                                "name": "First Variant",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "second-variant",
+                                "name": "Second Variant",
+                                "rollout_percentage": 25,
+                            },
+                            {
+                                "key": "third-variant",
+                                "name": "Third Variant",
+                                "rollout_percentage": 25,
+                            },
                         ]
                     },
                     "payloads": {"first-variant": {"some": "payload"}, "true": 2500},
@@ -1937,7 +2979,6 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
-
         cohort_valid_for_ff = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]}],
@@ -1995,7 +3036,13 @@ class TestFeatureFlag(APIBaseTest):
                     "groups": [
                         {
                             "rollout_percentage": 65,
-                            "properties": [{"key": "id", "type": "cohort", "value": cohort_not_valid_for_ff.id}],
+                            "properties": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": cohort_not_valid_for_ff.id,
+                                }
+                            ],
                         }
                     ]
                 },
@@ -2016,7 +3063,6 @@ class TestFeatureFlag(APIBaseTest):
         )
 
     def test_creating_feature_flag_with_nested_behavioral_cohort(self):
-
         cohort_not_valid_for_ff = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2040,13 +3086,29 @@ class TestFeatureFlag(APIBaseTest):
 
         nested_cohort_not_valid_for_ff = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "id", "value": cohort_not_valid_for_ff.pk, "type": "cohort"}]}],
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": cohort_not_valid_for_ff.pk,
+                            "type": "cohort",
+                        }
+                    ]
+                }
+            ],
             name="cohort-not-behavioural",
         )
 
         cohort_request = self._create_flag_with_properties(
             "cohort-flag",
-            [{"key": "id", "type": "cohort", "value": nested_cohort_not_valid_for_ff.id}],
+            [
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": nested_cohort_not_valid_for_ff.id,
+                }
+            ],
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -2079,14 +3141,28 @@ class TestFeatureFlag(APIBaseTest):
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",
-            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            [
+                {
+                    "key": "industry",
+                    "value": "finance",
+                    "type": "group",
+                    "group_type_index": 0,
+                }
+            ],
             aggregation_group_type_index=0,
         )
         self.assertEqual(groups_request.status_code, status.HTTP_201_CREATED)
 
         illegal_groups_request = self._create_flag_with_properties(
             "illegal-groups-flag",
-            [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            [
+                {
+                    "key": "industry",
+                    "value": "finance",
+                    "type": "group",
+                    "group_type_index": 0,
+                }
+            ],
             aggregation_group_type_index=3,
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
@@ -2102,7 +3178,14 @@ class TestFeatureFlag(APIBaseTest):
 
         person_request = self._create_flag_with_properties(
             "person-flag",
-            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+            [
+                {
+                    "key": "email",
+                    "type": "person",
+                    "value": "@posthog.com",
+                    "operator": "icontains",
+                }
+            ],
             aggregation_group_type_index=0,
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
@@ -2129,14 +3212,21 @@ class TestFeatureFlag(APIBaseTest):
 
         create_response = self.client.post(
             f"/api/projects/{team_id}/feature_flags/",
-            data={"name": name, "key": name, "filters": {**kwargs, "groups": [{"properties": properties}]}},
+            data={
+                "name": name,
+                "key": name,
+                "filters": {**kwargs, "groups": [{"properties": properties}]},
+            },
             format="json",
         )
         self.assertEqual(create_response.status_code, expected_status)
         return create_response
 
     def _get_feature_flag_activity(
-        self, flag_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self,
+        flag_id: Optional[int] = None,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
             team_id = self.team.id
@@ -2163,7 +3253,10 @@ class TestFeatureFlag(APIBaseTest):
             name="some feature",
             key="some-feature",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None},
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": None,
+            },
             active=True,
         )
 
@@ -2178,7 +3271,11 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(updated_flag.active, False)
         self.assertEqual(updated_flag.name, "replaced")
         self.assertEqual(
-            updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
+            updated_flag.filters,
+            {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": None,
+            },
         )
 
     def test_feature_flag_threshold(self):
@@ -2187,7 +3284,10 @@ class TestFeatureFlag(APIBaseTest):
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
-                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 65}],
+                },
                 "rollback_conditions": [
                     {
                         "threshold": 5000,
@@ -2215,7 +3315,10 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
     def test_feature_flag_can_edit(self):
-        self.assertEqual((AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features), False)
+        self.assertEqual(
+            (AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features),
+            False,
+        )
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         FeatureFlag.objects.create(team=self.team, created_by=user_a, key="blue_button")
         res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
@@ -2228,14 +3331,24 @@ class TestFeatureFlag(APIBaseTest):
             data={
                 "name": "Notebooks power users survey",
                 "type": "popover",
-                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What would you want to improve from notebooks?",
+                    }
+                ],
                 "targeting_flag_filters": {
                     "groups": [
                         {
                             "variant": None,
                             "rollout_percentage": None,
                             "properties": [
-                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                                {
+                                    "key": "billing_plan",
+                                    "value": ["cloud"],
+                                    "operator": "exact",
+                                    "type": "person",
+                                }
                             ],
                         }
                     ]
@@ -2260,7 +3373,10 @@ class TestFeatureFlag(APIBaseTest):
             data={
                 "name": "Beta feature",
                 "key": "beta-feature",
-                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 65}],
+                },
             },
             format="json",
         ).json()
@@ -2308,16 +3424,21 @@ class TestFeatureFlag(APIBaseTest):
 
         for _ in range(5):
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+                f"/api/projects/{self.team.pk}/feature_flags",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Call to flags gets rate limited
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+            f"/api/projects/{self.team.pk}/feature_flags",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            1,
+        )
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
             tags={
@@ -2333,24 +3454,114 @@ class TestFeatureFlag(APIBaseTest):
         # but not call to local evaluation
         for _ in range(7):
             response = self.client.get(
-                f"/api/feature_flag/local_evaluation", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
+                f"/api/feature_flag/local_evaluation",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
+        self.assertEqual(
+            len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
+            0,
+        )
+
+    def test_feature_flag_dashboard(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        relationship = FeatureFlagDashboards.objects.create(
+            feature_flag=another_feature_flag, dashboard_id=dashboard.pk
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+        # check deleting the dashboard doesn't delete flag, but deletes the relationship
+        dashboard.delete()
+        another_feature_flag.refresh_from_db()
+
+        with self.assertRaises(FeatureFlagDashboards.DoesNotExist):
+            relationship.refresh_from_db()
+
+    def test_feature_flag_dashboard_patch(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_already_exists(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=50,
+            name="some feature",
+            key="some-feature",
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius(self):
-
         for i in range(10):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
                 "condition": {
-                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "properties": [
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                        }
+                    ],
                     "rollout_percentage": 25,
                 }
             },
@@ -2362,12 +3573,18 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
 
     def test_user_blast_radius_with_zero_users(self):
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
                 "condition": {
-                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "properties": [
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                        }
+                    ],
                     "rollout_percentage": 25,
                 }
             },
@@ -2379,15 +3596,25 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 0}, response_json)
 
     def test_user_blast_radius_with_zero_selected_users(self):
-
         for i in range(5):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
                 "condition": {
-                    "properties": [{"key": "group", "type": "person", "value": [8], "operator": "exact"}],
+                    "properties": [
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [8],
+                            "operator": "exact",
+                        }
+                    ],
                     "rollout_percentage": 25,
                 }
             },
@@ -2399,9 +3626,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
 
     def test_user_blast_radius_with_all_selected_users(self):
-
         for i in range(5):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -2415,9 +3645,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
-
         for i in range(10):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -2474,9 +3707,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
-
         for i in range(10):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -2506,7 +3742,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "group", "value": [1, 2, 4, 5, 6], "type": "person"},
+                                {
+                                    "key": "group",
+                                    "value": [1, 2, 4, 5, 6],
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -2540,9 +3780,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
-
         for i in range(10):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort1.insert_users_by_list(["person0", "person1", "person2"])
@@ -2556,7 +3799,11 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "group", "value": [1, 2, 4, 5, 6], "type": "person"},
+                                {
+                                    "key": "group",
+                                    "value": [1, 2, 4, 5, 6],
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -2612,7 +3859,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
             )
 
         response = self.client.post(
@@ -2644,7 +3894,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(5):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
             )
 
         response = self.client.post(
@@ -2652,7 +3905,13 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             {
                 "condition": {
                     "properties": [
-                        {"key": "industry", "type": "group", "value": [8], "operator": "exact", "group_type_index": 0}
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [8],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        }
                     ],
                     "rollout_percentage": 25,
                 },
@@ -2671,7 +3930,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(5):
             create_group(
-                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": f"{i}"}
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
             )
 
         response = self.client.post(
@@ -2697,7 +3959,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
             )
 
         response = self.client.post(
@@ -2737,7 +4002,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(10):
             create_group(
-                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
             )
 
         response = self.client.post(
@@ -2778,61 +4046,6 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             response_json,
         )
 
-    def test_feature_flag_dashboard(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        FeatureFlagDashboards.objects.create(feature_flag=another_feature_flag, dashboard_id=dashboard.pk)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
-
-    def test_feature_flag_dashboard_patch(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
-
-    def test_feature_flag_dashboard_already_exists(self):
-        another_feature_flag = FeatureFlag.objects.create(
-            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
-        )
-        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
-            {"analytics_dashboards": [dashboard.pk]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
-
 
 class QueryTimeoutWrapper:
     def __call__(self, execute, *args, **kwargs):
@@ -2847,7 +4060,10 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-@patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+@patch(
+    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
+    return_value=True,
+)
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
@@ -2864,7 +4080,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": f"finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:1",
+            properties={"industry": f"finance"},
+        )
 
         serialized_data = FeatureFlagSerializer(
             data={
@@ -2875,7 +4096,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}
+                                {
+                                    "key": "industry",
+                                    "value": "finance",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                }
                             ],
                             "rollout_percentage": None,
                         }
@@ -2912,7 +4138,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-
             with self.assertNumQueries(1):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
@@ -2958,7 +4183,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         serialized_data = FeatureFlagSerializer(
             data={
@@ -2968,7 +4197,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
                             ],
                             "rollout_percentage": None,
                         }
@@ -3012,7 +4246,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                    team_id,
+                    "random",
+                    property_value_overrides={"email": "tim@posthog.com"},
                 )
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
@@ -3025,7 +4261,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    team_id, "example_id", property_value_overrides={"email": "tom@posthog.com"}
+                    team_id,
+                    "example_id",
+                    property_value_overrides={"email": "tom@posthog.com"},
                 )
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
@@ -3043,7 +4281,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
         create_request.user = self.user
 
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         serialized_data = FeatureFlagSerializer(
             data={
@@ -3053,7 +4295,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
                             ],
                             "rollout_percentage": None,
                         }
@@ -3088,7 +4335,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is slow and times out
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+            500,
         ):
             mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -3100,7 +4348,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                    team_id,
+                    "random",
+                    property_value_overrides={"email": "tim@posthog.com"},
                 )
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
@@ -3109,7 +4359,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    team_id, "example_id", property_value_overrides={"email": "tom@posthog.com"}
+                    team_id,
+                    "example_id",
+                    property_value_overrides={"email": "tom@posthog.com"},
                 )
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
@@ -3123,7 +4375,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         team_id = self.team.pk
 
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
 
         FeatureFlag.objects.create(
             name="Alpha feature",
@@ -3132,7 +4388,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "value": "tim@posthog.com",
+                                "type": "person",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": None,
                     }
@@ -3149,7 +4410,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 "groups": [
                     {
                         "properties": [
-                            {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            {
+                                "key": "email",
+                                "value": "tim@posthog.com",
+                                "type": "person",
+                                "operator": "exact",
+                            }
                         ],
                         "rollout_percentage": None,
                     }
@@ -3179,7 +4445,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is slow and times out
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+            500,
         ), self.assertNumQueries(2):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -3211,7 +4478,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
-        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": f"finance"})
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=f"org:1",
+            properties={"industry": f"finance"},
+        )
 
         serialized_data = FeatureFlagSerializer(
             data={
@@ -3222,7 +4494,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}
+                                {
+                                    "key": "industry",
+                                    "value": "finance",
+                                    "type": "group",
+                                    "group_type_index": 0,
+                                }
                             ],
                             "rollout_percentage": None,
                         }
@@ -3259,9 +4536,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is slow
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+            500,
         ):
-
             with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
@@ -3317,7 +4594,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request.user = self.user
 
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id", "random"], properties={"email": "tim@posthog.com"}
+            team=self.team,
+            distinct_ids=["example_id", "random"],
+            properties={"email": "tim@posthog.com"},
         )
 
         serialized_data = FeatureFlagSerializer(
@@ -3328,7 +4607,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
                             ],
                             "rollout_percentage": 91,
                         }
@@ -3362,7 +4646,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # db is slow and times out
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+            500,
         ):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
@@ -3374,7 +4659,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             # still need to get hash key override from db, so should time out
             with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(
-                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                    team_id,
+                    "random",
+                    property_value_overrides={"email": "tim@posthog.com"},
                 )
                 self.assertTrue("property-flag" not in all_flags)
                 self.assertTrue(all_flags["default-flag"])
@@ -3399,7 +4686,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         create_request.user = self.user
 
         Person.objects.create(
-            team=self.team, distinct_ids=["example_id", "random"], properties={"email": "tim@posthog.com"}
+            team=self.team,
+            distinct_ids=["example_id", "random"],
+            properties={"email": "tim@posthog.com"},
         )
 
         serialized_data = FeatureFlagSerializer(
@@ -3410,7 +4699,12 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     "groups": [
                         {
                             "properties": [
-                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
                             ],
                             "rollout_percentage": 91,
                         }

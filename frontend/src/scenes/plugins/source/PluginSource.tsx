@@ -2,7 +2,7 @@ import './PluginSource.scss'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Skeleton } from 'antd'
-import MonacoEditor, { useMonaco } from '@monaco-editor/react'
+import { useMonaco } from '@monaco-editor/react'
 import { Drawer } from 'lib/components/Drawer'
 
 import { userLogic } from 'scenes/userLogic'
@@ -13,7 +13,8 @@ import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { Form } from 'kea-forms'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { Link } from '@posthog/lemon-ui'
 
 interface PluginSourceProps {
     pluginId: number
@@ -79,7 +80,7 @@ export function PluginSource({
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={
-                <div style={{ textAlign: 'right' }}>
+                <div className="text-right">
                     <Button onClick={closePluginSource} style={{ marginRight: 16 }}>
                         Close
                     </Button>
@@ -94,15 +95,15 @@ export function PluginSource({
                     <>
                         <p>
                             Read our{' '}
-                            <a href="https://posthog.com/docs/apps/build" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build" target="_blank">
                                 app building overview in PostHog Docs
-                            </a>{' '}
+                            </Link>{' '}
                             for a good grasp of possibilities.
                             <br />
                             Once satisfied with your app, feel free to{' '}
-                            <a href="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
+                            <Link to="https://posthog.com/docs/apps/build/tutorial#submitting-your-app" target="_blank">
                                 submit it to the official App Store
-                            </a>
+                            </Link>
                             .
                         </p>
 
@@ -114,8 +115,7 @@ export function PluginSource({
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>
-                                            <MonacoEditor
-                                                theme="vs-dark"
+                                            <CodeEditor
                                                 path={currentFile}
                                                 language={currentFile.endsWith('.json') ? 'json' : 'typescript'}
                                                 value={value}
@@ -124,10 +124,9 @@ export function PluginSource({
                                                 options={{
                                                     minimap: { enabled: false },
                                                 }}
-                                                loading={<Spinner />}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
-                                                <div style={{ marginTop: '0.5rem' }}>
+                                                <div className="mt-2">
                                                     <LemonButton
                                                         type="primary"
                                                         onClick={() =>

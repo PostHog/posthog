@@ -5,7 +5,7 @@ import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SSOProvider } from '~/types'
 
-interface SSOSelectInterface {
+export interface SSOSelectInterface {
     value: SSOProvider | ''
     loading: boolean
     onChange: (value: SSOProvider | '') => void

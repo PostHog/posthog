@@ -61,7 +61,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
     })),
-    reducers(({}) => ({
+    reducers(() => ({
         filters: [
             DEFAULT_PLAYLIST_FILTERS as SavedSessionRecordingPlaylistsFilters | Record<string, any>,
             {

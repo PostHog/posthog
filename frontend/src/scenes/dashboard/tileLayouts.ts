@@ -46,7 +46,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             const isBoldNumber = isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber
 
             const defaultWidth = isRetention || isPathsViz ? 8 : 6
-            const defaultHeight = !!tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
+            const defaultHeight = tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
             const layout = tile.layouts && tile.layouts[col]
             const { x, y, w, h } = layout || {}
             const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])

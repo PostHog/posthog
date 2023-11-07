@@ -1,5 +1,6 @@
 import { Hub, PropertyDefinitionTypeEnum } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUIDT } from '../../../src/utils/utils'
 import { PropertyDefinitionsCache } from '../../../src/worker/ingestion/property-definitions-cache'
 import { resetTestDatabase } from '../../helpers/sql'
@@ -30,7 +31,8 @@ describe('PropertyDefinitionsManager()', () => {
 
     describe('with pre-existing data', () => {
         beforeEach(async () => {
-            await hub.db.postgresQuery(
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_propertydefinition (id, name, property_type, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                 [
                     new UUIDT().toString(),
@@ -44,7 +46,8 @@ describe('PropertyDefinitionsManager()', () => {
                 ],
                 'testTag'
             )
-            await hub.db.postgresQuery(
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_propertydefinition (id, name, property_type, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                 [
                     new UUIDT().toString(),
@@ -58,7 +61,8 @@ describe('PropertyDefinitionsManager()', () => {
                 ],
                 'testTag'
             )
-            await hub.db.postgresQuery(
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_propertydefinition (id, name, property_type, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                 [
                     new UUIDT().toString(),
@@ -72,7 +76,8 @@ describe('PropertyDefinitionsManager()', () => {
                 ],
                 'testTag'
             )
-            await hub.db.postgresQuery(
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_propertydefinition (id, name, property_type, type, is_numerical, volume_30_day, query_usage_30_day, team_id, group_type_index) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
                 [
                     new UUIDT().toString(),

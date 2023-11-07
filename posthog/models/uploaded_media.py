@@ -35,11 +35,19 @@ class UploadedMedia(UUIDModel):
 
     @classmethod
     def save_content(
-        cls, team: Team, created_by: User, file_name: str, content_type: str, content: bytes
+        cls,
+        team: Team,
+        created_by: User,
+        file_name: str,
+        content_type: str,
+        content: bytes,
     ) -> Optional["UploadedMedia"]:
         try:
             media = UploadedMedia.objects.create(
-                team=team, created_by=created_by, file_name=file_name, content_type=content_type
+                team=team,
+                created_by=created_by,
+                file_name=file_name,
+                content_type=content_type,
             )
             if settings.OBJECT_STORAGE_ENABLED:
                 save_content_to_object_storage(media, content)
@@ -54,7 +62,11 @@ class UploadedMedia(UUIDModel):
         except ObjectStorageError as ose:
             capture_exception(ose)
             logger.error(
-                "uploaded_media.object-storage-error", file_name=file_name, team=team.pk, exception=ose, exc_info=True
+                "uploaded_media.object-storage-error",
+                file_name=file_name,
+                team=team.pk,
+                exception=ose,
+                exc_info=True,
             )
             return None
 

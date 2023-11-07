@@ -17,7 +17,7 @@ from posthog.constants import FunnelCorrelationType
 from posthog.models.element import Element
 from posthog.models.team import Team
 from posthog.test.base import BaseTest, _create_event, _create_person
-from posthog.test.test_journeys import journeys_for, update_or_create_person
+from posthog.test.test_journeys import journeys_for
 
 
 @pytest.mark.clickhouse_only
@@ -34,7 +34,8 @@ class FunnelCorrelationTest(BaseTest):
             team_id=self.team.pk,
             request=FunnelCorrelationRequest(date_to="2020-04-04", events=json.dumps([])),
         )
-        assert response.status_code == 401
+        assert response.status_code == 403
+        assert response.json() == self.unauthenticated_response()
 
     def test_event_correlation_endpoint_picks_up_events_for_odds_ratios(self):
         with freeze_time("2020-01-01"):
@@ -101,7 +102,11 @@ class FunnelCorrelationTest(BaseTest):
             "result": {
                 "events": [
                     {
-                        "event": {"event": "watched video", "elements": [], "properties": {}},
+                        "event": {
+                            "event": "watched video",
+                            "elements": [],
+                            "properties": {},
+                        },
                         "failure_count": 1,
                         "success_count": 1,
                         "success_people_url": ANY,
@@ -246,7 +251,11 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps(
-                        [EventPattern(id="signup"), EventPattern(id="some waypoint"), EventPattern(id="view insights")]
+                        [
+                            EventPattern(id="signup"),
+                            EventPattern(id="some waypoint"),
+                            EventPattern(id="view insights"),
+                        ]
                     ),
                     date_to="2020-04-04",
                 ),
@@ -330,19 +339,31 @@ class FunnelCorrelationTest(BaseTest):
                 "Person 1": [
                     # Failure / watched
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
-                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                    {
+                        "event": "watched video",
+                        "properties": {"$browser": "1"},
+                        "timestamp": datetime(2020, 1, 2),
+                    },
                 ],
                 "Person 2": [
                     # Success / watched
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
-                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                    {
+                        "event": "watched video",
+                        "properties": {"$browser": "1"},
+                        "timestamp": datetime(2020, 1, 2),
+                    },
                     {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
                 ],
                 "Person 3": [
                     # Success / watched. We need to have three event instances
                     # for this test otherwise the endpoint doesn't return results
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
-                    {"event": "watched video", "properties": {"$browser": "1"}, "timestamp": datetime(2020, 1, 2)},
+                    {
+                        "event": "watched video",
+                        "properties": {"$browser": "1"},
+                        "timestamp": datetime(2020, 1, 2),
+                    },
                     {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
                 ],
                 "Person 4": [
@@ -378,16 +399,35 @@ class FunnelCorrelationTest(BaseTest):
         self.client.force_login(self.user)
 
         for i in range(10):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
-            _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Positive"},
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         for i in range(10, 20):
-            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_person(
+                distinct_ids=[f"user_{i}"],
+                team_id=self.team.pk,
+                properties={"$browser": "Negative"},
+            )
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             if i % 2 == 0:
                 _create_event(
@@ -427,7 +467,11 @@ class FunnelCorrelationTest(BaseTest):
             result,
             [
                 {
-                    "event": {"event": "$browser::Positive", "elements": [], "properties": {}},
+                    "event": {
+                        "event": "$browser::Positive",
+                        "elements": [],
+                        "properties": {},
+                    },
                     "success_count": 10,
                     "failure_count": 0,
                     "success_people_url": ANY,
@@ -436,7 +480,11 @@ class FunnelCorrelationTest(BaseTest):
                     "correlation_type": "success",
                 },
                 {
-                    "event": {"event": "$browser::Negative", "elements": [], "properties": {}},
+                    "event": {
+                        "event": "$browser::Negative",
+                        "elements": [],
+                        "properties": {},
+                    },
                     "success_count": 0,
                     "failure_count": 10,
                     "success_people_url": ANY,
@@ -458,8 +506,21 @@ class FunnelCorrelationTest(BaseTest):
         with freeze_time("2020-01-01"):
             self.client.force_login(self.user)
 
-            update_or_create_person(distinct_ids=["Person 1"], team_id=self.team.pk, properties={"$browser": "1"})
-            update_or_create_person(distinct_ids=["Person 2"], team_id=self.team.pk, properties={"$browser": "1"})
+            _create_person(
+                distinct_ids=["Person 1"],
+                team_id=self.team.pk,
+                properties={"$browser": "1"},
+            )
+            _create_person(
+                distinct_ids=["Person 2"],
+                team_id=self.team.pk,
+                properties={"$browser": "1"},
+            )
+            _create_person(
+                distinct_ids=["Person 3"],
+                team_id=self.team.pk,
+                properties={},
+            )
 
             events = {
                 "Person 1": [
@@ -478,7 +539,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
             }
 
-            journeys_for(events_by_person=events, team=self.team)
+            journeys_for(events_by_person=events, team=self.team, create_people=False)
 
             odds = get_funnel_correlation_ok(
                 client=self.client,
@@ -545,7 +606,10 @@ class FunnelCorrelationTest(BaseTest):
         for i in range(3):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
             _create_event(
-                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z"
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
             )
             _create_event(
                 team=self.team,
@@ -555,12 +619,20 @@ class FunnelCorrelationTest(BaseTest):
                 timestamp="2020-01-03T14:00:00Z",
                 properties={"signup_source": "email", "$event_type": "click"},
             )
-            _create_event(team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z")
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
 
         # Atleast one person that fails, to ensure we get results
         _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk)
         _create_event(
-            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z"
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
         )
 
         with freeze_time("2020-01-01"):

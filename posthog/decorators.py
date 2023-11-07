@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
+from posthog.caching.utils import is_stale_filter
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import User
@@ -30,7 +31,17 @@ T = TypeVar("T", bound=ResultPackage)
 U = TypeVar("U", bound=GenericViewSet)
 
 
-def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
+def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
+    """Caches the decorated method on a ViewSet in Redis. Used for anything based
+    on a filter e.g. insights or persons calculations.
+
+    The decorated method is expected to return a dict with key `result`. Keys
+    `last_refresh` and `is_cached` are added for the full result package.
+
+    The cache can be invalidated by using the boolean key `refresh` or setting
+    a `cache_invalidation_key` which gets incorporated in the cache key.
+    """
+
     @wraps(f)
     def wrapper(self, request) -> T:
         from posthog.caching.insight_cache import update_cached_state
@@ -64,9 +75,12 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                 route = "unknown"
 
             if cached_result_package and cached_result_package.get("result"):
-                cached_result_package["is_cached"] = True
-                statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
-                return cached_result_package
+                if not is_stale_filter(team, filter, cached_result_package):
+                    cached_result_package["is_cached"] = True
+                    statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
+                    return cached_result_package
+                else:
+                    statsd.incr("posthog_cached_function_cache_stale", tags={"route": route})
             else:
                 statsd.incr("posthog_cached_function_cache_miss", tags={"route": route})
 

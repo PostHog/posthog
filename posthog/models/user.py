@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -77,7 +78,11 @@ class UserManager(BaseUserManager):
             organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
             user = self.create_user(
-                email=email, password=password, first_name=first_name, is_staff=is_staff, **user_fields
+                email=email,
+                password=password,
+                first_name=first_name,
+                is_staff=is_staff,
+                **user_fields,
             )
             if create_team:
                 team = create_team(organization, user)
@@ -128,7 +133,10 @@ class User(AbstractUser, UUIDClassicModel):
     TOOLBAR_CHOICES = [(DISABLED, DISABLED), (TOOLBAR, TOOLBAR)]
 
     current_organization = models.ForeignKey(
-        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
+        "posthog.Organization",
+        models.SET_NULL,
+        null=True,
+        related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
@@ -167,7 +175,8 @@ class User(AbstractUser, UUIDClassicModel):
         """
         teams = Team.objects.filter(organization__members=self)
         if Organization.objects.filter(
-            members=self, available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING]
+            members=self,
+            available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING],
         ).exists():
             try:
                 from ee.models import ExplicitTeamMembership
@@ -209,7 +218,10 @@ class User(AbstractUser, UUIDClassicModel):
         return self.current_team
 
     def join(
-        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER
+        self,
+        *,
+        organization: Organization,
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
@@ -225,7 +237,8 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
-            return membership
+        self.update_billing_distinct_ids(organization)
+        return membership
 
     @property
     def notification_settings(self) -> Notifications:
@@ -245,7 +258,15 @@ class User(AbstractUser, UUIDClassicModel):
                 self.current_team = (
                     None if self.current_organization is None else self.current_organization.teams.first()
                 )
+                self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_distinct_ids(organization)
+
+    def update_billing_distinct_ids(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (

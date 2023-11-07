@@ -1,8 +1,8 @@
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import BreakdownMixin, DisplayDerivedMixin, EntitiesMixin
-from posthog.models.filters.mixins.groups import GroupsAggregationMixin
-from posthog.models.filters.mixins.interval import IntervalMixin
-from posthog.models.filters.mixins.property import PropertyMixin
+from .base_filter import BaseFilter
+from .mixins.common import BreakdownMixin, DisplayDerivedMixin, EntitiesMixin
+from .mixins.groups import GroupsAggregationMixin
+from .mixins.interval import IntervalMixin
+from .mixins.property import PropertyMixin
 
 
 class PropertiesTimelineFilter(

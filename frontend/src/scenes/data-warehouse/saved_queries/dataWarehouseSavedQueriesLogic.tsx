@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { DataWarehouseSavedQuery, ProductKey } from '~/types'
@@ -7,6 +7,8 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseSceneRow } from '../types'
 
 import type { dataWarehouseSavedQueriesLogicType } from './dataWarehouseSavedQueriesLogicType'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
@@ -30,6 +32,11 @@ export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogic
                 },
             },
         ],
+    })),
+    listeners(() => ({
+        createDataWarehouseSavedQuerySuccess: () => {
+            router.actions.push(urls.dataWarehouseSavedQueries())
+        },
     })),
     selectors({
         savedQueries: [

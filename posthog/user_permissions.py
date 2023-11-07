@@ -3,7 +3,15 @@ from typing import Any, Dict, List, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import (
+    Dashboard,
+    DashboardTile,
+    Insight,
+    Organization,
+    OrganizationMembership,
+    Team,
+    User,
+)
 
 
 class UserPermissions:
@@ -147,7 +155,9 @@ class UserTeamPermissions:
         return self.effective_membership_level_for_parent_membership(organization, membership)
 
     def effective_membership_level_for_parent_membership(
-        self, organization: Optional[Organization], organization_membership: Optional[OrganizationMembership]
+        self,
+        organization: Optional[Organization],
+        organization_membership: Optional[OrganizationMembership],
     ) -> Optional["OrganizationMembership.Level"]:
         if organization is None or organization_membership is None:
             return None

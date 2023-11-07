@@ -4,15 +4,21 @@ inputs:
     actions-id-token-request-url:
         required: true
         description: "ACTIONS_ID_TOKEN_REQUEST_URL, issued by GitHub when permission 'id-token' is set to 'write'"
-    load:
+    save:
         required: false
         default: 'false'
-        description: Whether to load the image into local Docker after building it
+        description: Whether to save the image in the Depot ephemeral registry after building it
 
 outputs:
     tag:
         description: The tag of the image that was built
         value: ${{ steps.emit.outputs.tag }}
+    build-id:
+        description: The ID of the build
+        value: ${{ steps.build.outputs.build-id }}
+    unit-build-id:
+        description: The ID of the unit build
+        value: ${{ steps.build-unit.outputs.build-id }}
 
 runs:
     using: 'composite'
@@ -30,8 +36,22 @@ runs:
           uses: depot/build-push-action@v1
           with:
               buildx-fallback: false # buildx is so slow it's better to just fail
-              load: ${{ inputs.load }}
               tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
+              build-args: COMMIT_HASH=${{ github.sha }}
+              save: ${{ inputs.save }}
+          env:
+              ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
+
+        - name: Build unit image
+          id: build-unit
+          uses: depot/build-push-action@v1
+          with:
+              buildx-fallback: false # buildx is so slow it's better to just fail
+              file: production-unit.Dockerfile
+              tags: ${{ steps.emit.outputs.tag }}
+              platforms: linux/amd64
+              build-args: COMMIT_HASH=${{ github.sha }}
+              save: ${{ inputs.save }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}

@@ -109,6 +109,50 @@ describe('capabilities', () => {
             })
         })
 
+        describe('ingestionOverflow', () => {
+            it('returns true if plugin has processEvent method and server has ingestionOverflow capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionOverflow: true },
+                    { methods: ['processEvent'] }
+                )
+                expect(shouldSetupPlugin).toEqual(true)
+            })
+
+            it('returns false if plugin does not have processEvent method and server only has ingestionOverflow capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionOverflow: true },
+                    {
+                        methods: ['onEvent', 'exportEvents'],
+                        scheduled_tasks: ['runEveryMinute'],
+                        jobs: ['someJob'],
+                    }
+                )
+                expect(shouldSetupPlugin).toEqual(false)
+            })
+        })
+
+        describe('ingestionHistorical', () => {
+            it('returns true if plugin has processEvent method and server has ingestionHistorical capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionHistorical: true },
+                    { methods: ['processEvent'] }
+                )
+                expect(shouldSetupPlugin).toEqual(true)
+            })
+
+            it('returns false if plugin does not have processEvent method and server only has ingestionHistorical capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionHistorical: true },
+                    {
+                        methods: ['onEvent', 'exportEvents'],
+                        scheduled_tasks: ['runEveryMinute'],
+                        jobs: ['someJob'],
+                    }
+                )
+                expect(shouldSetupPlugin).toEqual(false)
+            })
+        })
+
         describe('scheduled tasks', () => {
             it('returns true if plugin has any scheduled tasks and the server has pluginScheduledTasks capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(

@@ -58,7 +58,10 @@ class TestArgmax(BaseTest):
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(
                     name="argMax",
-                    args=[ast.Field(chain=["raw_persons", "is_deleted"]), ast.Field(chain=["raw_persons", "version"])],
+                    args=[
+                        ast.Field(chain=["raw_persons", "is_deleted"]),
+                        ast.Field(chain=["raw_persons", "version"]),
+                    ],
                 ),
                 right=ast.Constant(value=0),
             ),

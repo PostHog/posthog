@@ -5,8 +5,8 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ActionsList } from '~/toolbar/actions/ActionsList'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
-import { ExportOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
+import { Link } from '@posthog/lemon-ui'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
@@ -14,16 +14,16 @@ export function ActionsTab(): JSX.Element {
 
     return (
         <div className="toolbar-content">
-            <div className="toolbar-block action-block-body">
+            <div className="toolbar-block action-block-body p-2 pt-3">
                 {selectedAction ? (
                     <EditAction />
                 ) : (
                     <>
                         <ActionsList />
-                        <div className="text-right">
-                            <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <ExportOutlined />
-                            </a>
+                        <div className="text-right mt-4">
+                            <Link to={`${apiURL}${urls.actions()}`} target="_blank" targetBlankIcon>
+                                View &amp; edit all actions
+                            </Link>
                         </div>
                     </>
                 )}

@@ -8,11 +8,10 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
         },
@@ -23,6 +22,14 @@ export default {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/feature_flags': featureFlags,
+                '/api/projects/:team_id/feature_flags/1111111111111/': [
+                    404,
+                    {
+                        type: 'invalid',
+                        code: 'not_found',
+                        detail: 'Not found.',
+                    },
+                ],
                 '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
@@ -30,8 +37,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export function FeatureFlagsList(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.featureFlags())
@@ -57,6 +64,13 @@ export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
         useAvailableFeatures([AvailableFeature.MULTIVARIATE_FLAGS])
         router.actions.push(urls.featureFlag(1502))
+    }, [])
+    return <App />
+}
+
+export function FeatureFlagNotFound(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1111111111111))
     }, [])
     return <App />
 }

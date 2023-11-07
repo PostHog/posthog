@@ -49,7 +49,7 @@ export const queryEditorLogic = kea<queryEditorLogicType>([
         ],
         JSONQuery: [(s) => [s.parsedQuery], ({ JSONQuery }): Node | null => JSONQuery],
         error: [(s) => [s.parsedQuery], ({ error }): string | null => error],
-        inputChanged: [(s) => [(_, props) => props.query, s.queryInput], (query, queryInput) => query !== queryInput],
+        inputChanged: [(s, p) => [p.query, s.queryInput], (query, queryInput) => query !== queryInput],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {

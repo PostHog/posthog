@@ -32,7 +32,13 @@ def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
             plugin__pluginsourcefile__filename="site.ts",
             plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
         )
-        .values_list("id", "plugin__pluginsourcefile__transpiled", "web_token", "plugin__config_schema", "config")
+        .values_list(
+            "id",
+            "plugin__pluginsourcefile__transpiled",
+            "web_token",
+            "plugin__config_schema",
+            "config",
+        )
         .first()
     )
 
@@ -53,7 +59,13 @@ def get_decide_site_apps(team: "Team", using_database: str = "default") -> List[
             plugin__pluginsourcefile__filename="site.ts",
             plugin__pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
         )
-        .values_list("id", "web_token", "plugin__pluginsourcefile__updated_at", "plugin__updated_at", "updated_at")
+        .values_list(
+            "id",
+            "web_token",
+            "plugin__pluginsourcefile__updated_at",
+            "plugin__updated_at",
+            "updated_at",
+        )
         .all()
     )
 

@@ -18,7 +18,6 @@ class Command(BaseCommand):
         parser.add_argument("--reverse", action="store_true", help="unpartition event table")
 
     def handle(self, *args, **options):
-
         if options["reverse"]:
             print("Reversing partitions...")
             with connection.cursor() as cursor:

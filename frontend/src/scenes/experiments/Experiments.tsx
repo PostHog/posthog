@@ -21,6 +21,7 @@ import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -63,7 +64,11 @@ export function Experiments(): JSX.Element {
                         <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
                             <span className="row-name">{stringWithWBR(experiment.name, 17)}</span>
                         </Link>
-                        {experiment.description && <span className="row-description">{experiment.description}</span>}
+                        {experiment.description && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {experiment.description}
+                            </LemonMarkdown>
+                        )}
                     </>
                 )
             },
@@ -221,12 +226,14 @@ export function Experiments(): JSX.Element {
                                                 setSearchStatus(status as ProgressStatus | 'all')
                                             }
                                         }}
-                                        options={[
-                                            { label: 'All', value: 'all' },
-                                            { label: 'Draft', value: ProgressStatus.Draft },
-                                            { label: 'Running', value: ProgressStatus.Running },
-                                            { label: 'Complete', value: ProgressStatus.Complete },
-                                        ]}
+                                        options={
+                                            [
+                                                { label: 'All', value: 'all' },
+                                                { label: 'Draft', value: ProgressStatus.Draft },
+                                                { label: 'Running', value: ProgressStatus.Running },
+                                                { label: 'Complete', value: ProgressStatus.Complete },
+                                            ] as { label: string; value: string }[]
+                                        }
                                         value="all"
                                         dropdownMaxContentWidth
                                     />

@@ -6,11 +6,13 @@ import {
     FilterType,
     InsightShortId,
     ReplayTabs,
+    PipelineTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 import { PluginTab } from './plugins/types'
+import { toParams } from 'lib/utils'
 
 /**
  * To add a new URL to the front end:
@@ -51,9 +53,11 @@ export const urls = {
     events: (): string => '/events',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
-    exports: (): string => '/exports',
-    createExport: (): string => `/exports/new`,
-    viewExport: (id: string | number): string => `/exports/${id}`,
+    batchExports: (): string => '/batch_exports',
+    batchExportNew: (): string => `/batch_exports/new`,
+    batchExport: (id: string, params?: { runId?: string }): string =>
+        `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
+    batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -77,6 +81,7 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
+    webAnalytics: (): string => `/web`,
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,
@@ -84,9 +89,13 @@ export const urls = {
         combineUrl(`/replay/playlists/${id}`, filters ? { filters } : {}).url,
     replaySingle: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/replay/${id}`, filters ? { filters } : {}).url,
-    person: (id: string, encode: boolean = true): string =>
+    personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
+    personByUUID: (uuid: string, encode: boolean = true): string =>
+        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
+    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}`,
+    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}/new`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -100,12 +109,14 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
-    dataWarehouse: (): string => '/warehouse',
-    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
+    surveyTemplates: (): string => '/survey_templates',
+    dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
-    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
+    dataWarehouseSettings: (): string => '/data-warehouse/settings',
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
@@ -119,6 +130,8 @@ export const urls = {
     appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
     appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
+    appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
@@ -140,6 +153,8 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
+    products: (): string => '/products',
+    onboarding: (productKey: string): string => `/onboarding/${productKey}`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only
@@ -173,10 +188,7 @@ export const urls = {
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
     issues: (): string => '/issues',
-    notebooks: (): string =>
-        combineUrl(urls.dashboards(), {
-            tab: 'notebooks',
-        }).url,
+    notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
+    canvas: (): string => `/canvas`,
 }

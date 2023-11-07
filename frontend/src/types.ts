@@ -26,14 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import {
+import type {
+    DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
-    InsightQueryNode,
     InsightVizNode,
     Node,
-    QueryContext,
 } from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -71,7 +72,7 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     ROLE_BASED_ACCESS = 'role_based_access',
-    GOOGLE_LOGIN = 'google_login',
+    SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -86,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {
@@ -111,6 +115,7 @@ export enum ProductKey {
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
+    PRODUCT_ANALYTICS = 'product_analytics',
 }
 
 export enum LicensePlan {
@@ -217,8 +222,6 @@ export interface OrganizationBasicType {
 }
 
 interface OrganizationMetadata {
-    taxonomy_set_events_count: number
-    taxonomy_set_properties_count: number
     instance_tag?: string
 }
 
@@ -318,6 +321,7 @@ export interface TeamBasicType {
     api_token: string
     name: string
     completed_snippet_onboarding: boolean
+    has_completed_onboarding_for?: Record<string, boolean>
     ingested_event: boolean
     is_demo: boolean
     timezone: string
@@ -342,10 +346,17 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
+    session_recording_minimum_duration_milliseconds: number | null
+    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
+    surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
     path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
@@ -504,6 +515,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum PipelineTabs {
+    Filters = 'filters',
+    Transformations = 'transformations',
+    Destinations = 'destinations',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -584,10 +601,10 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
 }
 
 export interface EmptyPropertyFilter {
-    type?: undefined
-    value?: undefined
-    operator?: undefined
-    key?: undefined
+    type?: never
+    value?: never
+    operator?: never
+    key?: never
 }
 
 export type AnyPropertyFilter =
@@ -662,16 +679,8 @@ export interface SessionRecordingSnapshotSource {
 }
 
 export interface SessionRecordingSnapshotResponse {
-    // Future interface
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
-
-    // legacy interface
-    next?: string
-    // When loaded from S3
-    blob_keys?: string[]
-    // When loaded from Clickhouse (legacy)
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -681,12 +690,10 @@ export type RecordingSnapshot = eventWithTime & {
 export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
-    next?: string
     blob_keys?: string[]
 }
 
 export interface SessionPlayerData {
-    pinnedCount: number
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
@@ -747,6 +754,7 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
+    console_search_query?: string
     console_logs?: FilterableLogLevel[]
     filter_test_accounts?: boolean
 }
@@ -784,8 +792,7 @@ export type EntityFilter = {
     order?: number
 }
 
-// TODO: Separate FunnelStepRange and FunnelStepRangeEntity filter types
-export interface FunnelStepRangeEntityFilter extends Partial<EntityFilter> {
+export interface FunnelExclusion extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
 }
@@ -934,6 +941,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    FEED = 'feed',
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
@@ -1028,13 +1036,11 @@ export interface SessionRecordingType {
     /** count of all mouse activity in the recording, not just clicks */
     mouse_activity_count?: number
     start_url?: string
-    /** Count of number of playlists this recording is pinned to. **/
-    pinned_count?: number
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
     /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
+    storage?: 'object_storage_lts' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1359,7 +1365,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1368,7 +1374,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
@@ -1480,6 +1486,7 @@ export interface PluginConfigType {
     team_id: number
     enabled: boolean
     order: number
+
     config: Record<string, any>
     error?: PluginErrorType
     delivery_rate_24h?: number | null
@@ -1517,6 +1524,23 @@ export interface PluginLogEntry {
     is_system: boolean
     message: string
     instance_id: string
+}
+
+export enum BatchExportLogEntryLevel {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warning = 'WARNING',
+    Error = 'ERROR',
+}
+
+export interface BatchExportLogEntry {
+    team_id: number
+    batch_export_id: number
+    run_id: number
+    timestamp: string
+    level: BatchExportLogEntryLevel
+    message: string
 }
 
 export enum AnnotationScope {
@@ -1561,7 +1585,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -1666,51 +1690,64 @@ export interface TrendsFilterType extends FilterType {
     // number of intervals, e.g. for a day interval, we may want to smooth over
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
+    compare?: boolean
+    formula?: string
+    /** @deprecated */
+    shown_as?: ShownAsValue
+    display?: ChartDisplayType
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+
+    // frontend only
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    compare?: boolean
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    formula?: string
-    shown_as?: ShownAsValue
-    display?: ChartDisplayType
     show_values_on_series?: boolean
     show_percent_stack_view?: boolean
-    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
+
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
-    show_legend?: boolean // used to show/hide legend next to insights graph
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    stickiness_days?: number
+    /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    // frontend only
+    show_legend?: boolean // used to show/hide legend next to insights graph
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
+
+    // persons only
+    stickiness_days?: number
 }
+
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
-    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
-    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_advanced?: boolean // used to toggle advanced options on or off
+    exclusions?: FunnelExclusion[] // used in funnel exclusion filters
+    funnel_aggregate_by_hogql?: string
+
+    // frontend only
     layout?: FunnelLayout // used only for funnels
-    funnel_step?: number
+    funnel_step_reference?: FunnelStepReference // whether conversion shown in graph should be across all steps or just from the previous step
+    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+
+    // persons only
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
-    funnel_aggregate_by_hogql?: string
+    funnel_step?: number
+    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
+    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
+    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -1723,14 +1760,16 @@ export interface PathsFilterType extends FilterType {
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
-    path_start_key?: string // Paths People Start Key
-    path_end_key?: string // Paths People End Key
-    path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
     local_path_cleaning_filters?: PathCleaningFilter[]
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
+
+    // persons only
+    path_start_key?: string // Paths People Start Key
+    path_end_key?: string // Paths People End Key
+    path_dropoff_key?: string // Paths People Dropoff Key
 }
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
@@ -1741,7 +1780,10 @@ export interface RetentionFilterType extends FilterType {
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
+    /** @deprecated */
     shown_as?: ShownAsValue
+
+    // frontend only
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }
@@ -1789,8 +1831,6 @@ export enum RecordingWindowFilter {
 }
 
 export interface EditorFilterProps {
-    query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
@@ -2052,6 +2092,7 @@ export interface InsightLogicProps {
     doNotLoad?: boolean
     /** query when used as ad-hoc insight */
     query?: InsightVizNode
+    setQuery?: (node: InsightVizNode) => void
 }
 
 export interface SetInsightOptions {
@@ -2071,7 +2112,12 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean } | null
+    conditions: {
+        url: string
+        selector: string
+        seenSurveyWaitPeriodInDays?: number
+        urlMatchType?: SurveyUrlMatchType
+    } | null
     appearance: SurveyAppearance
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2079,6 +2125,13 @@ export interface Survey {
     start_date: string | null
     end_date: string | null
     archived: boolean
+    remove_targeting_flag?: boolean
+}
+
+export enum SurveyUrlMatchType {
+    Exact = 'exact',
+    Contains = 'icontains',
+    Regex = 'regex',
 }
 
 export enum SurveyType {
@@ -2092,21 +2145,26 @@ export enum SurveyType {
 export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
-    textColor?: string
     submitButtonText?: string
-    descriptionTextColor?: string
     ratingButtonColor?: string
-    ratingButtonHoverColor?: string
+    ratingButtonActiveColor?: string
+    borderColor?: string
+    placeholder?: string
+    whiteLabel?: boolean
+    displayThankYouMessage?: boolean
+    thankYouMessageHeader?: string
+    thankYouMessageDescription?: string
+    position?: string
 }
 
-interface SurveyQuestionBase {
+export interface SurveyQuestionBase {
     question: string
     description?: string | null
-    required?: boolean
+    optional?: boolean
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
-    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+    type: SurveyQuestionType.Open
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -2133,7 +2191,6 @@ export enum SurveyQuestionType {
     Open = 'open',
     MultipleChoice = 'multiple_choice',
     SingleChoice = 'single_choice',
-    NPS = 'nps',
     Rating = 'rating',
     Link = 'link',
 }
@@ -2184,12 +2241,14 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     rollout_percentage: number | null
     experiment_set: string[] | null
     features: EarlyAccessFeatureType[] | null
+    surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
+    has_enriched_analytics?: boolean
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2271,7 +2330,7 @@ export interface PreflightStatus {
     demo: boolean
     celery: boolean
     realm: Realm
-    region: Region
+    region: Region | null
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
@@ -2420,9 +2479,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2430,7 +2491,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
@@ -2583,8 +2644,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    /** First day of the week (0 = Sun, 1 = Mon, ...) */
-    week_start: number
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -2876,13 +2935,11 @@ export type OnlineExportContext = {
     query?: any
     body?: any
     filename?: string
-    max_limit?: number
 }
 
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    max_limit?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
@@ -3011,26 +3068,35 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: JSONContent // TODO: Type this better
+    content: JSONContent | null
     version: number
-}
-
-export enum NotebookMode {
-    View = 'view',
-    Edit = 'edit',
+    // used to power text-based search
+    text_content?: string | null
 }
 
 export enum NotebookNodeType {
-    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
+    FeatureFlagCodeExample = 'ph-feature-flag-code-example',
+    Experiment = 'ph-experiment',
+    EarlyAccessFeature = 'ph-early-access-feature',
+    Survey = 'ph-survey',
     Person = 'ph-person',
-    Link = 'ph-link',
+    Group = 'ph-group',
+    Cohort = 'ph-cohort',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    PersonFeed = 'ph-person-feed',
+    Properties = 'ph-properties',
+    Map = 'ph-map',
+}
+
+export type NotebookNodeResource = {
+    attrs: Record<string, any>
+    type: NotebookNodeType
 }
 
 export enum NotebookTarget {
@@ -3065,3 +3131,191 @@ export interface DataWarehouseSavedQuery {
     query: HogQLQuery
     columns: DatabaseSchemaQueryResponseField[]
 }
+
+export interface DataWarehouseViewLink {
+    id: string
+    saved_query_id?: string
+    saved_query?: string
+    table?: string
+    to_join_key?: string
+    from_join_key?: string
+}
+
+export interface ExternalDataStripeSourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface ExternalDataStripeSource {
+    id: string
+    source_id: string
+    connection_id: string
+    status: string
+    source_type: string
+}
+
+export type BatchExportDestinationS3 = {
+    type: 'S3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+    }
+}
+
+export type BatchExportDestinationPostgres = {
+    type: 'Postgres'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        has_self_signed_cert: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
+export type BatchExportDestinationSnowflake = {
+    type: 'Snowflake'
+    config: {
+        account: string
+        database: string
+        warehouse: string
+        user: string
+        password: string
+        schema: string
+        table_name: string
+        role: string | null
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
+export type BatchExportDestinationBigQuery = {
+    type: 'BigQuery'
+    config: {
+        project_id: string
+        private_key: string
+        private_key_id: string
+        client_email: string
+        token_uri: string
+        dataset_id: string
+        table_id: string
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
+export type BatchExportDestinationRedshift = {
+    type: 'Redshift'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        properties_data_type: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
+export type BatchExportDestination =
+    | BatchExportDestinationS3
+    | BatchExportDestinationSnowflake
+    | BatchExportDestinationPostgres
+    | BatchExportDestinationBigQuery
+    | BatchExportDestinationRedshift
+
+export type BatchExportConfiguration = {
+    // User provided data for the export. This is the data that the user
+    // provides when creating the export.
+    id: string
+    name: string
+    destination: BatchExportDestination
+    interval: 'hour' | 'day' | 'every 5 minutes'
+    created_at: string
+    start_at: string | null
+    end_at: string | null
+    paused: boolean
+    latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportRun = {
+    id: string
+    status: 'Cancelled' | 'Completed' | 'ContinuedAsNew' | 'Failed' | 'Terminated' | 'TimedOut' | 'Running' | 'Starting'
+    created_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    last_updated_at?: Dayjs
+}
+
+export type GroupedBatchExportRuns = {
+    last_run_at: Dayjs
+    data_interval_start: Dayjs
+    data_interval_end: Dayjs
+    runs: BatchExportRun[]
+}
+
+export type SDK = {
+    name: string
+    key: string
+    recommended?: boolean
+    tags: string[]
+    image: string | JSX.Element
+    docsLink: string
+}
+
+export enum SDKKey {
+    JS_WEB = 'javascript_web',
+    REACT = 'react',
+    NEXT_JS = 'nextjs',
+    GATSBY = 'gatsby',
+    IOS = 'ios',
+    ANDROID = 'android',
+    FLUTTER = 'flutter',
+    REACT_NATIVE = 'react_native',
+    NODE_JS = 'nodejs',
+    RUBY = 'ruby',
+    PYTHON = 'python',
+    PHP = 'php',
+    GO = 'go',
+    ELIXIR = 'elixir',
+    API = 'api',
+    JAVA = 'java',
+    RUST = 'rust',
+    GOOGLE_TAG_MANAGER = 'google_tag_manager',
+    NUXT_JS = 'nuxtjs',
+    VUE_JS = 'vuejs',
+    SEGMENT = 'segment',
+    RUDDERSTACK = 'rudderstack',
+    DOCUSAURUS = 'docusaurus',
+    SHOPIFY = 'shopify',
+    WORDPRESS = 'wordpress',
+    SENTRY = 'sentry',
+    RETOOL = 'retool',
+}
+
+export enum SDKTag {
+    WEB = 'Web',
+    MOBILE = 'Mobile',
+    SERVER = 'Server',
+    INTEGRATION = 'Integration',
+    RECOMMENDED = 'Recommended',
+    OTHER = 'Other',
+}
+
+export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>

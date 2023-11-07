@@ -33,7 +33,6 @@ def revert_funnel_steps(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0043_slack_webhooks"),
     ]

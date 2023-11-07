@@ -604,7 +604,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           dashboard_filters: dashboard.filters,
                           tags: dashboard.tags || [],
                           tiles: dashboard.tiles.map((tile) => {
-                              if (!!tile.text) {
+                              if (tile.text) {
                                   return {
                                       type: 'TEXT',
                                       body: tile.text.body,
@@ -612,7 +612,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                       color: tile.color,
                                   }
                               }
-                              if (!!tile.insight) {
+                              if (tile.insight) {
                                   return {
                                       type: 'INSIGHT',
                                       name: tile.insight.name,

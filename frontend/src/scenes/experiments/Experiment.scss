@@ -17,29 +17,6 @@
     .insights-graph-container {
         margin-bottom: 1rem;
 
-        .ant-card-head {
-            border-bottom: 1px solid var(--border);
-            min-height: unset;
-            background-color: var(--bg-light);
-            padding-left: 1rem;
-            padding-right: 1rem;
-
-            .ant-card-head-title {
-                padding: 0.5rem 0;
-
-                span.filter {
-                    font-size: 14px;
-
-                    &:not(:last-child) {
-                        margin-right: 0.5rem;
-                    }
-
-                    span.head-title-item {
-                        margin-right: 0.5rem;
-                    }
-                }
-            }
-        }
         .display-config-inner {
             display: flex;
             align-items: center;

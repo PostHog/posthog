@@ -15,9 +15,25 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataNode,
+    EventsQuery,
+    EventsQueryResponse,
+    PersonsNode,
+    PersonsQuery,
+    PersonsQueryResponse,
+    QueryResponse,
+    QueryTiming,
+} from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isInsightQueryNode,
+    isEventsQuery,
+    isPersonsNode,
+    isQueryWithHogQLSupport,
+    isPersonsQuery,
+} from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
@@ -28,6 +44,9 @@ import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/in
 import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface DataNodeLogicProps {
     key: string
@@ -40,28 +59,37 @@ export interface DataNodeLogicProps {
 
 const AUTOLOAD_INTERVAL = 30000
 
+const queryEqual = (a: DataNode, b: DataNode): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareInsightQuery(a, b, true)
+    } else {
+        return objectsEqual(a, b)
+    }
+}
+
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
+        values: [userLogic, ['user'], teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     }),
     props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props, values }, oldProps) => {
-        if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
+    propsChanged(({ actions, props }, oldProps) => {
+        if (!props.query) {
+            return // Can't do anything without a query
+        }
+        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
-            props.query?.kind &&
-            !objectsEqual(props.query, oldProps.query) &&
-            (!props.cachedResults ||
-                (isInsightQueryNode(props.query) &&
-                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
-        ) {
-            actions.loadData()
-        }
-        if (props.cachedResults && !values.response) {
-            actions.setResponse(props.cachedResults)
+        if (!queryEqual(props.query, oldProps.query)) {
+            if (
+                !props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
+            ) {
+                actions.loadData()
+            } else {
+                actions.setResponse(props.cachedResults)
+            }
         }
     }),
     actions({
@@ -89,6 +117,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (
                         isInsightQueryNode(props.query) &&
+                        !(values.hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -169,13 +198,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isPersonsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
-                        const eventQueryResponse = values.response as EventsQueryResponse
+                        const queryResponse = values.response as QueryResponse
                         return {
-                            ...eventQueryResponse,
-                            results: [...(eventQueryResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                            ...queryResponse,
+                            results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -302,6 +331,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
+        hogQLInsightsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS],
+        ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
             (s, p) => [p.query, s.response],
@@ -341,11 +374,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if (isEventsQuery(query) && !responseError && !dataLoading) {
-                    if ((response as EventsQuery['response'])?.hasMore) {
+                if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
+                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
-                        const typedResults = (response as EventsQuery['response'])?.results
-                        if (sortKey === 'timestamp DESC') {
+                        const typedResults = (response as QueryResponse)?.results
+                        if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
@@ -357,11 +390,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             }
                         } else {
-                            const newQuery: EventsQuery = {
+                            return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                            }
-                            return newQuery
+                            } as EventsQuery | PersonsQuery
                         }
                     }
                 }
@@ -420,6 +452,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 return disabledReason
+            },
+        ],
+        timings: [
+            (s) => [s.response],
+            (response): QueryTiming[] | null => {
+                return response && 'timings' in response ? response.timings : null
             },
         ],
     }),

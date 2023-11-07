@@ -15,7 +15,7 @@ export type LemonTagType =
     | 'caution'
     | 'none'
 
-interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagType
     children: React.ReactNode
     size?: 'small' | 'medium'
@@ -50,12 +50,19 @@ export function LemonTag({
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                    }}
                 />
             )}
             {closable && (
-                <LemonButton onClick={onClose} status="primary" size="small" className="LemonTag__right-button">
-                    <IconClose />
-                </LemonButton>
+                <LemonButton
+                    icon={<IconClose className="h-3.5 w-3.5" />}
+                    onClick={onClose}
+                    status="primary"
+                    size="small"
+                    className="LemonTag__right-button"
+                />
             )}
         </div>
     )

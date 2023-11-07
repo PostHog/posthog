@@ -1,9 +1,10 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { PersonPropertySelect, PersonPropertySelectProps } from './PersonPropertySelect'
 
-export default {
+type Story = StoryObj<typeof PersonPropertySelect>
+const meta: Meta<typeof PersonPropertySelect> = {
     title: 'Filters/Person Property Select',
     component: PersonPropertySelect,
     decorators: [
@@ -25,9 +26,10 @@ export default {
             },
         }),
     ],
-} as ComponentMeta<typeof PersonPropertySelect>
+}
+export default meta
 
-const Template: ComponentStory<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {
+const Template: StoryFn<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {
     const [selectedProperties, setSelectProperties] = useState<string[]>([
         '$initial_geoip_postal_code',
         '$initial_geoip_latitude',
@@ -59,10 +61,10 @@ const Template: ComponentStory<typeof PersonPropertySelect> = (props: Partial<Pe
     )
 }
 
-export const Default = Template.bind({})
+export const Default: Story = Template.bind({})
 Default.args = {}
 
-export const Sortable = Template.bind({})
+export const Sortable: Story = Template.bind({})
 Sortable.args = {
     sortable: true,
 }

@@ -38,10 +38,13 @@ export function SlackIntegration(): JSX.Element {
     return (
         <div>
             <p>
-                Integrate with Slack directly to get more advanced options such as sending webhook events to{' '}
-                <b>different channels</b> and <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack
-                channels of your choice. Guidance on integrating with Slack available{' '}
-                <a href="https://posthog.com/docs/integrate/third-party/slack">in our docs</a>.
+                Integrate with Slack directly to get more advanced options such as{' '}
+                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
+                Guidance on integrating with Slack available{' '}
+                <Link to="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">
+                    in our docs
+                </Link>
+                .
             </p>
 
             <p>
@@ -69,7 +72,7 @@ export function SlackIntegration(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : addToSlackButtonUrl() ? (
-                    <a href={addToSlackButtonUrl() || ''}>
+                    <Link to={addToSlackButtonUrl() || ''}>
                         <img
                             alt="Add to Slack"
                             height="40"
@@ -77,7 +80,7 @@ export function SlackIntegration(): JSX.Element {
                             src="https://platform.slack-edge.com/img/add_to_slack.png"
                             srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
                         />
-                    </a>
+                    </Link>
                 ) : user?.is_staff ? (
                     !showSlackInstructions ? (
                         <>
@@ -93,9 +96,9 @@ export function SlackIntegration(): JSX.Element {
                                     <li>Copy the below Slack App Template</li>
                                     <li>
                                         Go to{' '}
-                                        <a href="https://api.slack.com/apps" target="_blank">
+                                        <Link to="https://api.slack.com/apps" target="_blank">
                                             Slack Apps
-                                        </a>
+                                        </Link>
                                     </li>
                                     <li>Create an App using the provided template</li>
                                     <li>

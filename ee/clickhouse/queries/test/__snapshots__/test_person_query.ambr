@@ -14,6 +14,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -40,6 +41,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -66,6 +68,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -92,6 +95,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -111,6 +115,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -137,6 +142,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -163,6 +169,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -189,6 +196,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -215,6 +223,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -241,6 +250,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -267,6 +277,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -297,6 +308,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -316,6 +328,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---
@@ -335,6 +348,7 @@
                
               
               
+              SETTINGS optimize_aggregation_in_order = 1
               
   '
 ---

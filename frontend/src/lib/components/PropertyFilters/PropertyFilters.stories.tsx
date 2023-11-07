@@ -1,12 +1,13 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
-export default {
+const meta: Meta<typeof PropertyFilters> = {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
-} as ComponentMeta<typeof PropertyFilters>
+}
+export default meta
 
 const propertyFilters = [
     {
@@ -37,7 +38,6 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
                 showNestedArrow
                 eventNames={[]}
             />
@@ -47,7 +47,6 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
                 eventNames={[]}
                 disablePopover={true}
             />

@@ -1,4 +1,4 @@
-import { Space, Tag, Typography } from 'antd'
+import { Tag } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
@@ -121,6 +121,7 @@ export function InsightLabel({
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             background: seriesColor,
                             boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
@@ -167,20 +168,18 @@ export function InsightLabel({
                     )}
 
                     {pillValues.length > 0 && (
-                        <Space direction={'horizontal'} wrap={true}>
+                        <div className="flex flex-wrap gap-1">
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
                                     <Tag className="tag-pill" closable={false}>
-                                        <Typography.Text
-                                            ellipsis={{ tooltip: pill }}
-                                            style={{ maxWidth: pillMaxWidth }}
-                                        >
+                                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                                        <span className="truncate" style={{ maxWidth: pillMaxWidth }}>
                                             {pillMidEllipsis ? midEllipsis(String(pill), 50) : pill}
-                                        </Typography.Text>
+                                        </span>
                                     </Tag>
                                 </Tooltip>
                             ))}
-                        </Space>
+                        </div>
                     )}
                 </div>
             </div>

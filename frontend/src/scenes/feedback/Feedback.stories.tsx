@@ -8,11 +8,10 @@ import { feedbackLogic } from './feedbackLogic'
 import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-App/Feedback',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
             skip: true, // FIXME: Use mockdate in this story
@@ -28,8 +27,8 @@ export default {
             },
         }),
     ],
-} as Meta
-
+}
+export default meta
 export const InAppFeedbackTable: Story = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.feedback())

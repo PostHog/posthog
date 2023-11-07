@@ -1,9 +1,10 @@
-import { ComponentStory, ComponentMeta } from '@storybook/react'
+import { StoryFn, Meta, StoryObj } from '@storybook/react'
 
 import { Popover } from './Popover'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 
-export default {
+type Story = StoryObj<typeof Popover>
+const meta: Meta<typeof Popover> = {
     title: 'Lemon UI/Popover',
     component: Popover,
     parameters: {
@@ -11,11 +12,13 @@ export default {
             skip: true, // FIXME: This story needs a play test for the popup to show up in snapshots
         },
     },
-} as ComponentMeta<typeof Popover>
+    tags: ['autodocs'],
+}
+export default meta
 
-const Template: ComponentStory<typeof Popover> = (args) => <Popover {...args} />
+const Template: StoryFn<typeof Popover> = (args) => <Popover {...args} />
 
-export const Popover_ = Template.bind({})
+export const Popover_: Story = Template.bind({})
 Popover_.args = {
     visible: true,
     children: (

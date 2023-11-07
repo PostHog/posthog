@@ -11,6 +11,10 @@
         display: flex;
         align-items: stretch;
     }
+
+    &.LemonSegmentedButton--full-width {
+        width: 100%;
+    }
 }
 
 .LemonSegmentedButton__slider {

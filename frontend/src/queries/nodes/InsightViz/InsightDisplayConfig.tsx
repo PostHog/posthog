@@ -1,4 +1,4 @@
-import { PropsWithChildren, ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,11 +24,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 
-interface InsightDisplayConfigProps {
-    disableTable: boolean
-}
-
-export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
+export function InsightDisplayConfig(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
@@ -45,9 +41,9 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
         display,
-        compare,
         trendsFilter,
         hasLegend,
+        showLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
     const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
@@ -55,7 +51,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 
     const advancedOptions: LemonMenuItems = [
-        ...(showCompare || showValueOnSeries || showPercentStackView
+        ...(showValueOnSeries || showPercentStackView || hasLegend
             ? [
                   {
                       title: 'Display',
@@ -77,7 +73,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
             : []),
     ]
     const advancedOptionsCount: number =
-        (showCompare && compare ? 1 : 0) +
         (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
@@ -86,12 +81,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && trendsFilter?.show_legend ? 1 : 0)
+        (hasLegend && showLegend ? 1 : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
-                {showDateRange && !disableTable && (
+            <div className="flex items-center gap-x-2 flex-wrap my-2 gap-y-2">
+                {showDateRange && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={disableDateRange} />
                     </ConfigFilter>
@@ -128,17 +123,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-2 flex-wrap my-2 grow justify-end">
+            <div className="flex items-center gap-x-2 flex-wrap my-2">
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
-                            <span className="font-medium">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <>
-                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
-                                    </>
-                                ) : null}
+                            <span className="font-medium whitespace-nowrap">
+                                Options{advancedOptionsCount ? ` (${advancedOptionsCount})` : null}
                             </span>
                         </LemonButton>
                     </LemonMenu>
@@ -163,6 +153,6 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     )
 }
 
-function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
+    return <span className="space-x-2 flex items-center text-sm">{children}</span>
 }

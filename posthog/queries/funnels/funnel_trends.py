@@ -11,7 +11,7 @@ from posthog.queries.util import (
     correct_result_for_sampling,
     get_earliest_timestamp,
     get_interval_func_ch,
-    get_trunc_func_ch,
+    get_start_of_interval_sql,
 )
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -55,21 +55,17 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     QUERY_TYPE = "funnel_trends"
 
     def __init__(self, filter: Filter, team: Team) -> None:
-
         super().__init__(filter, team)
 
         self.funnel_order = get_funnel_order_class(filter)(filter, team)
 
     def _exec_query(self):
-
         return self._summarize_data(super()._exec_query())
 
     def get_step_counts_without_aggregation_query(
         self, *, specific_entrance_period_start: Optional[datetime] = None
     ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
-
-        trunc_func = get_trunc_func_ch(self._filter.interval)
 
         # This is used by funnel trends when we only need data for one period, e.g. person per data point
         if specific_entrance_period_start:
@@ -84,7 +80,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 aggregation_target,
-                {trunc_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS entrance_period_start,
+                {get_start_of_interval_sql(self._filter.interval, team=self._team)} AS entrance_period_start,
                 max(steps) AS steps_completed
                 {event_select_clause}
                 {breakdown_clause}
@@ -99,8 +95,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
-        reached_from_step_count_condition, reached_to_step_count_condition, _ = self.get_steps_reached_conditions()
-        trunc_func = get_trunc_func_ch(self._filter.interval)
+        (
+            reached_from_step_count_condition,
+            reached_to_step_count_condition,
+            _,
+        ) = self.get_steps_reached_conditions()
         interval_func = get_interval_func_ch(self._filter.interval)
 
         if self._filter.date_from is None:
@@ -137,9 +136,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number)) AS entrance_period_start
+                {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_from)s')} + {interval_func}(number) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s)), {trunc_func}(toDateTime(%(formatted_date_to)s, %(timezone)s))) + 1) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_from)s')}, {get_start_of_interval_sql(self._filter.interval, team=self._team, source='%(formatted_date_to)s')}) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
@@ -160,10 +159,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         reached_to_step_count_condition = f"steps_completed >= {to_step+1}"
         # Those who dropped off
         did_not_reach_to_step_count_condition = f"{reached_from_step_count_condition} AND steps_completed < {to_step+1}"
-        return reached_from_step_count_condition, reached_to_step_count_condition, did_not_reach_to_step_count_condition
+        return (
+            reached_from_step_count_condition,
+            reached_to_step_count_condition,
+            did_not_reach_to_step_count_condition,
+        )
 
     def _summarize_data(self, results):
-
         breakdown_clause = self._get_breakdown_prop()
 
         summary = []
@@ -188,7 +190,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return summary
 
     def _format_results(self, summary):
-
         if self._filter.breakdown:
             grouper = lambda row: row["breakdown_value"]
             sorted_data = sorted(summary, key=grouper)

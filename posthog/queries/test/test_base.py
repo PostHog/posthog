@@ -16,12 +16,15 @@ class TestBase(APIBaseTest):
     def test_determine_compared_filter(self):
         from posthog.queries.base import determine_compared_filter
 
-        filter = PathFilter(data={"date_from": "2020-05-23", "date_to": "2020-05-29"})
+        filter = PathFilter(data={"date_from": "2020-05-23", "date_to": "2020-05-29"}, team=self.team)
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
         self.assertDictContainsSubset(
-            {"date_from": "2020-05-16T00:00:00+00:00", "date_to": "2020-05-22T23:59:59.999999+00:00"},
+            {
+                "date_from": "2020-05-16T00:00:00+00:00",
+                "date_to": "2020-05-22T23:59:59.999999+00:00",
+            },
             compared_filter.to_dict(),
         )
 
@@ -186,7 +189,8 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)}))
         self.assertTrue(
             match_property(
-                property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))}
+                property_a,
+                {"key": datetime.datetime(2022, 4, 30, 1, 2, 3, tzinfo=tz.gettz("Europe/Madrid"))},
             )
         )
         self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))

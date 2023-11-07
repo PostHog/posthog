@@ -414,6 +414,10 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+export function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
 export function isObject(candidate: unknown): candidate is Record<string, unknown> {
     return typeof candidate === 'object' && candidate !== null
 }
@@ -432,31 +436,36 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     })
     return response
 }
-export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    ignoredKeys: string[] = []
+): T {
     const response = { ...obj }
-    Object.keys(response).forEach((key) => {
-        // remove undefined values
-        if (response[key] === undefined) {
-            delete response[key]
-        }
-        // remove empty arrays i.e. []
-        if (
-            typeof response[key] === 'object' &&
-            Array.isArray(response[key]) &&
-            (response[key] as unknown[]).length === 0
-        ) {
-            delete response[key]
-        }
-        // remove empty objects i.e. {}
-        if (
-            typeof response[key] === 'object' &&
-            !Array.isArray(response[key]) &&
-            response[key] !== null &&
-            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
-        ) {
-            delete response[key]
-        }
-    })
+    Object.keys(response)
+        .filter((key) => !ignoredKeys.includes(key))
+        .forEach((key) => {
+            // remove undefined values
+            if (response[key] === undefined) {
+                delete response[key]
+            }
+            // remove empty arrays i.e. []
+            if (
+                typeof response[key] === 'object' &&
+                Array.isArray(response[key]) &&
+                (response[key] as unknown[]).length === 0
+            ) {
+                delete response[key]
+            }
+            // remove empty objects i.e. {}
+            if (
+                typeof response[key] === 'object' &&
+                !Array.isArray(response[key]) &&
+                response[key] !== null &&
+                Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+            ) {
+                delete response[key]
+            }
+        })
     return response
 }
 
@@ -516,6 +525,43 @@ export function slugify(text: string): string {
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+}
+
+export function humanFriendlyLargeNumber(d: number): string {
+    if (isNaN(d)) {
+        return 'NaN'
+    } else if (!isFinite(d)) {
+        if (d > 0) {
+            return 'inf'
+        } else {
+            return '-inf'
+        }
+    }
+    const trillion = 1_000_000_000_000
+    const billion = 1_000_000_000
+    const million = 1_000_000
+    const thousand = 1_000
+
+    // handle positive number only to make life easier
+    const prefix = d >= 0 ? '' : '-'
+    d = Math.abs(d)
+
+    // round to 3 significant figures
+    d = parseFloat(d.toPrecision(3))
+
+    if (d >= trillion) {
+        return `${prefix}${(d / trillion).toString()}T`
+    } else if (d >= billion) {
+        return `${prefix}${(d / billion).toString()}B`
+    }
+    if (d >= million) {
+        return `${prefix}${(d / million).toString()}M`
+    }
+    if (d >= thousand) {
+        return `${prefix}${(d / thousand).toString()}K`
+    } else {
+        return `${prefix}${d}`
+    }
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -685,7 +731,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*.-]+[\w\-._~:/?#[\]@%!$&'()*+,;=]+$/
     return !!input.trim().match(regexp)
 }
 
@@ -703,7 +749,7 @@ export function isEmail(string: string): boolean {
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
     const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+        /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -986,7 +1032,7 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
+    const parseDate = /^([-+]?)([0-9]*)([dmwqy])(|Start|End)$/
     const matches = (date || '').match(parseDate)
     let response: null | dayjs.Dayjs = null
     if (matches) {
@@ -1035,8 +1081,22 @@ export async function copyToClipboard(value: string, description: string = 'text
         })
         return true
     } catch (e) {
-        lemonToast.error(`Could not copy ${description} to clipboard: ${e}`)
-        return false
+        // If the Clipboard API fails, fallback to textarea method
+        try {
+            const textArea = document.createElement('textarea')
+            textArea.value = value
+            document.body.appendChild(textArea)
+            textArea.select()
+            document.execCommand('copy')
+            document.body.removeChild(textArea)
+            lemonToast.info(`Copied ${description} to clipboard`, {
+                icon: <IconCopy />,
+            })
+            return true
+        } catch (err) {
+            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
+            return false
+        }
     }
 }
 
@@ -1105,7 +1165,8 @@ export function sampleOne<T>(items: T[]): T {
     if (!items.length) {
         throw Error('Items array is empty!')
     }
-    return items[Math.floor(Math.random() * items.length)]
+    const index = inStorybookTestRunner() ? 0 : Math.floor(Math.random() * items.length)
+    return items[index]
 }
 
 /** Convert camelCase, PascalCase or snake_case to Sentence case or Title Case. */
@@ -1144,7 +1205,7 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
 
 export function parseGithubRepoURL(url: string): Record<string, string> {
     const match = url.match(
-        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
+        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-/]+))?/
     )
 
     if (!match) {
@@ -1425,6 +1486,14 @@ export function validateJson(value: string): boolean {
     }
 }
 
+export function tryJsonParse(value: string, fallback?: any): any {
+    try {
+        return JSON.parse(value)
+    } catch (error) {
+        return fallback
+    }
+}
+
 export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
     return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }
@@ -1549,6 +1618,74 @@ export function isNumeric(x: any): boolean {
         return false
     }
     return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+}
+
+/**
+ * Check if the argument is nullish (null or undefined).
+ *
+ * Useful as a typeguard, e.g. when passed to Array.filter()
+ *
+ * @example
+ * const myList = [1, 2, null]; // type is (number | null)[]
+ *
+ * // using isNotNil
+ * const myFilteredList1 = myList.filter(isNotNil) // type is number[]
+ * const squaredList1 = myFilteredList1.map(x => x * x) // not a type error!
+ *
+ * // compared to:
+ * const myFilteredList2 = myList.filter(x => x != null) // type is (number | null)[]
+ * const squaredList2 = myFilteredList2.map(x => x * x) // Type Error: TS18047: x is possibly null
+ */
+export function isNotNil<T>(arg: T): arg is Exclude<T, null | undefined> {
+    return arg !== null && arg !== undefined
+}
+
+/** An error signaling that a value of type `never` in TypeScript was used unexpectedly at runtime.
+ *
+ * Useful for type-narrowing, will give a compile-time error if the type of x is not `never`.
+ * See the example below where it catches a missing branch at compile-time.
+ *
+ * @example
+ *
+ * enum MyEnum {
+ *     a,
+ *     b,
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         // missing branch
+ *         default:
+ *             throw new UnexpectedNeverError(x) // TS2345: Argument of type MyEnum is not assignable to parameter of type never
+ *     }
+ * }
+ *
+ * function handleEnum(x: MyEnum) {
+ *     switch (x) {
+ *         case MyEnum.a:
+ *             return
+ *         case MyEnum.b:
+ *             return
+ *         default:
+ *             throw new UnexpectedNeverError(x) // no type error
+ *     }
+ * }
+ *
+ */
+export class UnexpectedNeverError extends Error {
+    constructor(x: never, message?: string) {
+        message = message ?? 'Unexpected never: ' + String(x)
+        super(message)
+
+        // restore prototype chain, which is broken by Error
+        // see https://stackoverflow.com/questions/41102060/typescript-extending-error-class
+        const actualProto = new.target.prototype
+        if (Object.setPrototypeOf) {
+            Object.setPrototypeOf(this, actualProto)
+        }
+    }
 }
 
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {

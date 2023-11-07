@@ -1,6 +1,7 @@
 import '~/styles'
 import './storybook.scss'
-import type { Meta, Parameters } from '@storybook/react'
+import type { Meta, Parameters, Preview } from '@storybook/react'
+import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { getStorybookAppContext } from './app-context'
@@ -9,11 +10,23 @@ import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
 import { withSnapshotsDisabled } from './decorators/withSnapshotsDisabled'
 import { withFeatureFlags } from './decorators/withFeatureFlags'
+import { withTheme } from './decorators/withTheme'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
     worker.start({
         quiet: true,
+        onUnhandledRequest(request, print) {
+            // MSW warns on all unhandled requests, but we don't necessarily care
+            const pathAllowList = ['/images/']
+
+            if (pathAllowList.some((path) => request.url.pathname.startsWith(path))) {
+                return
+            }
+
+            // Otherwise, default MSW warning behavior
+            print.warning()
+        },
     })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
@@ -74,4 +87,48 @@ export const decorators: Meta['decorators'] = [
     withMockDate,
     // Allow us to easily set feature flags in stories.
     withFeatureFlags,
+    // Set theme from global context
+    withTheme,
 ]
+
+const preview: Preview = {
+    parameters: {
+        actions: { argTypesRegex: '^on[A-Z].*' },
+        controls: {
+            matchers: {
+                color: /(background|color)$/i,
+                date: /Date$/,
+            },
+        },
+        docs: {
+            page: () => (
+                <>
+                    <Title />
+                    <Subtitle />
+                    <Description />
+                    <Primary />
+                    <Controls />
+                    <Stories />
+                </>
+            ),
+        },
+    },
+    globalTypes: {
+        theme: {
+            description: '',
+            defaultValue: 'legacy',
+            toolbar: {
+                title: 'Theme',
+                items: [
+                    { value: 'legacy', icon: 'faceneutral', title: 'Legacy' },
+                    { value: 'light', icon: 'sun', title: 'Light' },
+                    { value: 'dark', icon: 'moon', title: 'Dark' },
+                ],
+                // change the title based on the selected value
+                dynamicTitle: true,
+            },
+        },
+    },
+}
+
+export default preview

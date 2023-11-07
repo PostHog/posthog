@@ -32,7 +32,14 @@ const client = new PostHog(
 function NodeCaptureSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {"client.capture({\n    distinctId: 'test-id',\n    event: 'test-event'\n})"}
+            {`client.capture({
+    distinctId: 'test-id',
+    event: 'test-event'
+})
+
+// Send queued events immediately. Use for example in a serverless environment
+// where the program may terminate before everything is sent
+client.flush()`}
         </CodeSnippet>
     )
 }

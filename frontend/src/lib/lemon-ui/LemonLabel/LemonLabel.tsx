@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { Link, LinkProps } from '../Link'
 
 export interface LemonLabelProps
-    extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'htmlFor' | 'form' | 'children' | 'className'> {
+    extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'id' | 'htmlFor' | 'form' | 'children' | 'className'> {
     info?: React.ReactNode
     infoLink?: LinkProps['to']
     showOptional?: boolean
@@ -30,9 +30,9 @@ export function LemonLabel({
             {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
 
             {onExplanationClick ? (
-                <a onClick={onExplanationClick}>
+                <Link onClick={onExplanationClick}>
                     <span className="LemonLabel__extra">(what is this?)</span>
-                </a>
+                </Link>
             ) : null}
 
             {info ? (

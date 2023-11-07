@@ -1,27 +1,40 @@
 /* global module */
+
+const env = {
+    browser: true,
+    es6: true,
+    'cypress/globals': true,
+}
+
+const globals = {
+    Atomics: 'readonly',
+    SharedArrayBuffer: 'readonly',
+}
+
 module.exports = {
     ignorePatterns: ['node_modules', 'plugin-server'],
-    env: {
-        browser: true,
-        es6: true,
-        'cypress/globals': true,
-    },
+    env,
     settings: {
         react: {
             version: 'detect',
         },
+        'import/resolver': {
+            node: {
+                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
+            },
+        },
     },
     extends: [
+        'eslint:recommended',
         'plugin:@typescript-eslint/recommended',
         'plugin:react/recommended',
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'prettier',
+        'plugin:compat/recommended',
     ],
-    globals: {
-        Atomics: 'readonly',
-        SharedArrayBuffer: 'readonly',
-    },
+    globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
         ecmaFeatures: {
@@ -30,7 +43,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests', 'jest', 'compat', 'posthog'],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
@@ -73,7 +86,7 @@ module.exports = {
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -84,8 +97,8 @@ module.exports = {
                 ],
             },
         ],
-        'react/forbid-elements': [
-            1,
+        'posthog/warn-elements': [
+            'warn',
             {
                 forbid: [
                     {
@@ -98,16 +111,8 @@ module.exports = {
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
                     },
                     {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
-                    },
-                    {
-                        element: 'Typography',
-                        message: 'use utility classes instead',
                     },
                     {
                         element: 'Card',
@@ -116,10 +121,6 @@ module.exports = {
                     {
                         element: 'Button',
                         message: 'use <LemonButton> instead',
-                    },
-                    {
-                        element: 'Input.TextArea',
-                        message: 'use <LemonTextArea> instead',
                     },
                     {
                         element: 'Input',
@@ -138,14 +139,14 @@ module.exports = {
                         message: 'use <LemonSelect> instead',
                     },
                     {
-                        element: 'a',
-                        message: 'use <Link> instead',
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
                 ],
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -155,6 +156,10 @@ module.exports = {
                     {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
+                    },
+                    {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Spin',
@@ -168,11 +173,50 @@ module.exports = {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
                     },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
+                    },
+                    {
+                        element: 'MonacoEditor',
+                        message: 'use <CodeEditor> instead',
+                    },
+                    {
+                        element: 'Typography',
+                        message: 'use utility classes instead',
+                    },
+                    {
+                        element: 'Input.TextArea',
+                        message: 'use <LemonTextArea> instead',
+                    },
+                    {
+                        element: 'ReactMarkdown',
+                        message: 'use <LemonMarkdown> instead',
+                    },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
+        {
+            files: ['**/test/**/*', '**/*.test.*'],
+            env: {
+                ...env,
+                node: true,
+                'jest/globals': true,
+            },
+            globals: {
+                ...globals,
+                given: 'readonly',
+            },
+        },
         {
             // disable these rules for files generated by kea-typegen
             files: ['*Type.ts', '*Type.tsx'],
@@ -204,6 +248,16 @@ module.exports = {
             files: ['*.js'],
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
+            },
+        },
+        {
+            files: 'eslint-rules/**/*',
+            extends: ['eslint:recommended'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+            },
+            env: {
+                node: true,
             },
         },
     ],

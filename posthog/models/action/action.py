@@ -78,7 +78,10 @@ class Action(models.Model):
 
 @receiver(post_save, sender=Action)
 def action_saved(sender, instance: Action, created, **kwargs):
-    get_client().publish("reload-action", json.dumps({"teamId": instance.team_id, "actionId": instance.id}))
+    get_client().publish(
+        "reload-action",
+        json.dumps({"teamId": instance.team_id, "actionId": instance.id}),
+    )
 
 
 @mutable_receiver(post_delete, sender=Action)

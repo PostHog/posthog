@@ -35,7 +35,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             const newValue = change.after === SECRET_FIELD_VALUE ? '<secret_value>' : change.after
             changes.push(
                 <>
-                    field <code>{change.field}</code> set to <code>{newValue}</code>
+                    field <code>{change.field}</code> set to <code>{newValue as string}</code>
                 </>
             )
         }
@@ -134,20 +134,20 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             if (change.action === 'created') {
                 changeWording = (
                     <>
-                        added new field <code>{change.field}</code>" with value <code>{changeAfter}</code>
+                        added new field <code>{change.field}</code>" with value <code>{changeAfter as string}</code>
                     </>
                 )
             } else if (change.action === 'deleted') {
                 changeWording = (
                     <>
-                        removed field <code>{change.field}</code>, which had value <code>{changeBefore}</code>
+                        removed field <code>{change.field}</code>, which had value <code>{changeBefore as string}</code>
                     </>
                 )
             } else if (change.action === 'changed') {
                 changeWording = (
                     <>
-                        updated field <code>{change.field}</code> from value <code>{changeBefore}</code> to value{' '}
-                        <code>{changeAfter}</code>{' '}
+                        updated field <code>{change.field}</code> from value <code>{changeBefore as string}</code> to
+                        value <code>{changeAfter as string}</code>{' '}
                     </>
                 )
             }
@@ -175,27 +175,28 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
             if (logItem.activity === 'attachment_created') {
                 changeWording = (
                     <>
-                        attached a file <code>{change.after}</code>
+                        attached a file <code>{change.after as string}</code>
                     </>
                 )
             } else if (logItem.activity == 'attachment_updated') {
                 if (change.after === change.before) {
                     changeWording = (
                         <>
-                            updated attached file <code>{change.after}</code>
+                            updated attached file <code>{change.after as string}</code>
                         </>
                     )
                 } else {
                     changeWording = (
                         <>
-                            updated attached file from <code>{change.before}</code> to <code>{change.after}</code>
+                            updated attached file from <code>{change.before as string}</code> to{' '}
+                            <code>{change.after as string}</code>
                         </>
                     )
                 }
             } else if (logItem.activity === 'attachment_deleted') {
                 changeWording = (
                     <>
-                        deleted attached file <code>{change.before}</code>
+                        deleted attached file <code>{change.before as string}</code>
                     </>
                 )
             }

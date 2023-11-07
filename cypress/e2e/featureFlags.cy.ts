@@ -17,12 +17,13 @@ describe('Feature Flags', () => {
 
         // Check that feature flags instructions can be displayed in another code language
         cy.get('[data-attr=feature-flag-instructions-select]').click()
-        cy.get('[data-attr=feature-flag-instructions-select-option-PHP]').click()
+        // force click rather than scrolling the element into view
+        cy.get('[data-attr=feature-flag-instructions-select-option-php]').click({ force: true })
         cy.get('[data-attr=feature-flag-instructions-snippet]').should(
             'contain',
             /if (PostHog::isFeatureEnabled('.*', 'some distinct id')) {/
         )
-        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /    \/\/ do something here/)
+        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', / {4}\/\/ do something here/)
         cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /}/)
         cy.get('[data-attr=feature-flag-doc-link]').should(
             'have.attr',

@@ -6,7 +6,10 @@ from celery import states
 from celery.result import AsyncResult
 
 from posthog.async_migrations.examples.test_migration import Migration
-from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
+from posthog.async_migrations.runner import (
+    run_async_migration_next_op,
+    run_async_migration_operations,
+)
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.instance_setting import set_instance_setting
@@ -45,7 +48,10 @@ class TestAsyncMigrations(BaseTest):
     @pytest.mark.ee
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
-    @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
+    @patch(
+        "posthog.tasks.async_migrations.run_async_migration.delay",
+        side_effect=run_async_migration_mock,
+    )
     def test_check_async_migration_health_during_resumable_op(self, _: Any, __: Any) -> None:
         """
         Mocks celery tasks and tests that `check_async_migration_health` works as expected
@@ -76,7 +82,10 @@ class TestAsyncMigrations(BaseTest):
     @pytest.mark.ee
     @patch.object(AsyncResult, "state", states.STARTED)
     @patch("posthog.celery.app.control.inspect", side_effect=inspect_mock)
-    @patch("posthog.tasks.async_migrations.run_async_migration.delay", side_effect=run_async_migration_mock)
+    @patch(
+        "posthog.tasks.async_migrations.run_async_migration.delay",
+        side_effect=run_async_migration_mock,
+    )
     def test_check_async_migration_health_during_non_resumable_op(self, _: Any, __: Any) -> None:
         """
         Same as above, but now we find a non-resumbale op.

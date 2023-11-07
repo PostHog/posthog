@@ -1,11 +1,12 @@
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
-from pydantic import BaseModel, Extra
+from pydantic import ConfigDict, BaseModel
 
 from posthog.hogql.errors import HogQLException, NotImplementedException
-
+from posthog.schema import HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
+    from posthog.hogql.ast import SelectQuery
 
 
 class FieldOrTable(BaseModel):
@@ -17,8 +18,7 @@ class DatabaseField(FieldOrTable):
     Base class for a field in a database table.
     """
 
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     array: Optional[bool] = None
@@ -58,17 +58,14 @@ class BooleanDatabaseField(DatabaseField):
 
 
 class FieldTraverser(FieldOrTable):
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
     chain: List[str]
 
 
 class Table(FieldOrTable):
     fields: Dict[str, FieldOrTable]
-
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str) -> bool:
         return name in self.fields
@@ -103,23 +100,21 @@ class Table(FieldOrTable):
 
 
 class LazyJoin(FieldOrTable):
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[[str, str, Dict[str, Any]], Any]
+    join_function: Callable[[str, str, Dict[str, Any], "HogQLContext", "SelectQuery"], Any]
     join_table: Table
     from_field: str
 
 
 class LazyTable(Table):
     """
-    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain])`
+    A table that is replaced with a subquery returned from `lazy_select(requested_fields: Dict[name, chain], modifiers: HogQLQueryModifiers)`
     """
 
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]]) -> Any:
+    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers) -> Any:
         raise NotImplementedException("LazyTable.lazy_select not overridden")
 
 
@@ -128,8 +123,7 @@ class VirtualTable(Table):
     A nested table that reuses the parent for storage. E.g. events.person.* fields with PoE enabled.
     """
 
-    class Config:
-        extra = Extra.forbid
+    model_config = ConfigDict(extra="forbid")
 
 
 class FunctionCallTable(Table):
@@ -149,3 +143,16 @@ class SavedQuery(Table):
 
     query: str
     name: str
+
+    # Note: redundancy for safety. This validation is used in the data model already
+    def to_printed_clickhouse(self, context):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name
+
+    def to_printed_hogql(self):
+        from posthog.warehouse.models import validate_saved_query_name
+
+        validate_saved_query_name(self.name)
+        return self.name

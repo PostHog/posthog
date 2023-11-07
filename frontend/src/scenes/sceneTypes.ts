@@ -2,6 +2,7 @@ import { LogicWrapper } from 'kea'
 
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
+
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
@@ -10,6 +11,7 @@ export enum Scene {
     Dashboard = 'Dashboard',
     Database = 'Database',
     Insight = 'Insight',
+    WebAnalytics = 'WebAnalytics',
     Cohorts = 'Cohorts',
     Cohort = 'Cohort',
     Events = 'Events',
@@ -25,26 +27,29 @@ export enum Scene {
     ReplayPlaylist = 'ReplayPlaylist',
     Person = 'Person',
     Persons = 'Persons',
+    Pipeline = 'Pipeline',
     Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',
     Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
-    Exports = 'Exports',
-    CreateExport = 'CreateExport',
-    ViewExport = 'ViewExport',
+    BatchExports = 'BatchExports',
+    BatchExport = 'BatchExport',
+    BatchExportEdit = 'BatchExportEdit',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     EarlyAccessFeature = 'EarlyAccessFeature',
     Surveys = 'Surveys',
     Survey = 'Survey',
+    SurveyTemplates = 'SurveyTemplates',
     DataWarehouse = 'DataWarehouse',
     DataWarehousePosthog = 'DataWarehousePosthog',
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
+    DataWarehouseSettings = 'DataWarehouseSettings',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -56,7 +61,7 @@ export enum Scene {
     MySettings = 'MySettings',
     Annotations = 'Annotations',
     Billing = 'Billing',
-    Plugins = 'Plugins',
+    Apps = 'Apps',
     FrontendAppScene = 'FrontendAppScene',
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
@@ -77,7 +82,11 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Notebooks = 'Notebooks',
     Notebook = 'Notebook',
+    Canvas = 'Canvas',
+    Products = 'Products',
+    Onboarding = 'Onboarding',
 }
 
 export type SceneProps = Record<string, any>
@@ -120,10 +129,11 @@ export interface SceneConfig {
     /**
      * If `app`, navigation is shown, and the scene has default padding.
      * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

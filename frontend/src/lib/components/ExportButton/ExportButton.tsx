@@ -55,7 +55,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={
-                                        !!exportBody.length ? JSON.stringify(exportBody) : null
+                                        exportBody.length ? JSON.stringify(exportBody) : null
                                     }
                                 >
                                     {title ? title : `.${exportFormatExtension}`}

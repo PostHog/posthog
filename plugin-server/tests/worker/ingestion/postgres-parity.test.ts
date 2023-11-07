@@ -9,6 +9,7 @@ import {
     PropertyUpdateOperation,
     TimestampFormat,
 } from '../../../src/types'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -389,8 +390,7 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-
-        await hub.db.postgresTransaction('', async (client) => {
+        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessage(deletePersonMessage[0])
         })

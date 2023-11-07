@@ -9,6 +9,12 @@ import { ErrorDetailsModal } from './ErrorDetailsModal'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PluginTags } from 'scenes/plugins/tabs/apps/components'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { AppLogsTab } from './AppLogsTab'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -17,20 +23,45 @@ export const scene: SceneExport = {
 }
 
 export function AppMetrics(): JSX.Element {
-    const { activeTab, pluginConfig, pluginConfigLoading, showTab, shouldShowAppMetrics } =
-        useValues(appMetricsSceneLogic)
+    const { activeTab, pluginConfig, pluginConfigLoading, showTab } = useValues(appMetricsSceneLogic)
+    const { editPlugin } = useActions(pluginsLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
 
     return (
         <div>
-            <PageHeader
-                title={pluginConfig ? pluginConfig.plugin_info.name : <LemonSkeleton />}
-                caption={
-                    shouldShowAppMetrics && pluginConfig
-                        ? 'An overview of metrics and exports for this app.'
-                        : undefined
-                }
-            />
+            <div className="flex items-center gap-2">
+                {pluginConfig ? (
+                    <PluginImage plugin={pluginConfig?.plugin_info} />
+                ) : (
+                    <LemonSkeleton className="w-10 h-10" />
+                )}
+                <div className="flex-1">
+                    <PageHeader
+                        title={
+                            pluginConfig ? (
+                                <span className="flex items-center gap-2">
+                                    {pluginConfig.plugin_info.name}
+                                    <PluginTags plugin={pluginConfig.plugin_info} />
+                                </span>
+                            ) : (
+                                <LemonSkeleton />
+                            )
+                        }
+                        caption={pluginConfig ? 'An overview of metrics and exports for this app.' : undefined}
+                        buttons={
+                            pluginConfig?.plugin ? (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconSettings />}
+                                    onClick={() => editPlugin(pluginConfig?.plugin)}
+                                >
+                                    Configure
+                                </LemonButton>
+                            ) : undefined
+                        }
+                    />
+                </div>
+            </div>
 
             {pluginConfigLoading || !activeTab ? (
                 <LemonSkeleton />
@@ -65,7 +96,12 @@ export function AppMetrics(): JSX.Element {
                             label: 'Historical exports',
                             content: <HistoricalExportsTab />,
                         },
-                        showTab(AppMetricsTab.History) && {
+                        {
+                            key: AppMetricsTab.Logs,
+                            label: 'Logs',
+                            content: <AppLogsTab />,
+                        },
+                        {
                             key: AppMetricsTab.History,
                             label: 'History',
                             content: <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />,

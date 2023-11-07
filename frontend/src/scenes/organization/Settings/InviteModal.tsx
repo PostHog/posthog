@@ -3,10 +3,10 @@ import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { IconDelete, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconDelete, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTextArea, LemonInput } from '@posthog/lemon-ui'
+import { LemonTextArea, LemonInput, Link } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
@@ -24,10 +24,9 @@ export function EmailUnavailableMessage(): JSX.Element {
         <LemonBanner type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
-                <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
                     configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
-                    <IconOpenInNew />
-                </a>
+                </Link>
                 .<br />
                 Remember to <u>share the invite link</u> with each team member you invite.
             </>
@@ -174,7 +173,8 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 {preflight?.licensed_users_available === 0 && (
                     <LemonBanner type="warning">
                         You've hit the limit of team members you can invite to your PostHog instance given your license.
-                        Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your license.
+                        Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to upgrade your
+                        license.
                     </LemonBanner>
                 )}
                 <div className="space-y-2">
@@ -194,7 +194,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
 
                                 <div className="flex-1 flex gap-2 overflow-hidden">
                                     {invite.is_expired ? (
-                                        <b>Expired! Delete and recreate</b>
+                                        <b>Expired – please recreate</b>
                                     ) : (
                                         <>
                                             {preflight?.email_service_available ? (

@@ -16,6 +16,7 @@ export CONVERSION_BUFFER_ENABLED=true
 export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the default 60 seconds
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_GATHERED_FOR_ALL=true
+export NODE_ENV=production-functional-tests
 
 # Not important at all, but I like to see nice red/green for tests
 export FORCE_COLOR=true
@@ -24,7 +25,7 @@ LOG_FILE=$(mktemp)
 
 echo '::group::Starting plugin server'
 
-./node_modules/.bin/c8 --reporter html node dist/index.js >"$LOG_FILE" 2>&1 &
+NODE_OPTIONS='--max_old_space_size=4096' ./node_modules/.bin/c8 --reporter html node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 SECONDS=0
 

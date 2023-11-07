@@ -54,7 +54,7 @@ export function Permissions({ isRestricted }: RestrictedComponentProps): JSX.Ele
     return (
         <>
             <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
+                <div className="grow">
                     <h2 id="roles" className="subtitle">
                         Permission Defaults
                     </h2>

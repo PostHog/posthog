@@ -28,13 +28,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     name: models.CharField = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(
-        default=dict, null=True, blank=True, help_text="Dict of all columns with ClickHouse type (including Nullable())"
+        default=dict,
+        null=True,
+        blank=True,
+        help_text="Dict of all columns with ClickHouse type (including Nullable())",
+    )
+    external_tables: models.JSONField = models.JSONField(
+        default=list, null=True, blank=True, help_text="List of all external tables"
     )
     query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="posthog_datawarehouse_saved_query_unique_name")
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                name="posthog_datawarehouse_saved_query_unique_name",
+            )
         ]
 
     def get_columns(self) -> Dict[str, str]:
@@ -44,6 +53,29 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         response = process_query(self.team, self.query)
         types = response.get("types", {})
         return dict(types)
+
+    @property
+    def s3_tables(self):
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.database.database import create_hogql_database
+        from posthog.hogql.query import create_default_modifiers_for_team
+        from posthog.hogql.resolver import resolve_types
+        from posthog.models.property.util import S3TableVisitor
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        node = parse_select(self.query["query"])
+        context.database = create_hogql_database(context.team_id)
+
+        node = resolve_types(node, context)
+        table_collector = S3TableVisitor()
+        table_collector.visit(node)
+
+        return list(table_collector.tables)
 
     def hogql_definition(self) -> SavedQuery:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING

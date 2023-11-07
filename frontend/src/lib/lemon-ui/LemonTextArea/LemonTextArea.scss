@@ -34,3 +34,15 @@
         border: 1px solid var(--danger);
     }
 }
+
+.LemonTextArea--preview {
+    ul {
+        list-style-type: disc;
+        list-style-position: inside;
+    }
+
+    ol {
+        list-style-type: decimal;
+        list-style-position: inside;
+    }
+}

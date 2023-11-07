@@ -60,7 +60,7 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
 
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
-        ? urls.person(person.distinct_id)
+        ? urls.personByDistinctId(person.distinct_id)
         : person?.distinct_ids?.length
-        ? urls.person(person.distinct_ids[0])
+        ? urls.personByDistinctId(person.distinct_ids[0])
         : undefined

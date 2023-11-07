@@ -58,7 +58,12 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             {
                 "filters": {
                     "type": "OR",
-                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 5, "type": "person"}]}],
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "team_id", "value": 5, "type": "person"}],
+                        }
+                    ],
                 },
                 "name_length": 8,
                 "groups_count": 1,
@@ -91,7 +96,12 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             {
                 "filters": {
                     "type": "OR",
-                    "values": [{"type": "AND", "values": [{"key": "team_id", "value": 6, "type": "person"}]}],
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "team_id", "value": 6, "type": "person"}],
+                        }
+                    ],
                 },
                 "name_length": 9,
                 "groups_count": 1,
@@ -193,7 +203,9 @@ User ID,
 
         # Only change name without updating CSV
         response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}", {"name": "test2"}, format="multipart"
+            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+            {"name": "test2"},
+            format="multipart",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -235,7 +247,10 @@ email@example.org,
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"is_static": False, "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
+            {
+                "is_static": False,
+                "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}],
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
@@ -247,7 +262,8 @@ email@example.org,
         Person.objects.create(team=self.team, properties={"prop": 6})
 
         self.client.post(
-            f"/api/projects/{self.team.id}/cohorts", data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]}
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
@@ -284,11 +300,16 @@ email@example.org,
     def test_filter_by_cohort(self):
         _create_person(team=self.team, distinct_ids=[f"fake"], properties={})
         for i in range(150):
-            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"person_{i}"],
+                properties={"$os": "Chrome"},
+            )
 
         flush_persons_and_events()
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         cohort.calculate_people_ch(pending_version=0)
 
@@ -300,12 +321,54 @@ email@example.org,
 
     def test_filter_by_cohort_prop(self):
         for i in range(5):
-            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"person_{i}"],
+                properties={"$os": "Chrome"},
+            )
 
-        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"target"],
+            properties={"$os": "Chrome", "$browser": "Safari"},
+        )
 
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari", "type": "person"}]))
+        )
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
+    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
+    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+    def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
+        for i in range(5):
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"person_{i}"],
+                properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"target"],
+            properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"not_target"],
+            properties={"$os": "Something else", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         cohort.calculate_people_ch(pending_version=0)
 
@@ -317,13 +380,22 @@ email@example.org,
 
     def test_filter_by_cohort_search(self):
         for i in range(5):
-            _create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"$os": "Chrome"})
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"person_{i}"],
+                properties={"$os": "Chrome"},
+            )
 
-        _create_person(team=self.team, distinct_ids=[f"target"], properties={"$os": "Chrome", "$browser": "Safari"})
+        _create_person(
+            team=self.team,
+            distinct_ids=[f"target"],
+            properties={"$os": "Chrome", "$browser": "Safari"},
+        )
         flush_persons_and_events()
 
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
         cohort.calculate_people_ch(pending_version=0)
 
@@ -359,7 +431,17 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort B",
-                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_a.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
             },
         )
         self.assertEqual(patch_calculate_cohort.call_count, 2)
@@ -369,7 +451,17 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort C",
-                "groups": [{"properties": [{"type": "cohort", "value": response_b.json()["id"], "key": "id"}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_b.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
             },
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
@@ -379,12 +471,26 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
             data={
                 "name": "Cohort A, reloaded",
-                "groups": [{"properties": [{"type": "cohort", "value": response_c.json()["id"], "key": "id"}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_c.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertDictContainsSubset(
-            {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
+            {
+                "detail": "Cohorts cannot reference other cohorts in a loop.",
+                "type": "validation_error",
+            },
+            response.json(),
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
 
@@ -393,12 +499,26 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts/{response_a.json()['id']}",
             data={
                 "name": "Cohort A, reloaded",
-                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_a.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertDictContainsSubset(
-            {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}, response.json()
+            {
+                "detail": "Cohorts cannot reference other cohorts in a loop.",
+                "type": "validation_error",
+            },
+            response.json(),
         )
         self.assertEqual(patch_calculate_cohort.call_count, 3)
 
@@ -417,7 +537,17 @@ email@example.org,
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort B",
-                "groups": [{"properties": [{"type": "cohort", "value": response_a.json()["id"], "key": "id"}]}],
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "type": "cohort",
+                                "value": response_a.json()["id"],
+                                "key": "id",
+                            }
+                        ]
+                    }
+                ],
             },
         )
         self.assertEqual(patch_calculate_cohort.call_count, 2)
@@ -430,8 +560,16 @@ email@example.org,
                 "groups": [
                     {
                         "properties": [
-                            {"type": "cohort", "value": response_b.json()["id"], "key": "id"},
-                            {"type": "cohort", "value": response_a.json()["id"], "key": "id"},
+                            {
+                                "type": "cohort",
+                                "value": response_b.json()["id"],
+                                "key": "id",
+                            },
+                            {
+                                "type": "cohort",
+                                "value": response_a.json()["id"],
+                                "key": "id",
+                            },
                         ]
                     }
                 ],
@@ -470,25 +608,47 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertDictContainsSubset(
-            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}, response.json()
+            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"},
+            response.json(),
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
         )
 
         flush_persons_and_events()
@@ -501,7 +661,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "$pageview",
                                 "event_type": "events",
@@ -530,9 +694,21 @@ email@example.org,
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
         # regression test: Removing `value` was silently failing
 
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_person(distinct_ids=["p4"], team_id=self.team.pk, properties={})
         flush_persons_and_events()
 
@@ -543,7 +719,13 @@ email@example.org,
                 "filters": {
                     "properties": {
                         "type": "OR",
-                        "values": [{"key": "$some_prop", "type": "person", "operator": "is_set"}],
+                        "values": [
+                            {
+                                "key": "$some_prop",
+                                "type": "person",
+                                "operator": "is_set",
+                            }
+                        ],
                     }
                 },
             },
@@ -575,12 +757,19 @@ email@example.org,
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            data={"name": "whatever", "filters": "[Slkasd=lkxcn]", "groups": [{"properties": {"team_id": 5}}]},
+            data={
+                "name": "whatever",
+                "filters": "[Slkasd=lkxcn]",
+                "groups": [{"properties": {"team_id": 5}}],
+            },
         )
 
         self.assertEqual(update_response.status_code, 400, response.content)
         self.assertDictContainsSubset(
-            {"detail": "Filters must be a dictionary with a 'properties' key.", "type": "validation_error"},
+            {
+                "detail": "Filters must be a dictionary with a 'properties' key.",
+                "type": "validation_error",
+            },
             update_response.json(),
         )
 
@@ -610,7 +799,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -657,7 +850,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "$pageview",
                                 "event_type": "events",
@@ -690,7 +887,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "id",
                                 "value": second_cohort_pk,
@@ -714,19 +915,40 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
         )
 
         flush_persons_and_events()
@@ -739,7 +961,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "$pageview",
                                 "event_type": "events",
@@ -780,19 +1006,40 @@ email@example.org,
     @snapshot_clickhouse_queries
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort(self, patch_capture):
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
         )
 
         flush_persons_and_events()
@@ -805,7 +1052,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "$pageview",
                                 "event_type": "events",
@@ -836,7 +1087,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -869,7 +1124,10 @@ email@example.org,
         sync_execute(f"OPTIMIZE TABLE cohortpeople FINAL SETTINGS mutations_sync = 2")
 
         # check clickhouse data is gone from cohortpeople table
-        res = sync_execute("SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort_id})
+        res = sync_execute(
+            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
+            {"cohort_id": cohort_id},
+        )
         self.assertEqual(res[0][0], 1)
 
         # now let's ensure verification of deletion happens on next run
@@ -907,19 +1165,40 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort_with_race_condition_multiple_updates(self, patch_capture):
-        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["p1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
         )
 
-        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_person(
+            distinct_ids=["p3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
         _create_event(
-            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp=datetime.now() - timedelta(days=12),
         )
 
         flush_persons_and_events()
@@ -932,7 +1211,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                             {
                                 "key": "$pageview",
                                 "event_type": "events",
@@ -963,7 +1246,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -978,7 +1265,11 @@ email@example.org,
                     "properties": {
                         "type": "OR",
                         "values": [
-                            {"key": "$some_prop", "value": "something2", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something2",
+                                "type": "person",
+                            },
                         ],
                     }
                 },
@@ -1021,7 +1312,10 @@ email@example.org,
         # check clickhouse data is gone from cohortpeople table
         # Without async deletions, this number would've been 5, because of extra random stuff being added to cohortpeople table
         # due to the racy calls to update cohort
-        res = sync_execute("SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s", {"cohort_id": cohort_id})
+        res = sync_execute(
+            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s",
+            {"cohort_id": cohort_id},
+        )
         self.assertEqual(res[0][0], 2)
 
         # now let's ensure verification of deletion happens on next run

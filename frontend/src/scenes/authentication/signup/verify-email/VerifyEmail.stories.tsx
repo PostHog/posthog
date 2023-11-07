@@ -4,15 +4,14 @@ import { useEffect } from 'react'
 import { VerifyEmail } from './VerifyEmail'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
-export default {
+const meta: Meta = {
     title: 'Scenes-Other/Verify Email',
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
     },
-} as Meta
-
+}
+export default meta
 export const VerifyEmailPending: Story = () => {
     useEffect(() => {
         verifyEmailLogic.actions.setView('pending')

@@ -1,11 +1,11 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 
 import { CompactList } from './CompactList'
 import { urls } from 'scenes/urls'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
-export default {
+const meta: Meta<typeof CompactList> = {
     title: 'Components/Compact List',
     component: CompactList,
     argTypes: {
@@ -15,11 +15,13 @@ export default {
             },
         },
     },
-} as ComponentMeta<typeof CompactList>
+}
+export default meta
 
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
         <div className="flex">
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ width: 350 }}>
                 <CompactList
                     loading={loading}
@@ -42,6 +44,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     )}
                 />
             </div>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ width: 350, marginLeft: 30 }}>
                 <CompactList
                     loading={loading}

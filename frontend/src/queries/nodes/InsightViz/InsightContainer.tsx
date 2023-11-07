@@ -1,4 +1,4 @@
-import { Card, Col, Row } from 'antd'
+import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -6,8 +6,8 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
-import { QueryContext, StickinessFilter, TrendsFilter } from '~/queries/schema'
-import { ChartDisplayType, FunnelVizType, ExporterFormat, InsightType, ItemMode } from '~/types'
+import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
@@ -34,6 +34,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { Link } from '@posthog/lemon-ui'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -50,16 +51,20 @@ export function InsightContainer({
     disableCorrelationTable,
     disableLastComputation,
     disableLastComputationRefresh,
+    showingResults,
     insightMode,
     context,
+    embedded,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
+    showingResults?: boolean
     insightMode?: ItemMode
     context?: QueryContext
+    embedded: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -73,11 +78,11 @@ export function InsightContainer({
         isFunnels,
         isPaths,
         display,
+        showLegend,
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
         isUsingSessionAnalysis,
-        insightFilter,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
@@ -87,11 +92,16 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (insightDataLoading && timedOutQueryId === null) {
+        if (insightDataLoading) {
             return (
-                <div className="text-center">
-                    <Animation type={AnimationType.LaptopHog} />
-                </div>
+                <>
+                    <div className="text-center">
+                        <Animation type={AnimationType.LaptopHog} />
+                    </div>
+                    {!!timedOutQueryId && (
+                        <InsightTimeoutState isLoading={true} queryId={timedOutQueryId} insightProps={insightProps} />
+                    )}
+                </>
             )
         }
 
@@ -109,10 +119,10 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (!!erroredQueryId) {
+        if (erroredQueryId) {
             return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (!!timedOutQueryId) {
+        if (timedOutQueryId) {
             return (
                 <InsightTimeoutState
                     isLoading={insightDataLoading}
@@ -192,66 +202,69 @@ export function InsightContainer({
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
-                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 </div>
             ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
-                title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
+                title={disableHeader ? null : <InsightDisplayConfig />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
+                bordered={!embedded}
             >
-                <div>
-                    {isFunnels && (
-                        <div className="overflow-hidden">
-                            {/* negative margin-top so that the border is only visible when the rows wrap */}
-                            <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
-                                {(!disableLastComputation || !!samplingFactor) && (
-                                    <div className="flex grow items-center insights-graph-header border-t">
-                                        <InsightResultMetadata
-                                            disableLastComputation={disableLastComputation}
-                                            disableLastComputationRefresh={disableLastComputationRefresh}
-                                        />
+                {showingResults && (
+                    <div>
+                        {isFunnels && (
+                            <div className="overflow-hidden">
+                                {/* negative margin-top so that the border is only visible when the rows wrap */}
+                                <div className="flex flex-wrap-reverse whitespace-nowrap gap-x-8 -mt-px">
+                                    {(!disableLastComputation || !!samplingFactor) && (
+                                        <div className="flex grow items-center insights-graph-header border-t">
+                                            <InsightResultMetadata
+                                                disableLastComputation={disableLastComputation}
+                                                disableLastComputationRefresh={disableLastComputationRefresh}
+                                            />
+                                        </div>
+                                    )}
+                                    <div
+                                        className={`flex insights-graph-header ${
+                                            disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
+                                        }`}
+                                    >
+                                        <FunnelCanvasLabel />
                                     </div>
-                                )}
-                                <div
-                                    className={`flex insights-graph-header ${
-                                        disableLastComputation ? 'border-b w-full mb-4' : 'border-t'
-                                    }`}
-                                >
-                                    <FunnelCanvasLabel />
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
-                        <div className="flex items-center justify-between insights-graph-header">
-                            <div className="flex items-center">
-                                <InsightResultMetadata
-                                    disableLastComputation={disableLastComputation}
-                                    disableLastComputationRefresh={disableLastComputationRefresh}
-                                />
+                        {!isFunnels && (!disableLastComputation || !!samplingFactor) && (
+                            <div className="flex items-center justify-between insights-graph-header">
+                                <div className="flex items-center">
+                                    <InsightResultMetadata
+                                        disableLastComputation={disableLastComputation}
+                                        disableLastComputationRefresh={disableLastComputationRefresh}
+                                    />
+                                </div>
+
+                                <div>{isPaths ? <PathCanvasLabel /> : null}</div>
                             </div>
+                        )}
 
-                            <div>{isPaths ? <PathCanvasLabel /> : null}</div>
-                        </div>
-                    )}
-
-                    {!!BlockingEmptyState ? (
-                        BlockingEmptyState
-                    ) : supportsDisplay && (insightFilter as TrendsFilter | StickinessFilter)?.show_legend ? (
-                        <Row className="insights-graph-container-row" wrap={false}>
-                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                            <Col className="insights-graph-container-row-right">
-                                <InsightLegend />
-                            </Col>
-                        </Row>
-                    ) : (
-                        VIEW_MAP[activeView]
-                    )}
-                </div>
+                        {BlockingEmptyState ? (
+                            BlockingEmptyState
+                        ) : supportsDisplay && showLegend ? (
+                            <div className="insights-graph-container-row flex flex-nowrap">
+                                <div className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</div>
+                                <div className="insights-graph-container-row-right">
+                                    <InsightLegend />
+                                </div>
+                            </div>
+                        ) : (
+                            VIEW_MAP[activeView]
+                        )}
+                    </div>
+                )}
             </Card>
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}

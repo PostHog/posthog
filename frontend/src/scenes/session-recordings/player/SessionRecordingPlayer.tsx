@@ -21,7 +21,7 @@ import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNot
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
-import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -43,14 +43,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         playerKey,
         noMeta = false,
-        recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
-        matching,
         matchingEventsMatchType,
         noBorder = false,
         noInspector = false,
         autoPlay = true,
-        nextSessionRecording,
+        playlistLogic,
         mode = SessionRecordingPlayerMode.Standard,
+        pinned,
+        setPinned,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -58,14 +58,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
         playerKey,
-        matching,
         matchingEventsMatchType,
         sessionRecordingData,
-        recordingStartTime,
         autoPlay,
-        nextSessionRecording,
+        playlistLogic,
         mode,
         playerRef,
+        pinned,
+        setPinned,
     }
     const {
         incrementClickCount,
@@ -78,7 +78,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
     useKeyboardHotkeys(
@@ -125,7 +125,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const { size } = useResizeBreakpoints(
         {
-            0: 'small',
+            0: 'tiny',
+            400: 'small',
             1000: 'medium',
         },
         playerRef
@@ -148,9 +149,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 className={clsx('SessionRecordingPlayer', {
                     'SessionRecordingPlayer--fullscreen': isFullScreen,
                     'SessionRecordingPlayer--no-border': noBorder,
-                    'SessionRecordingPlayer--widescreen': !isFullScreen && size !== 'small',
+                    'SessionRecordingPlayer--widescreen': !isFullScreen && size === 'medium',
                     'SessionRecordingPlayer--inspector-focus': inspectorFocus,
-                    'SessionRecordingPlayer--inspector-hidden': noInspector,
+                    'SessionRecordingPlayer--inspector-hidden': noInspector || size === 'tiny',
+                    'SessionRecordingPlayer--buffering': isBuffering,
                 })}
                 onClick={incrementClickCount}
             >
@@ -159,7 +161,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 ) : (
                     <>
                         <div className="SessionRecordingPlayer__main">
-                            {!noMeta || isFullScreen ? <PlayerMeta /> : null}
+                            {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
                             <div className="SessionRecordingPlayer__body">
                                 <PlayerFrame />
                                 <PlayerFrameOverlay />

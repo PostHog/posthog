@@ -12,7 +12,10 @@ class TestUser(BaseTest):
     def test_analytics_metadata(self):
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
-            organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True
+            organization_name="Test Org",
+            email="test_org@posthog.com",
+            password="12345678",
+            anonymize_data=True,
         )
 
         with self.is_cloud(True):

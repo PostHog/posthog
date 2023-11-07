@@ -1,7 +1,6 @@
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'
@@ -15,7 +14,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     props({} as InsightLogicProps),
     connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
-        actions: [insightVizDataLogic(props), ['updateQuerySource'], globalInsightLogic, ['setGlobalInsightFilters']],
+        actions: [insightVizDataLogic(props), ['updateQuerySource']],
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
@@ -27,9 +26,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
-                setGlobalInsightFilters: (_, { globalInsightFilters }) => {
-                    return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
-                },
             },
         ],
     }),

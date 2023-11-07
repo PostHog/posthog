@@ -28,7 +28,6 @@ def slugify_all(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0173_should_update_person_props_function"),
     ]

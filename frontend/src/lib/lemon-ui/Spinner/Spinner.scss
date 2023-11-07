@@ -24,9 +24,9 @@
         opacity: 0.333;
     }
     &:nth-child(2) {
-        animation: spin 1.5s infinite linear;
+        animation: spin 1s infinite linear;
         > circle {
-            animation: writhe 2.25s infinite ease both;
+            animation: writhe 1.5s infinite ease both;
         }
     }
 }
@@ -44,6 +44,7 @@
 }
 
 .SpinnerOverlay {
+    transition: opacity 0.2s ease;
     position: absolute;
     top: 0;
     bottom: 0;
@@ -55,6 +56,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    &[aria-hidden='true'] {
+        opacity: 0;
+        pointer-events: none;
+    }
     &::before {
         content: '';
         position: absolute;

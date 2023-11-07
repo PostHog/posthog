@@ -20,6 +20,7 @@ import {
 } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
+import { BreakdownFilter } from '~/queries/schema'
 
 /** Make sure unverified user property filter input has at least a "type" */
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
@@ -153,18 +154,36 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
-export function propertyFilterTypeToTaxonomicFilterType(
-    filterType?: string | null,
-    groupTypeIndex?: number | null
-): TaxonomicFilterGroupType | undefined {
-    if (!filterType) {
+const filterToTaxonomicFilterType = (
+    type?: string | null,
+    group_type_index?: number | null,
+    value?: (string | number)[] | string | number | null
+): TaxonomicFilterGroupType | undefined => {
+    if (!type) {
         return undefined
     }
-    if (filterType === 'group') {
-        return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
+    if (type === 'group') {
+        return `${TaxonomicFilterGroupType.GroupsPrefix}_${group_type_index}` as TaxonomicFilterGroupType
     }
-    return propertyFilterMapping[filterType]
+    if (type === 'event' && typeof value === 'string' && value?.startsWith('$feature/')) {
+        return TaxonomicFilterGroupType.EventFeatureFlags
+    }
+    return propertyFilterMapping[type]
 }
+
+export const propertyFilterTypeToTaxonomicFilterType = (
+    filter: AnyPropertyFilter
+): TaxonomicFilterGroupType | undefined =>
+    filterToTaxonomicFilterType(filter.type, (filter as GroupPropertyFilter).group_type_index, filter.key)
+
+export const breakdownFilterToTaxonomicFilterType = (
+    breakdownFilter: BreakdownFilter
+): TaxonomicFilterGroupType | undefined =>
+    filterToTaxonomicFilterType(
+        breakdownFilter.breakdown_type,
+        breakdownFilter.breakdown_group_type_index,
+        breakdownFilter.breakdown
+    )
 
 export function propertyFilterTypeToPropertyDefinitionType(
     filterType?: PropertyFilterType | string | null

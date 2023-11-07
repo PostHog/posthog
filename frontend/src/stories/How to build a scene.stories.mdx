@@ -171,7 +171,7 @@ If you need a lot of `.json` files for mocked data, create a `__mocks__` subdire
 
 ```tsx
 import { useEffect } from 'react'
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { App } from 'scenes/App'
 import { router } from 'kea-router'

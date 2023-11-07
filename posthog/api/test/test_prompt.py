@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest
 
 
 def _setup_prompts() -> None:
-
     prompt1 = Prompt.objects.create(
         step=0,
         type="tooltip",
@@ -159,7 +158,12 @@ class TestPrompt(APIBaseTest):
                         "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
                         "placement": "bottom-start",
                         "reference": "help-button",
-                        "buttons": [{"action": "activation-checklist", "label": "Show me suggestions"}],
+                        "buttons": [
+                            {
+                                "action": "activation-checklist",
+                                "label": "Show me suggestions",
+                            }
+                        ],
                     }
                 ],
             },

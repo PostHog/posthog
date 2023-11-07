@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import {
     CohortCriteriaRowBuilder,
     CohortCriteriaRowBuilderProps,
@@ -13,11 +13,12 @@ import { BehavioralEventType } from '~/types'
 import { Form } from 'kea-forms'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
-export default {
+const meta: Meta<typeof CohortCriteriaRowBuilder> = {
     title: 'Filters/Cohort Filters/Row Builder',
     component: CohortCriteriaRowBuilder,
     decorators: [taxonomicFilterMocksDecorator],
-} as ComponentMeta<typeof CohortCriteriaRowBuilder>
+}
+export default meta
 
 export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps): JSX.Element {
     useMountedLogic(actionsModel)

@@ -38,6 +38,8 @@ export function TaxonomicPropertyFilter({
     orFiltering,
     addText = 'Add filter',
     hasRowOperator,
+    hogQLTable,
+    propertyAllowList,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -70,6 +72,7 @@ export function TaxonomicPropertyFilter({
         taxonomicGroupTypes: groupTypes,
         taxonomicOnChange,
         eventNames,
+        propertyAllowList,
     })
     const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
@@ -94,14 +97,13 @@ export function TaxonomicPropertyFilter({
 
     const taxonomicFilter = (
         <TaxonomicFilter
-            groupType={propertyFilterTypeToTaxonomicFilterType(
-                filter?.type,
-                isGroupPropertyFilter(filter) ? filter.group_type_index : undefined
-            )}
+            groupType={filter ? propertyFilterTypeToTaxonomicFilterType(filter) : undefined}
             value={cohortOrOtherValue}
             onChange={taxonomicOnChange}
             taxonomicGroupTypes={groupTypes}
+            hogQLTable={hogQLTable}
             eventNames={eventNames}
+            propertyAllowList={propertyAllowList}
         />
     )
 

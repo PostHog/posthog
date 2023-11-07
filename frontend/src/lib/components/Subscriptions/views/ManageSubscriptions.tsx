@@ -46,7 +46,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div className="text-primary font-medium">{subscription.title}</div>
+                    <div className="text-link font-medium">{subscription.title}</div>
                     <div className="text-sm text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (
@@ -123,7 +123,7 @@ export function ManageSubscriptions({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {!!subscriptions.length ? (
+                    {subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>

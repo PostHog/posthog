@@ -8,7 +8,7 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
     actions({
         setIsExpanded: (expanded: boolean) => ({ expanded }),
     }),
-    reducers(({}) => ({
+    reducers(() => ({
         isExpanded: [
             true,
             { persist: true },

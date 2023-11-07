@@ -24,6 +24,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 export const scene: SceneExport = {
     component: ActionsTable,
@@ -50,9 +51,16 @@ export function ActionsTable(): JSX.Element {
             sorter: (a: ActionType, b: ActionType) => (a.name || '').localeCompare(b.name || ''),
             render: function RenderName(name, action: ActionType, index: number): JSX.Element {
                 return (
-                    <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
-                        {name || <i>Unnamed action</i>}
-                    </Link>
+                    <>
+                        <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
+                            {name || <i>Unnamed action</i>}
+                        </Link>
+                        {action.description && (
+                            <LemonMarkdown className="row-description" lowKeyHeadings>
+                                {action.description}
+                            </LemonMarkdown>
+                        )}
+                    </>
                 )
             },
         },

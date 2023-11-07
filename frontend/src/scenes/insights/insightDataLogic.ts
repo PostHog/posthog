@@ -41,7 +41,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             [
                 'query as insightQuery',
-                'response as insightData',
+                'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -84,19 +84,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.propsQuery, s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
-            (propsQuery, filters, insight, internalQuery, filterTestAccountsDefault) =>
-                propsQuery ||
+            (s) => [s.filters, s.insight, s.internalQuery, s.filterTestAccountsDefault],
+            (filters, insight, internalQuery, filterTestAccountsDefault) =>
                 internalQuery ||
                 insight.query ||
                 (filters && filters.insight ? queryFromFilters(filters) : undefined) ||
                 queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault),
-        ],
-
-        propsQuery: [
-            () => [(_, props) => props],
-            // overwrite query from props for standalone InsightVizNode queries
-            (props: InsightLogicProps) => (props.dashboardItemId?.startsWith('new-AdHoc.') ? props.query : null),
         ],
 
         isQueryBasedInsight: [
@@ -147,6 +140,24 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             },
         ],
+
+        insightData: [
+            (s) => [s.insightDataRaw],
+            (insightDataRaw): Record<string, any> => {
+                // :TRICKY: The queries return results as `results`, but insights expect `result`
+                return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+            },
+        ],
+
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -162,7 +173,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (!!insight.query) {
+            if (insight.query) {
                 actions.setQuery(insight.query)
             } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
                 const query = queryFromFilters(insight.filters)

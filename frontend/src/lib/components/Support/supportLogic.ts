@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
@@ -11,6 +11,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import * as Sentry from '@sentry/react'
+import { SidePanelTab, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -22,7 +24,7 @@ function getSessionReplayLink(): string {
 
 function getDjangoAdminLink(
     user: UserType | null,
-    cloudRegion: Region | undefined,
+    cloudRegion: Region | null | undefined,
     currentTeamId: TeamType['id'] | null
 ): string {
     if (!user || !cloudRegion) {
@@ -32,12 +34,18 @@ function getDjangoAdminLink(
     return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
-function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
+function getSentryLink(user: UserType | null, cloudRegion: Region | null | undefined): string {
     if (!user || !cloudRegion) {
         return ''
     }
     const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
+}
+
+const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
+    bug: 'Report a bug',
+    feedback: 'Give feedback',
+    support: 'Get support',
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -54,7 +62,9 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    surveys: 'User Surveys',
+    toolbar: 'Toolbar & heatmaps',
+    surveys: 'Surveys',
+    web_analytics: 'Web Analytics',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -62,6 +72,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     feedback: 'Feedback',
     support: 'Support Ticket',
 }
+
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -80,9 +91,10 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     persons: 'data_integrity',
     groups: 'data_integrity',
     app: 'apps',
-    toolbar: 'analytics',
+    toolbar: 'session_replay',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
+    web: 'web_analytics',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -90,10 +102,16 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
+export type SupportFormLogicProps = {
+    onClose?: () => void
+}
+
 export const supportLogic = kea<supportLogicType>([
+    props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
         values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        actions: [sidePanelLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -180,13 +198,24 @@ export const supportLogic = kea<supportLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    selectors({
+        title: [
+            (s) => [s.sendSupportRequest ?? null],
+            (sendSupportRequest) =>
+                sendSupportRequest.kind
+                    ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                    : 'Leave a message with PostHog',
+        ],
+    }),
+    listeners(({ actions, props }) => ({
         openSupportForm: async ({ kind, target_area }) => {
             actions.resetSendSupportRequest({
                 kind,
                 target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
                 message: '',
             })
+
+            actions.openSidePanel(SidePanelTab.Feedback)
         },
         openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
             actions.resetSendSupportLoggedOutRequest({
@@ -207,6 +236,7 @@ export const supportLogic = kea<supportLogicType>([
                 zendesk_ticket_uuid +
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
@@ -228,31 +258,55 @@ export const supportLogic = kea<supportLogicType>([
                     },
                 },
             }
-            await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
-                method: 'POST',
-                body: JSON.stringify(payload, undefined, 4),
-                headers: { 'Content-Type': 'application/json' },
-            })
-                .then((res) => res.json())
-                .then((res) => {
-                    const zendesk_ticket_id = res.request.id
-                    const properties = {
-                        zendesk_ticket_uuid,
-                        kind,
-                        target_area,
-                        message,
-                        zendesk_ticket_id,
-                        zendesk_ticket_link: `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`,
-                    }
-                    posthog.capture('support_ticket', properties)
-                    lemonToast.success(
-                        "Got the message! If we have follow-up information for you, we'll reply via email."
-                    )
+
+            try {
+                const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
+                    method: 'POST',
+                    body: JSON.stringify(payload, undefined, 4),
+                    headers: { 'Content-Type': 'application/json' },
                 })
-                .catch((err) => {
-                    captureException(err)
+                if (!response.ok) {
+                    const error = new Error(`There was an error creating the support ticket with zendesk.`)
+                    captureException(error, {
+                        extra: { response, payload },
+                    })
                     lemonToast.error(`There was an error sending the message.`)
+                    return
+                }
+
+                const json = await response.json()
+
+                const zendesk_ticket_id = json.request.id
+                const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
+                const properties = {
+                    zendesk_ticket_uuid,
+                    kind,
+                    target_area,
+                    message,
+                    zendesk_ticket_id,
+                    zendesk_ticket_link,
+                }
+                posthog.capture('support_ticket', properties)
+                Sentry.captureMessage('User submitted Zendesk ticket', {
+                    tags: {
+                        zendesk_ticket_uuid,
+                        zendesk_ticket_link,
+                        support_request_kind: kind,
+                        support_request_area: target_area,
+                        team_id: teamLogic.values.currentTeamId,
+                    },
+                    extra: properties,
+                    level: 'log',
                 })
+                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+            } catch (e) {
+                captureException(e)
+                lemonToast.error(`There was an error sending the message.`)
+            }
+        },
+
+        closeSupportForm: () => {
+            props.onClose?.()
         },
     })),
 

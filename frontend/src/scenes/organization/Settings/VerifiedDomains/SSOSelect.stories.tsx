@@ -1,16 +1,17 @@
 import { useState } from 'react'
-import { ComponentStory, ComponentMeta } from '@storybook/react'
+import { StoryFn, Meta } from '@storybook/react'
 import { SSOSelect } from './SSOSelect'
 import { SSOProvider } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJSON from '~/mocks/fixtures/_preflight.json'
 
-export default {
+const meta: Meta<typeof SSOSelect> = {
     title: 'Components/SSO Select',
     component: SSOSelect,
-} as ComponentMeta<typeof SSOSelect>
+}
+export default meta
 
-const Template: ComponentStory<typeof SSOSelect> = (args) => {
+const Template: StoryFn<typeof SSOSelect> = (args) => {
     const [value, setValue] = useState('google-oauth2' as SSOProvider | '')
     useStorybookMocks({
         get: {

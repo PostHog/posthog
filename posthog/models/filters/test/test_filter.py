@@ -60,7 +60,12 @@ class TestFilter(BaseTest):
 
     def test_simplify_test_accounts(self):
         self.team.test_account_filters = [
-            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
         ]
         self.team.save()
 
@@ -70,7 +75,12 @@ class TestFilter(BaseTest):
 
         self.assertEqual(
             filter.properties_to_dict(),
-            {"properties": {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]}},
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "attr", "value": "some_val", "type": "event"}],
+                }
+            },
         )
         self.assertTrue(filter.is_simplified)
 
@@ -85,10 +95,18 @@ class TestFilter(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                                {
+                                    "key": "email",
+                                    "value": "@posthog.com",
+                                    "operator": "not_icontains",
+                                    "type": "person",
+                                }
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "type": "event"}],
+                        },
                     ],
                 }
             },
@@ -104,10 +122,18 @@ class TestFilter(BaseTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                                {
+                                    "key": "email",
+                                    "value": "@posthog.com",
+                                    "operator": "not_icontains",
+                                    "type": "person",
+                                }
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "attr", "value": "some_val", "type": "event"}]},
+                        {
+                            "type": "AND",
+                            "values": [{"key": "attr", "value": "some_val", "type": "event"}],
+                        },
                     ],
                 }
             },
@@ -117,27 +143,61 @@ class TestFilter(BaseTest):
 def property_to_Q_test_factory(filter_persons: Callable, person_factory):
     class TestPropertiesToQ(BaseTest):
         def test_simple_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person1"],
+                properties={"url": "https://whatever.com"},
+            )
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1})
-            person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person3"],
+                properties={"url": {"bla": "bla"}},
+            )
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
 
-            filter = Filter(data={"properties": [{"type": "person", "key": "url", "value": "https://whatever.com"}]})
+            filter = Filter(
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "https://whatever.com",
+                        }
+                    ]
+                }
+            )
 
             results = filter_persons(filter, self.team)
             self.assertEqual(len(results), 1)
 
         def test_multiple_equality_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person1"],
+                properties={"url": "https://whatever.com"},
+            )
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1})
-            person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person3"],
+                properties={"url": {"bla": "bla"}},
+            )
             person_factory(team_id=self.team.pk, distinct_ids=["person4"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person5"], properties={"url": "https://example.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person5"],
+                properties={"url": "https://example.com"},
+            )
 
             filter = Filter(
                 data={
                     "properties": [
-                        {"type": "person", "key": "url", "value": ["https://whatever.com", "https://example.com"]}
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": ["https://whatever.com", "https://example.com"],
+                        }
                     ]
                 }
             )
@@ -147,7 +207,15 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_incomplete_data(self):
             filter = Filter(
-                data={"properties": [{"key": "$current_url", "operator": "not_icontains", "type": "event"}]}
+                data={
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "operator": "not_icontains",
+                            "type": "event",
+                        }
+                    ]
+                }
             )
             self.assertListEqual(filter.property_groups.values, [])
 
@@ -156,21 +224,60 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"$a_number": 5})
             person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"$a_number": 6})
 
-            filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 4, "operator": "gt"}]})
+            filter = Filter(
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "$a_number",
+                            "value": 4,
+                            "operator": "gt",
+                        }
+                    ]
+                }
+            )
             self.assertEqual(len(filter_persons(filter, self.team)), 2)
 
             filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
             self.assertEqual(len(filter_persons(filter, self.team)), 1)
 
-            filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 6, "operator": "lt"}]})
+            filter = Filter(
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "$a_number",
+                            "value": 6,
+                            "operator": "lt",
+                        }
+                    ]
+                }
+            )
             self.assertEqual(len(filter_persons(filter, self.team)), 2)
 
         def test_contains_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"url": "https://whatever.com"},
+            )
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"url": "https://example.com"},
+            )
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "url", "value": "whatever", "operator": "icontains"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "whatever",
+                            "operator": "icontains",
+                        }
+                    ]
+                }
             )
 
             results = filter_persons(filter, self.team)
@@ -179,49 +286,106 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
         def test_regex_persons(self):
             p1_uuid = str(
                 person_factory(
-                    team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"}
+                    team_id=self.team.pk,
+                    distinct_ids=["p1"],
+                    properties={"url": "https://whatever.com"},
                 ).uuid
             )
             p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "url", "value": r"\.com$", "operator": "regex"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": r"\.com$",
+                            "operator": "regex",
+                        }
+                    ]
+                }
             )
             results = filter_persons(filter, self.team)
             self.assertCountEqual(results, [p1_uuid])
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "url", "value": r"\.eee$", "operator": "not_regex"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": r"\.eee$",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
             )
             results = filter_persons(filter, self.team)
             self.assertCountEqual(results, [p1_uuid, p2_uuid])
 
         def test_invalid_regex_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"url": "https://whatever.com"},
+            )
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"url": "https://example.com"},
+            )
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "url", "value": r"?*", "operator": "regex"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": r"?*",
+                            "operator": "regex",
+                        }
+                    ]
+                }
             )
             self.assertEqual(len(filter_persons(filter, self.team)), 0)
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "url", "value": r"?*", "operator": "not_regex"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": r"?*",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
             )
             self.assertEqual(len(filter_persons(filter, self.team)), 0)
 
         def test_is_not_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"url": "https://whatever.com"},
+            )
             p2_uuid = str(
                 person_factory(
-                    team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+                    team_id=self.team.pk,
+                    distinct_ids=["p2"],
+                    properties={"url": "https://example.com"},
                 ).uuid
             )
 
             filter = Filter(
                 data={
                     "properties": [
-                        {"type": "person", "key": "url", "value": "https://whatever.com", "operator": "is_not"}
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "https://whatever.com",
+                            "operator": "is_not",
+                        }
                     ]
                 }
             )
@@ -229,10 +393,16 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertCountEqual(results, [p2_uuid])
 
         def test_does_not_contain_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"url": "https://whatever.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"url": "https://whatever.com"},
+            )
             p2_uuid = str(
                 person_factory(
-                    team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://example.com"}
+                    team_id=self.team.pk,
+                    distinct_ids=["p2"],
+                    properties={"url": "https://example.com"},
                 ).uuid
             )
             p3_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p3"]).uuid)
@@ -241,7 +411,12 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             filter = Filter(
                 data={
                     "properties": [
-                        {"type": "person", "key": "url", "value": "whatever.com", "operator": "not_icontains"}
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "whatever.com",
+                            "operator": "not_icontains",
+                        }
                     ]
                 }
             )
@@ -256,12 +431,21 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                     properties={"url": "https://whatever.com", "another_key": "value"},
                 ).uuid
             )
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"url": "https://whatever.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"url": "https://whatever.com"},
+            )
 
             filter = Filter(
                 data={
                     "properties": [
-                        {"type": "person", "key": "url", "value": "whatever.com", "operator": "icontains"},
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "whatever.com",
+                            "operator": "icontains",
+                        },
                         {"type": "person", "key": "another_key", "value": "value"},
                     ]
                 }
@@ -271,7 +455,11 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_boolean_filters_persons(self):
             p1_uuid = str(
-                person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True}).uuid
+                person_factory(
+                    team_id=self.team.pk,
+                    distinct_ids=["p1"],
+                    properties={"is_first_user": True},
+                ).uuid
             )
             person_factory(team_id=self.team.pk, distinct_ids=["p2"])
 
@@ -281,29 +469,62 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
         def test_is_not_set_and_is_set_persons(self):
             p1_uuid = str(
-                person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True}).uuid
+                person_factory(
+                    team_id=self.team.pk,
+                    distinct_ids=["p1"],
+                    properties={"is_first_user": True},
+                ).uuid
             )
             p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "is_first_user", "value": "", "operator": "is_set"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "is_first_user",
+                            "value": "",
+                            "operator": "is_set",
+                        }
+                    ]
+                }
             )
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p1_uuid])
 
             filter = Filter(
-                data={"properties": [{"type": "person", "key": "is_first_user", "value": "", "operator": "is_not_set"}]}
+                data={
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "is_first_user",
+                            "value": "",
+                            "operator": "is_not_set",
+                        }
+                    ]
+                }
             )
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p2_uuid])
 
         def test_is_not_true_false_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"is_first_user": True})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"is_first_user": True},
+            )
             p2_uuid = str(person_factory(team_id=self.team.pk, distinct_ids=["p2"]).uuid)
 
             filter = Filter(
                 data={
-                    "properties": [{"type": "person", "key": "is_first_user", "value": ["true"], "operator": "is_not"}]
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "is_first_user",
+                            "value": ["true"],
+                            "operator": "is_not",
+                        }
+                    ]
                 }
             )
             results = filter_persons(filter, self.team)
@@ -312,15 +533,26 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
         def test_is_date_before_persons(self):
             p1_uuid = str(
                 person_factory(
-                    team_id=self.team.pk, distinct_ids=["p1"], properties={"some-timestamp": "2022-03-01"}
+                    team_id=self.team.pk,
+                    distinct_ids=["p1"],
+                    properties={"some-timestamp": "2022-03-01"},
                 ).uuid
             )
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"some-timestamp": "2022-05-01"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["p2"],
+                properties={"some-timestamp": "2022-05-01"},
+            )
 
             filter = Filter(
                 data={
                     "properties": [
-                        {"type": "person", "key": "some-timestamp", "value": "2022-04-01", "operator": "is_date_before"}
+                        {
+                            "type": "person",
+                            "key": "some-timestamp",
+                            "value": "2022-04-01",
+                            "operator": "is_date_before",
+                        }
                     ]
                 }
             )
@@ -348,14 +580,25 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             self.assertEqual(results, [str(p1_uuid.uuid)])
 
         def test_filter_out_team_members_persons(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"})
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["team_member"],
+                properties={"email": "test@posthog.com"},
+            )
             p2_uuid = str(
                 person_factory(
-                    team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
+                    team_id=self.team.pk,
+                    distinct_ids=["random_user"],
+                    properties={"email": "test@gmail.com"},
                 ).uuid
             )
             self.team.test_account_filters = [
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
             ]
             self.team.save()
             filter = Filter(data={FILTER_TEST_ACCOUNTS: True}, team=self.team)
@@ -388,7 +631,16 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         # some idiosyncracies on how this works, but we shouldn't error out on this
         filter = Filter(
-            data={"properties": [{"type": "person", "key": "urls", "operator": "icontains", "value": '["abcd"]'}]}
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "urls",
+                        "operator": "icontains",
+                        "value": '["abcd"]',
+                    }
+                ]
+            }
         )
 
         persons = Person.objects.filter(property_group_to_Q(filter.property_groups))
@@ -401,7 +653,9 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
-            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 1}
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"$some_prop": 1},
         )
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 1}}], name="cohort1")
         cohort1.people.add(person1)
@@ -410,7 +664,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         with self.assertNumQueries(2):
             matched_person = (
-                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
                 .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
@@ -419,7 +676,9 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_person_cohort_properties_with_zero_value(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
-            team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": 0}
+            team=self.team,
+            distinct_ids=[person1_distinct_id],
+            properties={"$some_prop": 0},
         )
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"properties": {"$some_prop": 0}}], name="cohort1")
         cohort1.people.add(person1)
@@ -428,7 +687,10 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         with self.assertNumQueries(2):
             matched_person = (
-                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
                 .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
@@ -436,7 +698,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
     def test_person_cohort_properties_with_negation(self):
         person1_distinct_id = "example_id"
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "matches"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"$some_prop": "matches"},
+        )
 
         user_in = Cohort.objects.create(
             team=self.team,
@@ -447,7 +713,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         {
                             "type": "AND",
                             "values": [
-                                {"key": "$some_prop", "value": "matches", "type": "person"},
+                                {
+                                    "key": "$some_prop",
+                                    "value": "matches",
+                                    "type": "person",
+                                },
                             ],
                         }
                     ],
@@ -464,7 +734,11 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
                         {
                             "type": "OR",
                             "values": [
-                                {"key": "$bad_prop", "value": "nomatchihope", "type": "person"},
+                                {
+                                    "key": "$bad_prop",
+                                    "value": "nomatchihope",
+                                    "type": "person",
+                                },
                             ],
                         },
                     ],
@@ -501,14 +775,28 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         with self.assertNumQueries(4):
             matched_person = (
-                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                Person.objects.filter(
+                    team_id=self.team.pk,
+                    persondistinctid__distinct_id=person1_distinct_id,
+                )
                 .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
 
     def test_group_property_filters_direct(self):
-        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "key": "some_prop",
+                        "value": 5,
+                        "type": "group",
+                        "group_type_index": 1,
+                    }
+                ]
+            }
+        )
         query_filter = properties_to_Q(filter.property_groups.flat)
         self.assertEqual(
             query_filter,
@@ -543,9 +831,17 @@ def filter_persons_with_property_group(
 
 class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
     def test_simple_property_group_to_q(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com"})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com"},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         filter = Filter(
@@ -553,7 +849,11 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                 "properties": {
                     "type": "OR",
                     "values": [
-                        {"type": "person", "key": "url", "value": "https://whatever.com"},
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "https://whatever.com",
+                        },
                         {"type": "person", "key": "url", "value": 1},
                     ],
                 }
@@ -566,10 +866,20 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
     def test_multiple_properties_property_group_to_q(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         filter = Filter(
@@ -577,7 +887,11 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                 "properties": {
                     "type": "OR",
                     "values": [
-                        {"type": "person", "key": "url", "value": "https://whatever.com"},
+                        {
+                            "type": "person",
+                            "key": "url",
+                            "value": "https://whatever.com",
+                        },
                         {"type": "person", "key": "bla", "value": 1},
                     ],
                 }
@@ -590,10 +904,20 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
     def test_nested_property_group_to_q(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         filter = Filter(
@@ -604,11 +928,18 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {
+                                    "type": "person",
+                                    "key": "url",
+                                    "value": "https://whatever.com",
+                                },
                                 {"type": "person", "key": "bla", "value": 1},
                             ],
                         },
-                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "bla", "value": 3}],
+                        },
                     ],
                 }
             }
@@ -620,10 +951,20 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
     def test_property_group_to_q_with_property_overrides(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         filter = Filter(
@@ -634,11 +975,18 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {
+                                    "type": "person",
+                                    "key": "url",
+                                    "value": "https://whatever.com",
+                                },
                                 {"type": "person", "key": "bla", "value": 1},
                             ],
                         },
-                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "bla", "value": 3}],
+                        },
                     ],
                 }
             }
@@ -651,10 +999,20 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_property_group_to_q_with_cohorts(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         cohort1 = Cohort.objects.create(
@@ -679,12 +1037,19 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {
+                                    "type": "person",
+                                    "key": "url",
+                                    "value": "https://whatever.com",
+                                },
                                 {"type": "person", "key": "bla", "value": 1},
                                 {"type": "cohort", "key": "id", "value": cohort1.pk},
                             ],
                         },
-                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "bla", "value": 3}],
+                        },
                     ],
                 }
             }
@@ -696,12 +1061,36 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_property_group_to_q_with_negation_cohorts(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"bla": 1, "other": 1})
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"bla": 2, "other": 1})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"bla": 3, "other": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"bla": 4, "other": 1})
-        _create_person(team_id=self.team.pk, distinct_ids=["person5"], properties={"bla": 5, "other": 1})
-        _create_person(team_id=self.team.pk, distinct_ids=["person6"], properties={"bla": 6, "other": 1})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"bla": 1, "other": 1},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"bla": 2, "other": 1},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"bla": 3, "other": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person4"],
+            properties={"bla": 4, "other": 1},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person5"],
+            properties={"bla": 5, "other": 1},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person6"],
+            properties={"bla": 6, "other": 1},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -750,8 +1139,18 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                 "properties": {
                     "type": "AND",
                     "values": [
-                        {"type": "cohort", "key": "id", "value": cohort1.pk, "negation": True},
-                        {"type": "cohort", "key": "id", "value": cohort2.pk, "negation": True},
+                        {
+                            "type": "cohort",
+                            "key": "id",
+                            "value": cohort1.pk,
+                            "negation": True,
+                        },
+                        {
+                            "type": "cohort",
+                            "key": "id",
+                            "value": cohort2.pk,
+                            "negation": True,
+                        },
                         {"type": "cohort", "key": "id", "value": cohort3.pk},
                     ],
                 }
@@ -777,10 +1176,20 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_property_group_to_q_with_cohorts_no_match(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
         cohort1 = Cohort.objects.create(
@@ -805,12 +1214,19 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {
+                                    "type": "person",
+                                    "key": "url",
+                                    "value": "https://whatever.com",
+                                },
                                 {"type": "person", "key": "bla", "value": 1},
                                 {"type": "cohort", "key": "id", "value": cohort1.pk},
                             ],
                         },
-                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "bla", "value": 3}],
+                        },
                     ],
                 }
             }
@@ -822,13 +1238,27 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
 
     def test_property_group_to_q_with_behavioural_cohort(self):
         _create_person(
-            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"url": "https://whatever.com", "bla": 1},
         )
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
-        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"url": 1, "bla": 2},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person3"],
+            properties={"url": {"bla": "bla"}, "bla": 3},
+        )
         _create_person(team_id=self.team.pk, distinct_ids=["person4"])
 
-        cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"event_id": "$pageview", "days": 7}],
+            name="cohort2",
+        )
 
         filter = Filter(
             data={
@@ -838,12 +1268,19 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
                         {
                             "type": "AND",
                             "values": [
-                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {
+                                    "type": "person",
+                                    "key": "url",
+                                    "value": "https://whatever.com",
+                                },
                                 {"type": "person", "key": "bla", "value": 1},
                                 {"type": "cohort", "key": "id", "value": cohort2.pk},
                             ],
                         },
-                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "bla", "value": 3}],
+                        },
                     ],
                 }
             }

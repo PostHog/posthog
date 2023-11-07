@@ -22,6 +22,7 @@ export function Seekbar(): JSX.Element {
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
+    const seekBarRef = useRef<HTMLDivElement | null>(null)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -38,7 +39,7 @@ export function Seekbar(): JSX.Element {
             <div className="flex flex-col w-full">
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
 
-                <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
+                <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                     <div
                         className="PlayerSeekbar__slider"
                         ref={sliderRef}
@@ -48,7 +49,7 @@ export function Seekbar(): JSX.Element {
                         <div className="PlayerSeekbar__segments">
                             {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
                                 <div
-                                    key={`${segment.windowId}-${segment.startTimestamp}`}
+                                    key={`${segment.startTimestamp}-${segment.endTimestamp}`}
                                     className={clsx(
                                         'PlayerSeekbar__segments__item',
                                         segment.isActive && 'PlayerSeekbar__segments__item--active'
@@ -62,9 +63,9 @@ export function Seekbar(): JSX.Element {
                             ))}
                         </div>
 
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div
                             className="PlayerSeekbar__currentbar"
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
                         />
                         {/* eslint-disable-next-line react/forbid-dom-props */}
@@ -76,7 +77,7 @@ export function Seekbar(): JSX.Element {
                             style={{ transform: `translateX(${thumbLeftPos}px)` }}
                         />
 
-                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} />
+                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} seekBarRef={seekBarRef} />
                     </div>
                 </div>
             </div>

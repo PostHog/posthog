@@ -7,10 +7,10 @@ export function createCache(server: Hub, pluginId: number, teamId: number): Cach
     const getKey = (key: string) => `@plugin/${pluginId}/${typeof teamId === 'undefined' ? '@all' : teamId}/${key}`
     return {
         set: async function (key, value, ttlSeconds, options) {
-            return await server.db.redisSet(getKey(key), value, ttlSeconds, options)
+            return await server.db.redisSet(getKey(key), value, 'app_cache.set', ttlSeconds, options)
         },
         get: async function (key, defaultValue, options) {
-            return await server.db.redisGet(getKey(key), defaultValue, options)
+            return await server.db.redisGet(getKey(key), defaultValue, 'app_cache.get', options)
         },
         incr: async function (key) {
             return await server.db.redisIncr(getKey(key))

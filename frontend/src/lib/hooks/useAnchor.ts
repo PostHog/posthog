@@ -11,11 +11,11 @@ export function useAnchor(hash: string): void {
             }
 
             element.classList.add('highlighted')
-            const elementPosition = element.getBoundingClientRect().top + window.pageYOffset
-            window.scrollTo({
-                top: elementPosition - 50 - 32, // compensate for header & top margin of pages
-                behavior: 'smooth',
+
+            // allow time for layout and repainting
+            window.requestAnimationFrame(() => {
+                element.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' })
             })
         }
-    }, [hash]) // Fires every time hash changes
+    }, [hash])
 }

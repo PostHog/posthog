@@ -16,10 +16,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "id": "ABCD",
     "is_member_join_email_enabled": true,
     "membership_level": 8,
-    "metadata": {
-      "taxonomy_set_events_count": 60,
-      "taxonomy_set_properties_count": 17,
-    },
+    "metadata": {},
     "name": "MockHog",
     "plugins_access_level": 9,
     "slug": "mockhog-fstn",
@@ -77,7 +74,10 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "session_recording_linked_flag": null,
+        "session_recording_minimum_duration_milliseconds": null,
         "session_recording_opt_in": true,
+        "session_recording_sample_rate": "1.0",
         "slack_incoming_webhook": "",
         "test_account_filters": [
           {

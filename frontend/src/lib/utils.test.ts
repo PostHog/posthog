@@ -42,6 +42,7 @@ import {
     stringOperatorMap,
     toParams,
     shortTimeZone,
+    humanFriendlyLargeNumber,
 } from './utils'
 import {
     ActionFilter,
@@ -458,6 +459,24 @@ describe('median()', () => {
     })
 })
 
+describe('humanFriendlyLargeNumber()', () => {
+    it('returns the correct string', () => {
+        expect(humanFriendlyLargeNumber(1.234)).toEqual('1.23')
+        expect(humanFriendlyLargeNumber(12.34)).toEqual('12.3')
+        expect(humanFriendlyLargeNumber(123.4)).toEqual('123')
+        expect(humanFriendlyLargeNumber(1234)).toEqual('1.23K')
+        expect(humanFriendlyLargeNumber(12345)).toEqual('12.3K')
+        expect(humanFriendlyLargeNumber(123456)).toEqual('123K')
+        expect(humanFriendlyLargeNumber(1234567)).toEqual('1.23M')
+        expect(humanFriendlyLargeNumber(-1234567)).toEqual('-1.23M')
+        expect(humanFriendlyLargeNumber(-1)).toEqual('-1')
+        expect(humanFriendlyLargeNumber(-0.1)).toEqual('-0.1')
+        expect(humanFriendlyLargeNumber(0)).toEqual('0')
+        expect(humanFriendlyLargeNumber(NaN)).toEqual('NaN')
+        expect(humanFriendlyLargeNumber(Infinity)).toEqual('inf')
+        expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
+    })
+})
 describe('humanFriendlyDuration()', () => {
     it('returns correct value for <= 60', () => {
         expect(humanFriendlyDuration(60)).toEqual('1m')

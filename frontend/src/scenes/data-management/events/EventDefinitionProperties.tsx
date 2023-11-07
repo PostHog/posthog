@@ -86,12 +86,12 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                     pageSize: PROPERTY_DEFINITIONS_PER_EVENT,
                     currentPage: eventPropertiesCacheMap?.[definition.id]?.page ?? 1,
                     entryCount: eventPropertiesCacheMap?.[definition.id]?.count ?? 0,
-                    onForward: !!eventPropertiesCacheMap?.[definition.id]?.next
+                    onForward: eventPropertiesCacheMap?.[definition.id]?.next
                         ? () => {
                               loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].next)
                           }
                         : undefined,
-                    onBackward: !!eventPropertiesCacheMap?.[definition.id]?.previous
+                    onBackward: eventPropertiesCacheMap?.[definition.id]?.previous
                         ? () => {
                               loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].previous)
                           }

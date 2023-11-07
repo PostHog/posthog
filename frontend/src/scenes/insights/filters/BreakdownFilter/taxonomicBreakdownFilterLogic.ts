@@ -1,7 +1,7 @@
 import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 import {
+    breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
-    propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import {
@@ -22,7 +22,6 @@ export type TaxonomicBreakdownFilterLogicProps = {
     isTrends: boolean
     updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
-    isDataExploration: boolean
 }
 
 export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicType>([
@@ -55,17 +54,15 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     selectors({
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
-        isViewOnly: [(_, p) => [p.updateBreakdown], (updateBreakdown) => !updateBreakdown],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
-        hasBreakdown: [(s) => [s.breakdownFilter], ({ breakdown_type }) => !!breakdown_type],
         hasNonCohortBreakdown: [
             (s) => [s.breakdownFilter],
             ({ breakdown }) => breakdown && typeof breakdown === 'string',
         ],
         taxonomicBreakdownType: [
             (s) => [s.breakdownFilter],
-            ({ breakdown_type }) => {
-                let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
+            (breakdownFilter) => {
+                let breakdownType = breakdownFilterToTaxonomicFilterType(breakdownFilter)
                 if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
                     breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
                 }
@@ -107,16 +104,17 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 values.getPropertyDefinition(breakdown, propertyDefinitionType)?.name || (breakdown as string)
             )
 
+            // TODO: We're preventing duplicated cohorts with a Set. A better fix would be
+            // to make excludedProperties work for cohorts in the TaxonomicFilter.
+            const cohortBreakdown =
+                values.breakdownFilter?.breakdown_type === 'cohort'
+                    ? (Array.from(new Set([...values.breakdownCohortArray, breakdown])) as (string | number)[])
+                    : ([breakdown] as (string | number)[])
+
             props.updateBreakdown({
                 breakdown_type: breakdownType,
                 breakdown:
-                    taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers
-                        ? // TODO: We're preventing duplicated cohorts with a Set. A better fix would be
-                          // to make exlcudedProperties work for cohorts in the TaxonomicFilter.
-                          Array.from(new Set([...values.breakdownCohortArray, breakdown])).filter(
-                              (b): b is string | number => !!b
-                          )
-                        : breakdown,
+                    taxonomicGroup.type === TaxonomicFilterGroupType.CohortsWithAllUsers ? cohortBreakdown : breakdown,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
                 breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
                 breakdown_normalize_url: isNormalizeable ? true : undefined,
@@ -137,14 +135,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             } else {
                 props.updateBreakdown({
                     ...props.breakdownFilter,
-                    ...(!props.isDataExploration ? { display: undefined } : {}),
                     breakdown: undefined,
                     breakdown_type: undefined,
                     breakdown_histogram_bin_count: undefined,
                 })
 
                 // Make sure we are no longer in map view after removing the Country Code breakdown
-                if (props.isDataExploration && props.isTrends && props.display === ChartDisplayType.WorldMap) {
+                if (props.isTrends && props.display === ChartDisplayType.WorldMap) {
                     props.updateDisplay?.(undefined)
                 }
             }

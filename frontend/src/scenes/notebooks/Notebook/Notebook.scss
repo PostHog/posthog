@@ -1,66 +1,107 @@
 .Notebook {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    flex: 1;
+    width: 100%;
 
     .NotebookEditor {
         flex: 1;
+        width: 100%;
+        overflow: hidden;
+        position: relative;
 
-        > h1,
-        > h2,
-        > h3,
-        > h4,
-        > h5 {
-            margin-top: 0.5rem;
-        }
+        .ProseMirror {
+            &-focused {
+                outline: none;
+            }
 
-        > p {
-            margin-bottom: 0.2rem;
-        }
+            > h1,
+            > h2,
+            > h3,
+            > h4,
+            > h5 {
+                margin-top: 0.5rem;
+            }
 
-        > &.ProseMirror-focused {
-            outline: none;
-        }
+            > p {
+                margin-bottom: 0.2rem;
+            }
 
-        > .is-empty::before {
-            content: attr(data-placeholder);
-            float: left;
-            color: rgba(0, 0, 0, 0.2);
-            pointer-events: none;
-            height: 0;
-        }
-
-        > ul,
-        ol {
-            padding-left: 1rem;
-
-            li {
-                p {
-                    margin-bottom: 0.2rem;
+            > .is-empty::before {
+                content: attr(data-placeholder);
+                float: left;
+                color: rgba(0, 0, 0, 0.2);
+                [theme='dark'] & {
+                    color: rgba(255, 255, 255, 0.2);
                 }
+                pointer-events: none;
+                height: 0;
+            }
+
+            > ol {
+                list-style-type: decimal;
+            }
+
+            > ul {
+                list-style-type: disc;
+            }
+
+            > ul[data-type='taskList'] {
+                list-style-type: none;
+                padding-left: 0px;
+
+                li {
+                    display: flex;
+
+                    > label {
+                        flex: 0 0 auto;
+                        margin-right: 0.5rem;
+                        user-select: none;
+                    }
+
+                    > div {
+                        flex: 1 1 auto;
+                    }
+
+                    ul li,
+                    ol li {
+                        display: list-item;
+                    }
+
+                    ul[data-type='taskList'] > li {
+                        display: flex;
+                    }
+                }
+            }
+
+            > ul,
+            > ol {
+                padding-left: 1rem;
+
+                li {
+                    p {
+                        margin-bottom: 0.2rem;
+                    }
+                }
+            }
+
+            > pre {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                overflow-x: auto;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+            }
+
+            > code,
+            > p code {
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: var(--radius);
+                padding: 0.2rem;
             }
         }
 
-        > ul {
-            list-style: initial;
-        }
-
-        > pre {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            overflow-x: auto;
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-        }
-
-        > code,
-        > p code {
-            background-color: rgba(0, 0, 0, 0.05);
-            border-radius: var(--radius);
-            padding: 0.2rem;
-        }
-
-        .Backlink__label {
+        .Backlink {
             padding: 0.125rem 0.25rem;
             border: 1px solid var(--border);
             border-radius: var(--radius);
@@ -68,6 +109,10 @@
 
             &:hover {
                 background-color: var(--side);
+            }
+
+            & svg {
+                color: var(--muted-dark);
             }
 
             &.Backlink--selected {
@@ -85,24 +130,115 @@
                     color: var(--white);
                 }
             }
+        }
 
-            & .Backlink__label {
-                color: var(--black);
+        &[contenteditable='true'] {
+            a {
+                cursor: text;
             }
         }
     }
 
-    &--compact {
-        max-width: 1000px;
-        width: 100%;
-        margin-left: auto;
-        margin-right: auto;
+    &--compact:not(.Notebook--canvas) {
+        .NotebookEditor {
+            max-width: 800px;
+        }
     }
 
     &--editable {
-        .NotebookEditor {
+        .NotebookEditor .ProseMirror {
             // Add some padding to help clicking below the last element
             padding-bottom: 10rem;
+            flex: 1;
+        }
+    }
+
+    .NotebookColumn {
+        position: relative;
+        width: 0px;
+        transition: width var(--notebook-popover-transition-properties);
+
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
+        .NotebookColumn__content {
+            position: sticky;
+            align-self: flex-start;
+            top: 0px;
+
+            transform: translateX(-100%);
+            transition: transform var(--notebook-popover-transition-properties);
+        }
+
+        .NotebookScene &,
+        .NotebookPopover & {
+            --notebook-sidebar-height: calc(100vh - 11rem);
+
+            .NotebookColumn__padding {
+                // Account for fixed title
+                height: 4rem;
+            }
+        }
+
+        .NotebookScene & {
+            .NotebookColumn__content {
+                // Account for static header
+                top: 4rem;
+            }
+        }
+
+        &--left {
+            .NotebookColumn__content {
+                width: var(--notebook-column-left-width);
+                transform: translateX(-100%);
+            }
+        }
+
+        &--right {
+            .NotebookColumn__content {
+                width: var(--notebook-column-right-width);
+                transform: translateX(100%);
+            }
+        }
+
+        &--showing {
+            &.NotebookColumn--left {
+                width: var(--notebook-column-left-width);
+                margin-right: 1rem;
+            }
+
+            &.NotebookColumn--right {
+                width: var(--notebook-column-right-width);
+                margin-left: 1rem;
+            }
+
+            .NotebookColumn__content {
+                transform: translateX(0);
+            }
+        }
+    }
+
+    .NotebookHistory {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: var(--notebook-sidebar-height);
+        overflow: hidden;
+    }
+
+    .NotebookInlineMenu {
+        margin-bottom: -0.2rem;
+        box-shadow: 0px 4px 10px 0px rgba(0, 0, 0, 0.1);
+
+        .LemonInput {
+            border: 0px;
+            min-height: 0px;
+        }
+    }
+
+    .NotebookColumnLeft__widget {
+        > .LemonWidget__content {
+            max-height: calc(100vh - 220px);
+            overflow: auto;
         }
     }
 
@@ -114,6 +250,7 @@
 
     .NotebookRecordingTimestamp {
         display: inline-flex;
+        max-height: 22px;
     }
 
     // overriding ::selection is necessary here because

@@ -2,7 +2,7 @@ import { connect, kea, key, listeners, path, props, selectors } from 'kea'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
-    SessionRecordingLogicProps,
+    SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from '@rrweb/types'
@@ -12,9 +12,9 @@ import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordi
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
-    props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingLogicProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
             [

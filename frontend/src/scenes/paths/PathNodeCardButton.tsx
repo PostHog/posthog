@@ -53,7 +53,7 @@ export function PathNodeCardButton({
             </div>
             <div className="flex flex-nowrap">
                 <LemonButton size="small" status="stealth">
-                    <span className="text-primary text-xs pr-1 font-medium" onClick={openModal}>
+                    <span className="text-link text-xs pr-1 font-medium" onClick={openModal}>
                         {count}
                     </span>
                 </LemonButton>

@@ -21,24 +21,17 @@ export const frontendAppSceneLogic = kea<frontendAppSceneLogicType>([
     selectors(() => ({
         // Frontend app created after receiving a bundle via import('').getFrontendApp()
         frontendApp: [
-            (s) => [s.frontendApps, (_, props) => props.id],
+            (s, p) => [s.frontendApps, p.id],
             (frontendApps, id): FrontendApp | undefined => frontendApps[id],
         ],
         // Config passed to app component and logic as props. Sent in Django's app context.
-        appConfig: [
-            (s) => [s.appConfigs, (_, props) => props.id],
-            (appConfigs, id): FrontendAppConfig | undefined => appConfigs[id],
-        ],
+        appConfig: [(s, p) => [s.appConfigs, p.id], (appConfigs, id): FrontendAppConfig | undefined => appConfigs[id]],
         logic: [(s) => [s.frontendApp], (frontendApp): LogicWrapper | undefined => frontendApp?.logic],
         builtLogic: [(s) => [s.logic, s.appConfig], (logic: any, props: any) => (logic && props ? logic(props) : null)],
         Component: [(s) => [s.frontendApp], (frontendApp: any) => frontendApp?.component],
         breadcrumbsSelector: [(s) => [s.builtLogic], (builtLogic) => builtLogic?.selectors.breadcrumbs],
         breadcrumbs: [
-            (s) => [
-                (state, props) => s.breadcrumbsSelector(state, props)?.(state, props),
-                s.frontendApp,
-                (_, props) => props.id,
-            ],
+            (s, p) => [(state, props) => s.breadcrumbsSelector(state, props)?.(state, props), s.frontendApp, p.id],
             (breadcrumbs, frontendApp: FrontendApp, id): Breadcrumb[] => {
                 return (
                     breadcrumbs ?? [

@@ -13,7 +13,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
@@ -38,7 +37,11 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication
-from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.fetch_from_cache import (
+    InsightResult,
+    fetch_cached_insight_result,
+    synchronously_update_cache,
+)
 from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
 from posthog.constants import (
@@ -51,11 +54,13 @@ from posthog.constants import (
     TRENDS_STICKINESS,
     FunnelVizType,
 )
-from posthog.decorators import cached_function
-from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.decorators import cached_by_filters
+from posthog.helpers.multi_property_breakdown import (
+    protect_old_clients_from_multi_property_default,
+)
 from posthog.hogql.errors import HogQLException
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.models import DashboardTile, Filter, Insight, User, SharingConfiguration
+from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -75,19 +80,30 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels import (
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+)
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
+from posthog.utils import (
+    DEFAULT_DATE_FROM_DAYS,
+    refresh_requested_by_client,
+    relative_date_parse,
+    str_to_bool,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -139,7 +155,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.Model.parse_obj(query)
+                schema.QuerySchema.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:
@@ -343,7 +359,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
             dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
             dashboards_before_change = sorted(
-                dashboards_before_change, key=lambda x: -1 if isinstance(x, str) else x["id"]
+                dashboards_before_change,
+                key=lambda x: -1 if isinstance(x, str) else x["id"],
             )
         except Insight.DoesNotExist:
             before_update = None
@@ -490,6 +507,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+        representation["query"] = instance.dashboard_query(dashboard=dashboard)
 
         if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
@@ -506,7 +524,10 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight, dashboard_tile, request=self.context["request"], is_shared=is_shared
+            insight,
+            dashboard_tile,
+            request=self.context["request"],
+            is_shared=is_shared,
         )
         if refresh_insight_now:
             INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
@@ -565,10 +586,8 @@ class InsightViewSet(
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_authenticators(self) -> List[BaseAuthentication]:
-        authenticators = super().get_authenticators()
-        authenticators.append(SharingAccessTokenAuthentication())
-        return authenticators
+    def get_authenticators(self):
+        return [SharingAccessTokenAuthentication(), *super().get_authenticators()]
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
@@ -587,11 +606,9 @@ class InsightViewSet(
     def get_queryset(self) -> QuerySet:
         queryset: QuerySet
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            sharing_configuration = SharingConfiguration.objects.get(
-                access_token=self.request.query_params["sharing_access_token"], enabled=True
+            queryset = Insight.objects.filter(
+                id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
-            # sharing_configuration must be non-None here, per SharingAccessTokenAuthentication
-            queryset = Insight.objects.filter(id__in=sharing_configuration.get_connected_insight_ids())
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
             queryset = Insight.objects_including_soft_deleted.all()
@@ -671,9 +688,13 @@ class InsightViewSet(
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "date_from":
-                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
+                queryset = queryset.filter(
+                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
+                )
             elif key == "date_to":
-                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
+                queryset = queryset.filter(
+                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
+                )
             elif key == INSIGHT:
                 insight = request.GET[INSIGHT]
                 if insight == "JSON":
@@ -827,7 +848,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             return response
         return Response({**result, "next": next})
 
-    @cached_function
+    @cached_by_filters
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
@@ -881,7 +902,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         return Response(funnel)
 
-    @cached_function
+    @cached_by_filters
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
@@ -917,7 +938,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -943,7 +964,7 @@ Using the correct cache and enriching the response with dashboard specific confi
             raise ValidationError(str(e))
         return Response(result)
 
-    @cached_function
+    @cached_by_filters
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)

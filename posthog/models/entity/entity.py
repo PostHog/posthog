@@ -1,6 +1,6 @@
 import inspect
 from collections import Counter
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -48,7 +48,7 @@ class Entity(PropertyMixin):
     This class just allows for stronger typing of this object.
     """
 
-    id: Union[int, str, None]
+    id: Optional[int | str]
     type: Literal["events", "actions"]
     order: Optional[int]
     name: Optional[str]
@@ -64,9 +64,12 @@ class Entity(PropertyMixin):
     index: int
 
     def __init__(self, data: Dict[str, Any]) -> None:
-        self.id = data["id"]
-        if not data.get("type") or data["type"] not in [TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS]:
-            raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
+        self.id = data.get("id")
+        if data.get("type") not in [
+            TREND_FILTER_TYPE_ACTIONS,
+            TREND_FILTER_TYPE_EVENTS,
+        ]:
+            raise ValueError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
         order_provided = data.get("order")
         if order_provided is not None:
@@ -150,7 +153,15 @@ class Entity(PropertyMixin):
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
     __repr__ = sane_repr(
-        "id", "type", "order", "name", "custom_name", "math", "math_property", "math_hogql", "properties"
+        "id",
+        "type",
+        "order",
+        "name",
+        "custom_name",
+        "math",
+        "math_property",
+        "math_hogql",
+        "properties",
     )
 
 

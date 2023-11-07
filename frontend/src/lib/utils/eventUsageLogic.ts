@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, listeners } from 'kea'
 import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
@@ -45,6 +45,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { SurveyTemplateType } from 'scenes/surveys/constants'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -207,12 +208,12 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType>({
-    path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: () => ({
+export const eventUsageLogic = kea<eventUsageLogicType>([
+    path(['lib', 'utils', 'eventUsageLogic']),
+    connect(() => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    }),
-    actions: {
+    })),
+    actions({
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportPersonsModalViewed: (params: any) => ({
@@ -351,9 +352,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            delay?: number,
-            loadedFromBlobStorage?: boolean
-        ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
+            delay?: number
+        ) => ({ playerData, durations, type, delay }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -499,9 +499,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyStopped: (survey: Survey) => ({ survey }),
         reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportSurveyTemplateClicked: (template: SurveyTemplateType) => ({ template }),
         reportProductUnsubscribed: (product: string) => ({ product }),
-    },
-    listeners: ({ values }) => ({
+        // onboarding
+        reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
+        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+    }),
+    listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
@@ -550,7 +555,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportInsightSaved: async ({ filters, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
-            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
+            posthog.capture('insight saved', {
+                ...filters,
+                is_new_insight: isNewInsight,
+            })
         },
         reportInsightViewed: ({
             insightModel,
@@ -657,7 +665,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
 
             for (const item of dashboard.tiles || []) {
-                if (!!item.insight) {
+                if (item.insight) {
                     const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
                     if (!properties[key]) {
                         properties[key] = 1
@@ -828,7 +836,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type, loadedFromBlobStorage }) => {
+        reportRecording: ({ playerData, durations, type }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -842,7 +850,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
-                loadedFromBlobStorage,
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -1229,6 +1236,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 start_date: survey.start_date,
             })
         },
+        reportSurveyTemplateClicked: ({ template }) => {
+            posthog.capture('survey template clicked', {
+                template,
+            })
+        },
         reportProductUnsubscribed: ({ product }) => {
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
@@ -1236,5 +1248,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 $set: { [property_key]: true },
             })
         },
-    }),
-})
+        // onboarding
+        reportOnboardingProductSelected: ({ productKey }) => {
+            posthog.capture('onboarding product selected', {
+                product_key: productKey,
+            })
+        },
+        reportOnboardingCompleted: ({ productKey }) => {
+            posthog.capture('onboarding completed', {
+                product_key: productKey,
+            })
+        },
+        reportSubscribedDuringOnboarding: ({ productKey }) => {
+            posthog.capture('subscribed during onboarding', {
+                product_key: productKey,
+            })
+        },
+    })),
+])

@@ -1,7 +1,7 @@
 import http from 'http'
 
+import { DEFAULT_HTTP_SERVER_PORT } from '../src/config/config'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { HTTP_SERVER_PORT } from '../src/main/services/http-server'
 import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -40,7 +40,7 @@ describe('http server', () => {
             )
 
             await new Promise((resolve) =>
-                http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
+                http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_health`, (res) => {
                     const { statusCode } = res
                     expect(statusCode).toEqual(200)
                     resolve(null)
@@ -68,7 +68,7 @@ describe('http server', () => {
             )
 
             await new Promise((resolve) =>
-                http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
+                http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_ready`, (res) => {
                     const { statusCode } = res
                     expect(statusCode).toEqual(200)
                     resolve(null)

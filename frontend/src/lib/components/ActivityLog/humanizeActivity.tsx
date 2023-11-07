@@ -49,7 +49,7 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
 }
 
-export interface ActivityLogItem {
+export type ActivityLogItem = {
     user: ActivityUser
     activity: string
     created_at: string
@@ -71,7 +71,7 @@ export type ChangeMapping = {
 }
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
-export interface HumanizedActivityLogItem {
+export type HumanizedActivityLogItem = {
     email?: string | null
     name?: string
     isSystem?: boolean
@@ -100,10 +100,12 @@ export function humanize(
 
     for (const logItem of results) {
         const describer = describerFor?.(logItem)
+
         if (!describer) {
             continue
         }
         const { description, extendedDescription } = describer(logItem, asNotification)
+
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,

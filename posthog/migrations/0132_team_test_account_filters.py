@@ -40,7 +40,12 @@ def forward(apps, schema_editor):
             {
                 "key": "$host",
                 "operator": "is_not",
-                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000"],
+                "value": [
+                    "localhost:8000",
+                    "localhost:5000",
+                    "127.0.0.1:8000",
+                    "127.0.0.1:3000",
+                ],
             },
         ]
         if team.organization:
@@ -51,7 +56,12 @@ def forward(apps, schema_editor):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     filters += [
-                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        {
+                            "key": "email",
+                            "operator": "not_icontains",
+                            "value": example_email.group(),
+                            "type": "person",
+                        },
                     ]
         team.test_account_filters = filters
         team.save()
@@ -62,7 +72,6 @@ def reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0131_add_plugins_updated_created_at"),
     ]

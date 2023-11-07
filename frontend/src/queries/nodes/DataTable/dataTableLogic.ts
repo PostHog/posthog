@@ -6,9 +6,9 @@ import {
     EventsQuery,
     HogQLExpression,
     NodeKind,
-    QueryContext,
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
@@ -17,9 +17,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
 import equal from 'fast-deep-equal'
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 export interface DataTableLogicProps {
-    key: string
+    vizKey: string
+    dataKey: string
     query: DataTableNode
     context?: QueryContext
 }
@@ -37,13 +39,13 @@ export const errorColumn = Symbol('Error!')
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => {
-        if (!props.key) {
-            throw new Error('dataTableLogic must contain a key in props')
+        if (!props.vizKey) {
+            throw new Error('dataTableLogic must contain a vizKey in props')
         }
         if (!isDataTableNode(props.query)) {
             throw new Error('dataTableLogic only accepts queries of type DataTableNode')
         }
-        return props.key
+        return props.vizKey
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
@@ -54,16 +56,23 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.key, query: props.query.source }),
+            dataNodeLogic({ key: props.dataKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
     selectors({
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
+        sourceFeatures: [(_, p) => [p.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
         orderBy: [
-            (_, p) => [p.query],
-            (query): string[] | null =>
-                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
+            (s, p) => [p.query, s.sourceFeatures],
+            (query, sourceFeatures): string[] | null =>
+                sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+                    ? 'orderBy' in query.source // might not be EventsQuery, but something else with orderBy
+                        ? (query.source as EventsQuery).orderBy ?? null
+                        : isEventsQuery(query.source)
+                        ? ['timestamp DESC']
+                        : null
+                    : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -129,9 +138,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     }))
                 }
 
-                return response && 'results' in response && Array.isArray(response.results)
-                    ? response.results.map((result: any) => ({ result })) ?? null
+                const results = !response
+                    ? null
+                    : 'results' in response && Array.isArray(response.results)
+                    ? response.results
+                    : 'result' in response && Array.isArray(response.result)
+                    ? response.result
                     : null
+
+                return results ? results.map((result: any) => ({ result })) ?? null : null
             },
         ],
         queryWithDefaults: [
@@ -139,7 +154,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
-                const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
+                const flagQueryTimingsEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_TIMINGS]
                 return {
                     kind,
                     columns: columnsInQuery,
@@ -148,7 +164,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ...sortedKeys({
                         ...rest,
                         full: query.full ?? false,
+
+                        // The settings under features.tsx override some of these
                         expandable: query.expandable ?? true,
+                        embedded: query.embedded ?? false,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
@@ -157,10 +176,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
+                        showTimings: query.showTimings ?? flagQueryTimingsEnabled,
                         showElapsedTime:
-                            query.showElapsedTime ??
-                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
-                        showColumnConfigurator: query.showColumnConfigurator ?? false,
+                            (query.showTimings ?? flagQueryTimingsEnabled) ||
+                            (query.showElapsedTime ??
+                                ((flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery) && showIfFull)),
+                        showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
+                        showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
@@ -168,13 +190,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                             context?.showOpenEditorButton !== undefined
                                 ? context.showOpenEditorButton
                                 : query.showOpenEditorButton ?? true,
+                        showResultsTable: query.showResultsTable ?? true,
                     }),
                 }
             },
         ],
         canSort: [
-            (s) => [s.queryWithDefaults],
-            (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
+            (s) => [s.queryWithDefaults, s.sourceFeatures],
+            (query: DataTableNode, sourceFeatures): boolean =>
+                sourceFeatures.has(QueryFeature.selectAndOrderByColumns) && !!query.allowSorting,
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

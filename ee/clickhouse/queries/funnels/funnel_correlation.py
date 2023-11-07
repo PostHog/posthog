@@ -18,7 +18,11 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.clickhouse.materialized_columns import get_materialized_columns
-from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
+from posthog.constants import (
+    AUTOCAPTURE_EVENT,
+    TREND_FILTER_TYPE_ACTIONS,
+    FunnelCorrelationType,
+)
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
@@ -96,7 +100,6 @@ class EventContingencyTable:
 
 
 class FunnelCorrelation:
-
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"
@@ -168,7 +171,10 @@ class FunnelCorrelation:
                         return [f"group{self._filter.aggregation_group_type_index}_properties"]
 
                     possible_mat_col = mat_event_cols.get(
-                        (property_name, f"group{self._filter.aggregation_group_type_index}_properties")
+                        (
+                            property_name,
+                            f"group{self._filter.aggregation_group_type_index}_properties",
+                        )
                     )
                     if possible_mat_col is not None:
                         props_to_include.append(possible_mat_col)
@@ -210,7 +216,6 @@ class FunnelCorrelation:
         return self.get_event_query()
 
     def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
-
         funnel_persons_query, funnel_persons_params = self.get_funnel_actors_cte()
 
         event_join_query = self._get_events_join_query()
@@ -274,7 +279,6 @@ class FunnelCorrelation:
         return query, params
 
     def get_event_property_query(self) -> Tuple[str, Dict[str, Any]]:
-
         if not self._filter.correlation_event_names:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
@@ -284,7 +288,10 @@ class FunnelCorrelation:
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
-                "events", self.AUTOCAPTURE_EVENT_TYPE, f"'{self.AUTOCAPTURE_EVENT_TYPE}'", "properties"
+                "events",
+                self.AUTOCAPTURE_EVENT_TYPE,
+                f"'{self.AUTOCAPTURE_EVENT_TYPE}'",
+                "properties",
             )
             array_join_query = f"""
                 'elements_chain' as prop_key,
@@ -352,7 +359,6 @@ class FunnelCorrelation:
         return query, params
 
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
-
         if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
@@ -360,7 +366,10 @@ class FunnelCorrelation:
 
         person_prop_query, person_prop_params = self._get_properties_prop_clause()
 
-        aggregation_join_query, aggregation_join_params = self._get_aggregation_join_query()
+        (
+            aggregation_join_query,
+            aggregation_join_params,
+        ) = self._get_aggregation_join_query()
 
         query = f"""
             WITH
@@ -426,7 +435,6 @@ class FunnelCorrelation:
         return query, params
 
     def _get_aggregation_target_join_query(self) -> str:
-
         if self._team.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
             aggregation_person_join = f"""
                 JOIN funnel_actors as actors
@@ -498,7 +506,9 @@ class FunnelCorrelation:
                 return "", {}
 
             person_query, person_query_params = PersonQuery(
-                self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
+                self._filter,
+                self._team.pk,
+                EnterpriseColumnOptimizer(self._filter, self._team.pk),
             ).get_query()
 
             return (
@@ -512,7 +522,6 @@ class FunnelCorrelation:
             return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
 
     def _get_properties_prop_clause(self):
-
         if self._team.person_on_events_mode != PersonOnEventsMode.DISABLED and groups_on_events_querying_enabled():
             group_properties_field = f"group{self._filter.aggregation_group_type_index}_properties"
             aggregation_properties_alias = (
@@ -638,8 +647,13 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
+        self._filter.team = self._team
 
-        event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
+        (
+            event_contingency_tables,
+            success_total,
+            failure_total,
+        ) = self.get_partial_event_contingency_tables()
 
         success_total = int(correct_result_for_sampling(success_total, self._filter.sampling_factor))
         failure_total = int(correct_result_for_sampling(failure_total, self._filter.sampling_factor))
@@ -677,7 +691,10 @@ class FunnelCorrelation:
         return events, skewed_totals
 
     def construct_people_url(
-        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+        self,
+        success: bool,
+        event_definition: EventDefinition,
+        cache_invalidation_key: str,
     ) -> Optional[str]:
         """
         Given an event_definition and success/failure flag, returns a url that
@@ -687,23 +704,32 @@ class FunnelCorrelation:
         """
         if not self._filter.correlation_type or self._filter.correlation_type == FunnelCorrelationType.EVENTS:
             return self.construct_event_correlation_people_url(
-                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+                success=success,
+                event_definition=event_definition,
+                cache_invalidation_key=cache_invalidation_key,
             )
 
         elif self._filter.correlation_type == FunnelCorrelationType.EVENT_WITH_PROPERTIES:
             return self.construct_event_with_properties_people_url(
-                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+                success=success,
+                event_definition=event_definition,
+                cache_invalidation_key=cache_invalidation_key,
             )
 
         elif self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return self.construct_person_properties_people_url(
-                success=success, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+                success=success,
+                event_definition=event_definition,
+                cache_invalidation_key=cache_invalidation_key,
             )
 
         return None
 
     def construct_event_correlation_people_url(
-        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+        self,
+        success: bool,
+        event_definition: EventDefinition,
+        cache_invalidation_key: str,
     ) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
         # class should need to know these details, but shallow_clone is
@@ -713,13 +739,19 @@ class FunnelCorrelation:
         params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
-                "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
+                "funnel_correlation_person_entity": {
+                    "id": event_definition["event"],
+                    "type": "events",
+                },
             }
         ).to_params()
         return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}&cache_invalidation_key={cache_invalidation_key}"
 
     def construct_event_with_properties_people_url(
-        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+        self,
+        success: bool,
+        event_definition: EventDefinition,
+        cache_invalidation_key: str,
     ) -> str:
         if self.support_autocapture_elements():
             # If we have an $autocapture event, we need to special case the
@@ -740,7 +772,12 @@ class FunnelCorrelation:
                         "id": event_name,
                         "type": "events",
                         "properties": [
-                            {"key": property_key, "value": [property_value], "type": "element", "operator": "exact"}
+                            {
+                                "key": property_key,
+                                "value": [property_value],
+                                "type": "element",
+                                "operator": "exact",
+                            }
                             for property_key, property_value in elements_as_action.items()
                             if property_value is not None
                         ],
@@ -757,7 +794,12 @@ class FunnelCorrelation:
                     "id": event_name,
                     "type": "events",
                     "properties": [
-                        {"key": property_name, "value": property_value, "type": "event", "operator": "exact"}
+                        {
+                            "key": property_name,
+                            "value": property_value,
+                            "type": "event",
+                            "operator": "exact",
+                        }
                     ],
                 },
             }
@@ -765,7 +807,10 @@ class FunnelCorrelation:
         return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
     def construct_person_properties_people_url(
-        self, success: bool, event_definition: EventDefinition, cache_invalidation_key: str
+        self,
+        success: bool,
+        event_definition: EventDefinition,
+        cache_invalidation_key: str,
     ) -> str:
         # NOTE: for property correlations, we just use the regular funnel
         # persons endpoint, with the breakdown value set, and we assume that
@@ -860,7 +905,8 @@ class FunnelCorrelation:
         total_count = event_contingency_table.success_total + event_contingency_table.failure_total
 
         if event_contingency_table.visited.success_count + event_contingency_table.visited.failure_count < min(
-            FunnelCorrelation.MIN_PERSON_COUNT, FunnelCorrelation.MIN_PERSON_PERCENTAGE * total_count
+            FunnelCorrelation.MIN_PERSON_COUNT,
+            FunnelCorrelation.MIN_PERSON_PERCENTAGE * total_count,
         ):
             return True
 
@@ -872,11 +918,15 @@ class FunnelCorrelation:
         return {
             "success_count": odds_ratio["success_count"],
             "success_people_url": self.construct_people_url(
-                success=True, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+                success=True,
+                event_definition=event_definition,
+                cache_invalidation_key=cache_invalidation_key,
             ),
             "failure_count": odds_ratio["failure_count"],
             "failure_people_url": self.construct_people_url(
-                success=False, event_definition=event_definition, cache_invalidation_key=cache_invalidation_key
+                success=False,
+                event_definition=event_definition,
+                cache_invalidation_key=cache_invalidation_key,
             ),
             "odds_ratio": odds_ratio["odds_ratio"],
             "correlation_type": odds_ratio["correlation_type"],
@@ -892,19 +942,20 @@ class FunnelCorrelation:
 
         event_name, property_name, property_value = event.split("::")
         if event_name == AUTOCAPTURE_EVENT and property_name == "elements_chain":
-
             event_type, elements_chain = property_value.split(self.ELEMENTS_DIVIDER)
             return EventDefinition(
                 event=event,
                 properties={self.AUTOCAPTURE_EVENT_TYPE: event_type},
-                elements=cast(list, ElementSerializer(chain_to_elements(elements_chain), many=True).data),
+                elements=cast(
+                    list,
+                    ElementSerializer(chain_to_elements(elements_chain), many=True).data,
+                ),
             )
 
         return EventDefinition(event=event, properties={}, elements=[])
 
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_counts: int) -> EventOddsRatio:
-
     # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
     odds_ratio = (
         (event_contingency_table.visited.success_count + prior_counts)

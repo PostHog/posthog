@@ -6,7 +6,12 @@ from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings import (
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_HTTP_URL,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_USER,
+)
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
@@ -17,14 +22,25 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--upto", default=99_999, type=int, help="Database state will be brought to the state after that migration."
+            "--upto",
+            default=99_999,
+            type=int,
+            help="Database state will be brought to the state after that migration.",
         )
-        parser.add_argument("--fake", action="store_true", help="Mark migrations as run without actually running them.")
         parser.add_argument(
-            "--check", action="store_true", help="Exits with a non-zero status if unapplied migrations exist."
+            "--fake",
+            action="store_true",
+            help="Mark migrations as run without actually running them.",
         )
         parser.add_argument(
-            "--plan", action="store_true", help="Shows a list of the migration actions that will be performed."
+            "--check",
+            action="store_true",
+            help="Exits with a non-zero status if unapplied migrations exist.",
+        )
+        parser.add_argument(
+            "--plan",
+            action="store_true",
+            help="Shows a list of the migration actions that will be performed.",
         )
         parser.add_argument(
             "--print-sql",

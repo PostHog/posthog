@@ -144,14 +144,15 @@ export const convertAmountToUsage = (
     return Math.round(usage)
 }
 
-export const getUpgradeAllProductsLink = (
+export const getUpgradeProductLink = (
     product: BillingProductV2Type,
     upgradeToPlanKey: string,
-    redirectPath?: string
+    redirectPath?: string,
+    includeAddons: boolean = true
 ): string => {
     let url = '/api/billing-v2/activation?products='
     url += `${product.type}:${upgradeToPlanKey},`
-    if (product.addons?.length) {
+    if (includeAddons && product.addons?.length) {
         for (const addon of product.addons) {
             if (addon.plans?.[0]?.plan_key) {
                 url += `${addon.type}:${addon.plans[0].plan_key},`
@@ -184,14 +185,20 @@ export const convertLargeNumberToWords = (
     }
 
     let denominator = 1
-
     if (num >= 1000000) {
         denominator = 1000000
     } else if (num >= 1000) {
         denominator = 1000
     }
 
-    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
+    let prevDenominator = 1
+    if (previousNum && previousNum >= 1000000) {
+        prevDenominator = 1000000
+    } else if (previousNum && previousNum >= 1000) {
+        prevDenominator = 1000
+    }
+
+    return `${previousNum ? `${((previousNum + 1) / prevDenominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
         num / denominator
     ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
         !previousNum && multipleTiers ? ` ${productType}s/mo` : ''

@@ -121,28 +121,6 @@ export function SharingModalContent({
                             </div>
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-2">
-                                {previewIframe && (
-                                    <div className="rounded border">
-                                        <LemonButton
-                                            fullWidth
-                                            status="stealth"
-                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                            onClick={togglePreview}
-                                        >
-                                            Preview
-                                            {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
-                                        </LemonButton>
-                                        {showPreview && (
-                                            <div className="SharingPreview border-t">
-                                                <iframe
-                                                    className="block"
-                                                    {...iframeProperties}
-                                                    onLoad={() => setIframeLoaded(true)}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
                                 <Field name="whitelabel">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -152,7 +130,7 @@ export function SharingModalContent({
                                                 <div className="flex items-center">
                                                     <span>Show PostHog branding</span>
                                                     {!whitelabelAvailable ? (
-                                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
+                                                        <Tooltip title="Upgrade to any paid plan to hide PostHog branding">
                                                             <IconLock className="ml-2" />
                                                         </Tooltip>
                                                     ) : null}
@@ -202,6 +180,29 @@ export function SharingModalContent({
                                             />
                                         )}
                                     </Field>
+                                )}
+
+                                {previewIframe && (
+                                    <div className="rounded border">
+                                        <LemonButton
+                                            fullWidth
+                                            status="stealth"
+                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                            onClick={togglePreview}
+                                        >
+                                            Preview
+                                            {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
+                                        </LemonButton>
+                                        {showPreview && (
+                                            <div className="SharingPreview border-t">
+                                                <iframe
+                                                    className="block"
+                                                    {...iframeProperties}
+                                                    onLoad={() => setIframeLoaded(true)}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </Form>
                         </>

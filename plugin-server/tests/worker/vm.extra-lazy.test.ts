@@ -1,4 +1,4 @@
-import * as fetch from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { Hub, PluginTaskType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -39,7 +39,7 @@ describe('VMs are extra lazy 💤', () => {
 
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
+        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
     })
 
     test('VM with jobs gets setup immediately', async () => {
@@ -64,7 +64,7 @@ describe('VMs are extra lazy 💤', () => {
 
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).not.toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
+        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
     })
 
     test('VM without tasks delays setup until necessary', async () => {
@@ -91,7 +91,7 @@ describe('VMs are extra lazy 💤', () => {
         await lazyVm.getOnEvent()
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
+        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
     })
 
     test('getting methods and tasks returns null if plugin is in errored state', async () => {

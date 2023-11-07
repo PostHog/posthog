@@ -97,7 +97,7 @@ export const traceLogic = kea<traceLogicType>([
     props({} as TraceLogicProps),
     key((props) => props?.sessionNode?.data.session_id || 'pre-init'),
     selectors(() => ({
-        processedSpans: [() => [(_, props) => props.sessionNode], (sessionNode) => flattenSpans(sessionNode)],
+        processedSpans: [(_, p) => [p.sessionNode], (sessionNode) => flattenSpans(sessionNode)],
         maxTimePoint: [
             (selectors) => [selectors.processedSpans],
             (processedSpans) => {

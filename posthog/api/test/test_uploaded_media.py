@@ -52,7 +52,9 @@ class TestMediaAPI(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
                 response = self.client.post(
-                    f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
                 assert response.json()["name"] == "a-small-but-valid.gif"
@@ -68,14 +70,22 @@ class TestMediaAPI(APIBaseTest):
     def test_rejects_non_image_file_type(self) -> None:
         fake_file = SimpleUploadedFile(name="test_image.jpg", content=b"a fake image", content_type="text/csv")
         response = self.client.post(
-            f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_file}, format="multipart"
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"image": fake_file},
+            format="multipart",
         )
-        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            response.json(),
+        )
 
     def test_rejects_file_manually_crafted_to_start_with_image_magic_bytes(self) -> None:
         with open(get_path_to("file-masquerading-as-a.gif"), "rb") as image:
             response = self.client.post(
-                f"/api/projects/{self.team.id}/uploaded_media", {"image": image}, format="multipart"
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": image},
+                format="multipart",
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
@@ -88,10 +98,14 @@ class TestMediaAPI(APIBaseTest):
     def test_rejects_too_large_file_type(self) -> None:
         four_megabytes_plus_a_little = b"1" * (4 * 1024 * 1024 + 1)
         fake_big_file = SimpleUploadedFile(
-            name="test_image.jpg", content=four_megabytes_plus_a_little, content_type="image/jpeg"
+            name="test_image.jpg",
+            content=four_megabytes_plus_a_little,
+            content_type="image/jpeg",
         )
         response = self.client.post(
-            f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_big_file}, format="multipart"
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"image": fake_big_file},
+            format="multipart",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["detail"], "Uploaded media must be less than 4MB")
@@ -100,7 +114,12 @@ class TestMediaAPI(APIBaseTest):
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="test_image.jpg", content=b"", content_type="image/jpeg")
             response = self.client.post(
-                f"/api/projects/{self.team.id}/uploaded_media", {"image": fake_big_file}, format="multipart"
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": fake_big_file},
+                format="multipart",
             )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-            self.assertEqual(response.json()["detail"], "Object storage must be available to allow media uploads.")
+            self.assertEqual(
+                response.json()["detail"],
+                "Object storage must be available to allow media uploads.",
+            )

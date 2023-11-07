@@ -5,11 +5,13 @@ import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
+import * as libUtils from 'lib/utils'
 
 describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>
 
     beforeEach(() => {
+        ;(libUtils as any).uuid = jest.fn().mockReturnValue('generated-uuid')
         useMocks({
             get: {
                 '/api/projects/:team/actions/': {
