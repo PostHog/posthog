@@ -2,14 +2,18 @@ import datetime
 from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
 from urllib.parse import urlencode
+from posthog.ph_client import get_ph_client
+
+from posthog.celery import app
 
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
 
 DEFAULT_DATE_TIME = datetime.datetime(2023, 11, 7, tzinfo=datetime.timezone.utc)
 
 
-# TODO: split these into their own tasks
-def calculate_workspace_rows_synced_by_team(ph_client, team_id):
+@app.task(ignore_result=True, max_retries=2)
+def calculate_workspace_rows_synced_by_team(team_id):
+    ph_client = get_ph_client()
     team = Team.objects.get(pk=team_id)
     now = datetime.datetime.now(datetime.timezone.utc)
     begin = team.external_data_workspace_last_synced or now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -50,6 +54,8 @@ def calculate_workspace_rows_synced_by_team(ph_client, team_id):
     team.external_data_workspace_last_synced = result_totals[-1]["startTime"] if result_totals else end
     team.external_data_workspace_rows_synced_in_month = total
     team.save()
+
+    ph_client.shutdown()
 
 
 def _traverse_jobs_by_field(ph_client, team, url, field, acc=[]):

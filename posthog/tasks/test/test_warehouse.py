@@ -52,15 +52,15 @@ class TestWarehouse(APIBaseTest):
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
+    @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team(self, traverse_jobs_mock):
+    def test_calculate_workspace_rows_synced_by_team(self, mock_capture, traverse_jobs_mock):
         traverse_jobs_mock.return_value = [
             {"count": 97747, "startTime": "2023-11-05T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        mock_capture = MagicMock()
-        calculate_workspace_rows_synced_by_team(mock_capture, self.team.pk)
+        calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 191100)
@@ -70,16 +70,16 @@ class TestWarehouse(APIBaseTest):
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
+    @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff(self, traverse_jobs_mock):
+    def test_calculate_workspace_rows_synced_by_team_month_cutoff(self, mock_capture, traverse_jobs_mock):
         # external_data_workspace_last_synced unset
         traverse_jobs_mock.return_value = [
             {"count": 97747, "startTime": "2023-10-30T18:32:41Z"},
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        mock_capture = MagicMock()
-        calculate_workspace_rows_synced_by_team(mock_capture, self.team.pk)
+        calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
@@ -89,8 +89,9 @@ class TestWarehouse(APIBaseTest):
         )
 
     @patch("posthog.tasks.warehouse._traverse_jobs_by_field")
+    @patch("posthog.tasks.warehouse.get_ph_client")
     @freeze_time("2023-11-07")
-    def test_calculate_workspace_rows_synced_by_team_month_cutoff_field_set(self, traverse_jobs_mock):
+    def test_calculate_workspace_rows_synced_by_team_month_cutoff_field_set(self, mock_capture, traverse_jobs_mock):
         self.team.external_data_workspace_last_synced = datetime.datetime(
             2023, 10, 29, 18, 32, 41, tzinfo=datetime.timezone.utc
         )
@@ -99,8 +100,7 @@ class TestWarehouse(APIBaseTest):
             {"count": 93353, "startTime": "2023-11-07T16:50:49Z"},
         ]
 
-        mock_capture = MagicMock()
-        calculate_workspace_rows_synced_by_team(mock_capture, self.team.pk)
+        calculate_workspace_rows_synced_by_team(self.team.pk)
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.external_data_workspace_rows_synced_in_month, 93353)
