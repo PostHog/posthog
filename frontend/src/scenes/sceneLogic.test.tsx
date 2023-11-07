@@ -60,28 +60,31 @@ describe('sceneLogic', () => {
             lastTouch: expect.any(Number),
         })
 
-        const expectedMySettings = partial({
+        const expectedSettings = partial({
             name: Scene.Settings,
             component: expect.any(Function),
-            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
+            sceneParams: {
+                hashParams: {},
+                params: {
+                    section: 'user',
+                },
+                searchParams: {},
+            },
+            logic: expect.any(Function),
             lastTouch: expect.any(Number),
         })
 
-        await expectLogic(logic)
-            .delay(1)
-            .toMatchValues({
-                loadedScenes: partial({
-                    [Scene.Annotations]: expectedAnnotation,
-                }),
-            })
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.loadedScenes).toMatchObject({
+            [Scene.Annotations]: expectedAnnotation,
+        })
         router.actions.push(urls.settings('user'))
-        await expectLogic(logic)
-            .delay(1)
-            .toMatchValues({
-                loadedScenes: partial({
-                    [Scene.Annotations]: expectedAnnotation,
-                    [Scene.Settings]: expectedMySettings,
-                }),
-            })
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.loadedScenes).toMatchObject({
+            [Scene.Annotations]: expectedAnnotation,
+            [Scene.Settings]: expectedSettings,
+        })
     })
 })
