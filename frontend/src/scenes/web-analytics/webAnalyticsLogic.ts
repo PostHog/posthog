@@ -238,7 +238,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tabs: [
                             {
                                 id: GraphsTab.UNIQUE_USERS,
-                                title: 'Unique visitors',
+                                title: 'Unique Visitors',
                                 linkText: 'Visitors',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
@@ -266,7 +266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             {
                                 id: GraphsTab.PAGE_VIEWS,
                                 title: 'Page Views',
-                                linkText: 'Page Views',
+                                linkText: 'Views',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
