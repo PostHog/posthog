@@ -2,7 +2,6 @@ import { loaders } from 'kea-loaders'
 import { kea, props, key, path, connect, actions, reducers, selectors, events } from 'kea'
 import api from 'lib/api'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
-import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 import {
     DashboardType,
     DashboardCollaboratorType,
@@ -12,6 +11,7 @@ import {
 } from '~/types'
 import type { dashboardCollaboratorsLogicType } from './dashboardCollaboratorsLogicType'
 import { dashboardLogic } from './dashboardLogic'
+import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 
 export interface DashboardCollaboratorsLogicProps {
     dashboardId: DashboardType['id']

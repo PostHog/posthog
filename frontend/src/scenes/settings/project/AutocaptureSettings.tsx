@@ -4,8 +4,8 @@ import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import clsx from 'clsx'
-import { autocaptureExceptionsLogic } from 'scenes/project/Settings/autocaptureExceptionsLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { autocaptureExceptionsLogic } from './autocaptureExceptionsLogic'
 
 export function AutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)

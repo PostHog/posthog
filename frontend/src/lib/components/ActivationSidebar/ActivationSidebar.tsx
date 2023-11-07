@@ -6,9 +6,9 @@ import { activationLogic, ActivationTaskType } from './activationLogic'
 import './ActivationSidebar.scss'
 import { Progress } from 'antd'
 import { IconCheckmark, IconClose } from 'lib/lemon-ui/icons'
-import { SessionRecording as SessionRecordingConfig } from 'scenes/project/Settings/SessionRecording'
 import { ProfessorHog } from '../hedgehogs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ReplayGeneral } from 'scenes/settings/project/SessionRecordingSettings'
 
 const Task = ({ id, name, description, completed, canSkip, skipped, url }: ActivationTaskType): JSX.Element => {
     const displaySideAction = !completed && !skipped && canSkip
@@ -82,7 +82,8 @@ const ActivationSidebar = (): JSX.Element => {
                     />
                 </div>
                 {showSessionRecordingConfig ? (
-                    <SessionRecordingConfig />
+                    // TODO: FIX THIS
+                    <ReplayGeneral />
                 ) : (
                     <>
                         <h2 className="subtitle">Quick Start</h2>

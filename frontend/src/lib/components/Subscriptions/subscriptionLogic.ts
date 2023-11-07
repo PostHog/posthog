@@ -14,7 +14,7 @@ import { subscriptionsLogic } from './subscriptionsLogic'
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { getInsightId } from 'scenes/insights/utils'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
-import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',

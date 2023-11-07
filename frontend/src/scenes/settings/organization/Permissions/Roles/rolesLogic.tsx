@@ -2,9 +2,9 @@ import { actions, kea, reducers, path, connect, selectors, afterMount, listeners
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
 import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
 import type { rolesLogicType } from './rolesLogicType'
+import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),

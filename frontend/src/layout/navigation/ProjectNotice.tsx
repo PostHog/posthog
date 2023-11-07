@@ -64,7 +64,7 @@ export function ProjectNotice(): JSX.Element | null {
                         ingestion wizard
                     </Link>{' '}
                     or grab your project API key/HTML snippet from{' '}
-                    <Link to="/project/settings" data-attr="real_project_with_no_events-settings">
+                    <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
                         Project Settings
                     </Link>{' '}
                     to get things moving

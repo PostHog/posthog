@@ -47,7 +47,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 

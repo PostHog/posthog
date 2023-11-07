@@ -284,7 +284,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     }
                                 />
                                 <div className="mt-1 pl-6">
-                                    <Link to="/project/settings#webhook">
+                                    <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
                                         {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
                                     </Link>
                                 </div>
