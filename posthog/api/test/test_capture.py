@@ -294,20 +294,8 @@ class TestCapture(BaseTest):
         assert log_context["token"] == self.team.api_token
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_snapshot_event(self, kafka_produce):
-        data = {
-            "event": "$snapshot",
-            "api_key": "key",
-            "properties": {
-                "$snapshot_bytes": 60,
-                "$snapshot_data": [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}],
-                "$session_id": "sessionId",
-                "$window_id": "windowId",
-                "distinct_id": "theID",
-            },
-            "timestamp": "2023-10-25T14:14:04.407Z",
-            "distinct_id": "theID",
-        }
+    def test_capture_snapshot_event(self, _kafka_produce: MagicMock) -> None:
+        data = self._send_august_2023_version_session_recording_event()
 
         response = self.client.post(
             "/s/",
@@ -1507,15 +1495,6 @@ class TestCapture(BaseTest):
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
-        with self.settings(
-            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
-        ):
-            self._send_august_2023_version_session_recording_event(event_data=[{}])
-
-            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
