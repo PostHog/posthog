@@ -194,6 +194,7 @@ async def put_file_to_snowflake_table(
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, func=execute_put)
+    reader.detach()  # BufferedReader closes the file otherwise.
 
     result = cursor.fetchone()
     if not isinstance(result, tuple):

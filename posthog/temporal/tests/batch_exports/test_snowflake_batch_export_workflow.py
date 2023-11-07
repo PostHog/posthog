@@ -958,14 +958,92 @@ async def test_snowflake_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with override_settings(BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+            await activity_environment.client.execute_workflow(
+                SnowflakeBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=10),
+            )
+
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    assert_events_in_snowflake(
+        cursor=snowflake_cursor,
+        table_name=snowflake_batch_export.destination.config["table_name"],
+        events=events,
+        exclude_events=exclude_events,
+    )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+async def test_snowflake_export_workflow_with_many_files(
+    clickhouse_client,
+    snowflake_cursor,
+    interval,
+    snowflake_batch_export,
+    ateam,
+    exclude_events,
+):
+    """Test Snowflake Export Workflow end-to-end with multiple file uploads.
+
+    This test overrides the chunk size and sets it to 1 byte to trigger multiple file uploads.
+    We want to assert that all files are properly copied into the table. Of course, 1 byte limit
+    means we are uploading one file at a time, which is very innefficient. For this reason, this test
+    can take longer, so we keep the event count low and bump the Workflow timeout.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    workflow_id = str(uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end="2023-04-25 14:30:00.000000",
+        interval=interval,
+        **snowflake_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
                 await activity_environment.client.execute_workflow(
                     SnowflakeBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                    execution_timeout=dt.timedelta(seconds=20),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
