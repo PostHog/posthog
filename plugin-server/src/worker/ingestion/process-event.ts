@@ -34,6 +34,7 @@ import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
+import { captureIngestionWarning } from './utils'
 
 export class EventsProcessor {
     pluginsServer: Hub
