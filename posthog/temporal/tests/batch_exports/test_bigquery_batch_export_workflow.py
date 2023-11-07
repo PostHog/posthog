@@ -178,10 +178,9 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         person_properties=None,
     )
 
-    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
+            await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=team_id,
                 start_time=data_interval_start,
@@ -191,7 +190,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
                 count_other_team=0,
                 event_name=event_name,
             )
-            events_to_exclude += events_to_exclude_for_event_name
 
     insert_inputs = BigQueryInsertInputs(
         team_id=team_id,
@@ -211,7 +209,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             client=bigquery_client,
             table_id=f"test_insert_activity_table_{team_id}",
             dataset_id=bigquery_config["dataset_id"],
-            events=events + events_with_no_properties + events_to_exclude,
+            events=events + events_with_no_properties,
             bq_ingested_timestamp=ingested_timestamp,
             exclude_events=exclude_events,
         )
@@ -288,10 +286,9 @@ async def test_bigquery_export_workflow(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
+            await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -301,7 +298,6 @@ async def test_bigquery_export_workflow(
                 count_other_team=0,
                 event_name=event_name,
             )
-            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = BigQueryBatchExportInputs(
