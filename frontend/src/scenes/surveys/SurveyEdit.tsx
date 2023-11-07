@@ -49,6 +49,7 @@ import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { surveysLogic } from './surveysLogic'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import clsx from 'clsx'
 
 function PresentationTypeCard({
     title,
@@ -67,8 +68,12 @@ function PresentationTypeCard({
 }): JSX.Element {
     return (
         <div
-            style={{ borderColor: active ? 'var(--primary)' : 'var(--border)', height: 230, width: 260 }}
-            className="border rounded-md relative px-4 py-2 overflow-hidden"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: 230, width: 260 }}
+            className={clsx(
+                'border rounded-md relative px-4 py-2 overflow-hidden',
+                active ? 'border-primary' : 'border-border'
+            )}
         >
             <p className="font-semibold m-0">{title}</p>
             {description && <p className="m-0 text-xs">{description}</p>}
@@ -694,13 +699,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div
-                                                        style={{
-                                                            position: 'absolute',
-                                                            left: '1rem',
-                                                            width: 350,
-                                                        }}
-                                                    >
+                                                    <div className="absolute left-4" style={{ width: 350 }}>
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -924,14 +923,12 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="px-4">
-                <div className="flex flex-col items-center h-full sticky top-0 pt-8">
-                    <SurveyFormAppearance
-                        activePreview={selectedQuestion || 0}
-                        survey={survey}
-                        setActivePreview={(preview) => setSelectedQuestion(preview)}
-                    />
-                </div>
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8">
+                <SurveyFormAppearance
+                    activePreview={selectedQuestion || 0}
+                    survey={survey}
+                    setActivePreview={(preview) => setSelectedQuestion(preview)}
+                />
             </div>
         </div>
     )

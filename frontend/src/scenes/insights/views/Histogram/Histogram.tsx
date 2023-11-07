@@ -260,5 +260,6 @@ export function Histogram({
 
     /* minWidth required to enforce d3's width calculations on the div wrapping the svg
      so that scrolling horizontally works */
+    //  eslint-disable-next-line react/forbid-dom-props
     return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
 }
