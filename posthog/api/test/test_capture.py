@@ -252,12 +252,17 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
+        post_data = {
+            "api_key": self.team.api_token,
+        }
+        if content_type == "application/json":
+            post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
+        else:
+            post_data["data"] = json.dumps([event for _ in range(number_of_events)])
+
         return self.client.post(
             "/s/",
-            data={
-                "data": json.dumps([event for _ in range(number_of_events)]),
-                "api_key": self.team.api_token,
-            },
+            data=post_data,
             content_type=content_type or MULTIPART_CONTENT,
         )
 
