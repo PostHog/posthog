@@ -319,7 +319,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.PersonsManagement,
-                            label: 'People and groups',
+                            label: 'People',
                             icon: <IconPeople />,
                             logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.persons(),

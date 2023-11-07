@@ -49,7 +49,7 @@ const NOTICES: {
             <>
                 <b>Cohorts</b> have moved here!
                 <br />
-                You can now find them in <b>People & Groups</b>
+                You can now find them in <b>People</b>
             </>
         ),
         placement: 'rightTop',

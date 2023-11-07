@@ -221,7 +221,7 @@ function Pages(): JSX.Element {
                         icon={<IconCohort />}
                         identifier={Scene.PersonsManagement}
                         to={urls.persons()}
-                        title="People & Groups"
+                        title="People"
                     />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
