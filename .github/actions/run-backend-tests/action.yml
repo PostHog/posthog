@@ -62,20 +62,6 @@ runs:
           run: |
               sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-        - name: Install antlr 4.13 (required by hoql_parser)
-          shell: bash
-          run: |
-              curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
-              anltr_known_md5sum="c875c148991aacd043f733827644a76f"
-              antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
-              if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi
-              unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
-              cmake .
-              DESTDIR=out make install
-              cp -r out/usr/local/include/antlr4-runtime /usr/include/
-              cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/
-              ldconfig
-
         - name: Install pnpm
           uses: pnpm/action-setup@v2
           with:
@@ -97,7 +83,7 @@ runs:
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1
+              custom_cache_key_element: v2
 
         - uses: syphar/restore-pip-download-cache@v1
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'
