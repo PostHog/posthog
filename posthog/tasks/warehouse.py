@@ -45,6 +45,8 @@ def calculate_workspace_rows_synced_by_team(ph_client, team_id):
         )
 
     team = Team.objects.get(pk=team_id)
+
+    # TODO: check assumption that ordering is possible with API
     team.external_data_workspace_last_synced = result_totals[-1]["startTime"] if result_totals else end
     team.external_data_workspace_rows_synced_in_month = total
     team.save()
