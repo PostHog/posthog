@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import os
 
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand
     from django.conf import settings
+
+from prometheus_client import start_http_server
 
 from posthog.temporal.worker import start_worker
 
@@ -62,6 +65,9 @@ class Command(BaseCommand):
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
         logging.info(f"Starting Temporal Worker with options: {options}")
+
+        port = int(os.environ.get("PROMETHEUS_METRICS_EXPORT_PORT", 8001))
+        start_http_server(port=port)
 
         asyncio.run(
             start_worker(
