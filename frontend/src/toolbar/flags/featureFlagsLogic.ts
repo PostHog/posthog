@@ -67,9 +67,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
                     const currentValue =
-                        flag.feature_flag.key in localOverrides
-                            ? localOverrides[flag.feature_flag.key]
-                            : flag.feature_flag.active && flag.value
+                        flag.feature_flag.key in localOverrides ? localOverrides[flag.feature_flag.key] : flag.value
 
                     return {
                         ...flag,

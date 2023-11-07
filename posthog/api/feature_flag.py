@@ -39,7 +39,6 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
-    FeatureFlagMatcher,
     FeatureFlagDashboards,
     can_user_edit_feature_flag,
     get_all_feature_flags,
@@ -476,7 +475,8 @@ class FeatureFlagViewSet(
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = get_all_feature_flags(self.team_id, request.user.distinct_id, groups)
+
         for feature_flag in feature_flags:
             flags.append(
                 {
