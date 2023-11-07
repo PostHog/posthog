@@ -7,6 +7,7 @@ use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::billing_limits::BillingLimiter;
 use capture::event::ProcessedEvent;
+use capture::health::HealthRegistry;
 use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sink::EventSink;
@@ -76,6 +77,7 @@ impl EventSink for MemorySink {
 async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
     let file = File::open(REQUESTS_DUMP_FILE_NAME)?;
     let reader = BufReader::new(file);
+    let liveness = HealthRegistry::new("dummy");
 
     let mut mismatches = 0;
 
@@ -100,7 +102,14 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let billing = BillingLimiter::new(Duration::weeks(1), redis.clone())
             .expect("failed to create billing limiter");
 
-        let app = router(timesource, sink.clone(), redis, billing, false);
+        let app = router(
+            timesource,
+            liveness.clone(),
+            sink.clone(),
+            redis,
+            billing,
+            false,
+        );
 
         let client = TestClient::new(app);
         let mut req = client.post(&format!("/i/v0{}", case.path)).body(raw_body);

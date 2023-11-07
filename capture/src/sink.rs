@@ -13,6 +13,7 @@ use tracing::{debug, info};
 use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::event::ProcessedEvent;
+use crate::health::HealthHandle;
 use crate::prometheus::report_dropped_events;
 
 #[async_trait]
@@ -45,10 +46,16 @@ impl EventSink for PrintSink {
     }
 }
 
-struct KafkaContext;
+struct KafkaContext {
+    liveness: HealthHandle,
+}
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
+        // Signal liveness, as the main rdkafka loop is running and calling us
+        self.liveness.report_healthy_blocking();
+
+        // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth", stats.replyq as f64);
         gauge!("capture_kafka_producer_queue_depth", stats.msg_cnt as f64);
         gauge!(
@@ -107,7 +114,7 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(config: KafkaConfig) -> anyhow::Result<KafkaSink> {
+    pub fn new(config: KafkaConfig, liveness: HealthHandle) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
         let mut client_config = ClientConfig::new();
@@ -129,7 +136,7 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {:?}", client_config);
         let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext)?;
+            client_config.create_with_context(KafkaContext { liveness })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
         _ = producer.client().fetch_metadata(

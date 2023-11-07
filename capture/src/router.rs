@@ -9,6 +9,7 @@ use axum::{
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::health::HealthRegistry;
 use crate::{billing_limits::BillingLimiter, capture, redis::Client, sink, time::TimeSource};
 
 use crate::prometheus::{setup_metrics_recorder, track_metrics};
@@ -31,6 +32,7 @@ pub fn router<
     R: Client + Send + Sync + 'static,
 >(
     timesource: TZ,
+    liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
     billing: BillingLimiter,
@@ -54,6 +56,8 @@ pub fn router<
     let router = Router::new()
         // TODO: use NormalizePathLayer::trim_trailing_slash
         .route("/", get(index))
+        .route("/_readiness", get(index))
+        .route("/_liveness", get(move || ready(liveness.get_status())))
         .route("/i/v0/e", post(capture::event).options(capture::options))
         .route("/i/v0/e/", post(capture::event).options(capture::options))
         .layer(TraceLayer::new_for_http())
