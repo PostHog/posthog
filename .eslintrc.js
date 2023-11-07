@@ -86,7 +86,7 @@ module.exports = {
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -98,7 +98,7 @@ module.exports = {
             },
         ],
         'posthog/warn-elements': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -146,7 +146,7 @@ module.exports = {
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -200,9 +200,9 @@ module.exports = {
                 ],
             },
         ],
-        'no-constant-condition': 0,
-        'no-prototype-builtins': 0,
-        'no-irregular-whitespace': 0,
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
         {

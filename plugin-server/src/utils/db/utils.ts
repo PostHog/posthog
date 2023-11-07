@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -150,6 +151,7 @@ export function shouldStoreLog(
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match) => {
+        surrogatesSubstitutedCounter.inc()
         const res = JSON.stringify(match)
         return res.slice(1, res.length - 1) + `\\`
     })
@@ -173,3 +175,8 @@ export function sanitizeJsonbValue(value: any): any {
         return value
     }
 }
+
+export const surrogatesSubstitutedCounter = new Counter({
+    name: 'surrogates_substituted_total',
+    help: 'Stray UTF16 surrogates detected and removed from user input.',
+})
