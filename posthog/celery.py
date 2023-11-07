@@ -900,13 +900,8 @@ def debug_task(self):
     print(f"Request: {self.request!r}")
 
 
-@app.task(ignore_result=True)
-def calculate_decide_usage() -> None:
-    from django.db.models import Q
+def _get_ph_client():
     from posthoganalytics import Posthog
-
-    from posthog.models import Team
-    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
     if not is_cloud():
         return
@@ -927,10 +922,37 @@ def calculate_decide_usage() -> None:
 
     ph_client = Posthog(api_key, host=host)
 
+    return ph_client
+
+
+@app.task(ignore_result=True)
+def calculate_decide_usage() -> None:
+    from django.db.models import Q
+    from posthog.models import Team
+    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
+
+    ph_client = _get_ph_client()
+
     for team in Team.objects.select_related("organization").exclude(
         Q(organization__for_internal_metrics=True) | Q(is_demo=True)
     ):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
+
+    ph_client.shutdown()
+
+
+@app.task(ignore_result=True)
+def calculate_external_data_rows_synced() -> None:
+    from django.db.models import Q
+    from posthog.models import Team
+    from posthog.tasks.warehouse import calculate_workspace_rows_synced_by_team
+
+    ph_client = _get_ph_client()
+
+    for team in Team.objects.select_related("organization").exclude(
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
+    ):
+        calculate_workspace_rows_synced_by_team(ph_client, team.pk)
 
     ph_client.shutdown()
 

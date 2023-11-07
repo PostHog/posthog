@@ -1,11 +1,7 @@
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
-from posthog.warehouse.external_data_source.connection import AIRBYTE_JOBS_URL, retrieve_sync
+from posthog.warehouse.external_data_source.connection import retrieve_sync
 from posthog.celery import app
-from datetime import datetime
-from urllib.parse import urlencode
-
-import requests
 
 from django.conf import settings
 import structlog
@@ -72,39 +68,3 @@ def sync_resource(resource_id):
     else:
         resource.status = job["status"]
         resource.save()
-
-
-def get_rows_synced_by_team(begin: datetime, end: datetime, team_id):
-    resources = ExternalDataSource.objects.filter(team_id=team_id, are_tables_created=True)
-    return sum([get_rows_synced_by_resource_id(begin, end, resource.pk) for resource in resources])
-
-
-def get_rows_synced_by_resource_id(begin: datetime, end: datetime, resource_id, offset=0):
-
-    resource = ExternalDataSource.objects.get(pk=resource_id)
-    params = {
-        "connectionId": resource.connection_id,
-        "limit": 100,
-        "offset": offset,
-        "status": "succeeded",
-        "updatedAtStart": begin.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "updatedAtEnd": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-
-    return _accumulate_jobs_field(AIRBYTE_JOBS_URL + "?" + urlencode(params), "rowsSynced")
-
-
-def _accumulate_jobs_field(url, field, acc=0):
-    token = settings.AIRBYTE_API_KEY
-
-    headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
-    response = requests.get(url, headers=headers)
-    response_payload = response.json()
-    response_data = response_payload.get("data", [])
-    response_next = response_payload.get("next", None)
-    acc += sum([job[field] for job in response_data])
-
-    if response_next:
-        return _accumulate_jobs_field(response_payload["next"], field, acc=acc)
-
-    return acc

@@ -596,13 +596,7 @@ def get_teams_with_survey_responses_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_data_warehouse_rows_synced_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
-    from posthog.warehouse.models.external_data_source import ExternalDataSource
-    from posthog.warehouse.sync_resource import get_rows_synced_by_team
-
-    team_ids = ExternalDataSource.objects.distinct("team_id").values_list("team_id", flat=True)
-    results = [(team_id, get_rows_synced_by_team(begin, end, team_id)) for team_id in team_ids]
-
-    return results
+    pass
 
 
 @app.task(ignore_result=True, max_retries=0)
