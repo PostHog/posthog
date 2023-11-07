@@ -183,7 +183,8 @@ async def generate_test_events_in_clickhouse(
     delta = end_time - start_time
     possible_datetimes_outside_range = list(
         date_range(end_time + dt.timedelta(seconds=1), end_time + delta, dt.timedelta(minutes=1))
-    )
+    ) + list(date_range(start_time - dt.timedelta(seconds=1), start_time - delta, dt.timedelta(minutes=1)))
+
     events_outside_range = generate_test_events(
         count=count_outside_range,
         team_id=team_id,
