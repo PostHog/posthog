@@ -78,7 +78,8 @@
 
     &.Breadcrumbs3000__breadcrumb--actionable {
         cursor: pointer;
-        &:hover > span {
+        &:hover > span,
+        &.Breadcrumbs3000__breadcrumb--open > span {
             opacity: 1;
         }
     }

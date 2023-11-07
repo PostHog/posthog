@@ -36,6 +36,7 @@ export function Breadcrumbs(): JSX.Element | null {
         <div
             className="Breadcrumbs3000"
             style={
+                // eslint-disable-line react/forbid-dom-props
                 {
                     '--breadcrumbs-compaction-rate': compactionRate,
                 } as React.CSSProperties
@@ -78,6 +79,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
         <Component
             className={clsx(
                 'Breadcrumbs3000__breadcrumb',
+                popoverShown && 'Breadcrumbs3000__breadcrumb--open',
                 (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs3000__breadcrumb--actionable',
                 here && 'Breadcrumbs3000__breadcrumb--here'
             )}
