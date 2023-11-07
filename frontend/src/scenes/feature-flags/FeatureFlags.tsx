@@ -426,10 +426,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties as AnyPropertyFilter[]}
-                        style={{ margin: 0, flexDirection: 'column' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )
         } else if (rollout_percentage !== null) {

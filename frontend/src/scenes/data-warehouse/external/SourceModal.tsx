@@ -2,7 +2,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } fr
 import { Form } from 'kea-forms'
 import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 import { useActions, useValues } from 'kea'
-import { DatawarehouseTableForm } from '../DataWarehouseTableForm'
+import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
 import { Field } from 'lib/forms/Field'
 import stripeLogo from 'public/stripe-logo.svg'
 

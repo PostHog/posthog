@@ -7,7 +7,6 @@ from uuid import uuid4
 import psycopg2
 import pytest
 import pytest_asyncio
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
 from psycopg2 import sql
@@ -17,24 +16,12 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.api.test.test_organization import acreate_organization
-from posthog.api.test.test_team import acreate_team
-from posthog.temporal.client import connect
-from posthog.temporal.tests.batch_exports.base import (
-    EventValues,
-    amaterialize,
-    insert_events,
-)
-from posthog.temporal.tests.batch_exports.fixtures import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_runs,
-)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.postgres_batch_export import (
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
@@ -42,14 +29,15 @@ from posthog.temporal.workflows.postgres_batch_export import (
     insert_into_postgres_activity,
 )
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-def assert_events_in_postgres(connection, schema, table_name, events):
+
+def assert_events_in_postgres(connection, schema, table_name, events, exclude_events: list[str] | None = None):
     """Assert provided events written to a given Postgres table."""
-
     inserted_events = []
 
     with connection.cursor() as cursor:
-        cursor.execute(sql.SQL("SELECT * FROM {} ORDER BY timestamp").format(sql.Identifier(schema, table_name)))
+        cursor.execute(sql.SQL("SELECT * FROM {} ORDER BY event, timestamp").format(sql.Identifier(schema, table_name)))
         columns = [column.name for column in cursor.description]
 
         for row in cursor.fetchall():
@@ -59,6 +47,11 @@ def assert_events_in_postgres(connection, schema, table_name, events):
 
     expected_events = []
     for event in events:
+        event_name = event.get("event")
+
+        if exclude_events is not None and event_name in exclude_events:
+            continue
+
         properties = event.get("properties", None)
         elements_chain = event.get("elements_chain", None)
         expected_event = {
@@ -78,9 +71,8 @@ def assert_events_in_postgres(connection, schema, table_name, events):
         }
         expected_events.append(expected_event)
 
-    expected_events.sort(key=lambda x: x["timestamp"])
+    expected_events.sort(key=lambda x: (x["event"], x["timestamp"]))
 
-    assert len(inserted_events) == len(expected_events)
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
     assert inserted_events[0] == expected_events[0]
@@ -170,137 +162,76 @@ def postgres_connection(postgres_config, setup_test_db):
     connection.close()
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
-    activity_environment, postgres_connection, postgres_config
+    clickhouse_client, activity_environment, postgres_connection, postgres_config, exclude_events
 ):
-    """Test that the insert_into_postgres_activity function inserts data into a Postgres table."""
+    """Test that the insert_into_postgres_activity function inserts data into a PostgreSQL table.
 
-    data_interval_start = "2023-04-20 14:00:00"
-    data_interval_end = "2023-04-25 15:00:00"
+    We use the generate_test_events_in_clickhouse function to generate several sets
+    of events. Some of these sets are expected to be exported, and others not. Expected
+    events are those that:
+    * Are created for the team_id of the batch export.
+    * Are created in the date range of the batch export.
+    * Are not duplicates of other events that are in the same batch.
+    * Do not have an event name contained in the batch export's exclude_events.
+
+    Once we have these events, we pass them to the assert_events_in_postgres function to check
+    that they appear in the expected PostgreSQL table. This function utilizes the local
+    development postgres instance for testing. But we setup and manage our own database
+    to avoid conflicting with PostHog itself.
+    """
+    data_interval_start = dt.datetime(2023, 4, 20, 14, 0, 0, tzinfo=dt.timezone.utc)
+    data_interval_end = dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.timezone.utc)
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
     team_id = randint(1, 1000000)
 
-    # Add a materialized column such that we can verify that it is NOT included
-    # in the export.
-    await amaterialize("events", "$browser")
-
-    # Create enough events to ensure we span more than 5MB, the smallest
-    # multipart chunk size for multipart uploads to POSTGRES.
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(10000)
-    ]
-
-    events += [
-        # Insert an events with an empty string in `properties` and
-        # `person_properties` to ensure that we handle empty strings correctly.
-        EventValues(
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "_timestamp": "2023-04-20 14:29:00",
-                "timestamp": "2023-04-20 14:29:00.000000",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:29:00.000000",
-                "distinct_id": str(uuid4()),
-                "person_id": str(uuid4()),
-                "person_properties": None,
-                "team_id": team_id,
-                "properties": None,
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            }
-        )
-    ]
-
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10000,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    # Insert some data into the `sharded_events` table.
-    await insert_events(
-        client=ch_client,
-        events=events,
+    (events_with_no_properties, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5,
+        count_outside_range=0,
+        count_other_team=0,
+        properties=None,
+        person_properties=None,
     )
 
-    # Insert some events before the hour and after the hour, as well as some
-    # events from another team to ensure that we only export the events from
-    # the team that the batch export is for.
-    other_team_id = team_id + 1
-    await insert_events(
-        client=ch_client,
-        events=[
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 13:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 15:30:00",
-                "_timestamp": "2023-04-20 13:30:00",
-                "inserted_at": "2023-04-20 13:30:00.000000",
-                "created_at": "2023-04-20 13:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-20 14:30:00",
-                "_timestamp": "2023-04-20 14:30:00",
-                "inserted_at": "2023-04-20 14:30:00.000000",
-                "created_at": "2023-04-20 14:30:00.000000",
-                "person_id": str(uuid4()),
-                "distinct_id": str(uuid4()),
-                "team_id": other_team_id,
-                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            },
-        ],
-    )
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=team_id,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
 
     insert_inputs = PostgresInsertInputs(
         team_id=team_id,
         table_name="test_table",
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
         **postgres_config,
     )
 
@@ -311,23 +242,21 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         connection=postgres_connection,
         schema=postgres_config["schema"],
         table_name="test_table",
-        events=events,
+        events=events + events_with_no_properties,
+        exclude_events=exclude_events,
     )
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@pytest.mark.parametrize("interval", ["hour", "day"])
-async def test_postgres_export_workflow(
-    postgres_config,
-    postgres_connection,
-    interval,
-):
-    """Test Postgres Export Workflow end-to-end by using a local PG database."""
-    table_name = "test_workflow_table"
+@pytest.fixture
+def table_name(ateam, interval):
+    return f"test_workflow_table_{ateam.pk}_{interval}"
+
+
+@pytest_asyncio.fixture
+async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
-        "config": {**postgres_config, "table_name": table_name},
+        "config": {**postgres_config, "table_name": table_name, "exclude_events": exclude_events},
     }
     batch_export_data = {
         "name": "my-production-postgres-export",
@@ -335,100 +264,71 @@ async def test_postgres_export_workflow(
         "interval": interval,
     }
 
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
     batch_export = await acreate_batch_export(
-        team_id=team.pk,
+        team_id=ateam.pk,
         name=batch_export_data["name"],
         destination_data=batch_export_data["destination"],
         interval=batch_export_data["interval"],
     )
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 13:30:00.000000",
-            "created_at": "2023-04-25 13:30:00.000000",
-            "inserted_at": "2023-04-25 13:30:00.000000",
-            "_timestamp": "2023-04-25 13:30:00",
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team.pk,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "172.16.0.1",
-                "$current_url": "https://app.posthog.com",
-            },
-            "distinct_id": str(uuid4()),
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        },
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "timestamp": "2023-04-25 14:29:00.000000",
-            "created_at": "2023-04-25 14:29:00.000000",
-            "inserted_at": "2023-04-25 14:29:00.000000",
-            "_timestamp": "2023-04-25 14:29:00",
-            "person_id": str(uuid4()),
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$current_url": "https://app.posthog.com",
-                "$ip": "172.16.0.1",
-            },
-            "team_id": team.pk,
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "distinct_id": str(uuid4()),
-            "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-        },
-    ]
+    yield batch_export
 
-    if interval == "day":
-        # Add an event outside the hour range but within the day range to ensure it's exported too.
-        events_outside_hour: list[EventValues] = [
-            {
-                "uuid": str(uuid4()),
-                "event": "test",
-                "timestamp": "2023-04-25 00:30:00.000000",
-                "created_at": "2023-04-25 00:30:00.000000",
-                "inserted_at": "2023-04-25 00:30:00.000000",
-                "_timestamp": "2023-04-25 00:30:00",
-                "person_id": str(uuid4()),
-                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-                "team_id": team.pk,
-                "properties": {
-                    "$browser": "Chrome",
-                    "$os": "Mac OS X",
-                    "$current_url": "https://app.posthog.com",
-                    "$ip": "172.16.0.1",
-                },
-                "distinct_id": str(uuid4()),
-                "elements_chain": 'strong.pricingpage:attr__class="pricingpage"nth-child="1"nth-of-type="1"text="A question?";',
-            }
-        ]
-        events += events_outside_hour
+    await adelete_batch_export(batch_export, temporal_client)
 
-    ch_client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+
+@pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+async def test_postgres_export_workflow(
+    clickhouse_client,
+    postgres_config,
+    postgres_connection,
+    postgres_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    table_name,
+):
+    """Test Postgres Export Workflow end-to-end by using a local PG database.
+
+    The workflow should update the batch export run status to completed and produce the expected
+    records to the local development PostgreSQL database.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - postgres_batch_export.interval_time_delta
+
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    await insert_events(
-        client=ch_client,
-        events=events,
-    )
+    if exclude_events:
+        for event_name in exclude_events:
+            await generate_test_events_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                count=5,
+                count_outside_range=0,
+                count_other_team=0,
+                event_name=event_name,
+            )
 
     workflow_id = str(uuid4())
     inputs = PostgresBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
         interval=interval,
-        **batch_export.destination.config,
+        **postgres_batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -453,72 +353,32 @@ async def test_postgres_export_workflow(
                     execution_timeout=dt.timedelta(seconds=10),
                 )
 
-    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
 
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_postgres(postgres_connection, postgres_config["schema"], table_name, events)
-
-
-@pytest_asyncio.fixture
-async def organization():
-    organization = await acreate_organization("test")
-    yield organization
-    await sync_to_async(organization.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def team(organization):
-    team = await acreate_team(organization=organization)
-    yield team
-    await sync_to_async(team.delete)()  # type: ignore
-
-
-@pytest_asyncio.fixture
-async def batch_export(team, postgres_config):
-    table_name = "test_workflow_table"
-    destination_data = {
-        "type": "Postgres",
-        "config": {**postgres_config, "table_name": table_name},
-    }
-    batch_export_data = {
-        "name": "my-production-postgres-export",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    batch_export = await acreate_batch_export(
-        team_id=team.pk,
-        name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
-        interval=batch_export_data["interval"],
+    assert_events_in_postgres(
+        postgres_connection,
+        postgres_config["schema"],
+        table_name,
+        events=events,
+        exclude_events=exclude_events,
     )
 
-    yield batch_export
 
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-    await adelete_batch_export(batch_export, client)
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_postgres_export_workflow_handles_insert_activity_errors(team, batch_export):
+async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, postgres_batch_export, interval):
     """Test that Postgres Export Workflow can gracefully handle errors when inserting Postgres data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
     workflow_id = str(uuid4())
     inputs = PostgresBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **postgres_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_postgres_activity")
@@ -546,7 +406,7 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(team, bat
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+        runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
         assert len(runs) == 1
 
         run = runs[0]
@@ -554,16 +414,17 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(team, bat
         assert run.latest_error == "ValueError: A useful error message"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_postgres_export_workflow_handles_cancellation(team, batch_export):
+async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
     """Test that Postgres Export Workflow can gracefully handle cancellations when inserting Postgres data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
     workflow_id = str(uuid4())
     inputs = PostgresBatchExportInputs(
-        team_id=team.pk,
-        batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **postgres_batch_export.destination.config,
     )
 
     @activity.defn(name="insert_into_postgres_activity")
@@ -597,9 +458,9 @@ async def test_postgres_export_workflow_handles_cancellation(team, batch_export)
             with pytest.raises(WorkflowFailureError):
                 await handle.result()
 
-        runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
-        assert len(runs) == 1
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
 
-        run = runs[0]
-        assert run.status == "Cancelled"
-        assert run.latest_error == "Cancelled"
+    run = runs[0]
+    assert run.status == "Cancelled"
+    assert run.latest_error == "Cancelled"

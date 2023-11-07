@@ -47,7 +47,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
                                             />
-                                            <div style={{ flex: 1, minWidth: '0.5rem' }} />
+                                            <div className="flex-1 min-w-2" />
                                             <LemonButton
                                                 icon={<IconCopy />}
                                                 status="primary-alt"

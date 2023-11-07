@@ -272,6 +272,7 @@ function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.El
         default:
             break
     }
+    // eslint-disable-next-line react/forbid-dom-props
     return <span style={{ color }}>{type}</span>
 }
 
