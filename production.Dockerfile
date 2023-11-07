@@ -25,7 +25,6 @@ FROM node:18.12.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-WORKDIR /code
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
