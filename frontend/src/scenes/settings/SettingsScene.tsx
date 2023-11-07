@@ -10,14 +10,6 @@ export const scene: SceneExport = {
     logic: settingsSceneLogic,
 }
 
-/**
- *
- * Settings can be accessed in multiple ways:
- * 1. Via the main settings page - each section is a separate page
- * 2. Via small popups for individual settings
- * 3. Via the sidepanel (3000) for any section
- */
-
 export function SettingsScene(): JSX.Element {
     const { location } = useValues(router)
     useAnchor(location.hash)

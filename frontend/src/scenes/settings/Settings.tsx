@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { useState } from 'react'
 
 import './Settings.scss'
+import { NotFound } from 'lib/components/NotFound'
 
 export function Settings({
     hideSections = false,
@@ -101,23 +102,28 @@ function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
 
     return (
         <div className="space-y-8">
-            {settings.map((x) => (
-                <div key={x.id} className="relative">
-                    <div
-                        id={x.id}
-                        className="absolute" // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            marginTop: '-3.5rem', // Account for top bar when scrolling to anchor
-                        }}
-                    />
-                    <h2 className="flex gap-2 items-center">
-                        {x.title} <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
-                    </h2>
-                    {x.description && <p>{x.description}</p>}
+            {settings.length ? (
+                settings.map((x) => (
+                    <div key={x.id} className="relative">
+                        <div
+                            id={x.id}
+                            className="absolute" // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                marginTop: '-3.5rem', // Account for top bar when scrolling to anchor
+                            }}
+                        />
+                        <h2 className="flex gap-2 items-center">
+                            {x.title}{' '}
+                            <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting?.(x.id)} />
+                        </h2>
+                        {x.description && <p>{x.description}</p>}
 
-                    {x.component}
-                </div>
-            ))}
+                        {x.component}
+                    </div>
+                ))
+            ) : (
+                <NotFound object="setting" />
+            )}
         </div>
     )
 }
