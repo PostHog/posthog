@@ -377,16 +377,16 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         performed_changes = False
         for source in PluginSourceFile.objects.filter(plugin=plugin):
             sources[source.filename] = source
-        for key, value in request.data.items():
+        for key, source in request.data.items():
             transpiled = None
             error = None
             status = None
             try:
                 if key == "site.ts":
-                    transpiled = transpile(value, type="site")
+                    transpiled = transpile(source, type="site")
                     status = PluginSourceFile.Status.TRANSPILED
                 elif key == "frontend.tsx":
-                    transpiled = transpile(value, type="frontend")
+                    transpiled = transpile(source, type="frontend")
                     status = PluginSourceFile.Status.TRANSPILED
             except Exception as e:
                 error = str(e)
@@ -398,19 +398,19 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     plugin=plugin,
                     filename=key,
                     defaults={
-                        "source": value,
+                        "source": source,
                         "transpiled": transpiled,
                         "status": status,
                         "error": error,
                     },
                 )
-            elif sources[key].source != value:
+            elif sources[key].source != source or sources[key].transpiled != transpiled or sources[key].error != error:
                 performed_changes = True
-                if value is None:
+                if source is None:
                     sources[key].delete()
                     del sources[key]
                 else:
-                    sources[key].source = value
+                    sources[key].source = source
                     sources[key].transpiled = transpiled
                     sources[key].status = status
                     sources[key].error = error
