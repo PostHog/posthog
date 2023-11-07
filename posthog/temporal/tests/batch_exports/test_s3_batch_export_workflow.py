@@ -246,10 +246,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         person_properties=None,
     )
 
-    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
+            await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=team_id,
                 start_time=data_interval_start,
@@ -259,7 +258,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
                 count_other_team=0,
                 event_name=event_name,
             )
-            events_to_exclude += events_to_exclude_for_event_name
 
     # Make a random string to prefix the S3 keys with. This allows us to ensure
     # isolation of the test, and also to check that the data is being written.
@@ -291,7 +289,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         minio_client,
         bucket_name,
         prefix,
-        events=events + events_to_exclude + events_with_no_properties,
+        events=events + events_with_no_properties,
         compression=compression,
         exclude_events=exclude_events,
     )
@@ -373,10 +371,9 @@ async def test_s3_export_workflow_with_minio_bucket(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
+            await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -386,7 +383,6 @@ async def test_s3_export_workflow_with_minio_bucket(
                 count_other_team=0,
                 event_name=event_name,
             )
-            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
@@ -433,7 +429,7 @@ async def test_s3_export_workflow_with_minio_bucket(
         minio_client,
         bucket_name,
         s3_key_prefix,
-        events=events + events_to_exclude,
+        events=events,
         compression=compression,
         exclude_events=exclude_events,
     )
@@ -505,10 +501,9 @@ async def test_s3_export_workflow_with_s3_bucket(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    events_to_exclude = []
     if exclude_events:
         for event_name in exclude_events:
-            (events_to_exclude_for_event_name, _, _) = await generate_test_events_in_clickhouse(
+            await generate_test_events_in_clickhouse(
                 client=clickhouse_client,
                 team_id=ateam.pk,
                 start_time=data_interval_start,
@@ -518,7 +513,6 @@ async def test_s3_export_workflow_with_s3_bucket(
                 count_other_team=0,
                 event_name=event_name,
             )
-            events_to_exclude += events_to_exclude_for_event_name
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
@@ -569,7 +563,7 @@ async def test_s3_export_workflow_with_s3_bucket(
         s3_client,
         bucket_name,
         s3_key_prefix,
-        events=events + events_to_exclude,
+        events=events,
         compression=compression,
         exclude_events=exclude_events,
     )
