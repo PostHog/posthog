@@ -125,7 +125,6 @@ async def configure(log_capture, queue, producer):
     await asyncio.wait(tasks)
 
 
-@pytest.mark.asyncio
 async def test_batch_exports_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
     logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
@@ -144,7 +143,6 @@ async def test_batch_exports_logger_binds_context(log_capture):
     assert error_dict["destination"] == "Somewhere"
 
 
-@pytest.mark.asyncio
 async def test_batch_exports_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
     logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
@@ -161,7 +159,7 @@ async def test_batch_exports_logger_formats_positional_args(log_capture):
 
 
 @dataclasses.dataclass
-class TestActivityInfo:
+class ActivityInfo:
     """Provide our own Activity Info for testing."""
 
     workflow_id: str
@@ -184,13 +182,13 @@ BATCH_EXPORT_ID = str(uuid.uuid4())
 @pytest.mark.parametrize(
     "activity_environment",
     [
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
@@ -235,13 +233,13 @@ async def test_batch_exports_logger_binds_activity_context(
 @pytest.mark.parametrize(
     "activity_environment",
     [
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
@@ -298,13 +296,13 @@ def log_entries_table():
 @pytest.mark.parametrize(
     "activity_environment",
     [
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
-        TestActivityInfo(
+        ActivityInfo(
             workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
