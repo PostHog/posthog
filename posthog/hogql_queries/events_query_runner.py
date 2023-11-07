@@ -128,7 +128,6 @@ class EventsQueryRunner(QueryRunner):
                             )
                         else:
                             distinct_ids = []
-
                         ids_list = list(map(str, distinct_ids))
                         where_exprs.append(
                             parse_expr(
