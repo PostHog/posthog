@@ -25,7 +25,7 @@ export const SidePanelActivation = (): JSX.Element => {
             </div>
             {activeTasks.length > 0 && (
                 <div>
-                    <div className="text-muted uppercase text-xs">What's next?</div>
+                    <h4>What's next?</h4>
                     <ul className="space-y-2">
                         {activeTasks.map((task: ActivationTaskType) => (
                             <ActivationTask key={task.id} {...task} />
