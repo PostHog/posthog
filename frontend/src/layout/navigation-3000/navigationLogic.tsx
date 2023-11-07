@@ -16,7 +16,6 @@ import {
     IconDashboard,
     IconDatabase,
     IconGraph,
-    IconHome,
     IconLive,
     IconPeople,
     IconPerson,
@@ -30,6 +29,7 @@ import {
     IconRocket,
     IconServer,
     IconChat,
+    IconLogomark,
 } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 import { annotationsSidebarLogic } from './sidebars/annotations'
@@ -291,7 +291,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         {
                             identifier: Scene.ProjectHomepage,
                             label: 'Project homepage',
-                            icon: <IconHome />,
+                            icon: <IconLogomark />,
                             to: urls.projectHomepage(),
                         },
                         {
