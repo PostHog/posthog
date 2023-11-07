@@ -163,11 +163,11 @@ export const parseKafkaMessage = async (
         eventDroppedCounter
             .labels({
                 event_type: 'session_recordings_blob_ingestion',
-                drop_cause: 'team_missing_or_disabled',
+                drop_cause: 'header_token_team_missing_or_disabled',
             })
             .inc()
 
-        return statusWarn('team_missing_or_disabled', {
+        return statusWarn('header_token_team_missing_or_disabled', {
             token: token,
         })
     }
