@@ -429,9 +429,9 @@ async def test_snowflake_export_workflow_exports_events(
                         execute_async_calls.append(call["query"])
 
                 assert execute_calls[0:3] == [
-                    "SET ABORT_DETACHED_QUERY = FALSE",
                     f'USE DATABASE "{database}"',
                     f'USE SCHEMA "{schema}"',
+                    "SET ABORT_DETACHED_QUERY = FALSE",
                 ]
 
                 assert all(query.startswith("PUT") for query in execute_calls[3:12])
@@ -687,8 +687,11 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     assert run.latest_error == "ValueError: A useful error message"
 
 
-async def test_snowflake_export_workflow_handles_cancellation(ateam, snowflake_batch_export):
-    """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
+async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
+    """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data.
+
+    We mock the insert_into_snowflake_activity for this test.
+    """
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
@@ -941,7 +944,7 @@ async def test_snowflake_export_workflow(
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **snowflake_batch_export.destination.config,
     )
@@ -1019,7 +1022,7 @@ async def test_snowflake_export_workflow_with_many_files(
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         **snowflake_batch_export.destination.config,
     )
@@ -1058,3 +1061,138 @@ async def test_snowflake_export_workflow_with_many_files(
         events=events,
         exclude_events=exclude_events,
     )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_snowflake_export_workflow_handles_cancellation(
+    clickhouse_client, ateam, snowflake_batch_export, interval, snowflake_cursor
+):
+    """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=10,
+        count_other_team=10,
+        duplicate=True,
+        properties={"$browser": "Chrome", "$os": "Mac OS X"},
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+    )
+
+    workflow_id = str(uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(snowflake_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **snowflake_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                create_export_run,
+                insert_into_snowflake_activity,
+                update_export_run_status,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            # We set the chunk size low on purpose to slow things down and give us time to cancel.
+            with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+                handle = await activity_environment.client.start_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+            # We need to wait a bit for the activity to start running.
+            await asyncio.sleep(5)
+            await handle.cancel()
+
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Cancelled"
+    assert run.latest_error == "Cancelled"
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_heartbeats(
+    clickhouse_client,
+    ateam,
+    snowflake_batch_export,
+    snowflake_cursor,
+    snowflake_config,
+    activity_environment,
+):
+    """Test that the insert_into_snowflake_activity activity sends heartbeats.
+
+    We use a function that runs on_heartbeat to check and track the heartbeat contents.
+    """
+    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
+
+    events_in_files = []
+    n_expected_files = 3
+
+    for i in range(1, n_expected_files + 1):
+        part_inserted_at = data_interval_end - snowflake_batch_export.interval_time_delta / i
+
+        (events, _, _) = await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            duplicate=False,
+            inserted_at=part_inserted_at,
+        )
+        events_in_files += events
+
+    captured_details = []
+
+    def capture_heartbeat_details(*details):
+        """A function to track what we heartbeat."""
+        nonlocal captured_details
+
+        captured_details.append(details)
+
+    activity_environment.on_heartbeat = capture_heartbeat_details
+
+    table_name = f"test_insert_activity_table_{ateam.pk}"
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        **snowflake_config,
+    )
+
+    with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    assert n_expected_files == len(captured_details)
+
+    for index, details_captured in enumerate(captured_details):
+        assert dt.datetime.fromisoformat(
+            details_captured[0]
+        ) == data_interval_end - snowflake_batch_export.interval_time_delta / (index + 1)
+        assert details_captured[1] == index + 1
+
+    assert_events_in_snowflake(snowflake_cursor, table_name, events_in_files, exclude_events=[])

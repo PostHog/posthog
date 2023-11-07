@@ -1,11 +1,11 @@
 import asyncio
 import contextlib
+import dataclasses
 import datetime as dt
 import functools
 import io
 import json
 import typing
-from dataclasses import dataclass
 
 import snowflake.connector
 from django.conf import settings
@@ -14,6 +14,12 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import SnowflakeBatchExportInputs
+from posthog.temporal.utils import (
+    HeartbeatDetails,
+    HeartbeatParseError,
+    NotEnoughHeartbeatValuesError,
+    should_resume_from_activity_heartbeat,
+)
 from posthog.temporal.workflows.base import PostHogWorkflow
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
@@ -47,7 +53,32 @@ class SnowflakeFileNotLoadedError(Exception):
         )
 
 
-@dataclass
+@dataclasses.dataclass
+class SnowflakeHeartbeatDetails(HeartbeatDetails):
+    """The Snowflake batch export details included in every heartbeat.
+
+    Attributes:
+        file_no: The file number of the last file we managed to upload.
+    """
+
+    file_no: int
+
+    @classmethod
+    def from_activity(cls, activity):
+        details = super().from_activity(activity)
+
+        if details.total_details < 2:
+            raise NotEnoughHeartbeatValuesError(details.total_details, 2)
+
+        try:
+            file_no = int(details._remaining[1])
+        except (TypeError, ValueError) as e:
+            raise HeartbeatParseError("file_no") from e
+
+        return cls(last_inserted_at=details.last_inserted_at, file_no=file_no, _remaining=details._remaining[2:])
+
+
+@dataclasses.dataclass
 class SnowflakeInsertInputs:
     """Inputs for Snowflake."""
 
@@ -71,6 +102,10 @@ class SnowflakeInsertInputs:
 
 
 def use_namespace(connection: SnowflakeConnection, database: str, schema: str) -> None:
+    """Switch to a namespace given by database and schema.
+
+    This allows all queries that follow to ignore database and schema.
+    """
     cursor = connection.cursor()
     cursor.execute(f'USE DATABASE "{database}"')
     cursor.execute(f'USE SCHEMA "{schema}"')
@@ -78,6 +113,11 @@ def use_namespace(connection: SnowflakeConnection, database: str, schema: str) -
 
 @contextlib.contextmanager
 def snowflake_connection(inputs) -> typing.Generator[SnowflakeConnection, None, None]:
+    """Context manager that yields a Snowflake connection.
+
+    Before yielding we ensure we are in the right namespace, and we set ABORT_DETACHED_QUERY
+    to FALSE to avoid Snowflake cancelling any async queries.
+    """
     with snowflake.connector.connect(
         user=inputs.user,
         password=inputs.password,
@@ -87,6 +127,7 @@ def snowflake_connection(inputs) -> typing.Generator[SnowflakeConnection, None, 
         schema=inputs.schema,
         role=inputs.role,
     ) as connection:
+        use_namespace(connection, inputs.database, inputs.schema)
         connection.cursor().execute("SET ABORT_DETACHED_QUERY = FALSE")
 
         yield connection
@@ -210,6 +251,14 @@ async def copy_loaded_files_to_snowflake_table(
     connection: SnowflakeConnection,
     table_name: str,
 ):
+    """Execute a COPY query in Snowflake to load any files PUT into the table.
+
+    The query is executed asynchronously using Snowflake's polling API.
+
+    Args:
+        connection: A SnowflakeConnection as returned by snowflake.connector.connect.
+        table_name: The table we are COPY-ing files into.
+    """
     query = f"""
     COPY INTO "{table_name}"
     FILE_FORMAT = (TYPE = 'JSON')
@@ -260,6 +309,17 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         inputs.data_interval_end,
     )
 
+    should_resume, details = await should_resume_from_activity_heartbeat(activity, SnowflakeHeartbeatDetails, logger)
+
+    if should_resume is True and details is not None:
+        data_interval_start = details.last_inserted_at.isoformat()
+        last_inserted_at = details.last_inserted_at
+        file_no = details.file_no
+    else:
+        data_interval_start = inputs.data_interval_start
+        last_inserted_at = None
+        file_no = 0
+
     async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
@@ -267,7 +327,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         count = await get_rows_count(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -284,8 +344,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
         logger.info("BatchExporting %s rows to Snowflake", count)
 
         with snowflake_connection(inputs) as connection:
-            use_namespace(connection, inputs.database, inputs.schema)
-
             await create_table_in_snowflake(connection, inputs.table_name)
 
             results_iterator = get_results_iterator(
@@ -298,16 +356,21 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             )
 
             result = None
-            last_uploaded_file_timestamp = None
-            file_no = 0
 
             async def worker_shutdown_handler():
                 """Handle the Worker shutting down by heart-beating our latest status."""
                 await activity.wait_for_worker_shutdown()
-                logger.warn(
-                    f"Worker shutting down! Reporting back latest exported part {last_uploaded_file_timestamp}",
+                # TODO: Add these heartbeat parameters as contextvars with structlog.
+                logger.debug(
+                    f"Worker shutting down! last_inserted_at:{last_inserted_at}, file_no:{file_no}",
                 )
-                activity.heartbeat(last_uploaded_file_timestamp)
+
+                if last_inserted_at is None:
+                    # Don't heartbeat if worker shuts down before we could even send anything
+                    # Just start from the beginning again.
+                    return
+
+                activity.heartbeat(last_inserted_at, file_no)
 
             asyncio.create_task(worker_shutdown_handler())
 
@@ -339,10 +402,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                             connection, local_results_file, inputs.table_name, file_no=file_no
                         )
 
-                        last_uploaded_file_timestamp = result["inserted_at"]
-                        activity.heartbeat(last_uploaded_file_timestamp, file_no)
-
+                        last_inserted_at = result["inserted_at"]
                         file_no += 1
+
+                        activity.heartbeat(last_inserted_at, file_no)
+
                         local_results_file.reset()
 
                 if local_results_file.tell() > 0 and result is not None:
@@ -355,8 +419,10 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         connection, local_results_file, inputs.table_name, file_no=file_no
                     )
 
-                    last_uploaded_file_timestamp = result["inserted_at"]
-                    activity.heartbeat(last_uploaded_file_timestamp, file_no)
+                    last_inserted_at = result["inserted_at"]
+                    file_no += 1
+
+                    activity.heartbeat(last_inserted_at, file_no)
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
