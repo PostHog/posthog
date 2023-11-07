@@ -19,7 +19,7 @@ from posthog.temporal.workflows.batch_exports import (
     json_dumps_bytes,
 )
 
-pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 async def test_get_rows_count(clickhouse_client):

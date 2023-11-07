@@ -29,7 +29,10 @@ from posthog.temporal.workflows.postgres_batch_export import (
     insert_into_postgres_activity,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.asyncio_event_loop, pytest.mark.django_db]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.django_db,
+]
 
 
 def assert_events_in_postgres(connection, schema, table_name, events, exclude_events: list[str] | None = None):

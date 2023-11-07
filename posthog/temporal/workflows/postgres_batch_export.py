@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
@@ -56,7 +57,7 @@ def postgres_connection(inputs) -> collections.abc.Iterator[psycopg2.extensions.
         connection.close()
 
 
-def copy_tsv_to_postgres(
+async def copy_tsv_to_postgres(
     tsv_file,
     postgres_connection: psycopg2.extensions.connection,
     schema: str,
@@ -77,7 +78,8 @@ def copy_tsv_to_postgres(
     with postgres_connection.cursor() as cursor:
         if schema:
             cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-        cursor.copy_from(
+        await asyncio.to_thread(
+            cursor.copy_from,
             tsv_file,
             table_name,
             null="",
@@ -227,7 +229,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                         pg_file.records_since_last_reset,
                         pg_file.bytes_since_last_reset,
                     )
-                    copy_tsv_to_postgres(
+                    await copy_tsv_to_postgres(
                         pg_file,
                         connection,
                         inputs.schema,

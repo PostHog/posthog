@@ -30,7 +30,13 @@ from posthog.temporal.workflows.bigquery_batch_export import (
     insert_into_bigquery_activity,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.asyncio_event_loop, pytest.mark.django_db]
+SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
+    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
+    reason="Google credentials not set in environment",
+)
+
+pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
+
 
 TEST_TIME = dt.datetime.utcnow()
 
@@ -137,10 +143,6 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
     bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client, activity_environment, bigquery_client, bigquery_config, exclude_events, bigquery_dataset
@@ -265,10 +267,6 @@ async def bigquery_batch_export(
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 @pytest.mark.parametrize("interval", ["hour", "day"])
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 async def test_bigquery_export_workflow(
@@ -362,10 +360,6 @@ async def test_bigquery_export_workflow(
         )
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle errors when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
@@ -412,10 +406,6 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
     assert run.latest_error == "ValueError: A useful error message"
 
 
-@pytest.mark.skipif(
-    "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,
-    reason="Google credentials not set in environment",
-)
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
     """Test that BigQuery Export Workflow can gracefully handle cancellations when inserting BigQuery data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
