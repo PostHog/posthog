@@ -70,7 +70,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
 
         if (NodeKind.InsightVizNode === modifiedQuery.kind || NodeKind.SavedInsightNode === modifiedQuery.kind) {
             modifiedQuery.showFilters = false
-            modifiedQuery.showHeader = false
+            modifiedQuery.showHeader = true
             modifiedQuery.showTable = false
             modifiedQuery.showCorrelationTable = false
             modifiedQuery.embedded = true
@@ -87,7 +87,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeQueryAttributes
         <div
             className={clsx('flex flex-1 flex-col', NodeKind.DataTableNode === modifiedQuery.kind && 'overflow-hidden')}
         >
-            <Query query={modifiedQuery} uniqueKey={nodeId} readOnly={true} />
+            <Query query={modifiedQuery} uniqueKey={nodeId} />
         </div>
     )
 }
