@@ -193,7 +193,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
-        name: 'Data Warehouse Settings',
+        name: 'Data Warehouse Table',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
