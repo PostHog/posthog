@@ -72,10 +72,10 @@ runs:
               node-version: 18
               cache: pnpm
 
-        - name: Install transpiler
+        - name: Install plugin-transpiler
           shell: bash
           run: |
-              cd transpiler
+              cd plugin-transpiler
               pnpm install
               pnpm run build
 

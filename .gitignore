@@ -54,4 +54,4 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
-transpiler/dist
+plugin-transpiler/dist

@@ -34,5 +34,5 @@
 !share/GeoLite2-City.mmdb
 !hogvm/python
 !unit.json
-!transpiler/src
-!transpiler/*.*
+!plugin-transpiler/src
+!plugin-transpiler/*.*

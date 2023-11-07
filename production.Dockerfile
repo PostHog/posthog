@@ -25,17 +25,9 @@ FROM node:18.12.1-bullseye-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-COPY transpiler/ transpiler/
-WORKDIR /code/transpiler
-RUN ls && corepack enable && pnpm --version && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
-
 WORKDIR /code
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm --version && \
+RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
@@ -44,6 +36,22 @@ COPY frontend/ frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
+
+
+#
+# ---------------------------------------------------------
+#
+FROM node:18.12.1-bullseye-slim AS plugin-transpiler-build
+WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY plugin-transpiler/ plugin-transpiler/
+WORKDIR /code/plugin-transpiler
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm build && \
+    rm -rf /tmp/pnpm-store
 
 
 #

@@ -185,7 +185,7 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
-    transpiler_path = os.path.join(BASE_DIR, "transpiler/dist/index.js")
+    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
     if type not in ["site", "frontend"]:
         raise Exception('Invalid type. Must be "site" or "frontend".')
 
