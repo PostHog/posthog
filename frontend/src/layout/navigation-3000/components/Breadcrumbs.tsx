@@ -9,7 +9,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-const COMPACTION_DISTANCE = 32
+const COMPACTION_DISTANCE = 44
 
 /**
  * In PostHog 3000 breadcrumbs also serve as the top bar. This is marked by theses two features:
@@ -37,7 +37,6 @@ export function Breadcrumbs(): JSX.Element | null {
             className="Breadcrumbs3000"
             style={
                 {
-                    // eslint-disable-line react/forbid-dom-props
                     '--breadcrumbs-compaction-rate': compactionRate,
                 } as React.CSSProperties
             }

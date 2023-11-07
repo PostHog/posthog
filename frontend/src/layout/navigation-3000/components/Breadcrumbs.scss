@@ -43,7 +43,8 @@
 .Breadcrumbs3000__here {
     position: relative;
     line-height: 1.2;
-    margin: calc(0.125rem * (1 - var(--breadcrumbs-compaction-rate))) 0 0;
+    margin: calc(0.25rem * (1 - var(--breadcrumbs-compaction-rate))) 0
+        calc(0.125rem * (1 - var(--breadcrumbs-compaction-rate)));
     font-size: 1rem;
     font-weight: 700;
     overflow: hidden;
