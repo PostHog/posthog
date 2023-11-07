@@ -196,7 +196,7 @@ def psycopg2_connection(redshift_config, setup_test_db):
 async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     clickhouse_client, activity_environment, psycopg2_connection, redshift_config, exclude_events
 ):
-    """Test that the insert_into_postgres_activity function inserts data into a Redshift table.
+    """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
 
     We use the generate_test_events_in_clickhouse function to generate several sets
     of events. Some of these sets are expected to be exported, and others not. Expected
