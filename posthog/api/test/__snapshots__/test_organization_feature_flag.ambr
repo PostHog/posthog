@@ -1500,30 +1500,6 @@
          AND "posthog_featureflagdashboards"."feature_flag_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
   '
 ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.73
-  '
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_featureflagdashboards"."feature_flag_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '
----
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.8
   '
   SELECT "posthog_featureflag"."id",
