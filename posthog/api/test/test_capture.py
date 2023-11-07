@@ -252,7 +252,7 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
-        post_data: List[Dict[str, Any]] | Dict[str.Any] = {
+        post_data: List[Dict[str, Any]] | Dict[str, Any] = {
             "api_key": self.team.api_token,
         }
         if content_type == "application/json":
