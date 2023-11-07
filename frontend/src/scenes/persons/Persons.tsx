@@ -94,7 +94,7 @@ export function PersonsScene({
                                             icon={<IconExport style={{ color: 'var(--primary)' }} />}
                                         >
                                             {listFilters.properties && listFilters.properties.length > 0 ? (
-                                                <div style={{ display: 'block' }}>
+                                                <div className="block">
                                                     Export (<strong>{listFilters.properties.length}</strong> filter)
                                                 </div>
                                             ) : (

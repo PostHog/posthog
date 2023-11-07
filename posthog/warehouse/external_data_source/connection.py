@@ -62,7 +62,8 @@ def start_sync(connection_id: str):
         send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
     except Exception as e:
         logger.exception(
-            f"Sync Resource failed with an unexpected exception for connection id: {connection_id}", exc_info=e
+            f"Data Warehouse: Sync Resource failed with an unexpected exception for connection id: {connection_id}",
+            exc_info=e,
         )
 
 

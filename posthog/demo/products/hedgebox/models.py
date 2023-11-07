@@ -12,12 +12,12 @@ from typing import (
     Tuple,
     cast,
 )
-
-import pytz
+from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
-from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
+import pytz
 
+from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
 from .taxonomy import *
 
 if TYPE_CHECKING:
@@ -323,13 +323,13 @@ class HedgeboxPerson(SimPerson):
         if self.active_session_intent == HedgeboxSessionIntent.CONSIDER_PRODUCT:
             entered_url_directly = self.cluster.random.random() < 0.18
             self.active_client.register({"$referrer": "$direct" if entered_url_directly else "https://www.google.com/"})
-            self.go_to_home()
+            self.go_to_home(None if entered_url_directly else {"utm_source": "google"})
         elif self.active_session_intent == HedgeboxSessionIntent.CHECK_MARIUS_TECH_TIPS_LINK:
             entered_url_directly = self.cluster.random.random() < 0.62
             self.active_client.register(
                 {"$referrer": "$direct" if entered_url_directly else "https://www.youtube.com/"}
             )
-            self.go_to_marius_tech_tips()
+            self.go_to_marius_tech_tips(None if entered_url_directly else {"utm_source": "youtube"})
         elif self.active_session_intent in (
             HedgeboxSessionIntent.UPLOAD_FILE_S,
             HedgeboxSessionIntent.DELETE_FILE_S,
@@ -342,6 +342,7 @@ class HedgeboxPerson(SimPerson):
         ):
             entered_url_directly = self.cluster.random.random() < 0.71
             self.active_client.register({"$referrer": "$direct" if entered_url_directly else "https://www.google.com/"})
+
             if entered_url_directly:
                 used_files_page_url = self.cluster.random.random() < 0.48
                 if used_files_page_url:
@@ -349,7 +350,7 @@ class HedgeboxPerson(SimPerson):
                 else:
                     self.go_to_home()
             else:
-                self.go_to_home()
+                self.go_to_home(None if entered_url_directly else {"utm_source": "google"})
         elif self.active_session_intent == HedgeboxSessionIntent.VIEW_SHARED_FILE:
             self.active_client.register({"$referrer": "$direct"})
             if not self.file_to_view:
@@ -367,8 +368,8 @@ class HedgeboxPerson(SimPerson):
 
     # Path directions
 
-    def go_to_home(self):
-        self.active_client.capture_pageview(URL_HOME)
+    def go_to_home(self, query_params=None):
+        self.active_client.capture_pageview(add_params_to_url(URL_HOME, query_params))
         self.advance_timer(1.8 + self.cluster.random.betavariate(1.5, 3) * 300)  # Viewing the page
         self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.1  # It's a somewhat nice page
         if self.active_session_intent in (
@@ -393,8 +394,8 @@ class HedgeboxPerson(SimPerson):
             elif self.need > 0.5 and self.satisfaction >= 0.8 and self.cluster.random.random() < 0.6:
                 self.go_to_sign_up()
 
-    def go_to_marius_tech_tips(self):
-        self.active_client.capture_pageview(URL_MARIUS_TECH_TIPS)
+    def go_to_marius_tech_tips(self, query_params=None):
+        self.active_client.capture_pageview(add_params_to_url(URL_MARIUS_TECH_TIPS, query_params))
         self.advance_timer(1.2 + self.cluster.random.betavariate(1.5, 2) * 150)  # Viewing the page
         self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.4  # The user may be in target or not
         self.need += self.cluster.random.uniform(-0.05, 0.15)
@@ -783,3 +784,14 @@ class HedgeboxPerson(SimPerson):
             for neighbor in cast(List[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]
+
+
+def add_params_to_url(url, query_params):
+    if not query_params:
+        return url
+    parsed_url = urlparse(url)
+    encoded_query = urlencode(query_params)
+    new_query = f"{parsed_url.query}&{encoded_query}" if parsed_url.query else encoded_query
+    return urlunparse(
+        (parsed_url.scheme, parsed_url.netloc, parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
+    )

@@ -1,4 +1,4 @@
-import { Radio, Space, RadioChangeEvent } from 'antd'
+import { Radio, RadioChangeEvent } from 'antd'
 import { dashboardLogic, DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -82,7 +82,7 @@ export function DashboardReloadAction(): JSX.Element {
                                             value={autoRefresh.interval}
                                             style={{ width: '100%' }}
                                         >
-                                            <Space direction="vertical" style={{ width: '100%' }}>
+                                            <div className="flex flex-col gap-2">
                                                 {intervalOptions.map(({ label, value }) => (
                                                     <Radio
                                                         key={value}
@@ -93,7 +93,7 @@ export function DashboardReloadAction(): JSX.Element {
                                                         {label}
                                                     </Radio>
                                                 ))}
-                                            </Space>
+                                            </div>
                                         </Radio.Group>
                                     </div>
                                 </div>

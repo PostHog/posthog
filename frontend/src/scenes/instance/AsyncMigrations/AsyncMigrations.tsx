@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Progress, Space } from 'antd'
+import { Button, Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import {
@@ -309,7 +309,6 @@ export function AsyncMigrations(): JSX.Element {
                                     Refresh
                                 </LemonButton>
                             </div>
-                            <Space />
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}

@@ -1,7 +1,14 @@
-import { Checkbox } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonInput, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonTable,
+    LemonTag,
+    LemonInput,
+    LemonTableColumns,
+    LemonCheckbox,
+} from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -265,6 +272,7 @@ function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.El
         default:
             break
     }
+    // eslint-disable-next-line react/forbid-dom-props
     return <span style={{ color }}>{type}</span>
 }
 
@@ -324,14 +332,23 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                 onChange={setSearchTerm}
                 allowClear
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                <Checkbox.Group
-                    options={Object.values(BatchExportLogEntryLevel)}
-                    value={batchExportLogsTypes}
-                    onChange={setBatchExportLogsTypes}
-                    style={{ marginLeft: '8px' }}
-                />
+                {Object.values(BatchExportLogEntryLevel).map((type) => {
+                    return (
+                        <LemonCheckbox
+                            key={type}
+                            label={type}
+                            checked={batchExportLogsTypes.includes(type)}
+                            onChange={(checked) => {
+                                const newBatchExportLogsTypes = checked
+                                    ? [...batchExportLogsTypes, type]
+                                    : batchExportLogsTypes.filter((t) => t != type)
+                                setBatchExportLogsTypes(newBatchExportLogsTypes)
+                            }}
+                        />
+                    )
+                })}
             </div>
             <LemonButton
                 onClick={revealBackground}
