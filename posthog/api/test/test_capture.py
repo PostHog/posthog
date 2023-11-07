@@ -266,7 +266,7 @@ class TestCapture(BaseTest):
             content_type=content_type or MULTIPART_CONTENT,
         )
 
-    def test_is_randomly_parititoned(self):
+    def test_is_randomly_partitioned(self):
         """Test is_randomly_partitioned under local configuration."""
         distinct_id = 100
         override_key = f"{self.team.pk}:{distinct_id}"
