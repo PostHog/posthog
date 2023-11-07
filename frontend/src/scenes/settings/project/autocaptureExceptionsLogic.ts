@@ -1,4 +1,4 @@
-import { kea, reducers, actions, listeners, events, selectors, connect, path } from 'kea'
+import { kea, reducers, actions, listeners, selectors, connect, path, afterMount } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { autocaptureExceptionsLogicType } from './autocaptureExceptionsLogicType'
@@ -14,7 +14,7 @@ export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
     }),
     reducers({
         errorsToIgnoreRules: [
-            (teamLogic.values.currentTeam?.autocapture_exceptions_errors_to_ignore || []).join('\n'),
+            '',
             {
                 setErrorsToIgnoreRules: (_, { newRules }) => newRules,
             },
@@ -45,5 +45,7 @@ export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
             })
         },
     })),
-    events(() => ({})),
+    afterMount(({ actions, values }) => {
+        actions.setErrorsToIgnoreRules(values.currentTeamErrorsToIgnoreRules)
+    }),
 ])
