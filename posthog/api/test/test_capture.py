@@ -252,13 +252,12 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
-        post_data: List[Dict[str, Any]] | Dict[str, Any] = {
-            "api_key": self.team.api_token,
-        }
+        post_data: List[Dict[str, Any]] | Dict[str, Any]
+
         if content_type == "application/json":
             post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
         else:
-            post_data["data"] = json.dumps([event for _ in range(number_of_events)])
+            post_data = {"api_key": self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
 
         return self.client.post(
             "/s/",
