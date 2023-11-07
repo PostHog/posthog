@@ -9,7 +9,8 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { teamLogic } from 'scenes/teamLogic'
 import { useEffect } from 'react'
 import { useState } from 'react'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import './Settings.scss'
 
 export function Settings({
     hideSections = false,
@@ -18,7 +19,6 @@ export function Settings({
     const { selectedSectionId, selectedSection, selectedLevel, sections } = useValues(settingsLogic(props))
     const { selectSection, selectLevel } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     const [navExpanded, setNavExpanded] = useState(false)
 
@@ -36,15 +36,9 @@ export function Settings({
     const showSections = !hideSections && !(isCompact && !navExpanded)
 
     return (
-        <div className={clsx('flex', isCompact ? 'flex-col' : 'gap-8 items-start', !is3000 && 'mt-4')} ref={ref}>
+        <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
             {showSections ? (
-                <div
-                    className={clsx('shrink-0', {
-                        'sticky w-60': !isCompact,
-                        'top-16': !isCompact && is3000,
-                        'top-2': !isCompact && !is3000,
-                    })}
-                >
+                <div className="Settings__sections">
                     <ul className="space-y-px">
                         {SettingLevelIds.map((level) => (
                             <li key={level} className="space-y-px">
