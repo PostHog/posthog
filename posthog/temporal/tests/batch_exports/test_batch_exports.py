@@ -4,15 +4,9 @@ import io
 import json
 import operator
 from random import randint
-from unittest.mock import patch
 
 import pytest
-from freezegun import freeze_time
-from temporalio import activity, workflow
 
-from posthog.clickhouse.log_entries import (
-    KAFKA_LOG_ENTRIES,
-)
 from posthog.temporal.tests.utils.datetimes import (
     to_isoformat,
 )
