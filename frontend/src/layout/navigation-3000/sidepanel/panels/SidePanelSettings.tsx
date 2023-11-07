@@ -1,13 +1,28 @@
 import { useActions, useValues } from 'kea'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
-import { SettingsRenderer } from 'scenes/settings/SettingsRenderer'
+import { SettingsWithSections } from 'scenes/settings/SettingsRenderer'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { SettingsLogicProps, settingsLogic } from 'scenes/settings/settingsLogic'
+import { useEffect } from 'react'
 
 export const SidePanelSettings = (): JSX.Element => {
     const { settings } = useValues(sidePanelSettingsLogic)
-    const { closeSidePanel } = useActions(sidePanelSettingsLogic)
+    const { closeSidePanel, setSettings } = useActions(sidePanelSettingsLogic)
+
+    const settingsLogicProps: SettingsLogicProps = {
+        ...settings,
+        logicKey: 'sidepanel',
+    }
+    const { selectedSectionId, selectedLevel } = useValues(settingsLogic(settingsLogicProps))
+
+    useEffect(() => {
+        setSettings({
+            sectionId: selectedSectionId ?? undefined,
+            settingLevelId: selectedLevel,
+        })
+    }, [selectedSectionId, selectedLevel])
 
     // NOTE: Currently we can't detect url changes from the iframe
     return (
@@ -26,7 +41,7 @@ export const SidePanelSettings = (): JSX.Element => {
                 </LemonButton>
             </div>
             <div className="flex-1 p-4 overflow-y-auto">
-                <SettingsRenderer {...settings} />
+                <SettingsWithSections {...settingsLogicProps} />
             </div>
         </div>
     )

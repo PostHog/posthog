@@ -17,10 +17,10 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            settingsLogic,
+            settingsLogic({ logicKey: 'settingsScene' }),
             ['selectedLevel', 'selectedSectionId', 'sections', 'settings'],
         ],
-        actions: [settingsLogic, ['selectLevel', 'selectSection', 'selectSetting']],
+        actions: [settingsLogic({ logicKey: 'settingsScene' }), ['selectLevel', 'selectSection', 'selectSetting']],
     })),
 
     selectors({

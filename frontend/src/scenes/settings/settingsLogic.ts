@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { copyToClipboard } from 'lib/utils'
 
 export type SettingsLogicProps = {
+    logicKey?: string
     // Optional - if given, renders only the given section
     settingLevelId?: SettingLevelId
     // Optional - if given, renders only the given section
@@ -20,7 +21,7 @@ export type SettingsLogicProps = {
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
-    key((_props) => 'global'),
+    key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
         values: [featureFlagLogic, ['featureFlags']],

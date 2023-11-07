@@ -1,9 +1,80 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SettingsLogicProps, settingsLogic } from './settingsLogic'
 import { useActions, useValues } from 'kea'
+import { SettingLevelIds } from './types'
+import clsx from 'clsx'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { teamLogic } from 'scenes/teamLogic'
 
-export function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
+export function SettingsWithSections({
+    hideSections = false,
+    ...props
+}: SettingsLogicProps & { hideSections?: boolean }): JSX.Element {
+    const { selectedSectionId, selectedLevel, sections } = useValues(settingsLogic(props))
+    const { selectSection, selectLevel } = useActions(settingsLogic(props))
+    const { currentTeam } = useValues(teamLogic)
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        700: 'medium',
+    })
+
+    return (
+        <div className={clsx('flex items-start gap-8', size === 'small' ? 'flex-col' : '')} ref={ref}>
+            {!hideSections ? (
+                <div className={clsx('shrink-0 top-16', size === 'small' ? '' : 'sticky top-16 w-60')}>
+                    <ul className="space-y-px">
+                        {SettingLevelIds.map((level) => (
+                            <li key={level} className="space-y-px">
+                                <LemonButton
+                                    onClick={() => selectLevel(level)}
+                                    size="small"
+                                    fullWidth
+                                    active={selectedLevel === level && !selectedSectionId}
+                                >
+                                    <span className={clsx('text-muted-alt', level === selectedLevel && 'font-bold')}>
+                                        {capitalizeFirstLetter(level)}
+                                    </span>
+                                </LemonButton>
+
+                                <ul className="space-y-px">
+                                    {sections
+                                        .filter((x) => x.level === level)
+                                        .map((section) => (
+                                            <li key={section.id} className="pl-4">
+                                                <LemonButton
+                                                    onClick={() => selectSection(section.id)}
+                                                    size="small"
+                                                    fullWidth
+                                                    active={selectedSectionId === section.id}
+                                                >
+                                                    {section.title}
+                                                </LemonButton>
+                                            </li>
+                                        ))}
+                                </ul>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+
+            <div className="flex-1 w-full space-y-2 overflow-hidden">
+                {selectedLevel === 'project' && (
+                    <LemonBanner type="info">
+                        These settings only apply to {currentTeam?.name ?? 'the current project'}.
+                    </LemonBanner>
+                )}
+
+                <SettingsRenderer {...props} />
+            </div>
+        </div>
+    )
+}
+
+function SettingsRenderer(props: SettingsLogicProps): JSX.Element {
     const { settings } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
