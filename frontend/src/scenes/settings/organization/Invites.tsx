@@ -97,20 +97,19 @@ export function Invites(): JSX.Element {
     ]
 
     return (
-        <>
+        <div className="space-y-4">
             {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable
                 dataSource={invites}
                 columns={columns}
                 rowKey="id"
                 loading={invitesLoading}
-                style={{ marginTop: '1rem' }}
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
             <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
                 Invite team member
             </LemonButton>
-        </>
+        </div>
     )
 }
