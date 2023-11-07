@@ -116,6 +116,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                             <LemonButton
                                 status="danger"
                                 type="primary"
+                                size="small"
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: `Permanently delete key "${key.label}"?`,

@@ -34,59 +34,73 @@ export function Settings({
         setNavExpanded(false)
     }, [selectedSectionId, selectedLevel])
 
-    const showSections = !hideSections && !(isCompact && !navExpanded)
+    const showSections = isCompact ? navExpanded : true
 
     return (
         <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
-            {showSections ? (
-                <div className="Settings__sections">
-                    <ul className="space-y-px">
-                        {SettingLevelIds.map((level) => (
-                            <li key={level} className="space-y-px">
-                                <LemonButton
-                                    onClick={() => selectLevel(level)}
-                                    size="small"
-                                    fullWidth
-                                    active={selectedLevel === level && !selectedSectionId}
-                                >
-                                    <span className={clsx('text-muted-alt', level === selectedLevel && 'font-bold')}>
-                                        {capitalizeFirstLetter(level)}
-                                    </span>
-                                </LemonButton>
+            {hideSections ? null : (
+                <>
+                    {showSections ? (
+                        <div className="Settings__sections">
+                            <ul className="space-y-px">
+                                {SettingLevelIds.map((level) => (
+                                    <li key={level} className="space-y-px">
+                                        <LemonButton
+                                            onClick={() => selectLevel(level)}
+                                            size="small"
+                                            fullWidth
+                                            active={selectedLevel === level && !selectedSectionId}
+                                        >
+                                            <span
+                                                className={clsx(
+                                                    'text-muted-alt',
+                                                    level === selectedLevel && 'font-bold'
+                                                )}
+                                            >
+                                                {capitalizeFirstLetter(level)}
+                                            </span>
+                                        </LemonButton>
 
-                                <ul className="space-y-px">
-                                    {sections
-                                        .filter((x) => x.level === level)
-                                        .map((section) => (
-                                            <li key={section.id} className="pl-4">
-                                                <LemonButton
-                                                    onClick={() => selectSection(section.id)}
-                                                    size="small"
-                                                    fullWidth
-                                                    active={selectedSectionId === section.id}
-                                                >
-                                                    {section.title}
-                                                </LemonButton>
-                                            </li>
-                                        ))}
-                                </ul>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            ) : isCompact ? (
-                <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => setNavExpanded(true)}>
-                    {capitalizeFirstLetter(selectedLevel)}
-                    {selectedSection ? ` / ${selectedSection.title}` : null}
-                </LemonButton>
-            ) : null}
-
-            {isCompact ? <LemonDivider /> : null}
+                                        <ul className="space-y-px">
+                                            {sections
+                                                .filter((x) => x.level === level)
+                                                .map((section) => (
+                                                    <li key={section.id} className="pl-4">
+                                                        <LemonButton
+                                                            onClick={() => selectSection(section.id)}
+                                                            size="small"
+                                                            fullWidth
+                                                            active={selectedSectionId === section.id}
+                                                        >
+                                                            {section.title}
+                                                        </LemonButton>
+                                                    </li>
+                                                ))}
+                                        </ul>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ) : (
+                        <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => setNavExpanded(true)}>
+                            {capitalizeFirstLetter(selectedLevel)}
+                            {selectedSection ? ` / ${selectedSection.title}` : null}
+                        </LemonButton>
+                    )}
+                    {isCompact ? <LemonDivider /> : null}
+                </>
+            )}
 
             <div className="flex-1 w-full space-y-2 overflow-hidden">
-                {selectedLevel === 'project' && (
+                {!hideSections && selectedLevel === 'project' && (
                     <LemonBanner type="info">
-                        These settings only apply to {currentTeam?.name ?? 'the current project'}.
+                        These settings only apply to the current project{' '}
+                        {currentTeam?.name ? (
+                            <>
+                                (<b>{currentTeam.name}</b>)
+                            </>
+                        ) : null}
+                        .
                     </LemonBanner>
                 )}
 
