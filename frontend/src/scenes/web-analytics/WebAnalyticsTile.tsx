@@ -194,6 +194,7 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
                     },
                 },
                 hidePersonsModal: true,
+                suppressSessionAnalysisWarning: true,
             },
         }
     }, [onWorldMapClick])

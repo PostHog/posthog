@@ -82,11 +82,11 @@ export function InsightContainer({
         trendsFilter,
         funnelsFilter,
         supportsDisplay,
-        isUsingSessionAnalysis,
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
+        shouldShowSessionAnalysisWarning,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -197,7 +197,7 @@ export function InsightContainer({
 
     return (
         <>
-            {isUsingSessionAnalysis ? (
+            {shouldShowSessionAnalysisWarning ? (
                 <div className="mb-4">
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the

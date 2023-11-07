@@ -171,7 +171,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 )
             },
         ],
-
+        shouldShowSessionAnalysisWarning: [
+            (s) => [s.isUsingSessionAnalysis, (_, p) => p.suppressSessionAnalysisWarning],
+            (isUsingSessionAnalysis, suppressSessionAnalysisWarning) =>
+                isUsingSessionAnalysis && !suppressSessionAnalysisWarning,
+        ],
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
