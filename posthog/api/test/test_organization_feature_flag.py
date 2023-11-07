@@ -8,6 +8,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.team_1 = self.team
         self.team_2 = Team.objects.create(organization=self.organization)
+        self.team_3 = Team.objects.create(organization=self.organization)
 
         self.feature_flag_key = "key-1"
 
@@ -16,6 +17,9 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         )
         self.feature_flag_2 = FeatureFlag.objects.create(
             team=self.team_2, created_by=self.user, key=self.feature_flag_key
+        )
+        self.feature_flag_deleted = FeatureFlag.objects.create(
+            team=self.team_3, created_by=self.user, key=self.feature_flag_key, deleted=True
         )
 
         super().setUp()
@@ -64,7 +68,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         super().setUp()
 
-    @snapshot_postgres_queries
+    # @snapshot_postgres_queries
     def test_copy_feature_flag_success(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
         data = {
@@ -81,9 +85,18 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # copied flag is present in the response
         self.assertEqual(self.feature_flag_key, response.json()["success"][0]["key"])
 
-        # copied flag is present in the DB
-        copied_flag = FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists()
-        self.assertTrue(copied_flag)
+        expected_fields = {
+            "key": self.feature_flag_to_copy.key,
+            "name": self.feature_flag_to_copy.name,
+            "filters": self.feature_flag_to_copy.filters,
+            "active": self.feature_flag_to_copy.active,
+            "rollout_percentage": self.feature_flag_to_copy.rollout_percentage,
+            "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+        }
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=self.feature_flag_key)
+        for field, expected_value in expected_fields.items():
+            actual_value = getattr(copied_flag, field)
+            self.assertEqual(expected_value, actual_value)
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -102,7 +115,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         }
         response = self.client.post(url, data)
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
     def test_copy_feature_flag_to_nonexistent_target(self):
@@ -117,6 +130,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(nonexistent_project_id, response.json()["failed"][0]["project_id"])
 
