@@ -13,7 +13,7 @@ import { settingsLogic } from './settingsLogic'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -21,7 +21,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             ['selectedLevel', 'selectedSectionId', 'sections', 'settings'],
         ],
         actions: [settingsLogic, ['selectLevel', 'selectSection', 'selectSetting']],
-    }),
+    })),
 
     selectors({
         breadcrumbs: [

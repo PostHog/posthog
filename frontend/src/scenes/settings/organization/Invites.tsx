@@ -97,13 +97,10 @@ export function Invites(): JSX.Element {
     ]
 
     return (
-        <div>
-            {/* <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Pending Invites
-                <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
-                    Invite team member
-                </LemonButton>
-            </h2> */}
+        <>
+            <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
+                Invite team member
+            </LemonButton>
             {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable
                 dataSource={invites}
@@ -114,6 +111,6 @@ export function Invites(): JSX.Element {
                 data-attr="invites-table"
                 emptyState="There are no outstanding invitations. You can invite another team member above."
             />
-        </div>
+        </>
     )
 }

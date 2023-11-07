@@ -5,10 +5,10 @@ import type { autocaptureExceptionsLogicType } from './autocaptureExceptionsLogi
 
 export const autocaptureExceptionsLogic = kea<autocaptureExceptionsLogicType>([
     path(['scenes', 'project', 'Settings', 'autocaptureExceptionsLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions({
         setErrorsToIgnoreRules: (newRules: string) => ({ newRules }),
     }),

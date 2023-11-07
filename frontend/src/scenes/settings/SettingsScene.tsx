@@ -7,7 +7,6 @@ import clsx from 'clsx'
 import { teamLogic } from 'scenes/teamLogic'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { SettingLevelIds } from './types'
 import { SettingsRenderer } from './SettingsRenderer'
 
@@ -25,8 +24,8 @@ export const scene: SceneExport = {
  */
 
 export function SettingsScene(): JSX.Element {
-    const { selectedSectionId, selectedLevel, settings, sections } = useValues(settingsSceneLogic)
-    const { selectSection, selectLevel, selectSetting } = useActions(settingsSceneLogic)
+    const { selectedSectionId, selectedLevel, sections } = useValues(settingsSceneLogic)
+    const { selectSection, selectLevel } = useActions(settingsSceneLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const { location } = useValues(router)
@@ -79,26 +78,6 @@ export function SettingsScene(): JSX.Element {
                         </LemonBanner>
                     )}
                     <SettingsRenderer />
-                    {/* <div className="space-y-8">
-                        {settings.map((x) => (
-                            <div key={x.id} className="relative">
-                                <div
-                                    id={x.id}
-                                    className="absolute" // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        marginTop: '-3.5rem', // Account for top bar when scrolling to anchor
-                                    }}
-                                />
-                                <h2 className="flex gap-2 items-center">
-                                    {x.title}{' '}
-                                    <LemonButton icon={<IconLink />} size="small" onClick={() => selectSetting(x.id)} />
-                                </h2>
-                                {x.description && <p>{x.description}</p>}
-
-                                {x.component}
-                            </div>
-                        ))}
-                    </div> */}
                 </div>
             </div>
         </>
