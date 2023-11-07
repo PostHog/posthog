@@ -418,12 +418,13 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
     )
 
 
-def sanitize_property_key(key: str) -> str:
-    # remove all but a-zA-Z characters from the key
-    substitute = re.sub(r"[^a-zA-Z0-9]", "", key)
+def sanitize_property_key(key: Any) -> str:
+    string_key = str(key)
+    # remove all but a-zA-Z0-9 characters from the key
+    substitute = re.sub(r"[^a-zA-Z0-9]", "", string_key)
 
     # :TRICKY: We also want to prevent clashes between key1_ and key1, or key1 and key2 so we add
     #  a salt based on hash of the key
     # This is because we don't want to overwrite the value of key1 when we're trying to read key2
-    hash_value = hashlib.sha1(key.encode("utf-8")).hexdigest()[:15]
+    hash_value = hashlib.sha1(string_key.encode("utf-8")).hexdigest()[:15]
     return f"{substitute}_{hash_value}"

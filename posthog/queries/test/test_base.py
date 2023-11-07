@@ -300,6 +300,8 @@ class TestMatchProperties(TestCase):
         ("", "_da39a3ee5e6b4b0"),
         ("readme.md", "readmemd_275d783e2982285"),
         ("readme≥md", "readmemd_8857015efe59db9"),
+        (None, "None_6eef6648406c333"),
+        (12, "12_7b52009b64fd0a2"),
     ],
 )
 def test_sanitize_keys(key, expected):
