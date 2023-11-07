@@ -107,7 +107,7 @@ export function SidebarChangeNoticeTooltip({ identifier, children }: SidebarChan
     const [notices, onAcknowledged] = useSidebarChangeNotices({ identifier })
 
     if (!notices.length) {
-        return <>children</>
+        return <>{children}</>
     }
 
     return (
