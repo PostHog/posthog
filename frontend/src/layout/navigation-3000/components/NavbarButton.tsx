@@ -88,7 +88,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
             {notices.length ? (
                 <Tooltip
                     title={<SidebarChangeNoticeContent notices={notices} onAcknowledged={onAcknowledged} />}
-                    placement="right"
+                    placement={notices[0].placement ?? 'right'}
                     delayMs={0}
                     visible={true}
                 >
