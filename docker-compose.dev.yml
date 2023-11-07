@@ -72,6 +72,17 @@ services:
             - '1080:1080'
             - '1025:1025'
 
+    # Optional capture
+    capture:
+        profiles: ['capture-rs']
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+        ports:
+            - 3000:3000
+        environment:
+            - DEBUG=1
+
     # Temporal containers
     elasticsearch:
         extends:

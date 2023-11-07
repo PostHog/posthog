@@ -3,7 +3,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from './databaseSceneLogic'
 import { useActions, useValues } from 'kea'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, Link } from '@posthog/lemon-ui'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
@@ -24,9 +24,9 @@ export function DatabaseScene(): JSX.Element {
             <div className="flex items-center justify-between gap-2 mb-4">
                 <div>
                     These are the database tables you can query under SQL insights with{' '}
-                    <a href="https://posthog.com/manual/hogql" target="_blank">
+                    <Link to="https://posthog.com/manual/hogql" target="_blank">
                         HogQL
-                    </a>
+                    </Link>
                     .
                 </div>
             </div>

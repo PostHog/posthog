@@ -190,6 +190,12 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
     return highestOffsets
 }
 
+/**
+ * Updates the offsets that will be committed on the next call to commit() (without offsets
+ * specified) or the next auto commit.
+ *
+ * This is a local (in-memory) operation and does not talk to the Kafka broker.
+ */
 export const storeOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
     const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
         return {

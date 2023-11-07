@@ -7,7 +7,6 @@ import posthog.models.exported_asset
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0237_remove_timezone_from_teams"),
     ]
@@ -16,7 +15,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="ExportedAsset",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 (
                     "export_format",
                     models.CharField(
@@ -41,13 +48,24 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "dashboard",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.dashboard",
+                    ),
                 ),
                 (
                     "insight",
-                    models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.insight"),
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.insight",
+                    ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
     ]

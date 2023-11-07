@@ -8,7 +8,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0146_eventproperty_sync"),
     ]
@@ -20,7 +19,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("timestamp", models.DateTimeField(default=django.utils.timezone.now)),
@@ -50,16 +52,28 @@ class Migration(migrations.Migration):
                 ),
                 ("message", models.TextField(db_index=True)),
                 ("instance_id", models.UUIDField()),
-                ("plugin", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin")),
+                (
+                    "plugin",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.plugin"),
+                ),
                 (
                     "plugin_config",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.pluginconfig"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.pluginconfig",
+                    ),
                 ),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddIndex(
             model_name="pluginlogentry",
-            index=models.Index(fields=["plugin_config_id", "timestamp"], name="posthog_plu_plugin__736133_idx"),
+            index=models.Index(
+                fields=["plugin_config_id", "timestamp"],
+                name="posthog_plu_plugin__736133_idx",
+            ),
         ),
     ]

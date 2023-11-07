@@ -59,7 +59,6 @@ def generate_insert_into_op(partition_gte: int, partition_lt=None) -> AsyncMigra
 
 
 class Migration(AsyncMigrationDefinition):
-
     description = (
         "Schema change to the events table ensuring our SAMPLE BY clause is compatible with ClickHouse >=21.7.0."
     )
@@ -138,7 +137,10 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(
                 fn=lambda query_id: run_optimize_table(
-                    unique_name="0002_events_sample_by", query_id=query_id, table_name=EVENTS_TABLE_NAME, final=True
+                    unique_name="0002_events_sample_by",
+                    query_id=query_id,
+                    table_name=EVENTS_TABLE_NAME,
+                    final=True,
                 )
             ),
         ]

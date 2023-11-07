@@ -25,7 +25,10 @@ DEAD_LETTER_QUEUE_METRICS = {
     "dlq_events_per_error": {
         "metric": "Total events per error",
         "fn": lambda offset: {
-            "subrows": {"columns": ["Error", "Total events"], "rows": get_dead_letter_queue_events_per_error(offset)}
+            "subrows": {
+                "columns": ["Error", "Total events"],
+                "rows": get_dead_letter_queue_events_per_error(offset),
+            }
         },
     },
     "dlq_events_per_location": {
@@ -40,13 +43,19 @@ DEAD_LETTER_QUEUE_METRICS = {
     "dlq_events_per_day": {
         "metric": "Total events per day",
         "fn": lambda offset: {
-            "subrows": {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_day(offset)}
+            "subrows": {
+                "columns": ["Date", "Total events"],
+                "rows": get_dead_letter_queue_events_per_day(offset),
+            }
         },
     },
     "dlq_events_per_tag": {
         "metric": "Total events per tag",
         "fn": lambda offset: {
-            "subrows": {"columns": ["Date", "Total events"], "rows": get_dead_letter_queue_events_per_tag(offset)}
+            "subrows": {
+                "columns": ["Date", "Total events"],
+                "rows": get_dead_letter_queue_events_per_tag(offset),
+            }
         },
     },
 }

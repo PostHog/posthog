@@ -10,6 +10,8 @@ using namespace std;
 
 EXCEPTION_CLASS_IMPLEMENTATION(HogQLException, runtime_error)
 
-EXCEPTION_CLASS_IMPLEMENTATION(HogQLSyntaxException, HogQLException)
-EXCEPTION_CLASS_IMPLEMENTATION(HogQLNotImplementedException, HogQLException)
-EXCEPTION_CLASS_IMPLEMENTATION(HogQLParsingException, HogQLException)
+EXCEPTION_CLASS_IMPLEMENTATION(SyntaxException, HogQLException)
+EXCEPTION_CLASS_IMPLEMENTATION(NotImplementedException, HogQLException)
+EXCEPTION_CLASS_IMPLEMENTATION(ParsingException, HogQLException)
+
+PyInternalException::PyInternalException() : exception() {}

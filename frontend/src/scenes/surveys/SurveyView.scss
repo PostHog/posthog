@@ -1,0 +1,30 @@
+.masonry-container {
+    column-count: 4;
+    column-gap: 10px;
+}
+
+@media screen and (max-width: 1024px) {
+    .masonry-container {
+        column-count: 2;
+    }
+}
+
+.masonry-item {
+    margin: 0;
+    display: grid;
+    grid-template-rows: 1fr auto;
+    margin-bottom: 10px;
+    break-inside: avoid;
+    box-sizing: border-box; /* add this */
+    -moz-box-sizing: border-box; /* Firefox */
+    -webkit-box-sizing: border-box; /* Older Webkit browsers */
+}
+
+.masonry-item-text {
+    max-height: 305px;
+    overflow-y: scroll;
+}
+
+.masonry-item-link {
+    background-color: #fafaf9;
+}

@@ -6,7 +6,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class RecordingDomainMigrationTestCase(TestMigrations):
-
     migrate_from = "0258_team_recording_domains"
     migrate_to = "0259_backfill_team_recording_domains"
     assert_snapshots = True
@@ -48,7 +47,13 @@ class RecordingDomainMigrationTestCase(TestMigrations):
         Team.objects.create(
             name="t4",
             organization=org,
-            app_urls=["jamaican me crazy", "test.com", "http://", "", "https://test.example.com"],
+            app_urls=[
+                "jamaican me crazy",
+                "test.com",
+                "http://",
+                "",
+                "https://test.example.com",
+            ],
         )
 
     def test_backfill_recording_domain(self):

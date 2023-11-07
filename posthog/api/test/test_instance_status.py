@@ -10,8 +10,14 @@ class TestInstanceStatus(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     def test_instance_status_routes(self):
         self.assertEqual(self.client.get("/api/instance_status").status_code, status.HTTP_200_OK)
-        self.assertEqual(self.client.get("/api/instance_status/navigation").status_code, status.HTTP_200_OK)
-        self.assertEqual(self.client.get("/api/instance_status/queries").status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.get("/api/instance_status/navigation").status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            self.client.get("/api/instance_status/queries").status_code,
+            status.HTTP_200_OK,
+        )
 
     def test_object_storage_when_disabled(self):
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -20,7 +26,14 @@ class TestInstanceStatus(APIBaseTest):
 
         object_storage_metrics = [o for o in json["results"]["overview"] if o.get("key", None) == "object_storage"]
         self.assertEqual(
-            object_storage_metrics, [{"key": "object_storage", "metric": "Object Storage enabled", "value": False}]
+            object_storage_metrics,
+            [
+                {
+                    "key": "object_storage",
+                    "metric": "Object Storage enabled",
+                    "value": False,
+                }
+            ],
         )
 
     @patch("posthog.storage.object_storage._client")
@@ -35,8 +48,16 @@ class TestInstanceStatus(APIBaseTest):
             self.assertEqual(
                 object_storage_metrics,
                 [
-                    {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
-                    {"key": "object_storage", "metric": "Object Storage healthy", "value": False},
+                    {
+                        "key": "object_storage",
+                        "metric": "Object Storage enabled",
+                        "value": True,
+                    },
+                    {
+                        "key": "object_storage",
+                        "metric": "Object Storage healthy",
+                        "value": False,
+                    },
                 ],
             )
 
@@ -52,8 +73,16 @@ class TestInstanceStatus(APIBaseTest):
             self.assertEqual(
                 object_storage_metrics,
                 [
-                    {"key": "object_storage", "metric": "Object Storage enabled", "value": True},
-                    {"key": "object_storage", "metric": "Object Storage healthy", "value": True},
+                    {
+                        "key": "object_storage",
+                        "metric": "Object Storage enabled",
+                        "value": True,
+                    },
+                    {
+                        "key": "object_storage",
+                        "metric": "Object Storage healthy",
+                        "value": True,
+                    },
                 ],
             )
 

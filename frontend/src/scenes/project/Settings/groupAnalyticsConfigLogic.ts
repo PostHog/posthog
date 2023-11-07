@@ -1,20 +1,20 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import type { groupAnalyticsConfigLogicType } from './groupAnalyticsConfigLogicType'
 
-export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>({
-    path: ['scenes', 'project', 'Settings', 'groupAnalyticsConfigLogic'],
-    connect: {
+export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>([
+    path(['scenes', 'project', 'Settings', 'groupAnalyticsConfigLogic']),
+    connect({
         values: [groupsModel, ['groupTypes', 'groupTypesLoading']],
         actions: [groupsModel, ['updateGroupTypesMetadata']],
-    },
-    actions: {
+    }),
+    actions({
         setSingular: (groupTypeIndex: number, value: string) => ({ groupTypeIndex, value }),
         setPlural: (groupTypeIndex: number, value: string) => ({ groupTypeIndex, value }),
         reset: true,
         save: true,
-    },
-    reducers: {
+    }),
+    reducers({
         singularChanges: [
             {} as Record<number, string | undefined>,
             {
@@ -31,18 +31,18 @@ export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>({
                 updateGroupTypesMetadataSuccess: () => ({}),
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         hasChanges: [
             (s) => [s.singularChanges, s.pluralChanges],
             (singularChanges, pluralChanges) =>
                 Object.keys(singularChanges).length > 0 || Object.keys(pluralChanges).length > 0,
         ],
-    },
-    listeners: ({ values, actions }) => ({
+    }),
+    listeners(({ values, actions }) => ({
         save: async () => {
             const { groupTypes, singularChanges, pluralChanges } = values
-            const payload = groupTypes.map((groupType) => {
+            const payload = Array.from(groupTypes.values()).map((groupType) => {
                 const result = { ...groupType }
                 if (singularChanges[groupType.group_type_index]) {
                     result.name_singular = singularChanges[groupType.group_type_index]
@@ -55,5 +55,5 @@ export const groupAnalyticsConfigLogic = kea<groupAnalyticsConfigLogicType>({
 
             actions.updateGroupTypesMetadata(payload)
         },
-    }),
-})
+    })),
+])

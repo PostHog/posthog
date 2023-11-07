@@ -24,7 +24,6 @@ import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -139,6 +138,7 @@ export interface PluginsServerConfig {
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -178,7 +178,6 @@ export interface PluginsServerConfig {
     CONVERSION_BUFFER_ENABLED_TEAMS: string
     CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: string
     BUFFER_CONVERSION_SECONDS: number
-    FETCH_HOSTNAME_GUARD_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
@@ -204,6 +203,7 @@ export interface PluginsServerConfig {
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    RELOAD_PLUGIN_JITTER_MAX_MS: number
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -229,6 +229,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     SESSION_RECORDING_KAFKA_QUEUE_SIZE: number
+
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
@@ -271,8 +272,6 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
-    /** null means that the hostname guard is enabled for everyone */
-    fetchHostnameGuardTeams: Set<number> | null
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
@@ -475,10 +474,6 @@ export interface PluginTask {
     exec: (payload?: Record<string, any>) => Promise<any>
 
     __ignoreForAppMetrics?: boolean
-}
-
-export type WorkerMethods = {
-    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
 export type VMMethods = {

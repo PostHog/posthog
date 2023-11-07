@@ -23,7 +23,15 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseSavedQuery
-        fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
+        fields = [
+            "id",
+            "deleted",
+            "name",
+            "query",
+            "created_by",
+            "created_at",
+            "columns",
+        ]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
@@ -65,7 +73,13 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         if not _is_valid_view:
             raise exceptions.ValidationError(detail="Ensure all fields are aliased")
         try:
-            print_ast(node=select_ast, context=context, dialect="clickhouse", stack=None, settings=None)
+            print_ast(
+                node=select_ast,
+                context=context,
+                dialect="clickhouse",
+                stack=None,
+                settings=None,
+            )
         except Exception as err:
             if isinstance(err, ValueError) or isinstance(err, HogQLException):
                 error = str(err)

@@ -23,7 +23,6 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         )
 
     def _attempt_set_tags(self, tags, obj, force_create=False):
-
         if not force_create and not self._is_licensed() and tags is not None:
             # Silently fail on updating tags so that entire request isn't blocked
             return
@@ -88,7 +87,11 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
         if self.is_licensed():
             return queryset.prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+                Prefetch(
+                    "tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
             )
         return queryset
 

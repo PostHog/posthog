@@ -1,4 +1,6 @@
-from ee.clickhouse.queries.retention.retention_event_query import ClickhouseRetentionEventsQuery
+from ee.clickhouse.queries.retention.retention_event_query import (
+    ClickhouseRetentionEventsQuery,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.retention.actors_query import RetentionActorsByPeriod
 

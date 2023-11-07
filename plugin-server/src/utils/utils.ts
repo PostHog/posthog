@@ -606,3 +606,7 @@ export function getPropertyValueByPath(properties: Properties, [firstKey, ...nes
     }
     return value
 }
+
+export async function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}

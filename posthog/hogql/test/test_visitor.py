@@ -66,7 +66,10 @@ class TestVisitor(BaseTest):
                         ],
                     )
                 ),
-                ast.Alias(expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]), alias="f"),
+                ast.Alias(
+                    expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]),
+                    alias="f",
+                ),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(

@@ -51,7 +51,11 @@ class TestDatabase(BaseTest):
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
         DataWarehouseTable.objects.create(
-            name="whatever", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+            name="whatever",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="",
         )
         create_hogql_database(team_id=self.team.pk)
 

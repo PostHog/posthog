@@ -11,7 +11,7 @@
 
 -c requirements.txt
 
-ruff>=0.0.257
+ruff>=0.1.2
 pip-tools==6.13.0
 mypy==0.981
 mypy-extensions==0.4.3

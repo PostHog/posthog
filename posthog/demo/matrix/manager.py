@@ -66,7 +66,12 @@ class MatrixManager:
             with transaction.atomic():
                 organization = Organization.objects.create(**organization_kwargs)
                 new_user = User.objects.create_and_join(
-                    organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
+                    organization,
+                    email,
+                    password,
+                    first_name,
+                    OrganizationMembership.Level.ADMIN,
+                    is_staff=is_staff,
                 )
                 team = self.create_team(organization)
             self.run_on_team(team, new_user)
@@ -99,7 +104,11 @@ class MatrixManager:
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
         team = Team.objects.create(
-            organization=organization, ingested_event=True, completed_snippet_onboarding=True, is_demo=True, **kwargs
+            organization=organization,
+            ingested_event=True,
+            completed_snippet_onboarding=True,
+            is_demo=True,
+            **kwargs,
         )
         return team
 
@@ -132,11 +141,19 @@ class MatrixManager:
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
-                GroupTypeMapping(team=data_team, group_type_index=group_type_index, group_type=group_type)
+                GroupTypeMapping(
+                    team=data_team,
+                    group_type_index=group_type_index,
+                    group_type=group_type,
+                )
             )
             for group_key, group in groups.items():
                 self._save_sim_group(
-                    data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
+                    data_team,
+                    cast(Literal[0, 1, 2, 3, 4], group_type_index),
+                    group_key,
+                    group,
+                    self.matrix.now,
                 )
         try:
             GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
@@ -164,16 +181,28 @@ class MatrixManager:
     @classmethod
     def _erase_master_team_data(cls):
         AsyncEventDeletion().process(
-            [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
+            [
+                AsyncDeletion(
+                    team_id=cls.MASTER_TEAM_ID,
+                    key=cls.MASTER_TEAM_ID,
+                    deletion_type=DeletionType.Team,
+                )
+            ]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
-        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
+        from posthog.models.person.sql import (
+            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
+            COPY_PERSONS_BETWEEN_TEAMS,
+        )
 
-        copy_params = {"source_team_id": self.MASTER_TEAM_ID, "target_team_id": target_team.pk}
+        copy_params = {
+            "source_team_id": self.MASTER_TEAM_ID,
+            "target_team_id": target_team.pk,
+        }
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
@@ -191,7 +220,10 @@ class MatrixManager:
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
-        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
+        from posthog.models.person.sql import (
+            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
+            SELECT_PERSONS_OF_TEAM,
+        )
 
         list_params = {"source_team_id": source_team_id}
         # Persons
@@ -220,7 +252,11 @@ class MatrixManager:
             person_uuid = row.pop("person_uuid")
             try:
                 bulk_person_distinct_ids.append(
-                    PersonDistinctId(team_id=target_team_id, person_id=bulk_persons[person_uuid].pk, **row)
+                    PersonDistinctId(
+                        team_id=target_team_id,
+                        person_id=bulk_persons[person_uuid].pk,
+                        **row,
+                    )
                 )
             except KeyError:
                 pre_existing_id_count -= 1
@@ -232,7 +268,14 @@ class MatrixManager:
         bulk_groups = []
         for row in clickhouse_groups:
             group_properties = json.loads(row.pop("group_properties", "{}"))
-            bulk_groups.append(Group(team_id=target_team_id, version=0, group_properties=group_properties, **row))
+            bulk_groups.append(
+                Group(
+                    team_id=target_team_id,
+                    version=0,
+                    group_properties=group_properties,
+                    **row,
+                )
+            )
         try:
             Group.objects.bulk_create(bulk_groups)
         except IntegrityError as e:
@@ -241,16 +284,24 @@ class MatrixManager:
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
-            from posthog.models.person.util import create_person, create_person_distinct_id
+            from posthog.models.person.util import (
+                create_person,
+                create_person_distinct_id,
+            )
 
             create_person(
-                uuid=str(subject.in_posthog_id), team_id=team.pk, properties=subject.properties_at_now, version=0
+                uuid=str(subject.in_posthog_id),
+                team_id=team.pk,
+                properties=subject.properties_at_now,
+                version=0,
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
                 create_person_distinct_id(
-                    team_id=team.pk, distinct_id=str(distinct_id), person_id=str(subject.in_posthog_id)
+                    team_id=team.pk,
+                    distinct_id=str(distinct_id),
+                    person_id=str(subject.in_posthog_id),
                 )
             self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
@@ -294,14 +345,21 @@ class MatrixManager:
 
     @staticmethod
     def _save_sim_group(
-        team: Team, type_index: Literal[0, 1, 2, 3, 4], key: str, properties: Dict[str, Any], timestamp: dt.datetime
+        team: Team,
+        type_index: Literal[0, 1, 2, 3, 4],
+        key: str,
+        properties: Dict[str, Any],
+        timestamp: dt.datetime,
     ):
         from posthog.models.group.util import raw_create_group_ch
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
-        from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
+        from posthog.models.person.sql import (
+            GET_PERSON_COUNT_FOR_TEAM,
+            GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM,
+        )
 
         while True:
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]

@@ -17,7 +17,11 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.entity import Entity
-from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, EntitiesMixin
+from posthog.models.filters.mixins.common import (
+    BaseParamMixin,
+    DateMixin,
+    EntitiesMixin,
+)
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse
 

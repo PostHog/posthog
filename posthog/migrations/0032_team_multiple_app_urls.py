@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 def migrate_to_array(apps, schema_editor):
-
     Team = apps.get_model("posthog", "Team")
 
     for mm in Team.objects.all():
@@ -14,7 +13,6 @@ def migrate_to_array(apps, schema_editor):
 
 
 def rollback_to_string(apps, schema_editor):
-
     Team = apps.get_model("posthog", "Team")
 
     for mm in Team.objects.all():
@@ -23,7 +21,6 @@ def rollback_to_string(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0031_team_signup_token"),
     ]

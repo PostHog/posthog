@@ -125,11 +125,11 @@ jobs:
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
-                  ruff .
+                  ruff check .
 
             - name: Check formatting
               run: |
-                  black --exclude posthog/hogql/grammar --check .
+                  ruff format --exclude posthog/hogql/grammar --check --diff .
 
             - name: Check static typing
               run: |
@@ -159,7 +159,7 @@ jobs:
               env:
                   # Installing a version of ANTLR compatible with what's in Homebrew as of October 2023 (version 4.13),
                   # as apt-get is quite out of date. The same version must be set in hogql_parser/pyproject.toml
-                  ANTLR_VERSION: '4.13.0'
+                  ANTLR_VERSION: '4.13.1'
 
     check-migrations:
         needs: changes
@@ -272,9 +272,9 @@ jobs:
               # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
               if: ${{ github.repository == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               with:
-                  add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
+                  add: '["ee", "./**/*.ambr", "posthog/queries/", "posthog/migrations", "posthog/tasks", "posthog/hogql/"]'
                   message: 'Update query snapshots'
-                  pull: --rebase --autostash # Make sure we're up to date with other segments' updates
+                  pull: --rebase --autostash # Make sure we're up-to-date with other segments' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 

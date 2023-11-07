@@ -9,7 +9,15 @@ from django.utils import timezone
 from posthog.celery import app
 from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
-from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
+from posthog.models import (
+    Organization,
+    OrganizationInvite,
+    OrganizationMembership,
+    Plugin,
+    PluginConfig,
+    Team,
+    User,
+)
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
@@ -119,7 +127,10 @@ def send_email_verification(user_id: int, token: str) -> None:
     retry_backoff=True,
 )
 def send_fatal_plugin_error(
-    plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
+    plugin_config_id: int,
+    plugin_config_updated_at: Optional[str],
+    error: str,
+    is_system_error: bool,
 ) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -131,7 +142,12 @@ def send_fatal_plugin_error(
         campaign_key=campaign_key,
         subject=f"[Alert] {plugin} has been disabled in project {team} due to a fatal error",
         template_name="fatal_plugin_error",
-        template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
+        template_context={
+            "plugin": plugin,
+            "team": team,
+            "error": error,
+            "is_system_error": is_system_error,
+        },
     )
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
@@ -181,13 +197,21 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
         campaign_key=f"email_change_old_address_{now_iso}",
         subject="This is no longer your PostHog account email",
         template_name="email_change_old_address",
-        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+        template_context={
+            "user_name": user_name,
+            "old_address": old_address,
+            "new_address": new_address,
+        },
     )
     message_new_address = EmailMessage(
         campaign_key=f"email_change_new_address_{now_iso}",
         subject="This is your new PostHog account email",
         template_name="email_change_new_address",
-        template_context={"user_name": user_name, "old_address": old_address, "new_address": new_address},
+        template_context={
+            "user_name": user_name,
+            "old_address": old_address,
+            "new_address": new_address,
+        },
     )
     message_old_address.add_recipient(email=old_address)
     message_new_address.add_recipient(email=new_address)

@@ -8,7 +8,12 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
@@ -60,7 +65,10 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_no_event_in_period(self):
-        journeys_for({"user a": [{"event": "Step one", "timestamp": datetime(2021, 6, 6, 21)}]}, self.team)
+        journeys_for(
+            {"user a": [{"event": "Step one", "timestamp": datetime(2021, 6, 6, 21)}]},
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -86,7 +94,10 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
     def test_only_one_user_reached_one_step(self):
-        journeys_for({"user a": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 19)}]}, self.team)
+        journeys_for(
+            {"user a": [{"event": "step one", "timestamp": datetime(2021, 6, 7, 19)}]},
+            self.team,
+        )
 
         filter = Filter(
             data={
@@ -161,7 +172,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user a"]]
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [["user a"]],
         )
 
         # No users converted 2021-06-07
@@ -691,7 +703,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]]
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [["user_two"]],
         )
 
         # 1 user who converted starting # 2021-05-04
@@ -701,7 +714,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]]
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [["user_one"]],
         )
 
     def test_from_second_step(self):
@@ -889,7 +903,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_two"]]
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [["user_two"]],
         )
 
         # 1 user who converted starting # 2021-05-04
@@ -899,7 +914,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results], [["user_one"]]
+            [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [["user_one"]],
         )
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
@@ -976,19 +992,55 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "user_one": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Chrome"},
+                    },
                 ],
                 "user_two": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 2), "properties": {"$browser": "Chrome"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Chrome"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Chrome"}},
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 2),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Chrome"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Chrome"},
+                    },
                 ],
                 "user_three": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 3), "properties": {"$browser": "Safari"}},
-                    {"event": "step two", "timestamp": datetime(2021, 5, 4), "properties": {"$browser": "Safari"}},
-                    {"event": "step three", "timestamp": datetime(2021, 5, 5), "properties": {"$browser": "Safari"}},
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 3),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 4),
+                        "properties": {"$browser": "Safari"},
+                    },
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 5),
+                        "properties": {"$browser": "Safari"},
+                    },
                 ],
             },
             self.team,
@@ -1018,16 +1070,40 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         for res in result:
             if res["breakdown_value"] == ["Chrome"]:
-                self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                self.assertEqual(
+                    res["data"],
+                    [
+                        100.0,
+                        100.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                )
             elif res["breakdown_value"] == ["Safari"]:
-                self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                self.assertEqual(
+                    res["data"],
+                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                )
             else:
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_step_breakdown_person(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"$browser": "Chrome"})
         _create_person(distinct_ids=["user_two"], team=self.team, properties={"$browser": "Chrome"})
-        _create_person(distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"})
+        _create_person(
+            distinct_ids=["user_three"],
+            team=self.team,
+            properties={"$browser": "Safari"},
+        )
         journeys_for(
             {
                 "user_one": [
@@ -1073,16 +1149,40 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         for res in result:
             if res["breakdown_value"] == ["Chrome"]:
-                self.assertEqual(res["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                self.assertEqual(
+                    res["data"],
+                    [
+                        100.0,
+                        100.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                )
             elif res["breakdown_value"] == ["Safari"]:
-                self.assertEqual(res["data"], [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                self.assertEqual(
+                    res["data"],
+                    [0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                )
             else:
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_trend_cohort_breakdown(self):
         _create_person(distinct_ids=["user_one"], team=self.team, properties={"key": "value"})
         _create_person(distinct_ids=["user_two"], team=self.team, properties={"key": "value"})
-        _create_person(distinct_ids=["user_three"], team=self.team, properties={"$browser": "Safari"})
+        _create_person(
+            distinct_ids=["user_three"],
+            team=self.team,
+            properties={"$browser": "Safari"},
+        )
 
         journeys_for(
             {
@@ -1131,26 +1231,56 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel_trends.run()
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(
+            result[0]["data"],
+            [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        )
 
     @snapshot_clickhouse_queries
     def test_timezones_trends(self):
         journeys_for(
             {
                 "user_one": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 10)},  # 04-30 in pacific
-                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
-                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 12)},  # today in pacific
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 10),
+                    },  # 04-30 in pacific
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 11),
+                    },  # today in pacific
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 1, 12),
+                    },  # today in pacific
                 ],
                 "user_two": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
-                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 2)},  # 04-30 in pacific
-                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 3)},  # 04-30 in pacific
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 1),
+                    },  # 04-30 in pacific
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 2),
+                    },  # 04-30 in pacific
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 1, 3),
+                    },  # 04-30 in pacific
                 ],
                 "user_three": [
-                    {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
-                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 10)},  # today in pacific
-                    {"event": "step three", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
+                    {
+                        "event": "step one",
+                        "timestamp": datetime(2021, 5, 1, 1),
+                    },  # 04-30 in pacific
+                    {
+                        "event": "step two",
+                        "timestamp": datetime(2021, 5, 1, 10),
+                    },  # today in pacific
+                    {
+                        "event": "step three",
+                        "timestamp": datetime(2021, 5, 1, 11),
+                    },  # today in pacific
                 ],
                 "user_eight": [],
             },

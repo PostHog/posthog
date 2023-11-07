@@ -21,8 +21,8 @@ function NextPagesRouterCodeSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
             {`// pages/_app.js
-...
-import posthog from 'posthog-js' // Import PostHog
+import posthog from "posthog-js"
+import { PostHogProvider } from 'posthog-js/react'
 
 if (typeof window !== 'undefined') { // checks that we are client-side
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
@@ -33,9 +33,17 @@ if (typeof window !== 'undefined') { // checks that we are client-side
   })
 }
 
-export default function App({ Component, pageProps }) {
-  const router = useRouter()
-  ...`}
+export default function App(
+    { Component, pageProps: { session, ...pageProps } }
+) {
+    return (
+        <>
+            <PostHogProvider client={posthog}>
+                <Component {...pageProps} />
+            </PostHogProvider>
+        </>
+    )
+}`}
         </CodeSnippet>
     )
 }
@@ -45,15 +53,37 @@ function NextAppRouterCodeSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`// app/providers.js
 'use client'
-...
 import posthog from 'posthog-js'
+import { PostHogProvider } from 'posthog-js/react'
 
 if (typeof window !== 'undefined') {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
   })
 }
-...`}
+export function CSPostHogProvider({ children }) {
+    return <PostHogProvider client={posthog}>{children}</PostHogProvider>
+}`}
+        </CodeSnippet>
+    )
+}
+
+function NextAppRouterLayoutSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript}>
+            {`// app/layout.js
+import './globals.css'
+import { CSPostHogProvider } from './providers'
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <CSPostHogProvider>
+        <body>{children}</body>
+      </CSPostHogProvider>
+    </html>
+  )
+}`}
         </CodeSnippet>
     )
 }
@@ -86,6 +116,11 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                 .
             </p>
             <NextAppRouterCodeSnippet />
+            <p>
+                Afterwards, import the <code>PHProvider</code> component in your <code>app/layout.js</code> file and
+                wrap your app with it.
+            </p>
+            <NextAppRouterLayoutSnippet />
             <h4>With Pages router</h4>
             <p>
                 If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can

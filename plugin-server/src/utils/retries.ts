@@ -4,6 +4,7 @@ import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics'
+import { sleep } from './utils'
 
 // Simple retries in our code
 export const defaultRetryConfig = {
@@ -152,4 +153,26 @@ export async function runRetriableFunction(retriableFunctionPayload: RetriableFu
             hub.statsd?.timing(`${metricName}`, timer, metricTags)
         },
     })
+}
+
+/**
+ * Retry a function, respecting `error.isRetriable`.
+ */
+export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 500): Promise<T> {
+    for (let i = 0; i < tries; i++) {
+        try {
+            return await fn()
+        } catch (error) {
+            if (error?.isRetriable === false || i === tries - 1) {
+                // Throw if the error is not retryable or if we're out of tries.
+                throw error
+            }
+
+            // Fall through, `fn` will retry after sleep.
+            await sleep(sleepMs)
+        }
+    }
+
+    // This should never happen, but TypeScript doesn't know that.
+    throw new Error('Unreachable error in retry')
 }

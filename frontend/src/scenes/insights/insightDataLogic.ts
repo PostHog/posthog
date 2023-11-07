@@ -155,6 +155,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
             },
         ],
+
+        hogQL: [
+            (s) => [s.insightData],
+            (insightData): string | null => {
+                if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
+                    return insightData.hogql
+                }
+                return null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({

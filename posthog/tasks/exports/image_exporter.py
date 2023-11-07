@@ -16,8 +16,16 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
-from posthog.tasks.exporter import EXPORT_SUCCEEDED_COUNTER, EXPORT_FAILED_COUNTER, EXPORT_TIMER
+from posthog.models.exported_asset import (
+    ExportedAsset,
+    get_public_access_token,
+    save_content,
+)
+from posthog.tasks.exporter import (
+    EXPORT_SUCCEEDED_COUNTER,
+    EXPORT_FAILED_COUNTER,
+    EXPORT_TIMER,
+)
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
 from posthog.utils import absolute_uri
 
@@ -111,7 +119,10 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:

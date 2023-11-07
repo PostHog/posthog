@@ -88,8 +88,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                                     ? survey.questions[0].link
                                                     : undefined
                                             }
-                                            readOnly={true}
-                                            onAppearanceChange={() => {}}
                                         />
                                     </div>
                                 </div>

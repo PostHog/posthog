@@ -7,7 +7,6 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
 class TagsTestCase(TestMigrations):
-
     migrate_from = "0218_uniqueness_constraint_tagged_items"
     migrate_to = "0219_migrate_tags_v2"
     assert_snapshots = True
@@ -27,7 +26,10 @@ class TagsTestCase(TestMigrations):
             name="private dashboard",
             deprecated_tags=["a", "b", "c", "a", "b", "existing tag", "", "  ", None],
         )
-        filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
         self.insight_with_tags = Insight.objects.create(
             dashboard=self.dashboard,
             filters=filter_dict,
@@ -45,7 +47,12 @@ class TagsTestCase(TestMigrations):
             organization=self.org2,
             api_token="token12345",
             test_account_filters=[
-                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
             ],
         )
         self.team2_total_insights = 1_001
@@ -64,7 +71,10 @@ class TagsTestCase(TestMigrations):
             ignore_conflicts=True,
             batch_size=1000,
         )
-        TaggedItem.objects.create(tag=tag2, insight_id=Insight.objects.filter(team_id=self.team2.id).first().id)
+        TaggedItem.objects.create(
+            tag=tag2,
+            insight_id=Insight.objects.filter(team_id=self.team2.id).first().id,
+        )
 
     def test_tags_migrated(self):
         Tag = self.apps.get_model("posthog", "Tag")  # type: ignore

@@ -1933,7 +1933,7 @@ export function IconBold(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 fill="currentColor"
-                d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"
+                d="M6.8 19V5H12.325C13.4083 5 14.4083 5.33333 15.325 6C16.2417 6.66667 16.7 7.59167 16.7 8.775C16.7 9.625 16.5083 10.2792 16.125 10.7375C15.7417 11.1958 15.3833 11.525 15.05 11.725C15.4667 11.9083 15.9292 12.25 16.4375 12.75C16.9458 13.25 17.2 14 17.2 15C17.2 16.4833 16.6583 17.5208 15.575 18.1125C14.4917 18.7042 13.475 19 12.525 19H6.8ZM9.825 16.2H12.425C13.225 16.2 13.7125 15.9958 13.8875 15.5875C14.0625 15.1792 14.15 14.8833 14.15 14.7C14.15 14.5167 14.0625 14.2208 13.8875 13.8125C13.7125 13.4042 13.2 13.2 12.35 13.2H9.825V16.2ZM9.825 10.5H12.15C12.7 10.5 13.1 10.3583 13.35 10.075C13.6 9.79167 13.725 9.475 13.725 9.125C13.725 8.725 13.5833 8.4 13.3 8.15C13.0167 7.9 12.65 7.775 12.2 7.775H9.825V10.5Z"
             />
         </LemonIconBase>
     )
@@ -1943,7 +1943,7 @@ export function IconBold(props: LemonIconProps): JSX.Element {
 export function IconItalic(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path fill="currentColor" d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4h-8z" />
+            <path fill="currentColor" d="M5 19V16.5H9L12 7.5H8V5H18V7.5H14.5L11.5 16.5H15V19H5Z" />
         </LemonIconBase>
     )
 }
@@ -2383,6 +2383,17 @@ export function IconDatabase(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconPipeline(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                fill="currentColor"
+                d="M22,14H20V16H14V13H16V11H14V6A2,2 0 0,0 12,4H4V2H2V10H4V8H10V11H8V13H10V18A2,2 0 0,0 12,20H20V22H22"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function IconDragHandle(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
@@ -2467,6 +2478,28 @@ export function IconNotebook(props: LemonIconProps): JSX.Element {
         <LemonIconBase {...props}>
             <path
                 d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM9 4h2v5l-1-.75L9 9V4zm9 16H6V4h1v9l3-2.25L13 13V4h5v16z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconCode(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconAdsClick(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M11.71,17.99C8.53,17.84,6,15.22,6,12c0-3.31,2.69-6,6-6c3.22,0,5.84,2.53,5.99,5.71l-2.1-0.63C15.48,9.31,13.89,8,12,8 c-2.21,0-4,1.79-4,4c0,1.89,1.31,3.48,3.08,3.89L11.71,17.99z M22,12c0,0.3-0.01,0.6-0.04,0.9l-1.97-0.59C20,12.21,20,12.1,20,12 c0-4.42-3.58-8-8-8s-8,3.58-8,8s3.58,8,8,8c0.1,0,0.21,0,0.31-0.01l0.59,1.97C12.6,21.99,12.3,22,12,22C6.48,22,2,17.52,2,12 C2,6.48,6.48,2,12,2S22,6.48,22,12z M18.23,16.26L22,15l-10-3l3,10l1.26-3.77l4.27,4.27l1.98-1.98L18.23,16.26z"
                 fill="currentColor"
             />
         </LemonIconBase>

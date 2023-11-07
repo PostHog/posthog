@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
+import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
@@ -8,7 +9,6 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
@@ -16,6 +16,10 @@ import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
+export const silentFailuresAsyncHandlers = new Counter({
+    name: 'async_handlers_silent_failure',
+    help: 'Number silent failures from async handlers.',
+})
 // exporting only for testing
 export function groupIntoBatchesByUsage(
     array: KafkaMessage[],

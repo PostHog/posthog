@@ -9,6 +9,7 @@ import clsx from 'clsx'
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    popupAnchorElement: HTMLDivElement | null
 }
 
 function CategoryPill({
@@ -53,6 +54,7 @@ function CategoryPill({
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
+    popupAnchorElement,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -66,7 +68,7 @@ export function InfiniteSelectResults({
             onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)}
         />
     ) : (
-        <InfiniteList />
+        <InfiniteList popupAnchorElement={popupAnchorElement} />
     )
 
     if (taxonomicGroupTypes.length === 1) {
@@ -105,7 +107,7 @@ export function InfiniteSelectResults({
             </div>
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
+                    <div key={groupType} className={clsx('mt-2', groupType === openTab ? 'block' : 'hidden')}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

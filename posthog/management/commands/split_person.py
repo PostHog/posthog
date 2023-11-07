@@ -18,10 +18,18 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
-        parser.add_argument("--person-id", default=None, type=int, help="Specify the person ID to split.")
+        parser.add_argument(
+            "--person-id",
+            default=None,
+            type=int,
+            help="Specify the person ID to split.",
+        )
         parser.add_argument("--live-run", action="store_true", help="Run changes, default is dry-run")
         parser.add_argument(
-            "--max-splits", default=None, type=int, help="Only split off a given number of distinct_ids and exit."
+            "--max-splits",
+            default=None,
+            type=int,
+            help="Only split off a given number of distinct_ids and exit.",
         )
 
     def handle(self, *args, **options):

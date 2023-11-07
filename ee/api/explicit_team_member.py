@@ -34,7 +34,14 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
             "user_uuid",  # write_only (see above)
             "effective_level",  # read_only (calculated)
         ]
-        read_only_fields = ["id", "parent_membership_id", "joined_at", "updated_at", "user", "effective_level"]
+        read_only_fields = [
+            "id",
+            "parent_membership_id",
+            "joined_at",
+            "updated_at",
+            "user",
+            "effective_level",
+        ]
 
     def create(self, validated_data):
         team: Team = self.context["get_team"]()
@@ -42,7 +49,9 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         validated_data["team"] = team
         try:
             requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
-                organization_id=team.organization_id, user__uuid=user_uuid, user__is_active=True
+                organization_id=team.organization_id,
+                user__uuid=user_uuid,
+                user__is_active=True,
             )
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
@@ -101,7 +110,7 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = False
+    include_in_docs = True
 
     def get_permissions(self):
         if (

@@ -26,7 +26,15 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, HogQLQuery, InsightVizNode, Node, QueryContext } from './queries/schema'
+import type {
+    DashboardFilter,
+    DatabaseSchemaQueryResponseField,
+    HogQLQuery,
+    InsightVizNode,
+    Node,
+} from './queries/schema'
+import { QueryContext } from '~/queries/types'
+
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
@@ -79,6 +87,9 @@ export enum AvailableFeature {
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',
+    SURVEYS_STYLING = 'surveys_styling',
+    SURVEYS_TEXT_HTML = 'surveys_text_html',
+    SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
 }
 
 export type AvailableProductFeature = {
@@ -335,6 +346,10 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    // a string representation of the decimal value between 0 and 1
+    session_recording_sample_rate: string
+    session_recording_minimum_duration_milliseconds: number | null
+    session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -498,6 +513,12 @@ export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
     Archived = 'archived',
+}
+
+export enum PipelineTabs {
+    Filters = 'filters',
+    Transformations = 'transformations',
+    Destinations = 'destinations',
 }
 
 export enum ProgressStatus {
@@ -920,6 +941,7 @@ export enum StepOrderValue {
 }
 
 export enum PersonsTabType {
+    FEED = 'feed',
     EVENTS = 'events',
     SESSION_RECORDINGS = 'sessionRecordings',
     PROPERTIES = 'properties',
@@ -1343,7 +1365,7 @@ export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
 
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
-    filters: Record<string, any>
+    filters: DashboardFilter
 }
 
 export interface DashboardTemplateType {
@@ -1352,7 +1374,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description?: string
-    dashboard_filters?: Record<string, JsonType>
+    dashboard_filters?: DashboardFilter
     tiles: DashboardTile[]
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
@@ -2093,7 +2115,6 @@ export interface Survey {
     conditions: {
         url: string
         selector: string
-        is_headless?: boolean
         seenSurveyWaitPeriodInDays?: number
         urlMatchType?: SurveyUrlMatchType
     } | null
@@ -2458,9 +2479,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2468,7 +2491,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
@@ -2912,13 +2935,11 @@ export type OnlineExportContext = {
     query?: any
     body?: any
     filename?: string
-    max_limit?: number
 }
 
 export type QueryExportContext = {
     source: Record<string, any>
     filename?: string
-    max_limit?: number
 }
 
 export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
@@ -3047,14 +3068,13 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: JSONContent // TODO: Type this better
+    content: JSONContent | null
     version: number
     // used to power text-based search
     text_content?: string | null
 }
 
 export enum NotebookNodeType {
-    Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3069,6 +3089,9 @@ export enum NotebookNodeType {
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
     Image = 'ph-image',
+    PersonFeed = 'ph-person-feed',
+    Properties = 'ph-properties',
+    Map = 'ph-map',
 }
 
 export type NotebookNodeResource = {
@@ -3116,6 +3139,19 @@ export interface DataWarehouseViewLink {
     table?: string
     to_join_key?: string
     from_join_key?: string
+}
+
+export interface ExternalDataStripeSourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface ExternalDataStripeSource {
+    id: string
+    source_id: string
+    connection_id: string
+    status: string
+    source_type: string
 }
 
 export type BatchExportDestinationS3 = {
@@ -3181,11 +3217,28 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationRedshift = {
+    type: 'Redshift'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        properties_data_type: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
+    | BatchExportDestinationRedshift
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

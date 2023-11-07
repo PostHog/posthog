@@ -32,8 +32,6 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const EXPORT_MAX_LIMIT = 10000
-
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
@@ -47,7 +45,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
     } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
             source: query,
-            max_limit: EXPORT_MAX_LIMIT,
         }
     } else if (isHogQLQuery(query)) {
         return { source: query }

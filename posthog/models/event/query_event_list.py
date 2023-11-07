@@ -21,7 +21,7 @@ from posthog.utils import relative_date_parse
 
 
 def determine_event_conditions(
-    conditions: Dict[str, Union[None, str, List[str]]], tzinfo: ZoneInfo
+    conditions: Dict[str, Union[None, str, List[str]]], team: Team, tzinfo: ZoneInfo
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
@@ -44,7 +44,7 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
-            person = get_pk_or_uuid(Person.objects.all(), v).first()
+            person = get_pk_or_uuid(Person.objects.filter(team=team), v).first()
             distinct_ids = person.distinct_ids if person is not None else []
             params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
@@ -84,10 +84,14 @@ def query_events_list(
             "before": (now() + timedelta(seconds=5)).isoformat(),
             **request_get_query_dict,
         },
+        team,
         tzinfo=team.timezone_info,
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
+        team_id=team.pk,
+        property_group=filter.property_groups,
+        has_person_id_joined=False,
+        hogql_context=hogql_context,
     )
 
     if action_id:
@@ -106,7 +110,10 @@ def query_events_list(
     if prop_filters != "":
         return insight_query_with_columns(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                conditions=conditions,
+                limit=limit_sql,
+                filters=prop_filters,
+                order=order,
             ),
             {
                 "team_id": team.pk,

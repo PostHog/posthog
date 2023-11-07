@@ -17,7 +17,10 @@ from rest_framework import exceptions
 
 from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
+from posthog.clickhouse.materialized_columns import (
+    TableWithProperties,
+    get_materialized_columns,
+)
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
@@ -36,7 +39,10 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.event import Selector
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
-from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from posthog.models.person.sql import (
+    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
+    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
+)
 from posthog.models.property import (
     NEGATED_OPERATORS,
     OperatorType,
@@ -177,13 +183,19 @@ def parse_prop_clauses(
             else:
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
                     person_id_query, cohort_filter_params = format_filter_query(
-                        cohort, idx, hogql_context, custom_match_field=person_id_joined_alias
+                        cohort,
+                        idx,
+                        hogql_context,
+                        custom_match_field=person_id_joined_alias,
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
+                        cohort,
+                        idx,
+                        hogql_context,
+                        custom_match_field=f"{person_id_joined_alias}",
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
@@ -236,7 +248,8 @@ def parse_prop_clauses(
                 final.append(
                     " {property_operator} {table_name}distinct_id IN ({filter_query})".format(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
-                            filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
+                            filters=filter_query,
+                            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
                         table_name=table_formatted,
                         property_operator=property_operator,
@@ -270,7 +283,10 @@ def parse_prop_clauses(
             params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
-                cast(StringMatching, prop.key), prop.value, operator=prop.operator, prepend="{}_".format(prepend)
+                cast(StringMatching, prop.key),
+                prop.value,
+                operator=prop.operator,
+                prepend="{}_".format(prepend),
             )
             if query:
                 final.append(f"{property_operator} {query}")
@@ -278,7 +294,10 @@ def parse_prop_clauses(
         elif (
             prop.type == "group"
             and person_properties_mode
-            in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2]
+            in [
+                PersonPropertiesMode.DIRECT_ON_EVENTS,
+                PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2,
+            ]
             and groups_on_events_querying_enabled()
         ):
             group_column = f"group{prop.group_type_index}_properties"
@@ -308,7 +327,11 @@ def parse_prop_clauses(
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
+                    prop,
+                    idx,
+                    prepend,
+                    prop_var=f"group_properties",
+                    allow_denormalized_props=False,
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
@@ -335,7 +358,8 @@ def parse_prop_clauses(
             else:
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
+                    filters=filter_query,
+                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
                 final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
             params.update(filter_params)
@@ -375,9 +399,7 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
         # is_date_exact not yet supported
-    }.get(
-        operator, operator
-    )  # type: ignore
+    }.get(operator, operator)  # type: ignore
 
 
 def prop_filter_json_extract(
@@ -415,28 +437,46 @@ def prop_filter_json_extract(
     params: Dict[str, Any] = {}
 
     if operator == "is_not":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): box_value(prop.value),
+        }
         return (
             " {property_operator} NOT has(%(v{prepend}_{idx})s, {left})".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator
+                idx=idx,
+                prepend=prepend,
+                left=property_expr,
+                property_operator=property_operator,
             ),
             params,
         )
     elif operator == "icontains":
         value = "%{}%".format(prop.value)
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): value,
+        }
         return (
             " {property_operator} {left} ILIKE %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator
+                idx=idx,
+                prepend=prepend,
+                left=property_expr,
+                property_operator=property_operator,
             ),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): value,
+        }
         return (
             " {property_operator} NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, left=property_expr, property_operator=property_operator
+                idx=idx,
+                prepend=prepend,
+                left=property_expr,
+                property_operator=property_operator,
             ),
             params,
         )
@@ -445,7 +485,10 @@ def prop_filter_json_extract(
             # If OR'ing, shouldn't be a problem since nothing will match this specific clause
             return f"{property_operator} 1 = 2", {}
 
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
 
         return (
             " {property_operator} {regex_function}({left}, %(v{prepend}_{idx})s)".format(
@@ -458,7 +501,10 @@ def prop_filter_json_extract(
             params,
         )
     elif operator == "is_set":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
         if is_denormalized:
             return (
                 " {property_operator} notEmpty({left})".format(left=property_expr, property_operator=property_operator),
@@ -466,12 +512,18 @@ def prop_filter_json_extract(
             )
         return (
             " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, property_operator=property_operator
+                idx=idx,
+                prepend=prepend,
+                prop_var=prop_var,
+                property_operator=property_operator,
             ),
             params,
         )
     elif operator == "is_not_set":
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
         if is_denormalized:
             return (
                 " {property_operator} empty({left})".format(left=property_expr, property_operator=property_operator),
@@ -479,7 +531,11 @@ def prop_filter_json_extract(
             )
         return (
             " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr, property_operator=property_operator
+                idx=idx,
+                prepend=prepend,
+                prop_var=prop_var,
+                left=property_expr,
+                property_operator=property_operator,
             ),
             params,
         )
@@ -496,7 +552,10 @@ def prop_filter_json_extract(
             parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
         )) = %({prop_value_param_key})s"""
 
-        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
     elif operator == "is_date_after":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -518,7 +577,10 @@ def prop_filter_json_extract(
 
         query = f"""{property_operator} {first_of_date_or_timestamp} > {adjusted_value}"""
 
-        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
     elif operator == "is_date_before":
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
@@ -528,11 +590,17 @@ def prop_filter_json_extract(
         first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
         query = f"""{property_operator} {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
-        return (query, {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value})
+        return (
+            query,
+            {"k{}_{}".format(prepend, idx): prop.key, prop_value_param_key: prop.value},
+        )
     elif operator in ["gt", "lt", "gte", "lte"]:
         count_operator = get_count_operator(operator)
 
-        params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): prop.value,
+        }
         extract_property_expr = trim_quotes_expr(f"replaceRegexpAll({property_expr}, ' ', '')")
         return (
             f" {property_operator} toFloat64OrNull({extract_property_expr}) {count_operator} %(v{prepend}_{idx})s",
@@ -547,10 +615,17 @@ def prop_filter_json_extract(
             }
         else:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, {left})"
-            params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
+            params = {
+                "k{}_{}".format(prepend, idx): prop.key,
+                "v{}_{}".format(prepend, idx): box_value(prop.value),
+            }
         return (
             clause.format(
-                left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var, property_operator=property_operator
+                left=property_expr,
+                idx=idx,
+                prepend=prepend,
+                prop_var=prop_var,
+                property_operator=property_operator,
             ),
             params,
         )
@@ -664,7 +739,10 @@ def get_property_string_expr(
         and (property_name, materialised_table_column) in materialized_columns
         and ("group" not in materialised_table_column or groups_on_events_querying_enabled())
     ):
-        return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
+        return (
+            f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"',
+            True,
+        )
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
@@ -731,7 +809,10 @@ def filter_element(
         raise ValueError(f'Invalid element filtering key "{key}"')
 
     if combination_conditions:
-        return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' OR '.join(combination_conditions)})", params
+        return (
+            f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' OR '.join(combination_conditions)})",
+            params,
+        )
     else:
         # If there are no values to filter by, this either matches nothing (for non-negated operators like "equals"),
         # or everything (for negated operators like "doesn't equal")
@@ -837,7 +918,10 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
         value = f"session_duration_value{prepend}_{idx}"
 
         operator = get_count_operator(prop.operator)
-        return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration {operator} %({value})s", {value: duration})
+        return (
+            f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration {operator} %({value})s",
+            {value: duration},
+        )
 
     else:
         raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")

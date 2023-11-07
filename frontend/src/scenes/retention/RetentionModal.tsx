@@ -47,7 +47,6 @@ export function RetentionModal(): JSX.Element | null {
                                 export_format: ExporterFormat.CSV,
                                 export_context: {
                                     path: row?.people_url,
-                                    max_limit: 10000,
                                 },
                             })
                         }

@@ -26,11 +26,15 @@ class TestParser(BaseTest):
         expr = ast.Placeholder(field="foo")
         with self.assertRaises(HogQLException) as context:
             replace_placeholders(expr, {})
-        self.assertEqual("Placeholders, such as {foo}, are not supported in this context", str(context.exception))
+        self.assertEqual(
+            "Placeholders, such as {foo}, are not supported in this context",
+            str(context.exception),
+        )
         with self.assertRaises(HogQLException) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
         self.assertEqual(
-            "Placeholder {foo} is not available in this context. You can use the following: bar", str(context.exception)
+            "Placeholder {foo} is not available in this context. You can use the following: bar",
+            str(context.exception),
         )
 
     def test_replace_placeholders_comparison(self):
@@ -61,4 +65,7 @@ class TestParser(BaseTest):
         expr = ast.Placeholder(field="foo")
         with self.assertRaises(HogQLException) as context:
             replace_placeholders(expr, None)
-        self.assertEqual("Placeholders, such as {foo}, are not supported in this context", str(context.exception))
+        self.assertEqual(
+            "Placeholders, such as {foo}, are not supported in this context",
+            str(context.exception),
+        )

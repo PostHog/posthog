@@ -9,7 +9,7 @@ import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 import { pluralize } from 'lib/utils'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useEffect } from 'react'
 
 export function InstanceConfigTab(): JSX.Element {
@@ -103,9 +103,13 @@ export function InstanceConfigTab(): JSX.Element {
                     <h3>Instance configuration</h3>
                     <div>
                         Changing these settings will take effect on your entire instance.{' '}
-                        <a href="https://posthog.com/docs/self-host/configure/instance-settings" target="_blank">
-                            Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                        </a>
+                        <Link
+                            to="https://posthog.com/docs/self-host/configure/instance-settings"
+                            target="_blank"
+                            targetBlankIcon
+                        >
+                            Learn more
+                        </Link>
                         .
                     </div>
                 </div>
@@ -157,9 +161,9 @@ export function InstanceConfigTab(): JSX.Element {
                 <h3>Environment configuration</h3>
                 <div>
                     These settings can only be modified by environment variables.{' '}
-                    <a href="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
+                    <Link to="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
                         Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                    </a>
+                    </Link>
                     .
                 </div>
             </div>

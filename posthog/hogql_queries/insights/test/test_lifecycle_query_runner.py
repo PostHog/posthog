@@ -6,7 +6,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models.utils import UUIDT
 from posthog.schema import DateRange, IntervalType, LifecycleQuery, EventsNode
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 
 class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -26,7 +32,11 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="bla",
                 event="random event",
                 team=self.team,
-                properties={"random_prop": "don't include", "random_uuid": random_uuid, "index": index},
+                properties={
+                    "random_prop": "don't include",
+                    "random_uuid": random_uuid,
+                    "index": index,
+                },
             )
         flush_persons_and_events()
         return random_uuid
@@ -39,7 +49,10 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     _create_person(
                         team_id=self.team.pk,
                         distinct_ids=[id],
-                        properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
+                        properties={
+                            "name": id,
+                            **({"email": "test@posthog.com"} if id == "p1" else {}),
+                        },
                     )
                 )
             for timestamp in timestamps:
@@ -69,7 +82,9 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(self, date_from, date_to, interval) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to), interval=interval, series=series
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval=interval,
+            series=series,
         )
         return LifecycleQueryRunner(team=self.team, query=query)
 

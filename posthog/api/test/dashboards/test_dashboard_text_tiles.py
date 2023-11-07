@@ -188,7 +188,11 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 3
-        assert [t["text"]["body"] for t in tiles] == ["io sono testo", "soy texto", "i am text"]
+        assert [t["text"]["body"] for t in tiles] == [
+            "io sono testo",
+            "soy texto",
+            "i am text",
+        ]
 
     def test_do_not_see_deleted_text_tiles_when_adding_new_ones(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

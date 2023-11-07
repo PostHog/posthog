@@ -58,7 +58,10 @@ LOG_RATE_LIMITER = Limiter(
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
-SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+SESSION_RECORDING_EVENT_NAMES = (
+    "$snapshot",
+    "$performance_event",
+) + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -205,7 +208,9 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
             cors_response(
                 request,
                 generate_exception_response(
-                    "capture", f"Malformed request data, invalid sent at: {error}", code="invalid_payload"
+                    "capture",
+                    f"Malformed request data, invalid sent at: {error}",
+                    code="invalid_payload",
                 ),
             ),
         )
@@ -321,7 +326,12 @@ def get_event(request):
             invalid_token_reason = _check_token_shape(token)
         except Exception as e:
             invalid_token_reason = "exception"
-            logger.warning("capture_token_shape_exception", token=token, reason="exception", exception=e)
+            logger.warning(
+                "capture_token_shape_exception",
+                token=token,
+                reason="exception",
+                exception=e,
+            )
 
         if invalid_token_reason:
             TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
@@ -372,7 +382,8 @@ def get_event(request):
 
         except ValueError as e:
             return cors_response(
-                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+                request,
+                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
 
         # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
@@ -383,7 +394,8 @@ def get_event(request):
             processed_events = list(preprocess_events(events))
         except ValueError as e:
             return cors_response(
-                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+                request,
+                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
 
     futures: List[FutureRecordMetadata] = []
@@ -392,7 +404,18 @@ def get_event(request):
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             try:
-                futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+                futures.append(
+                    capture_internal(
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                    )
+                )
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
@@ -453,7 +476,18 @@ def get_event(request):
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
-                    futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+                    futures.append(
+                        capture_internal(
+                            event,
+                            distinct_id,
+                            ip,
+                            site_url,
+                            now,
+                            sent_at,
+                            event_uuid,
+                            token,
+                        )
+                    )
 
                 start_time = time.monotonic()
                 for future in futures:
@@ -572,7 +606,10 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
                 return True
 
             PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key.split(":")[0]).inc()
-            statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
+            statsd.incr(
+                "partition_key_capacity_exceeded",
+                tags={"partition_key": candidate_partition_key},
+            )
             logger.warning(
                 "Partition key %s overridden as bucket capacity of %s tokens exceeded",
                 candidate_partition_key,

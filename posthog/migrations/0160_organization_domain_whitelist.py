@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0159_remove_funnels_with_breakdown"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="organization",
             name="domain_whitelist",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=256), blank=True, default=list, size=None
+                base_field=models.CharField(max_length=256),
+                blank=True,
+                default=list,
+                size=None,
             ),
         ),
     ]

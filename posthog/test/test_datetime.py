@@ -1,6 +1,12 @@
 from datetime import datetime, timezone
 
-from posthog.datetime import start_of_hour, start_of_day, end_of_day, start_of_week, start_of_month
+from posthog.datetime import (
+    start_of_hour,
+    start_of_day,
+    end_of_day,
+    start_of_week,
+    start_of_month,
+)
 
 
 def test_start_of_hour():

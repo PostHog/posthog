@@ -43,7 +43,8 @@ class TrendsActors(ActorBaseQuery):
             self._filter = self._filter.shallow_clone(
                 {
                     "properties": self._filter.property_groups.combine_properties(
-                        PropertyOperatorType.AND, [Property(key="id", value=cohort.pk, type="cohort")]
+                        PropertyOperatorType.AND,
+                        [Property(key="id", value=cohort.pk, type="cohort")],
                     ).to_dict()
                 }
             )
@@ -115,7 +116,10 @@ class TrendsActors(ActorBaseQuery):
             else ""
         )
 
-        actor_value_expression, actor_value_params = self._aggregation_actor_value_expression_with_params
+        (
+            actor_value_expression,
+            actor_value_params,
+        ) = self._aggregation_actor_value_expression_with_params
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
@@ -126,7 +130,12 @@ class TrendsActors(ActorBaseQuery):
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",
             ),
-            {**params, **actor_value_params, "offset": self._filter.offset, "limit": self._filter.limit or 100},
+            {
+                **params,
+                **actor_value_params,
+                "offset": self._filter.offset,
+                "limit": self._filter.limit or 100,
+            },
         )
 
     @cached_property

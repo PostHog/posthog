@@ -155,7 +155,9 @@ def convert_to_datetime_aware(date_obj):
 
 
 def correct_result_for_sampling(
-    value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
+    value: Union[int, float],
+    sampling_factor: Optional[float],
+    entity_math: Optional[str] = None,
 ) -> Union[int, float]:
     from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 

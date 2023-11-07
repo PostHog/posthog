@@ -3,7 +3,11 @@ from typing import Dict, Literal, cast, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.errors import HogQLException, NotImplementedException, SyntaxException
+from posthog.hogql.errors import (
+    HogQLException,
+    NotImplementedException,
+    SyntaxException,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -38,7 +42,10 @@ def translate_hogql(
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
         )
         return print_prepared_ast(
-            prepared_select_query.select[0], context=context, dialect=dialect, stack=[prepared_select_query]
+            prepared_select_query.select[0],
+            context=context,
+            dialect=dialect,
+            stack=[prepared_select_query],
         )
     except (NotImplementedException, SyntaxException):
         raise

@@ -47,7 +47,12 @@ class EventQuery(metaclass=ABCMeta):
     def __init__(
         self,
         filter: Union[
-            Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
+            Filter,
+            PathFilter,
+            RetentionFilter,
+            StickinessFilter,
+            SessionRecordingsFilter,
+            PropertiesTimelineFilter,
         ],
         team: Team,
         round_interval=False,
@@ -68,7 +73,10 @@ class EventQuery(metaclass=ABCMeta):
         self._extra_event_properties = extra_event_properties
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._extra_person_fields = extra_person_fields
-        self.params: Dict[str, Any] = {"team_id": self._team_id, "timezone": team.timezone}
+        self.params: Dict[str, Any] = {
+            "team_id": self._team_id,
+            "timezone": team.timezone,
+        }
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
@@ -183,7 +191,12 @@ class EventQuery(metaclass=ABCMeta):
     def _person_query(self) -> PersonQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs person query")
-        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields)
+        return PersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=self._extra_person_fields,
+        )
 
     def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:
@@ -205,7 +218,11 @@ class EventQuery(metaclass=ABCMeta):
     def _sessions_query(self) -> SessionQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs sessions query")
-        return SessionQuery(filter=self._filter, team=self._team, session_id_alias=self._session_id_alias)
+        return SessionQuery(
+            filter=self._filter,
+            team=self._team,
+            session_id_alias=self._session_id_alias,
+        )
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:

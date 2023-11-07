@@ -1,63 +1,57 @@
-import { Checkbox } from 'antd'
 import { useActions, useValues } from 'kea'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { pluralize } from 'lib/utils'
-import { PluginLogEntry, PluginLogEntryType } from '../../../types'
+import { PluginLogEntryType } from '../../../types'
 import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
     switch (type) {
         case PluginLogEntryType.Debug:
-            color = 'var(--muted)'
+            color = 'text-muted'
             break
         case PluginLogEntryType.Log:
-            color = 'var(--default)'
+            color = 'text-default'
             break
         case PluginLogEntryType.Info:
-            color = 'var(--blue)'
+            color = 'text-primary'
             break
         case PluginLogEntryType.Warn:
-            color = 'var(--warning)'
+            color = 'text-warning'
             break
         case PluginLogEntryType.Error:
-            color = 'var(--danger)'
+            color = 'text-danger'
             break
         default:
             break
     }
-    return <span style={{ color }}>{type}</span>
+    return <span className={color}>{type}</span>
 }
 
-const columns: ResizableColumnType<PluginLogEntry>[] = [
+const columns: LemonTableColumns<Record<string, any>> = [
     {
         title: 'Timestamp',
         key: 'timestamp',
         dataIndex: 'timestamp',
-        span: 3,
         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
     },
     {
         title: 'Source',
-        key: 'source',
         dataIndex: 'source',
-        span: 1,
-    } as ResizableColumnType<PluginLogEntry>,
+        key: 'source',
+    },
     {
         title: 'Type',
         key: 'type',
         dataIndex: 'type',
-        span: 1,
         render: PluginLogEntryTypeDisplay,
-    } as ResizableColumnType<PluginLogEntry>,
+    },
     {
         title: 'Message',
         key: 'message',
         dataIndex: 'message',
-        span: 6,
-    } as ResizableColumnType<PluginLogEntry>,
+    },
 ]
 
 export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
@@ -75,14 +69,23 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                 onChange={setSearchTerm}
                 allowClear
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                <Checkbox.Group
-                    options={Object.values(PluginLogEntryType)}
-                    value={pluginLogsTypes}
-                    onChange={setPluginLogsTypes}
-                    style={{ marginLeft: '8px' }}
-                />
+                {Object.values(PluginLogEntryType).map((type) => {
+                    return (
+                        <LemonCheckbox
+                            key={type}
+                            label={type}
+                            checked={pluginLogsTypes.includes(type)}
+                            onChange={(checked) => {
+                                const newPluginLogsTypes = checked
+                                    ? [...pluginLogsTypes, type]
+                                    : pluginLogsTypes.filter((t) => t != type)
+                                setPluginLogsTypes(newPluginLogsTypes)
+                            }}
+                        />
+                    )
+                })}
             </div>
             <LemonButton
                 onClick={revealBackground}
@@ -96,14 +99,14 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                     ? `Load ${pluralize(pluginLogsBackground.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
-            <ResizableTable
+
+            <LemonTable
                 dataSource={pluginLogs}
                 columns={columns}
                 loading={pluginLogsLoading}
                 size="small"
                 className="ph-no-capture"
                 rowKey="id"
-                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!pluginLogs.length && (

@@ -13,7 +13,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
-    const { toggleFieldModal, selectTable } = useActions(viewLinkLogic)
+    const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -33,7 +33,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                                             className="mt-2"
                                             type="primary"
                                             onClick={() => {
-                                                selectTable(row)
+                                                selectTableName(row.name)
                                                 toggleFieldModal()
                                             }}
                                         >

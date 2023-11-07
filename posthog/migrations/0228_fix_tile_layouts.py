@@ -42,7 +42,6 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0227_add_dashboard_tiles"),
     ]

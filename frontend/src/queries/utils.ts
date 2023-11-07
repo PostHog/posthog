@@ -1,37 +1,36 @@
 import {
     ActionsNode,
+    DatabaseSchemaQuery,
     DataTableNode,
     DateRange,
     EventsNode,
     EventsQuery,
-    HogQLQuery,
-    TrendsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
+    HogQLMetadata,
+    HogQLQuery,
     InsightFilter,
     InsightFilterProperty,
+    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleQuery,
     Node,
     NodeKind,
+    PathsQuery,
     PersonsNode,
+    PersonsQuery,
+    RetentionQuery,
+    SavedInsightNode,
+    StickinessQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
-    InsightNodeKind,
     TimeToSeeDataWaterfallNode,
-    TimeToSeeDataJSONNode,
-    DatabaseSchemaQuery,
-    SavedInsightNode,
-    WebTopSourcesQuery,
+    TrendsQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
-    WebOverviewStatsQuery,
-    PersonsQuery,
-    HogQLMetadata,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -113,20 +112,16 @@ export function isHogQLMetadata(node?: Node | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isWebOverviewStatsQuery(node?: Node | null): node is WebOverviewStatsQuery {
-    return node?.kind === NodeKind.WebOverviewStatsQuery
+export function isWebOverviewQuery(node?: Node | null): node is WebOverviewQuery {
+    return node?.kind === NodeKind.WebOverviewQuery
 }
 
-export function isWebTopSourcesQuery(node?: Node | null): node is WebTopSourcesQuery {
-    return node?.kind === NodeKind.WebTopSourcesQuery
+export function isWebStatsTableQuery(node?: Node | null): node is WebStatsTableQuery {
+    return node?.kind === NodeKind.WebStatsTableQuery
 }
 
 export function isWebTopClicksQuery(node?: Node | null): node is WebTopClicksQuery {
     return node?.kind === NodeKind.WebTopClicksQuery
-}
-
-export function isWebTopPagesQuery(node?: Node | null): node is WebTopPagesQuery {
-    return node?.kind === NodeKind.WebTopPagesQuery
 }
 
 export function containsHogQLQuery(node?: Node | null): boolean {
@@ -237,7 +232,7 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
     return undefined
 }
 
-const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
+export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -246,7 +241,7 @@ const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> =
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-export function filterPropertyForQuery(node: InsightQueryNode): InsightFilterProperty {
+export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {
     return nodeKindToFilterProperty[node.kind]
 }
 

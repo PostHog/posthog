@@ -8,6 +8,7 @@ import {
     LemonTag,
     LemonTagType,
     Spinner,
+    LemonButtonWithSideAction,
 } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -26,7 +27,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { userLogic } from 'scenes/userLogic'
 import { dayjs } from 'lib/dayjs'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { openSurveysSettingsDialog } from './SurveySettings'
@@ -50,17 +50,15 @@ export function Surveys(): JSX.Element {
         surveysLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
-        usingSurveysSiteApp,
         searchTerm,
         filters,
         uniqueCreators,
+        showSurveysDisabledBanner,
     } = useValues(surveysLogic)
 
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const surveysPopupDisabled = currentTeam && !currentTeam?.surveys_opt_in
 
     const [tab, setSurveyTab] = useState(SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
@@ -68,26 +66,28 @@ export function Surveys(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Surveys
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
+                title="Surveys"
                 buttons={
                     <>
-                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-survey">
-                            New survey
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconSettings />}
-                            onClick={() => openSurveysSettingsDialog()}
+                        <LemonButtonWithSideAction
+                            to={urls.surveyTemplates()}
+                            type="primary"
+                            data-attr="new-survey"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-start',
+                                    actionable: true,
+                                    overlay: (
+                                        <LemonButton size="small" to={urls.survey('new')}>
+                                            Create blank survey
+                                        </LemonButton>
+                                    ),
+                                },
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
                         >
-                            Configure
-                        </LemonButton>
+                            New survey
+                        </LemonButtonWithSideAction>
                     </>
                 }
                 caption={
@@ -119,7 +119,7 @@ export function Surveys(): JSX.Element {
             <div className="space-y-2">
                 <VersionCheckerBanner />
 
-                {surveysPopupDisabled ? (
+                {showSurveysDisabledBanner ? (
                     <LemonBanner
                         type="warning"
                         action={{
@@ -130,9 +130,8 @@ export function Surveys(): JSX.Element {
                         }}
                         className="mb-2"
                     >
-                        {usingSurveysSiteApp
-                            ? 'Survey site apps are now deprecated. Configure and enable surveys popup in the settings here to move to the new system.'
-                            : 'Survey popups are currently disabled for this project.'}
+                        Survey popovers are currently disabled for this project but there are active surveys running.
+                        Re-enable them in the settings.
                     </LemonBanner>
                 ) : null}
             </div>
@@ -145,7 +144,7 @@ export function Surveys(): JSX.Element {
                         description={
                             'Use surveys to gather qualitative feedback from your users on new or existing features.'
                         }
-                        action={() => router.actions.push(urls.survey('new'))}
+                        action={() => router.actions.push(urls.surveyTemplates())}
                         isEmpty={surveys.length === 0}
                         productKey={ProductKey.SURVEYS}
                     />
@@ -292,14 +291,14 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: {
                                                                             end_date: dayjs().toISOString(),
                                                                         },
                                                                     })
-                                                                }
+                                                                }}
                                                             >
                                                                 Stop survey
                                                             </LemonButton>
@@ -308,12 +307,12 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="stealth"
                                                                 fullWidth
-                                                                onClick={() =>
+                                                                onClick={() => {
                                                                     updateSurvey({
                                                                         id: survey.id,
                                                                         updatePayload: { end_date: null },
                                                                     })
-                                                                }
+                                                                }}
                                                             >
                                                                 Resume survey
                                                             </LemonButton>

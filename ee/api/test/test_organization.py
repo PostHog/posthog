@@ -19,7 +19,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertEqual(Organization.objects.count(), 2)
         response_data = response.json()
         self.assertEqual(response_data.get("name"), "Test")
-        self.assertEqual(OrganizationMembership.objects.filter(organization_id=response_data.get("id")).count(), 1)
+        self.assertEqual(
+            OrganizationMembership.objects.filter(organization_id=response_data.get("id")).count(),
+            1,
+        )
         self.assertEqual(
             OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level,
             OrganizationMembership.Level.OWNER,
@@ -28,7 +31,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     def test_create_two_similarly_named_organizations(self):
         random.seed(0)
 
-        response = self.client.post("/api/organizations/", {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"})
+        response = self.client.post(
+            "/api/organizations/",
+            {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertDictContainsSubset(
             {
@@ -39,7 +45,8 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
         response = self.client.post(
-            "/api/organizations/", {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"}
+            "/api/organizations/",
+            {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertDictContainsSubset(
@@ -81,13 +88,21 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
         response = self.client.delete(f"/api/organizations/{org_id}")
 
-        self.assertEqual(response.status_code, 204, "Did not successfully delete last organization on the instance")
+        self.assertEqual(
+            response.status_code,
+            204,
+            "Did not successfully delete last organization on the instance",
+        )
         self.assertFalse(Organization.objects.filter(id=org_id).exists())
         self.assertFalse(Organization.objects.exists())
 
         response_bis = self.client.delete(f"/api/organizations/{org_id}")
 
-        self.assertEqual(response_bis.status_code, 404, "Did not return a 404 on trying to delete a nonexistent org")
+        self.assertEqual(
+            response_bis.status_code,
+            404,
+            "Did not return a 404 on trying to delete a nonexistent org",
+        )
 
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
@@ -97,7 +112,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
 
     def test_no_delete_organization_not_owning(self):
-        for level in (OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN):
+        for level in (
+            OrganizationMembership.Level.MEMBER,
+            OrganizationMembership.Level.ADMIN,
+        ):
             self.organization_membership.level = level
             self.organization_membership.save()
             response = self.client.delete(f"/api/organizations/{self.organization.id}")
@@ -126,7 +144,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
         potential_err_message = f"Somehow did not delete the org as the owner"
         self.assertEqual(response.status_code, 204, potential_err_message)
-        self.assertFalse(Organization.objects.filter(id=self.organization.id).exists(), potential_err_message)
+        self.assertFalse(
+            Organization.objects.filter(id=self.organization.id).exists(),
+            potential_err_message,
+        )
         self.assertFalse(OrganizationMembership.objects.filter(id__in=membership_ids).exists())
         self.assertTrue(User.objects.filter(id=self.user.pk).exists())
 
@@ -139,11 +160,19 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             potential_err_message = f"Somehow managed to delete someone else's org as a level {level} in own org"
             self.assertEqual(
                 response.json(),
-                {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
+                {
+                    "attr": None,
+                    "detail": "Not found.",
+                    "code": "not_found",
+                    "type": "invalid_request",
+                },
                 potential_err_message,
             )
             self.assertEqual(response.status_code, 404, potential_err_message)
-            self.assertTrue(Organization.objects.filter(id=organization.id).exists(), potential_err_message)
+            self.assertTrue(
+                Organization.objects.filter(id=organization.id).exists(),
+                potential_err_message,
+            )
 
     def test_update_org(self):
         for level in OrganizationMembership.Level:
@@ -151,7 +180,8 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization_membership.save()
             response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "Woof"})
             response_email = self.client.patch(
-                f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
+                f"/api/organizations/{self.organization.id}",
+                {"is_member_join_email_enabled": False},
             )
             self.organization.refresh_from_db()
 
@@ -183,7 +213,12 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             potential_err_message = f"Somehow managed to update someone else's org as a level {level} in own org"
             self.assertEqual(
                 response.json(),
-                {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
+                {
+                    "attr": None,
+                    "detail": "Not found.",
+                    "code": "not_found",
+                    "type": "invalid_request",
+                },
                 potential_err_message,
             )
             self.assertEqual(response.status_code, 404, potential_err_message)
@@ -194,7 +229,11 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         current_plans = License.PLANS
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
         with self.is_cloud(False):
-            License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
+            License.objects.create(
+                key="key",
+                plan="enterprise",
+                valid_until=dt.datetime.now() + dt.timedelta(days=1),
+            )
 
             # Still only old, empty available_features field value known
             self.assertFalse(self.organization.is_feature_available("whatever"))

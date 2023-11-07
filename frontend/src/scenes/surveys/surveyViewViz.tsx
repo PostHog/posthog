@@ -5,13 +5,17 @@ import {
     QuestionResultsReady,
     SurveySingleChoiceResults,
     SurveyMultipleChoiceResults,
+    SurveyOpenTextResults,
     SurveyUserStats,
 } from './surveyLogic'
 import { useActions, useValues, BindLogic } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { GraphType } from '~/types'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
 import { useEffect } from 'react'
@@ -60,7 +64,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
     return (
         <>
             {total > 0 && (
-                <div className="mb-6">
+                <div className="mb-8">
                     <div className="w-full mx-auto h-10 mb-4">
                         {[
                             {
@@ -98,6 +102,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                             >
                                 <div
                                     className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={style}
                                 >
                                     <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
@@ -113,15 +118,19 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                 { count: seen, label: 'Viewed', style: { backgroundColor: '#1D4AFF' } },
                                 { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
                                 { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
-                            ].map(({ count, label, style }) => (
-                                <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                    <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                    <span className="font-semibold text-muted-alt">{`${label} (${(
-                                        (count / total) *
-                                        100
-                                    ).toFixed(1)}%)`}</span>
-                                </div>
-                            ))}
+                            ].map(
+                                ({ count, label, style }) =>
+                                    count > 0 && (
+                                        <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
+                                            {/* eslint-disable-next-line react/forbid-dom-props */}
+                                            <div className="w-3 h-3 rounded-full mr-2" style={style} />
+                                            <span className="font-semibold text-muted-alt">{`${label} (${(
+                                                (count / total) *
+                                                100
+                                            ).toFixed(1)}%)`}</span>
+                                        </div>
+                                    )
+                            )}
                         </div>
                     </div>
                 </div>
@@ -181,19 +190,20 @@ export function RatingQuestionBarChart({
         <div className="mb-4">
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyRatingResults[questionIndex].total ? (
+            ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`1-${question.scale} rating`}</div>
+                    <div className="font-semibold text-muted-alt">{`${
+                        question.scale === 10 ? '0 - 10' : '1 - 5'
+                    } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
-                    <div className=" h-50 border rounded pt-6 pb-2 px-2">
+                    <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
                                     inSurveyView={true}
                                     hideYAxis={true}
-                                    hideXAxis={true}
                                     showValueOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
@@ -216,9 +226,11 @@ export function RatingQuestionBarChart({
                                             hoverBackgroundColor: barColor,
                                         },
                                     ]}
-                                    labels={Array.from({ length: question.scale }, (_, i) => (i + 1).toString()).map(
-                                        (n) => n
-                                    )}
+                                    labels={
+                                        question.scale === 10
+                                            ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+                                            : ['1', '2', '3', '4', '5']
+                                    }
                                 />
                             </BindLogic>
                         </div>
@@ -277,7 +289,7 @@ export function SingleChoiceQuestionPieChart({
         <div className="mb-4">
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveySingleChoiceResults[questionIndex].data.length ? (
+            ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -335,9 +347,10 @@ export function SingleChoiceQuestionPieChart({
                                     >
                                         <div
                                             className="w-3 h-3 rounded-full mr-2"
+                                            // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-30 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
                                         <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
                                     </div>
@@ -377,7 +390,7 @@ export function MultipleChoiceQuestionBarChart({
         <div className="mb-4">
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : !surveyMultipleChoiceResults[questionIndex].data.length ? (
+            ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
@@ -417,6 +430,75 @@ export function MultipleChoiceQuestionBarChart({
                         </BindLogic>
                     </div>
                 </div>
+            )}
+        </div>
+    )
+}
+
+export function OpenTextViz({
+    questionIndex,
+    surveyOpenTextResults,
+    surveyOpenTextResultsReady,
+}: {
+    questionIndex: number
+    surveyOpenTextResults: SurveyOpenTextResults
+    surveyOpenTextResultsReady: QuestionResultsReady
+}): JSX.Element {
+    const { loadSurveyOpenTextResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
+
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.Open) {
+        throw new Error(`Question type must be ${SurveyQuestionType.Open}`)
+    }
+
+    useEffect(() => {
+        loadSurveyOpenTextResults({ questionIndex })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveyOpenTextResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
+                <></>
+            ) : (
+                <>
+                    <Tooltip title="See all Open Text responses in the Events table at the bottom.">
+                        <div className="inline-flex gap-1">
+                            <div className="font-semibold text-muted-alt">Open text</div>
+                            <LemonDivider vertical className="my-1 mx-1" />
+                            <div className="font-semibold text-muted-alt">random selection</div>
+                            <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                        </div>
+                    </Tooltip>
+                    <div className="text-xl font-bold mb-4">{question.question}</div>
+                    <div className="mt-4 mb-8 masonry-container">
+                        {surveyOpenTextResults[questionIndex].events.map((event, i) => {
+                            const personProp = {
+                                distinct_id: event.distinct_id,
+                                properties: event.personProperties,
+                            }
+
+                            return (
+                                <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
+                                    <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
+                                        {event.properties[surveyResponseField]}
+                                    </div>
+                                    <div className="masonry-item-link items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                        <PersonDisplay
+                                            person={personProp}
+                                            withIcon={true}
+                                            noEllipsis={false}
+                                            isCentered
+                                        />
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </>
             )}
         </div>
     )

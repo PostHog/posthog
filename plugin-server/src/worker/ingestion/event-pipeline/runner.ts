@@ -1,4 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
@@ -7,7 +7,6 @@ import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
-import { stringToBoolean } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -16,10 +15,6 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 
-export const silentFailuresAsyncHandlers = new Counter({
-    name: 'async_handlers_silent_failure',
-    help: 'Number silent failures from async handlers.',
-})
 const pipelineStepCompletionCounter = new Counter({
     name: 'events_pipeline_step_executed_total',
     help: 'Number of events that have completed the step',
@@ -58,24 +53,25 @@ class StepErrorNoRetry extends Error {
     }
 }
 
+export async function runEventPipeline(hub: Hub, event: PipelineEvent): Promise<EventPipelineResult> {
+    const runner = new EventPipelineRunner(hub, event)
+    return runner.runEventPipeline(event)
+}
+
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PipelineEvent | ProcessedPluginEvent
+    originalEvent: PipelineEvent
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
-    private delayAcks: boolean
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
+    constructor(hub: Hub, event: PipelineEvent, poEEmbraceJoin = false) {
         this.hub = hub
-        this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
-
-        // TODO: remove after successful rollout
-        this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
+        this.originalEvent = event
     }
 
-    isEventBlacklisted(event: PipelineEvent): boolean {
+    isEventDisallowed(event: PipelineEvent): boolean {
         // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
         // to drop events here before processing them which would allow us to catch up
         const key = event.token || event.team_id?.toString()
@@ -87,17 +83,18 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.originalEvent = event
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
-            if (this.isEventBlacklisted(event)) {
+            if (this.isEventDisallowed(event)) {
                 eventDroppedCounter
                     .labels({
                         event_type: 'analytics',
-                        drop_cause: 'blacklisted',
+                        drop_cause: 'disallowed',
                     })
                     .inc()
-                return this.registerLastStep('eventBlacklistingStep', null, [event])
+                return this.registerLastStep('eventDisallowedStep', null, [event])
             }
             let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
@@ -147,12 +144,8 @@ export class EventPipelineRunner {
             [this, preparedEvent, person],
             event.team_id
         )
-        if (this.delayAcks) {
-            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
-        } else {
-            await eventAck
-            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
-        }
+
+        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
     }
 
     registerLastStep(
@@ -211,7 +204,7 @@ export class EventPipelineRunner {
             // for a reason that we control and that is transient.
             return true
         }
-        // TODO: Blacklist via env of errors we're going to put into DLQ instead of taking Kafka lag
+        // TODO: Disallow via env of errors we're going to put into DLQ instead of taking Kafka lag
         return false
     }
 

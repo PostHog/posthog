@@ -1,11 +1,12 @@
 import './SurveyAppearance.scss'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
     RatingSurveyQuestion,
     SurveyQuestionType,
     MultipleSurveyQuestion,
+    AvailableFeature,
 } from '~/types'
 import { defaultSurveyAppearance } from './constants'
 import {
@@ -21,20 +22,32 @@ import {
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import React, { useEffect, useRef, useState } from 'react'
 import { sanitize } from 'dompurify'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
+    surveyQuestionItem: SurveyQuestion
     description?: string | null
     link?: string | null
-    readOnly?: boolean
+    preview?: boolean
+}
+
+interface CustomizationProps {
+    appearance: SurveyAppearanceType
+    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion | MultipleSurveyQuestion
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
+}
+
+interface ButtonProps {
+    link?: string | null
+    type?: SurveyQuestionType
+    onSubmit: () => void
+    appearance: SurveyAppearanceType
+    children: React.ReactNode
 }
 
 const Button = ({
@@ -43,13 +56,8 @@ const Button = ({
     onSubmit,
     appearance,
     children,
-}: {
-    link?: string | null
-    type?: SurveyQuestionType
-    onSubmit: () => void
-    appearance: SurveyAppearanceType
-    children: React.ReactNode
-}): JSX.Element => {
+    ...other
+}: ButtonProps & React.HTMLProps<HTMLButtonElement>): JSX.Element => {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
 
@@ -70,6 +78,7 @@ const Button = ({
                 onSubmit()
             }}
             style={{ color: textColor, backgroundColor: appearance.submitButtonColor }}
+            {...other}
         >
             {children || 'Submit'}
         </button>
@@ -83,155 +92,154 @@ export function SurveyAppearance({
     surveyQuestionItem,
     description,
     link,
-    readOnly,
-    onAppearanceChange,
+    preview,
 }: SurveyAppearanceProps): JSX.Element {
-    const { whitelabelAvailable } = useValues(surveysLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [showThankYou, setShowThankYou] = useState(false)
-    const [hideSubmittedSurvey, setHideSubmittedSurvey] = useState(false)
-
-    useEffect(() => {
-        if (appearance.displayThankYouMessage && showThankYou) {
-            setHideSubmittedSurvey(true)
-        } else {
-            setHideSubmittedSurvey(false)
-        }
-    }, [showThankYou])
-
     return (
         <div data-attr="survey-preview">
-            <h3 className="mb-4 text-center">Preview</h3>
-            {!hideSubmittedSurvey && (
-                <>
-                    {type === SurveyQuestionType.Rating && (
-                        <SurveyRatingAppearance
-                            ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
-                            appearance={appearance}
-                            question={question}
-                            description={description}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                    {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
-                        surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
-                        <SurveyMultipleChoiceAppearance
-                            multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
-                            appearance={appearance}
-                            question={question}
-                            description={description}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                    {(surveyQuestionItem.type === SurveyQuestionType.Open ||
-                        surveyQuestionItem.type === SurveyQuestionType.Link) && (
-                        <BaseAppearance
-                            type={type}
-                            question={question}
-                            description={description}
-                            appearance={appearance}
-                            link={link}
-                            onSubmit={() => appearance.displayThankYouMessage && setShowThankYou(true)}
-                        />
-                    )}
-                </>
+            {type === SurveyQuestionType.Rating && (
+                <SurveyRatingAppearance
+                    preview={preview}
+                    ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
+                    appearance={appearance}
+                    question={question}
+                    description={description}
+                    onSubmit={() => undefined}
+                />
             )}
-            {showThankYou && <SurveyThankYou appearance={appearance} setShowThankYou={setShowThankYou} />}
-            {!readOnly && (
-                <div className="flex flex-col">
-                    <div className="mt-2">Background color</div>
-                    <LemonInput
-                        value={appearance?.backgroundColor}
-                        onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
-                    />
-                    <div className="mt-2">Border color</div>
-                    <LemonInput
-                        value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
-                        onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
-                    />
-                    {featureFlags[FEATURE_FLAGS.SURVEYS_POSITIONS] && (
-                        <>
-                            <div className="mt-2">Position</div>
-                            <div className="flex gap-1">
-                                {['left', 'center', 'right'].map((position) => {
-                                    return (
-                                        <LemonButton
-                                            key={position}
-                                            type="tertiary"
-                                            onClick={() => onAppearanceChange({ ...appearance, position })}
-                                            active={appearance.position === position}
-                                        >
-                                            {position}
-                                        </LemonButton>
-                                    )
-                                })}
-                            </div>
-                        </>
-                    )}
-                    {surveyQuestionItem.type === SurveyQuestionType.Rating && (
-                        <>
-                            <div className="mt-2">Rating button color</div>
-                            <LemonInput
-                                value={appearance?.ratingButtonColor}
-                                onChange={(ratingButtonColor) =>
-                                    onAppearanceChange({ ...appearance, ratingButtonColor })
-                                }
-                            />
-                            <div className="mt-2">Rating button active color</div>
-                            <LemonInput
-                                value={appearance?.ratingButtonActiveColor}
-                                onChange={(ratingButtonActiveColor) =>
-                                    onAppearanceChange({ ...appearance, ratingButtonActiveColor })
-                                }
-                            />
-                        </>
-                    )}
-                    <div className="mt-2">Button color</div>
-                    <LemonInput
-                        value={appearance?.submitButtonColor}
-                        onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-                    />
-                    <div className="mt-2">Button text</div>
-                    <LemonInput
-                        value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
-                        onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
-                    />
-                    {surveyQuestionItem.type === SurveyQuestionType.Open && (
-                        <>
-                            <div className="mt-2">Placeholder</div>
-                            <LemonInput
-                                value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
-                                onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
-                            />
-                        </>
-                    )}
-                    <div className="mt-2">
-                        <LemonCheckbox
-                            label={
-                                <div className="flex items-center">
-                                    <span>Hide PostHog branding</span>
-                                </div>
-                            }
-                            onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
-                            disabledReason={
-                                !whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null
-                            }
-                        />
-                    </div>
-                </div>
+            {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
+                surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
+                <SurveyMultipleChoiceAppearance
+                    preview={preview}
+                    multipleChoiceQuestion={surveyQuestionItem as MultipleSurveyQuestion}
+                    appearance={appearance}
+                    question={question}
+                    description={description}
+                    onSubmit={() => undefined}
+                />
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.Open ||
+                surveyQuestionItem.type === SurveyQuestionType.Link) && (
+                <BaseAppearance
+                    preview={preview}
+                    type={type}
+                    question={question}
+                    description={description}
+                    appearance={appearance}
+                    link={link}
+                    onSubmit={() => undefined}
+                />
             )}
         </div>
     )
 }
 
+export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
+    const { whitelabelAvailable, surveysStylingAvailable } = useValues(surveysLogic)
+
+    return (
+        <div className="flex flex-col">
+            {!surveysStylingAvailable && (
+                <PayGateMini feature={AvailableFeature.SURVEYS_STYLING}>
+                    <></>
+                </PayGateMini>
+            )}
+            <div className="mt-2">Button text</div>
+            <LemonInput
+                value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
+            />
+            <div className="mt-2">Background color</div>
+            <LemonInput
+                value={appearance?.backgroundColor}
+                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                disabled={!surveysStylingAvailable}
+            />
+            <div className="mt-2">Border color</div>
+            <LemonInput
+                value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
+                onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
+                disabled={!surveysStylingAvailable}
+            />
+            <>
+                <div className="mt-2">Position</div>
+                <div className="flex gap-1">
+                    {['left', 'center', 'right'].map((position) => {
+                        return (
+                            <LemonButton
+                                key={position}
+                                type="tertiary"
+                                onClick={() => onAppearanceChange({ ...appearance, position })}
+                                active={appearance.position === position}
+                                disabledReason={
+                                    surveysStylingAvailable
+                                        ? null
+                                        : 'Subscribe to surveys to customize survey position.'
+                                }
+                            >
+                                {position}
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+            </>
+            {surveyQuestionItem.type === SurveyQuestionType.Rating && (
+                <>
+                    <div className="mt-2">Rating button color</div>
+                    <LemonInput
+                        value={appearance?.ratingButtonColor}
+                        onChange={(ratingButtonColor) => onAppearanceChange({ ...appearance, ratingButtonColor })}
+                        disabled={!surveysStylingAvailable}
+                    />
+                    <div className="mt-2">Rating button active color</div>
+                    <LemonInput
+                        value={appearance?.ratingButtonActiveColor}
+                        onChange={(ratingButtonActiveColor) =>
+                            onAppearanceChange({ ...appearance, ratingButtonActiveColor })
+                        }
+                        disabled={!surveysStylingAvailable}
+                    />
+                </>
+            )}
+            <div className="mt-2">Button color</div>
+            <LemonInput
+                value={appearance?.submitButtonColor}
+                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                disabled={!surveysStylingAvailable}
+            />
+            {surveyQuestionItem.type === SurveyQuestionType.Open && (
+                <>
+                    <div className="mt-2">Placeholder</div>
+                    <LemonInput
+                        value={appearance?.placeholder || defaultSurveyAppearance.placeholder}
+                        onChange={(placeholder) => onAppearanceChange({ ...appearance, placeholder })}
+                        disabled={!surveysStylingAvailable}
+                    />
+                </>
+            )}
+            <div className="mt-2">
+                <LemonCheckbox
+                    label={
+                        <div className="flex items-center">
+                            <span>Hide PostHog branding</span>
+                        </div>
+                    }
+                    onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
+                />
+            </div>
+        </div>
+    )
+}
+
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({
+export function BaseAppearance({
     type,
     question,
     appearance,
     onSubmit,
     description,
     link,
+    preview,
 }: {
     type: SurveyQuestionType
     question: string
@@ -239,6 +247,7 @@ function BaseAppearance({
     onSubmit: () => void
     description?: string | null
     link?: string | null
+    preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -261,16 +270,20 @@ function BaseAppearance({
             }}
         >
             <div className="survey-box">
-                <div
-                    style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
-                    className="cancel-btn-wrapper"
-                >
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
+                {!preview && (
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question">{question}</div>
+                    <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
                     {/* Using dangerouslySetInnerHTML is safe here, because it's taking the user's input and showing it to the same user.
                     They can try passing in arbitrary scripts, but it would show up only for them, so it's like trying to XSS yourself, where
                     you already have all the data. Furthermore, sanitization should catch all obvious attempts */}
@@ -279,6 +292,7 @@ function BaseAppearance({
                     )}
                     {type === SurveyQuestionType.Open && (
                         <textarea
+                            {...(preview ? { tabIndex: -1 } : null)}
                             style={{
                                 border: `1px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                             }}
@@ -289,16 +303,24 @@ function BaseAppearance({
                         />
                     )}
                 </div>
+
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button appearance={appearance} link={link} onSubmit={onSubmit} type={type}>
+                        <Button
+                            {...(preview ? { tabIndex: -1 } : null)}
+                            appearance={appearance}
+                            link={link}
+                            onSubmit={onSubmit}
+                            type={type}
+                        >
                             {appearance.submitButtonText}
                         </Button>
                     </div>
-                    {!appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+
+                    {!preview && !appearance.whiteLabel && (
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -311,11 +333,13 @@ const RatingButton = ({
     active,
     appearance,
     setActiveNumber,
+    preview,
 }: {
     num: number
     active: boolean
     appearance: SurveyAppearanceType
     setActiveNumber: (num: number) => void
+    preview?: boolean
 }): JSX.Element => {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -329,6 +353,7 @@ const RatingButton = ({
 
     return (
         <button
+            {...(preview ? { tabIndex: -1 } : null)}
             ref={ref}
             className="ratings-number"
             type="button"
@@ -347,31 +372,38 @@ const RatingButton = ({
 const NumberRating = ({
     appearance,
     ratingSurveyQuestion,
+    preview,
 }: {
     appearance: SurveyAppearanceType
     ratingSurveyQuestion: RatingSurveyQuestion
+    preview?: boolean
 }): JSX.Element => {
     const [activeNumber, setActiveNumber] = useState<number | undefined>()
+
+    const totalNumbers = ratingSurveyQuestion.scale === 10 ? 11 : ratingSurveyQuestion.scale
     return (
         <div
             style={{
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
-                gridTemplateColumns: `repeat(${ratingSurveyQuestion.scale}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${totalNumbers}, minmax(0, 1fr))`,
             }}
             className={`rating-options-buttons ${ratingSurveyQuestion.scale === 5 ? '' : 'max-numbers'}`}
         >
-            {(ratingSurveyQuestion.scale === 5 ? [1, 2, 3, 4, 5] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).map((num, idx) => {
-                const active = activeNumber === num
-                return (
-                    <RatingButton
-                        key={idx}
-                        active={active}
-                        appearance={appearance}
-                        num={num}
-                        setActiveNumber={setActiveNumber}
-                    />
-                )
-            })}
+            {(ratingSurveyQuestion.scale === 10 ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [1, 2, 3, 4, 5]).map(
+                (num, idx) => {
+                    const active = activeNumber === num
+                    return (
+                        <RatingButton
+                            preview={preview}
+                            key={idx}
+                            active={active}
+                            appearance={appearance}
+                            num={num}
+                            setActiveNumber={setActiveNumber}
+                        />
+                    )
+                }
+            )}
         </div>
     )
 }
@@ -379,9 +411,11 @@ const NumberRating = ({
 const EmojiRating = ({
     ratingSurveyQuestion,
     appearance,
+    preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
+    preview?: boolean
 }): JSX.Element => {
     const [activeIndex, setActiveIndex] = useState<number | undefined>()
     const threeEmojis = [dissatisfiedEmoji, neutralEmoji, satisfiedEmoji]
@@ -393,6 +427,7 @@ const EmojiRating = ({
                 const active = idx === activeIndex
                 return (
                     <button
+                        {...(preview ? { tabIndex: -1 } : null)}
                         className="ratings-emoji"
                         type="button"
                         key={idx}
@@ -407,18 +442,20 @@ const EmojiRating = ({
     )
 }
 
-function SurveyRatingAppearance({
+export function SurveyRatingAppearance({
     ratingSurveyQuestion,
     appearance,
     question,
     onSubmit,
     description,
+    preview,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
     onSubmit: () => void
     description?: string | null
+    preview?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -441,39 +478,59 @@ function SurveyRatingAppearance({
             }}
         >
             <div className="survey-box">
-                <div
-                    style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
-                    className="cancel-btn-wrapper"
-                >
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                {!preview && (
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="rating-section">
                     <div className="rating-options">
                         {ratingSurveyQuestion.display === 'emoji' && (
-                            <EmojiRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
+                            <EmojiRating
+                                preview={preview}
+                                appearance={appearance}
+                                ratingSurveyQuestion={ratingSurveyQuestion}
+                            />
                         )}
                         {ratingSurveyQuestion.display === 'number' && (
-                            <NumberRating appearance={appearance} ratingSurveyQuestion={ratingSurveyQuestion} />
+                            <NumberRating
+                                preview={preview}
+                                appearance={appearance}
+                                ratingSurveyQuestion={ratingSurveyQuestion}
+                            />
                         )}
                     </div>
                     <div className="rating-text">
                         <div>{ratingSurveyQuestion.lowerBoundLabel}</div>
                         <div>{ratingSurveyQuestion.upperBoundLabel}</div>
                     </div>
+
                     <div className="bottom-section">
                         <div className="buttons">
-                            <Button appearance={appearance} onSubmit={onSubmit}>
+                            <Button
+                                {...(preview ? { tabIndex: -1 } : null)}
+                                appearance={appearance}
+                                onSubmit={onSubmit}
+                            >
                                 {appearance.submitButtonText}
                             </Button>
                         </div>
-                        {!appearance.whiteLabel && (
-                            <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+
+                        {!preview && !appearance.whiteLabel && (
+                            <Link to="https://posthog.com" target="_blank" className="footer-branding">
                                 Survey by {posthogLogoSVG}
-                            </a>
+                            </Link>
                         )}
                     </div>
                 </div>
@@ -482,18 +539,22 @@ function SurveyRatingAppearance({
     )
 }
 
-function SurveyMultipleChoiceAppearance({
+export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
     question,
     onSubmit,
     description,
+    preview,
+    initialChecked,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
     onSubmit: () => void
     description?: string | null
+    preview?: boolean
+    initialChecked?: number[]
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -517,35 +578,47 @@ function SurveyMultipleChoiceAppearance({
             }}
         >
             <div className="survey-box">
-                <div
-                    style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
-                    className="cancel-btn-wrapper"
-                >
-                    <button className="form-cancel" type="button">
-                        {cancel}
-                    </button>
-                </div>
-                <div className="survey-question">{question}</div>
-                {description && <div className="description">{description}</div>}
+                {!preview && (
+                    <div
+                        style={{
+                            border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                        }}
+                        className="cancel-btn-wrapper"
+                    >
+                        <button className="form-cancel" type="button">
+                            {cancel}
+                        </button>
+                    </div>
+                )}
+                <div className="survey-question" dangerouslySetInnerHTML={{ __html: sanitize(question) }} />
+                {description && (
+                    <div className="description" dangerouslySetInnerHTML={{ __html: sanitize(description) }} />
+                )}
                 <div className="multiple-choice-options">
                     {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
                         <div className="choice-option" key={idx}>
-                            <input type={inputType} name="choice" value={choice} />
-                            <label>{choice}</label>
+                            <input
+                                {...(initialChecked ? { checked: initialChecked.includes(idx) } : null)}
+                                type={inputType}
+                                name="choice"
+                                value={choice}
+                            />
+                            <label style={{ color: textColor }}>{choice}</label>
                             <span className="choice-check">{check}</span>
                         </div>
                     ))}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button appearance={appearance} onSubmit={onSubmit}>
+                        <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
                             {appearance.submitButtonText}
                         </Button>
                     </div>
-                    {!appearance.whiteLabel && (
-                        <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+
+                    {!preview && !appearance.whiteLabel && (
+                        <Link to="https://posthog.com" target="_blank" className="footer-branding">
                             Survey by {posthogLogoSVG}
-                        </a>
+                        </Link>
                     )}
                 </div>
             </div>
@@ -553,13 +626,7 @@ function SurveyMultipleChoiceAppearance({
     )
 }
 
-function SurveyThankYou({
-    appearance,
-    setShowThankYou,
-}: {
-    appearance: SurveyAppearanceType
-    setShowThankYou: (show: boolean) => void
-}): JSX.Element {
+export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceType }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
 
@@ -585,19 +652,25 @@ function SurveyThankYou({
                     style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
                     className="cancel-btn-wrapper"
                 >
-                    <button className="form-cancel" type="button" onClick={() => setShowThankYou(false)}>
+                    <button className="form-cancel" type="button" onClick={() => undefined}>
                         {cancel}
                     </button>
                 </div>
-                <h3 className="thank-you-message-header">{appearance?.thankYouMessageHeader || 'Thank you!'}</h3>
-                <div className="thank-you-message-body">{appearance?.thankYouMessageDescription || ''}</div>
-                <Button appearance={appearance} onSubmit={() => setShowThankYou(false)}>
+                <h3
+                    className="thank-you-message-header"
+                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageHeader || 'Thank you!') }}
+                />
+                <div
+                    className="thank-you-message-body"
+                    dangerouslySetInnerHTML={{ __html: sanitize(appearance?.thankYouMessageDescription || '') }}
+                />
+                <Button appearance={appearance} onSubmit={() => undefined}>
                     Close
                 </Button>
                 {!appearance.whiteLabel && (
-                    <a href="https://posthog.com" target="_blank" rel="noopener" className="footer-branding">
+                    <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
-                    </a>
+                    </Link>
                 )}
             </div>
         </div>

@@ -272,7 +272,7 @@ ruamel-yaml-clib==0.2.7
     # via
     #   -c requirements.txt
     #   ruamel-yaml
-ruff==0.0.257
+ruff==0.1.2
     # via -r requirements-dev.in
 six==1.16.0
     # via

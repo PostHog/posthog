@@ -75,7 +75,12 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"type": "license_error", "code": "invalid_key", "detail": "Provided key is invalid.", "attr": None},
+            {
+                "type": "license_error",
+                "code": "invalid_key",
+                "detail": "Provided key is invalid.",
+                "attr": None,
+            },
         )
 
         self.assertEqual(License.objects.count(), count)
@@ -84,11 +89,15 @@ class TestLicenseAPI(APILicensedTest):
     def test_highest_activated_license_is_used_after_upgrade(self):
         with freeze_time("2022-06-01T12:00:00.000Z"):
             License.objects.create(
-                key="old", plan="scale", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+                key="old",
+                plan="scale",
+                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
             )
         with freeze_time("2022-06-03T12:00:00.000Z"):
             License.objects.create(
-                key="new", plan="enterprise", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+                key="new",
+                plan="enterprise",
+                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
             )
 
         with freeze_time("2022-06-03T13:00:00.000Z"):
@@ -101,11 +110,15 @@ class TestLicenseAPI(APILicensedTest):
     def test_highest_activated_license_is_used_after_renewal_to_lower(self):
         with freeze_time("2022-06-01T12:00:00.000Z"):
             License.objects.create(
-                key="new", plan="enterprise", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+                key="new",
+                plan="enterprise",
+                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
             )
         with freeze_time("2022-06-27T12:00:00.000Z"):
             License.objects.create(
-                key="old", plan="scale", valid_until=timezone.datetime.now() + timezone.timedelta(days=30)
+                key="old",
+                plan="scale",
+                valid_until=timezone.datetime.now() + timezone.timedelta(days=30),
             )
 
         with freeze_time("2022-06-27T13:00:00.000Z"):
@@ -125,7 +138,14 @@ class TestLicenseAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 4)
         self.assertEqual(
             sorted([team.id for team in Team.objects.all()]),
-            sorted([self.team.pk, to_be_deleted.pk, not_to_be_deleted.pk, from_another_organisation.pk]),
+            sorted(
+                [
+                    self.team.pk,
+                    to_be_deleted.pk,
+                    not_to_be_deleted.pk,
+                    from_another_organisation.pk,
+                ]
+            ),
         )
 
         mock = Mock()
@@ -134,7 +154,10 @@ class TestLicenseAPI(APILicensedTest):
         response = self.client.delete(f"/api/license/{self.license.pk}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(Team.objects.count(), 2)  # deleted two teams
-        self.assertEqual(sorted([team.id for team in Team.objects.all()]), sorted([self.team.pk, not_to_be_deleted.pk]))
+        self.assertEqual(
+            sorted([team.id for team in Team.objects.all()]),
+            sorted([self.team.pk, not_to_be_deleted.pk]),
+        )
         self.assertEqual(Organization.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy

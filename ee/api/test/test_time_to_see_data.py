@@ -39,15 +39,27 @@ class TestTimeToSeeDataApi(APIBaseTest):
         insert(
             "metrics_time_to_see_data",
             [
-                MetricsRow(session_id="456", timestamp="2022-10-05 12:20:30", time_to_see_data_ms=7000),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:10:30", time_to_see_data_ms=2000),
+                MetricsRow(
+                    session_id="456",
+                    timestamp="2022-10-05 12:20:30",
+                    time_to_see_data_ms=7000,
+                ),
+                MetricsRow(
+                    session_id="123",
+                    timestamp="2022-10-05 10:10:30",
+                    time_to_see_data_ms=2000,
+                ),
                 MetricsRow(
                     session_id="123",
                     timestamp="2022-10-05 10:30:25",
                     time_to_see_data_ms=1000,
                     is_primary_interaction=False,
                 ),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:30:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="123",
+                    timestamp="2022-10-05 10:30:30",
+                    time_to_see_data_ms=7000,
+                ),
             ],
         )
 
@@ -90,7 +102,11 @@ class TestTimeToSeeDataApi(APIBaseTest):
         insert(
             "metrics_time_to_see_data",
             [
-                MetricsRow(session_id="456", timestamp="2022-10-05 12:20:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="456",
+                    timestamp="2022-10-05 12:20:30",
+                    time_to_see_data_ms=7000,
+                ),
                 MetricsRow(
                     session_id="123",
                     timestamp="2022-10-05 10:10:30",
@@ -105,7 +121,11 @@ class TestTimeToSeeDataApi(APIBaseTest):
                     primary_interaction_id="111-222-333",
                     query_id="777",
                 ),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:30:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="123",
+                    timestamp="2022-10-05 10:30:30",
+                    time_to_see_data_ms=7000,
+                ),
             ],
         )
 

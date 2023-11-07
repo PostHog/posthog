@@ -2,7 +2,10 @@ import logging
 
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
+from ee.clickhouse.materialized_columns.analyze import (
+    logger,
+    materialize_properties_task,
+)
 from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
@@ -20,7 +23,11 @@ class Command(BaseCommand):
 
         parser.add_argument("--property", help="Property to materialize. Skips analysis.")
         parser.add_argument(
-            "--property-table", type=str, default="events", choices=["events", "person"], help="Table of --property"
+            "--property-table",
+            type=str,
+            default="events",
+            choices=["events", "person"],
+            help="Table of --property",
         )
         parser.add_argument(
             "--table-column",
@@ -63,7 +70,14 @@ class Command(BaseCommand):
             logger.info(f"Materializing column. table={options['property_table']}, property_name={options['property']}")
 
             materialize_properties_task(
-                columns_to_materialize=[(options["property_table"], options["table_column"], options["property"], 0)],
+                columns_to_materialize=[
+                    (
+                        options["property_table"],
+                        options["table_column"],
+                        options["property"],
+                        0,
+                    )
+                ],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
             )

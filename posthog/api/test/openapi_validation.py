@@ -56,7 +56,10 @@ def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override
         request_body_content_type = response.request.get("CONTENT_TYPE", "*/*").split(";")[0]
         request_body_content_encoding = response.request.get("HTTP_CONTENT_ENCODING", None)
 
-        request_body_value = cast(bytes, request_fake_payload._FakePayload__content.getvalue())  # type: ignore
+        request_body_value = cast(
+            bytes,
+            request_fake_payload._FakePayload__content.getvalue(),  # type: ignore
+        )
         if request_body_content_encoding == "gzip":
             request_body = gzip.decompress(request_body_value)
         elif request_body_content_encoding == "lz64":

@@ -78,7 +78,11 @@ class UserManager(BaseUserManager):
             organization_fields.setdefault("name", organization_name)
             organization = Organization.objects.create(**organization_fields)
             user = self.create_user(
-                email=email, password=password, first_name=first_name, is_staff=is_staff, **user_fields
+                email=email,
+                password=password,
+                first_name=first_name,
+                is_staff=is_staff,
+                **user_fields,
             )
             if create_team:
                 team = create_team(organization, user)
@@ -129,7 +133,10 @@ class User(AbstractUser, UUIDClassicModel):
     TOOLBAR_CHOICES = [(DISABLED, DISABLED), (TOOLBAR, TOOLBAR)]
 
     current_organization = models.ForeignKey(
-        "posthog.Organization", models.SET_NULL, null=True, related_name="users_currently+"
+        "posthog.Organization",
+        models.SET_NULL,
+        null=True,
+        related_name="users_currently+",
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
@@ -168,7 +175,8 @@ class User(AbstractUser, UUIDClassicModel):
         """
         teams = Team.objects.filter(organization__members=self)
         if Organization.objects.filter(
-            members=self, available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING]
+            members=self,
+            available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING],
         ).exists():
             try:
                 from ee.models import ExplicitTeamMembership
@@ -210,7 +218,10 @@ class User(AbstractUser, UUIDClassicModel):
         return self.current_team
 
     def join(
-        self, *, organization: Organization, level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER
+        self,
+        *,
+        organization: Organization,
+        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)

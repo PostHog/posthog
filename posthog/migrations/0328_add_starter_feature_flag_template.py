@@ -59,7 +59,6 @@ def create_starter_template(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0327_alter_earlyaccessfeature_stage"),
     ]

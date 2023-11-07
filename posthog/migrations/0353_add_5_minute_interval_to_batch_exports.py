@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0352_auto_20230926_1833"),
     ]
@@ -14,7 +13,12 @@ class Migration(migrations.Migration):
             model_name="batchexport",
             name="interval",
             field=models.CharField(
-                choices=[("hour", "hour"), ("day", "day"), ("week", "week"), ("every 5 minutes", "every 5 minutes")],
+                choices=[
+                    ("hour", "hour"),
+                    ("day", "day"),
+                    ("week", "week"),
+                    ("every 5 minutes", "every 5 minutes"),
+                ],
                 default="hour",
                 help_text="The interval at which to export data.",
                 max_length=64,

@@ -45,7 +45,10 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
-            "test1@posthog.com", self.subscription, [self.asset], invite_message="My invite message"
+            "test1@posthog.com",
+            self.subscription,
+            [self.asset],
+            invite_message="My invite message",
         )
 
         assert len(mocked_email_messages) == 1
@@ -60,7 +63,10 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         send_email_subscription_report(
-            self.user.email, self.subscription, [self.asset], invite_message="My invite message"
+            self.user.email,
+            self.subscription,
+            [self.asset],
+            invite_message="My invite message",
         )
 
         assert len(mocked_email_messages) == 1
@@ -74,7 +80,11 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
         send_email_subscription_report(
-            self.user.email, subscription, [self.asset], invite_message="My invite message", total_asset_count=10
+            self.user.email,
+            subscription,
+            [self.asset],
+            invite_message="My invite message",
+            total_asset_count=10,
         )
 
         assert len(mocked_email_messages) == 1

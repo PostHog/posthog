@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 import { toolbarFetch } from '~/toolbar/utils'
@@ -8,51 +9,18 @@ import type { PostHog } from 'posthog-js'
 import { posthog } from '~/toolbar/posthog'
 import { encodeParams } from 'kea-router'
 
-export const featureFlagsLogic = kea<featureFlagsLogicType>({
-    path: ['toolbar', 'flags', 'featureFlagsLogic'],
-    actions: {
+export const featureFlagsLogic = kea<featureFlagsLogicType>([
+    path(['toolbar', 'flags', 'featureFlagsLogic']),
+    connect(() => [toolbarLogic]),
+    actions({
         getUserFlags: true,
         setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
         deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         checkLocalOverrides: true,
         storeLocalOverrides: (localOverrides: Record<string, string | boolean>) => ({ localOverrides }),
-    },
-    connect: () => [toolbarLogic],
-    listeners: ({ actions, values }) => ({
-        checkLocalOverrides: () => {
-            const { posthog: clientPostHog } = toolbarLogic.values
-            if (clientPostHog) {
-                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
-                actions.storeLocalOverrides(locallyOverrideFeatureFlags)
-            }
-        },
-        setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
-            const { posthog: clientPostHog } = toolbarLogic.values
-            if (clientPostHog) {
-                clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
-                posthog.capture('toolbar feature flag overridden')
-                actions.checkLocalOverrides()
-                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
-            }
-        },
-        deleteOverriddenUserFlag: async ({ flagKey }) => {
-            const { posthog: clientPostHog } = toolbarLogic.values
-            if (clientPostHog) {
-                const updatedFlags = { ...values.localOverrides }
-                delete updatedFlags[flagKey]
-                if (Object.keys(updatedFlags).length > 0) {
-                    clientPostHog.featureFlags.override({ ...updatedFlags })
-                } else {
-                    clientPostHog.featureFlags.override(false)
-                }
-                posthog.capture('toolbar feature flag override removed')
-                actions.checkLocalOverrides()
-                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
-            }
-        },
     }),
-    loaders: () => ({
+    loaders(() => ({
         userFlags: [
             [] as CombinedFeatureFlagAndValueType[],
             {
@@ -77,8 +45,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
             },
         ],
-    }),
-    reducers: {
+    })),
+    reducers({
         localOverrides: [
             {} as Record<string, string | boolean>,
             {
@@ -91,8 +59,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         userFlagsWithOverrideInfo: [
             (s) => [s.userFlags, s.localOverrides],
             (userFlags, localOverrides) => {
@@ -125,14 +93,47 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
-    },
-    events: ({ actions }) => ({
+    }),
+    listeners(({ actions, values }) => ({
+        checkLocalOverrides: () => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
+                actions.storeLocalOverrides(locallyOverrideFeatureFlags)
+            }
+        },
+        setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
+                posthog.capture('toolbar feature flag overridden')
+                actions.checkLocalOverrides()
+                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
+            }
+        },
+        deleteOverriddenUserFlag: async ({ flagKey }) => {
+            const { posthog: clientPostHog } = toolbarLogic.values
+            if (clientPostHog) {
+                const updatedFlags = { ...values.localOverrides }
+                delete updatedFlags[flagKey]
+                if (Object.keys(updatedFlags).length > 0) {
+                    clientPostHog.featureFlags.override({ ...updatedFlags })
+                } else {
+                    clientPostHog.featureFlags.override(false)
+                }
+                posthog.capture('toolbar feature flag override removed')
+                actions.checkLocalOverrides()
+                toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()
+            }
+        },
+    })),
+    events(({ actions }) => ({
         afterMount: async () => {
             await actions.getUserFlags()
             actions.checkLocalOverrides()
         },
-    }),
-})
+    })),
+])
 
 function getGroups(posthogInstance: PostHog | null): Record<string, any> {
     try {

@@ -31,7 +31,9 @@ def get_hogql_metadata(
             translate_hogql(query.expr, context=context, table=query.table or "events")
         elif isinstance(query.select, str):
             context = HogQLContext(
-                team_id=team.pk, modifiers=create_default_modifiers_for_team(team), enable_select_queries=True
+                team_id=team.pk,
+                modifiers=create_default_modifiers_for_team(team),
+                enable_select_queries=True,
             )
 
             select_ast = parse_select(query.select)

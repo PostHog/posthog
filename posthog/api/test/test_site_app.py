@@ -25,7 +25,12 @@ class TestSiteApp(BaseTest):
             status=PluginSourceFile.Status.TRANSPILED,
         )
         plugin_config = PluginConfig.objects.create(
-            plugin=plugin, enabled=True, order=1, team=self.team, config={}, web_token="tokentoken"
+            plugin=plugin,
+            enabled=True,
+            order=1,
+            team=self.team,
+            config={},
+            web_token="tokentoken",
         )
 
         response = self.client.get(

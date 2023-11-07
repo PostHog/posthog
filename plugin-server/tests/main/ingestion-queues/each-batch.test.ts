@@ -34,6 +34,11 @@ jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', (
 })
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
+jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
+    runEventPipeline: jest.fn().mockResolvedValue('default value'),
+    // runEventPipeline: jest.fn().mockRejectedValue('default value'),
+}))
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
@@ -135,9 +140,6 @@ describe('eachBatchX', () => {
                     queueMessage: jest.fn(),
                 },
                 pluginConfigsPerTeam: new Map(),
-            },
-            workerMethods: {
-                runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })
@@ -396,11 +398,18 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchParallelIngestion', () => {
+        let runEventPipelineSpy
+        beforeEach(() => {
+            runEventPipelineSpy = jest.spyOn(
+                require('./../../../src/worker/ingestion/event-pipeline/runner'),
+                'runEventPipeline'
+            )
+        })
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
             await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
+            expect(runEventPipeline).toHaveBeenCalledWith(expect.anything(), {
                 distinct_id: 'id',
                 event: 'event',
                 properties: {},
@@ -417,18 +426,16 @@ describe('eachBatchX', () => {
             )
         })
 
-        it('fails the batch if runEventPipeline rejects', async () => {
+        it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
             const batch = createBatch(captureEndpointEvent)
-            queue.workerMethods.runEventPipeline = jest.fn(() => Promise.reject('runEventPipeline nopes out'))
-            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
-                'runEventPipeline nopes out'
-            )
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
+            runEventPipelineSpy.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            expect(runEventPipeline).toHaveBeenCalledTimes(2)
         })
 
         it('fails the batch if one deferred promise rejects', async () => {
             const batch = createBatch(captureEndpointEvent)
-            queue.workerMethods.runEventPipeline = jest.fn(() =>
+            runEventPipelineSpy.mockImplementationOnce(() =>
                 Promise.resolve({
                     promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
                 })
@@ -436,7 +443,7 @@ describe('eachBatchX', () => {
             await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
                 'deferred nopes out'
             )
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
+            expect(runEventPipeline).toHaveBeenCalledTimes(1)
         })
 
         it('batches events by team or token and distinct_id', () => {
@@ -510,7 +517,7 @@ describe('eachBatchX', () => {
             ])
 
             await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(14)
+            expect(runEventPipeline).toHaveBeenCalledTimes(14)
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
                 'ingest_event_batching.input_length',
                 14,
@@ -521,6 +528,19 @@ describe('eachBatchX', () => {
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
                 key: 'ingestion',
             })
+        })
+
+        it('fails the batch if runEventPipeline rejects repeatedly', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            runEventPipelineSpy
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+                .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'runEventPipeline nopes out'
+            )
+            expect(runEventPipeline).toHaveBeenCalledTimes(3)
+            runEventPipelineSpy.mockRestore()
         })
     })
 })

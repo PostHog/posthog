@@ -74,7 +74,11 @@ class BillingViewset(viewsets.GenericViewSet):
                 BillingManager(license).update_billing(org, {"custom_limits_usd": custom_limits_usd})
 
                 if distinct_id:
-                    posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                    posthoganalytics.capture(
+                        distinct_id,
+                        "billing limits updated",
+                        properties={**custom_limits_usd},
+                    )
                     posthoganalytics.group_identify(
                         "organization",
                         str(org.id),
@@ -143,7 +147,8 @@ class BillingViewset(viewsets.GenericViewSet):
         license = License(key=serializer.validated_data["license"])
 
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing", headers=BillingManager(license).get_auth_headers(organization)
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=BillingManager(license).get_auth_headers(organization),
         )
 
         if res.status_code != 200:

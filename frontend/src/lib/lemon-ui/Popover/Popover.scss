@@ -24,7 +24,7 @@
 
 .Popover__box {
     position: relative; // For arrow
-    transition: opacity 100ms ease, transform 100ms ease;
+    transition: opacity 50ms ease, transform 50ms ease;
     transform-origin: top;
     box-shadow: var(--shadow-elevation);
     background: var(--bg-light);
@@ -75,21 +75,22 @@
     }
 
     .Popover[data-placement^='bottom'] & {
-        transform: rotateX(-12deg);
+        transform: rotateX(-6deg);
     }
 
     .Popover[data-placement^='top'] & {
-        transform: rotateX(12deg);
+        transform: rotateX(6deg);
     }
 
     .Popover[data-placement^='left'] & {
-        transform: rotateY(-12deg);
+        transform: rotateY(-6deg);
     }
 
     .Popover[data-placement^='right'] & {
-        transform: rotateY(12deg);
+        transform: rotateY(6deg);
     }
 
+    .Popover.Popover--enter-active &,
     .Popover.Popover--enter-done & {
         opacity: 1;
         transform: none;

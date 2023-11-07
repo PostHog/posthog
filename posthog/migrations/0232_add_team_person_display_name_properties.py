@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0231_add_refreshing_data_to_tiles"),
     ]
@@ -15,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="team",
             name="person_display_name_properties",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=400), blank=True, null=True, size=None
+                base_field=models.CharField(max_length=400),
+                blank=True,
+                null=True,
+                size=None,
             ),
         ),
     ]

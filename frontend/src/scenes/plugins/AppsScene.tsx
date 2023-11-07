@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from './pluginsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { canViewPlugins } from './access'
+import { canGloballyManagePlugins, canViewPlugins } from './access'
 import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -15,6 +15,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import './Plugins.scss'
+import { AppsManagementTab } from './tabs/apps/AppsManagementTab'
 
 export const scene: SceneExport = {
     component: AppsScene,
@@ -60,6 +61,11 @@ export function AppsScene(): JSX.Element | null {
                         key: PluginTab.History,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.PLUGIN} />,
+                    },
+                    canGloballyManagePlugins(user?.organization) && {
+                        key: PluginTab.AppsManagement,
+                        label: 'Apps Management',
+                        content: <AppsManagementTab />,
                     },
                 ]}
             />

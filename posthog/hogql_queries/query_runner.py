@@ -17,14 +17,17 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
+    SessionsTimelineQuery,
     TrendsQuery,
     LifecycleQuery,
-    WebTopSourcesQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
-    WebOverviewStatsQuery,
+    WebOverviewQuery,
     PersonsQuery,
     EventsQuery,
+    WebStatsTableQuery,
+    HogQLQuery,
+    InsightPersonsQuery,
+    DashboardFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -49,7 +52,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     )
     results: DataT
     timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[Tuple[str, str]]] = None
+    types: Optional[List[Union[Tuple[str, str], str]]] = None
     columns: Optional[List[str]] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
@@ -65,63 +68,107 @@ class CachedQueryResponse(QueryResponse):
 
 
 RunnableQueryNode = Union[
+    HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
+    InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
-    WebOverviewStatsQuery,
-    WebTopSourcesQuery,
+    SessionsTimelineQuery,
+    WebOverviewQuery,
     WebTopClicksQuery,
-    WebTopPagesQuery,
+    WebStatsTableQuery,
 ]
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode,
+    query: Dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
-    default_limit: Optional[int] = None,
+    in_export_context: Optional[bool] = False,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
         kind = query.get("kind", None)
     elif hasattr(query, "kind"):
-        kind = query.kind
+        kind = query.kind  # type: ignore
+    else:
+        raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "LifecycleQuery":
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
-        return LifecycleQueryRunner(query=cast(LifecycleQuery | Dict[str, Any], query), team=team, timings=timings)
+        return LifecycleQueryRunner(
+            query=cast(LifecycleQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
-        return TrendsQueryRunner(query=cast(TrendsQuery | Dict[str, Any], query), team=team, timings=timings)
+        return TrendsQueryRunner(
+            query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
 
         return EventsQueryRunner(
-            query=cast(EventsQuery | Dict[str, Any], query), team=team, timings=timings, default_limit=default_limit
+            query=cast(EventsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
         )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
 
-        return PersonsQueryRunner(query=cast(PersonsQuery | Dict[str, Any], query), team=team, timings=timings)
-    if kind == "WebOverviewStatsQuery":
-        from .web_analytics.overview_stats import WebOverviewStatsQueryRunner
+        return PersonsQueryRunner(
+            query=cast(PersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "InsightPersonsQuery":
+        from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
 
-        return WebOverviewStatsQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopSourcesQuery":
-        from .web_analytics.top_sources import WebTopSourcesQueryRunner
+        return InsightPersonsQueryRunner(
+            query=cast(InsightPersonsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "HogQLQuery":
+        from .hogql_query_runner import HogQLQueryRunner
 
-        return WebTopSourcesQueryRunner(query=query, team=team, timings=timings)
+        return HogQLQueryRunner(
+            query=cast(HogQLQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            in_export_context=in_export_context,
+        )
+    if kind == "SessionsTimelineQuery":
+        from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
+
+        return SessionsTimelineQueryRunner(
+            query=cast(SessionsTimelineQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+        )
+    if kind == "WebOverviewQuery":
+        from .web_analytics.web_overview import WebOverviewQueryRunner
+
+        return WebOverviewQueryRunner(query=query, team=team, timings=timings)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
-    if kind == "WebTopPagesQuery":
-        from .web_analytics.top_pages import WebTopPagesQueryRunner
+    if kind == "WebStatsTableQuery":
+        from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebTopPagesQueryRunner(query=query, team=team, timings=timings)
+        return WebStatsTableQueryRunner(query=query, team=team, timings=timings)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -131,10 +178,18 @@ class QueryRunner(ABC):
     query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
+    in_export_context: bool
 
-    def __init__(self, query: RunnableQueryNode | Dict[str, Any], team: Team, timings: Optional[HogQLTimings] = None):
+    def __init__(
+        self,
+        query: RunnableQueryNode | BaseModel | Dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        in_export_context: Optional[bool] = False,
+    ):
         self.team = team
         self.timings = timings or HogQLTimings()
+        self.in_export_context = in_export_context or False
         if isinstance(query, self.query_type):
             self.query = query  # type: ignore
         else:
@@ -147,7 +202,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key()
+        cache_key = self._cache_key() + ("_export" if self.in_export_context else "")
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
@@ -177,7 +232,7 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def to_persons_query(self) -> ast.SelectQuery:
+    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
@@ -208,4 +263,7 @@ class QueryRunner(ABC):
 
     @abstractmethod
     def _refresh_frequency(self):
+        raise NotImplementedError()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
         raise NotImplementedError()

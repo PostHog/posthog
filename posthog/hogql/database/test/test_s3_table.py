@@ -27,7 +27,10 @@ class TestS3Table(BaseTest):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
-        self.assertEqual(hogql, "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10")
+        self.assertEqual(
+            hogql,
+            "SELECT Date, Open, High, Low, Close, Volume, OpenInt FROM aapl_stock LIMIT 10",
+        )
 
         clickhouse = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="clickhouse")
 
@@ -80,7 +83,8 @@ class TestS3Table(BaseTest):
             dialect="hogql",
         )
         self.assertEqual(
-            hogql, "SELECT a.High, a.Low FROM aapl_stock AS a JOIN aapl_stock AS b ON equals(a.High, b.High) LIMIT 10"
+            hogql,
+            "SELECT a.High, a.Low FROM aapl_stock AS a JOIN aapl_stock AS b ON equals(a.High, b.High) LIMIT 10",
         )
 
         clickhouse = self._select(
@@ -180,7 +184,8 @@ class TestS3Table(BaseTest):
         self._init_database()
 
         hogql = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="hogql"
+            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+            dialect="hogql",
         )
         self.assertEqual(
             hogql,
@@ -188,7 +193,8 @@ class TestS3Table(BaseTest):
         )
 
         clickhouse = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="clickhouse"
+            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+            dialect="clickhouse",
         )
 
         self.assertEqual(

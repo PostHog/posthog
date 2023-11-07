@@ -115,7 +115,11 @@ class ClickhouseFunnelExperimentResult:
             failure = total - success
             breakdown_value = result[0]["breakdown_value"][0]
             if breakdown_value == CONTROL_VARIANT_KEY:
-                control_variant = Variant(key=breakdown_value, success_count=int(success), failure_count=int(failure))
+                control_variant = Variant(
+                    key=breakdown_value,
+                    success_count=int(success),
+                    failure_count=int(failure),
+                )
             else:
                 test_variants.append(Variant(breakdown_value, int(success), int(failure)))
 
@@ -123,7 +127,9 @@ class ClickhouseFunnelExperimentResult:
 
     @staticmethod
     def calculate_results(
-        control_variant: Variant, test_variants: List[Variant], priors: Tuple[int, int] = (1, 1)
+        control_variant: Variant,
+        test_variants: List[Variant],
+        priors: Tuple[int, int] = (1, 1),
     ) -> List[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
@@ -144,16 +150,24 @@ class ClickhouseFunnelExperimentResult:
             raise ValidationError("No control variant data found", code="no_data")
 
         if len(test_variants) >= 10:
-            raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for more than 10 variants",
+                code="too_much_data",
+            )
 
         if len(test_variants) < 1:
-            raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
+            raise ValidationError(
+                "Can't calculate A/B test results for less than 2 variants",
+                code="no_data",
+            )
 
         return calculate_probability_of_winning_for_each([control_variant, *test_variants])
 
     @staticmethod
     def are_results_significant(
-        control_variant: Variant, test_variants: List[Variant], probabilities: List[Probability]
+        control_variant: Variant,
+        test_variants: List[Variant],
+        probabilities: List[Probability],
     ) -> Tuple[ExperimentSignificanceCode, Probability]:
         control_sample_size = control_variant.success_count + control_variant.failure_count
 
@@ -174,7 +188,8 @@ class ClickhouseFunnelExperimentResult:
             return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1
 
         best_test_variant = max(
-            test_variants, key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count)
+            test_variants,
+            key=lambda variant: variant.success_count / (variant.success_count + variant.failure_count),
         )
 
         expected_loss = calculate_expected_loss(best_test_variant, [control_variant])
@@ -207,12 +222,16 @@ def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) ->
         # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
         # and beta = prior_failure + variant_failure
         samples = random_sampler.beta(
-            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
+            variant.success_count + prior_success,
+            variant.failure_count + prior_failure,
+            simulations_count,
         )
         variant_samples.append(samples)
 
     target_variant_samples = random_sampler.beta(
-        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+        target_variant.success_count + prior_success,
+        target_variant.failure_count + prior_failure,
+        simulations_count,
     )
 
     loss = 0
@@ -234,12 +253,16 @@ def simulate_winning_variant_for_conversion(target_variant: Variant, variants: L
         # Get `N=simulations` samples from a Beta distribution with alpha = prior_success + variant_sucess,
         # and beta = prior_failure + variant_failure
         samples = random_sampler.beta(
-            variant.success_count + prior_success, variant.failure_count + prior_failure, simulations_count
+            variant.success_count + prior_success,
+            variant.failure_count + prior_failure,
+            simulations_count,
         )
         variant_samples.append(samples)
 
     target_variant_samples = random_sampler.beta(
-        target_variant.success_count + prior_success, target_variant.failure_count + prior_failure, simulations_count
+        target_variant.success_count + prior_success,
+        target_variant.failure_count + prior_failure,
+        simulations_count,
     )
 
     winnings = 0
@@ -256,7 +279,10 @@ def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[P
     Calculates the probability of winning for each variant.
     """
     if len(variants) > 10:
-        raise ValidationError("Can't calculate A/B test results for more than 10 variants", code="too_much_data")
+        raise ValidationError(
+            "Can't calculate A/B test results for more than 10 variants",
+            code="too_much_data",
+        )
 
     probabilities = []
     # simulate winning for each test variant

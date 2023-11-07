@@ -100,7 +100,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         propertyTypeOptions: [
             (s) => [s.groupTypes, s.aggregationLabel],
             (groupTypes, aggregationLabel) => {
-                const groupChoices: Array<LemonSelectOption<string>> = groupTypes.map((type) => ({
+                const groupChoices: Array<LemonSelectOption<string>> = Array.from(groupTypes.values()).map((type) => ({
                     label: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     value: `group::${type.group_type_index}`,
                 }))

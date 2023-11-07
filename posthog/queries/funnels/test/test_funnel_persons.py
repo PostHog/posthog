@@ -9,7 +9,9 @@ from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -33,10 +35,20 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         events = []
         for i in range(5):
             events.append(
-                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+                {
+                    "event": "step one",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-01 00:00:00",
+                }
             )
             events.append(
-                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+                {
+                    "event": "step two",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-03 00:00:00",
+                }
             )
             events.append(
                 {
@@ -49,21 +61,44 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(5, 15):
             events.append(
-                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+                {
+                    "event": "step one",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-01 00:00:00",
+                }
             )
             events.append(
-                {"event": "step two", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-03 00:00:00"}
+                {
+                    "event": "step two",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-03 00:00:00",
+                }
             )
 
         for i in range(15, 35):
             events.append(
-                {"event": "step one", "distinct_id": f"user_{i}", "team": self.team, "timestamp": "2021-05-01 00:00:00"}
+                {
+                    "event": "step one",
+                    "distinct_id": f"user_{i}",
+                    "team": self.team,
+                    "timestamp": "2021-05-01 00:00:00",
+                }
             )
         bulk_create_events(events)
 
     def _create_browser_breakdown_events(self):
-        person1 = _create_person(distinct_ids=["person1"], team_id=self.team.pk, properties={"$country": "PL"})
-        person2 = _create_person(distinct_ids=["person2"], team_id=self.team.pk, properties={"$country": "EE"})
+        person1 = _create_person(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$country": "PL"},
+        )
+        person2 = _create_person(
+            distinct_ids=["person2"],
+            team_id=self.team.pk,
+            properties={"$country": "EE"},
+        )
         journeys_for(
             {
                 "person1": [
@@ -97,6 +132,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
             self.team,
+            create_people=False,
         )
 
         return person1, person2
@@ -180,9 +216,24 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data(self):
         for i in range(110):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(
+                event="step one",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-01 00:00:00",
+            )
+            _create_event(
+                event="step two",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-03 00:00:00",
+            )
+            _create_event(
+                event="step three",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-05 00:00:00",
+            )
 
     def test_basic_offset(self):
         self._create_sample_data()
@@ -305,7 +356,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "breakdown_type": "event",
                 "breakdown": "$browser",
             }
@@ -336,7 +391,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "breakdown_type": "event",
                 "breakdown": ["$browser", "$browser_version"],
             }
@@ -367,7 +426,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "funnel_window_days": 7,
                 "funnel_step": 1,
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+                "events": [
+                    {"id": "sign up", "order": 0},
+                    {"id": "play movie", "order": 1},
+                    {"id": "buy", "order": 2},
+                ],
                 "breakdown_type": "person",
                 "breakdown": "$country",
             }
@@ -383,7 +446,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}),
+            self.team,
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 
@@ -394,7 +458,8 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.shallow_clone({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}),
+            self.team,
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 
@@ -402,7 +467,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
         _create_event(
-            team=self.team, event="sign up", distinct_id=f"person1", properties={}, timestamp="2020-01-02T12:00:00Z"
+            team=self.team,
+            event="sign up",
+            distinct_id=f"person1",
+            properties={},
+            timestamp="2020-01-02T12:00:00Z",
         )
         cohort = Cohort.objects.create(
             team=self.team,
@@ -410,7 +479,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
         )
         filters = {
-            "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}, {"id": "buy", "order": 2}],
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "play movie", "order": 1},
+                {"id": "buy", "order": 2},
+            ],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",

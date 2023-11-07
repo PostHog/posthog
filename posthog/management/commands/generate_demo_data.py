@@ -20,7 +20,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)"
+            "--now",
+            type=dt.datetime.fromisoformat,
+            help="Simulation 'now' datetime in ISO format (default: now)",
         )
         parser.add_argument(
             "--days-past",
@@ -34,7 +36,12 @@ class Command(BaseCommand):
             default=30,
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
-        parser.add_argument("--n-clusters", type=int, default=500, help="Number of clusters (default: 500)")
+        parser.add_argument(
+            "--n-clusters",
+            type=int,
+            default=500,
+            help="Number of clusters (default: 500)",
+        )
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
         parser.add_argument(
             "--team-id",
@@ -43,10 +50,16 @@ class Command(BaseCommand):
             help="If specified, an existing project with this ID will be used, and no new user will be created. If the ID is 0, data will be generated for the master project (but insights etc. won't be created)",
         )
         parser.add_argument(
-            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)"
+            "--email",
+            type=str,
+            default="test@posthog.com",
+            help="Email of the demo user (default: test@posthog.com)",
         )
         parser.add_argument(
-            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)"
+            "--password",
+            type=str,
+            default="12345678",
+            help="Password of the demo user (default: 12345678)",
         )
 
     def handle(self, *args, **options):
@@ -74,7 +87,12 @@ class Command(BaseCommand):
         )
         print("Running simulation...")
         matrix.simulate()
-        self.print_results(matrix, seed=seed, duration=monotonic() - timer, verbosity=options["verbosity"])
+        self.print_results(
+            matrix,
+            seed=seed,
+            duration=monotonic() - timer,
+            verbosity=options["verbosity"],
+        )
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
@@ -89,7 +107,11 @@ class Command(BaseCommand):
                         matrix_manager.run_on_team(team, existing_user)
                 else:
                     matrix_manager.ensure_account_and_save(
-                        email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
+                        email,
+                        "Employee 427",
+                        "Hedgebox Inc.",
+                        password=password,
+                        disallow_collision=True,
                     )
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")

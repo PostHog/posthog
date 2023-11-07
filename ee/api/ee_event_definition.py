@@ -4,7 +4,11 @@ from rest_framework import serializers
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.activity_logging.activity_log import dict_changes_between, log_activity, Detail
+from posthog.models.activity_logging.activity_log import (
+    dict_changes_between,
+    log_activity,
+    Detail,
+)
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):

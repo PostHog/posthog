@@ -54,13 +54,22 @@ class DashboardAdmin(admin.ModelAdmin):
     list_display_links = ("id", "name")
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "team__name", "team__organization__name")
-    readonly_fields = ("last_accessed_at", "deprecated_tags", "deprecated_tags_v2", "share_token")
+    readonly_fields = (
+        "last_accessed_at",
+        "deprecated_tags",
+        "deprecated_tags_v2",
+        "share_token",
+    )
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at", "creation_mode")
     inlines = (DashboardTileInline,)
 
     def team_link(self, dashboard: Dashboard):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', dashboard.team.pk, dashboard.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            dashboard.team.pk,
+            dashboard.team.name,
+        )
 
     def organization_link(self, dashboard: Dashboard):
         return format_html(
@@ -98,7 +107,11 @@ class InsightAdmin(admin.ModelAdmin):
         return insight.name or format_html("<i>{}</>", insight.derived_name)
 
     def team_link(self, insight: Insight):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', insight.team.pk, insight.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            insight.team.pk,
+            insight.team.name,
+        )
 
     def organization_link(self, insight: Insight):
         return format_html(
@@ -137,10 +150,23 @@ class GroupTypeMappingInline(admin.TabularInline):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization_link", "organization_id", "created_at", "updated_at")
+    list_display = (
+        "id",
+        "name",
+        "organization_link",
+        "organization_id",
+        "created_at",
+        "updated_at",
+    )
     list_display_links = ("id", "name")
     list_select_related = ("organization",)
-    search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
+    search_fields = (
+        "id",
+        "name",
+        "organization__id",
+        "organization__name",
+        "api_token",
+    )
     readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
     inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
@@ -169,7 +195,12 @@ class TeamAdmin(admin.ModelAdmin):
             "Onboarding",
             {
                 "classes": ["collapse"],
-                "fields": ["is_demo", "completed_snippet_onboarding", "ingested_event", "signup_token"],
+                "fields": [
+                    "is_demo",
+                    "completed_snippet_onboarding",
+                    "ingested_event",
+                    "signup_token",
+                ],
             },
         ),
         (
@@ -183,6 +214,9 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_opt_in",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
+                    "session_recording_sample_rate",
+                    "session_recording_minimum_duration_milliseconds",
+                    "session_recording_linked_flag",
                     "data_attributes",
                     "session_recording_version",
                     "access_control",
@@ -195,14 +229,20 @@ class TeamAdmin(admin.ModelAdmin):
             "Filters",
             {
                 "classes": ["collapse"],
-                "fields": ["test_account_filters", "test_account_filters_default_checked", "path_cleaning_filters"],
+                "fields": [
+                    "test_account_filters",
+                    "test_account_filters_default_checked",
+                    "path_cleaning_filters",
+                ],
             },
         ),
     ]
 
     def organization_link(self, team: Team):
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            team.organization.pk,
+            team.organization.name,
         )
 
 
@@ -300,7 +340,18 @@ class UserAdmin(DjangoUserAdmin):
 
     inlines = [OrganizationMemberInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "current_organization", "is_email_verified", "pending_email")}),
+        (
+            None,
+            {
+                "fields": (
+                    "email",
+                    "password",
+                    "current_organization",
+                    "is_email_verified",
+                    "pending_email",
+                )
+            },
+        ),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
@@ -327,14 +378,20 @@ class UserAdmin(DjangoUserAdmin):
         if not user.team:
             return "–"
 
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', user.team.pk, user.team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            user.team.pk,
+            user.team.name,
+        )
 
     def current_organization_link(self, user: User):
         if not user.organization:
             return "–"
 
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            user.organization.pk,
+            user.organization.name,
         )
 
 
@@ -369,7 +426,12 @@ class OrganizationTeamInline(admin.TabularInline):
     readonly_fields = ("id", "displayed_name", "created_at", "updated_at")
 
     def displayed_name(self, team: Team):
-        return format_html('<a href="/admin/posthog/team/{}/change/">{}. {}</a>', team.pk, team.pk, team.name)
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}. {}</a>',
+            team.pk,
+            team.pk,
+            team.name,
+        )
 
 
 @admin.register(Organization)
@@ -444,7 +506,15 @@ class InstanceSettingAdmin(admin.ModelAdmin):
 
 @admin.register(Person)
 class PersonAdmin(admin.ModelAdmin):
-    list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
+    list_display = (
+        "id",
+        "distinct_ids",
+        "created_at",
+        "team",
+        "is_user",
+        "is_identified",
+        "version",
+    )
     list_filter = ("created_at", "is_identified", "version")
     search_fields = ("id",)
 

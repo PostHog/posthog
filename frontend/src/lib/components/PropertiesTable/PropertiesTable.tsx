@@ -4,7 +4,7 @@ import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -12,7 +12,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyDefinitionType } from '~/types'
 
@@ -93,10 +93,9 @@ function ValueDisplay({
             {!isURL(value) ? (
                 valueString
             ) : (
-                <a href={value} target="_blank" rel="noopener noreferrer" className="value-link">
-                    <span>{valueString}</span>
-                    <IconOpenInNew />
-                </a>
+                <Link to={value} target="_blank" className="value-link" targetBlankIcon>
+                    {valueString}
+                </Link>
             )}
         </span>
     )

@@ -6,7 +6,12 @@ from django.test.client import Client
 
 from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models import FeatureFlag, Person
-from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+)
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -128,12 +133,14 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
     def test_we_dont_delete_existing_flag_information_when_creating_early_access_feature(self):
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [
-                    {"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": None}
+                    {
+                        "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
                 ],
                 "payloads": {"true": "Hick bondoogling? ????"},
             },
@@ -162,7 +169,10 @@ class TestEarlyAccessFeature(APIBaseTest):
             flag.filters,
             {
                 "groups": [
-                    {"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": None}
+                    {
+                        "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
                 ],
                 "payloads": {"true": "Hick bondoogling? ????"},
                 "super_groups": [
@@ -182,7 +192,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
 
     def test_cant_create_early_access_feature_with_duplicate_key(self):
-
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
@@ -209,7 +218,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
 
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):
-
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
@@ -245,12 +253,14 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert isinstance(response_data["created_at"], str)
 
     def test_deleting_early_access_feature_removes_super_condition_from_flag(self):
-
         existing_flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [
-                    {"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": None}
+                    {
+                        "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
                 ]
             },
             key="hick-bondoogling",
@@ -283,19 +293,24 @@ class TestEarlyAccessFeature(APIBaseTest):
             flag.filters,
             {
                 "groups": [
-                    {"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": None}
+                    {
+                        "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
                 ],
                 "super_groups": None,
             },
         )
 
     def test_cant_soft_delete_flag_with_early_access_feature(self):
-
         existing_flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [
-                    {"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": None}
+                    {
+                        "properties": [{"key": "xyz", "value": "ok", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
                 ]
             },
             key="hick-bondoogling",
@@ -333,7 +348,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
 
     def test_cant_create_early_access_feature_with_group_flag(self):
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -364,16 +378,27 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
 
     def test_cant_create_early_access_feature_with_multivariate_flag(self):
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
                 },
             },
@@ -401,7 +426,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
 
     def test_cant_create_early_access_feature_with_flag_with_existing_early_access_feature(self):
-
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -520,7 +544,11 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "example@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "example@posthog.com"},
+        )
 
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -573,7 +601,11 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             )
 
     def test_early_access_features_beta_only(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "example@posthog.com"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "example@posthog.com"},
+        )
 
         feature_flag = FeatureFlag.objects.create(
             team=self.team,

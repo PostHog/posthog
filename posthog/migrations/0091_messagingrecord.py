@@ -6,7 +6,6 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0090_org_live"),
     ]
@@ -18,7 +17,10 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                        default=posthog.models.utils.UUIDT,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
                 ("email_hash", models.CharField(max_length=1024)),

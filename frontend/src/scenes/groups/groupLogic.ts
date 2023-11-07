@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { Breadcrumb, Group, PropertyFilterType, PropertyOperator } from '~/types'
+import { Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 import type { groupLogicType } from './groupLogicType'
 import { urls } from 'scenes/urls'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -98,7 +98,7 @@ export const groupLogic = kea<groupLogicType>([
         ],
         groupType: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
-            (groupTypes, index): string => groupTypes[index]?.group_type,
+            (groupTypes, index): string | null => groupTypes.get(index as GroupTypeIndex)?.group_type ?? null,
         ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],

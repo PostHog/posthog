@@ -61,5 +61,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(forwards, reverse_code=backwards, hints={"target_db": "default"}, elidable=True),
+        migrations.RunPython(
+            forwards,
+            reverse_code=backwards,
+            hints={"target_db": "default"},
+            elidable=True,
+        ),
     ]
