@@ -30,11 +30,9 @@ from posthog.temporal.workflows.bigquery_batch_export import (
     insert_into_bigquery_activity,
 )
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio, pytest.mark.asyncio_event_loop, pytest.mark.django_db]
 
 TEST_TIME = dt.datetime.utcnow()
-
-pytestmark = [pytest.mark.asyncio_event_loop, pytest.mark.asyncio]
 
 
 def assert_events_in_bigquery(
