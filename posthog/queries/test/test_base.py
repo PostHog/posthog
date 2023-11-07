@@ -4,11 +4,12 @@ from unittest.mock import patch
 
 from dateutil import parser, tz
 from django.test import TestCase
+import pytest
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
-from posthog.queries.base import match_property
+from posthog.queries.base import match_property, sanitize_property_key
 from posthog.test.base import APIBaseTest
 
 
@@ -283,3 +284,25 @@ class TestMatchProperties(TestCase):
 
         property_k = Property(key="key", value="2022-05-01", operator="is_date_before")
         self.assertFalse(match_property(property_k, {"key": "random"}))
+
+
+@pytest.mark.parametrize(
+    "key,expected",
+    [
+        ("test_key", "testkey_00942f4668670f3"),
+        ("test-key", "testkey_3acfb2c2b433c0e"),
+        ("test-!!key", "testkey_007a0fef83e9d2f"),
+        ("test-key-1", "testkey1_1af855c78902ffc"),
+        ("test-key-1-2", "testkey12_2f0c347f439af5c"),
+        ("test-key-1-2-3-4", "testkey1234_0332a83ad5c75ee"),
+        ("only_nums!!!;$£hebfjhvd", "onlynumshebfjhvd_5a1514bfab83040"),
+        (" ", "_b858cb282617fb0"),
+        ("", "_da39a3ee5e6b4b0"),
+        ("readme.md", "readmemd_275d783e2982285"),
+        ("readme≥md", "readmemd_8857015efe59db9"),
+    ],
+)
+def test_sanitize_keys(key, expected):
+    sanitized_key = sanitize_property_key(key)
+
+    assert sanitized_key == expected

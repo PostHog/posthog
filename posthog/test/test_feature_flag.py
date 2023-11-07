@@ -4743,6 +4743,90 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 },
             )
 
+    @snapshot_postgres_queries
+    def test_with_sql_injection_properties_and_other_aliases(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "number space": 30,
+                ";'\" SELECT 1; DROP TABLE posthog_featureflag;": "30",
+                "version!!!": "1.24",
+                "nested_prop --random #comment //test": 21,
+            },
+        )
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "number space",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        },
+                        {
+                            "key": ";'\" SELECT 1; DROP TABLE posthog_featureflag;",
+                            "value": "100",
+                            "type": "person",
+                            "operator": "gt",
+                        },
+                    ]
+                }
+            ],
+        )
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort1.pk,
+                                "type": "cohort",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": ";'\" SELECT 1; DROP TABLE posthog_featureflag;",
+                                "value": "100",
+                                "type": "person",
+                                "operator": "gt",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "version!!!",
+                                "value": "1.05",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "nested_prop --random #comment //test",
+                                "value": "21",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
     person: Person

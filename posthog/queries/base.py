@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import re
 from typing import (
     Any,
@@ -234,9 +235,10 @@ def empty_or_null_with_value_q(
         if parsed_value is not None:
             # When we can coerce given value to a number, check whether the value in DB is a number
             # and do a numeric comparison. Otherwise, do a string comparison.
+            sanitized_key = sanitize_property_key(key)
             target_filter = Q(
-                Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{key}_type": Value("string")})
-                | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{key}_type": Value("number")})
+                Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{sanitized_key}_type": Value("string")})
+                | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{sanitized_key}_type": Value("number")})
             )
         else:
             target_filter = Q(**{f"{column}__{key}__{operator}": value})
@@ -414,3 +416,14 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
         or value is True
         or value is False
     )
+
+
+def sanitize_property_key(key: str) -> str:
+    # remove all but a-zA-Z characters from the key
+    substitute = re.sub(r"[^a-zA-Z0-9]", "", key)
+
+    # :TRICKY: We also want to prevent clashes between key1_ and key1, or key1 and key2 so we add
+    #  a salt based on hash of the key
+    # This is because we don't want to overwrite the value of key1 when we're trying to read key2
+    hash_value = hashlib.sha1(key.encode("utf-8")).hexdigest()[:15]
+    return f"{substitute}_{hash_value}"
