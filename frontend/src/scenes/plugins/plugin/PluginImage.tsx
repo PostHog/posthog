@@ -42,6 +42,7 @@ export function PluginImage({
     ) : (
         <div
             className="plugin-image shrink-0"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: pixelSize,
                 height: pixelSize,
