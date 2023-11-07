@@ -798,9 +798,21 @@ body {
     }
 }
 
-.posthog-3000 {
+.posthog-3000[theme='dark'] {
     .ant-radio-button-wrapper {
         background: var(--secondary-3000);
         border-color: transparent;
+    }
+
+    .ant-empty-img-simple-path {
+        fill: var(--bg-light);
+    }
+
+    .ant-empty-img-simple-ellipse {
+        fill: var(--border-3000);
+    }
+
+    .ant-empty-img-simple-g {
+        stroke: var(--secondary-3000);
     }
 }
