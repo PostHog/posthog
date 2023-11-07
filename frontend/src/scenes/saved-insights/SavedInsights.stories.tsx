@@ -7,9 +7,9 @@ import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import trendsBarBreakdown from '../../mocks/fixtures/api/projects/:team_id/insights/trendsBarBreakdown.json'
-import trendsPieBreakdown from '../../mocks/fixtures/api/projects/:team_id/insights/trendsPieBreakdown.json'
-import funnelTopToBottom from '../../mocks/fixtures/api/projects/:team_id/insights/funnelTopToBottom.json'
+import trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
 
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]

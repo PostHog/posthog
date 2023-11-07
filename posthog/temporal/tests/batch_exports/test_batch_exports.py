@@ -9,23 +9,19 @@ import random
 import string
 import uuid
 from random import randint
-from typing import TypedDict
 from unittest.mock import patch
-from uuid import uuid4
 
-import aiohttp
 import pytest
-import pytest_asyncio
-from django.conf import settings
 from freezegun import freeze_time
 from temporalio import activity, workflow
 
 from posthog.clickhouse.log_entries import (
     KAFKA_LOG_ENTRIES,
 )
-from posthog.temporal.tests.batch_exports.base import (
+from posthog.temporal.tests.utils.datetimes import (
     to_isoformat,
 )
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.workflows.batch_exports import (
     BatchExportTemporaryFile,
     KafkaLoggingHandler,
@@ -35,330 +31,141 @@ from posthog.temporal.workflows.batch_exports import (
     get_rows_count,
     json_dumps_bytes,
 )
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
 
-EventValues = TypedDict(
-    "EventValues",
-    {
-        "uuid": str,
-        "event": str,
-        "_timestamp": str,
-        "timestamp": str,
-        "inserted_at": str,
-        "created_at": str,
-        "distinct_id": str,
-        "person_id": str,
-        "person_properties": dict | None,
-        "team_id": int,
-        "properties": dict | None,
-        "elements_chain": str | None,
-        "elements": str | None,
-        "ip": str | None,
-        "site_url": str | None,
-        "set": str | None,
-        "set_once": str | None,
-    },
-)
+pytestmark = [pytest.mark.django_db, pytest.mark.asyncio]
 
 
-async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
-    """Insert some events into the sharded_events table."""
-    await ch_client.execute_query(
-        f"""
-        INSERT INTO `sharded_events` (
-            uuid,
-            event,
-            timestamp,
-            _timestamp,
-            inserted_at,
-            person_id,
-            team_id,
-            properties,
-            elements_chain,
-            distinct_id,
-            created_at,
-            person_properties
-        )
-        VALUES
-        """,
-        *[
-            (
-                event["uuid"],
-                event["event"],
-                event["timestamp"],
-                event["_timestamp"],
-                event["inserted_at"],
-                event["person_id"],
-                event["team_id"],
-                json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
-                event["elements_chain"],
-                event["distinct_id"],
-                event["created_at"],
-                json.dumps(event["person_properties"])
-                if isinstance(event["person_properties"], dict)
-                else event["person_properties"],
-            )
-            for event in events
-        ],
-    )
-
-
-@pytest_asyncio.fixture
-async def client():
-    async with aiohttp.ClientSession() as session:
-        client = ClickHouseClient(
-            session=session,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-        count = int(await client.read_query("SELECT count(*) FROM `sharded_events`"))
-
-        yield client
-
-        new_count = int(await client.read_query("SELECT count(*) FROM `sharded_events`"))
-        if new_count > count:
-            await client.execute_query("TRUNCATE TABLE `sharded_events`")
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_rows_count(client):
+async def test_get_rows_count(clickhouse_client):
     """Test the count of rows returned by get_rows_count."""
     team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    await insert_events(
-        ch_client=client,
-        events=events,
+    _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
     )
 
-    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    row_count = await get_rows_count(
+        clickhouse_client, team_id, data_interval_start.isoformat(), data_interval_end.isoformat()
+    )
     assert row_count == 10000
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_rows_count_handles_duplicates(client):
+async def test_get_rows_count_handles_duplicates(clickhouse_client):
     """Test the count of rows returned by get_rows_count are de-duplicated."""
     team_id = randint(1, 1000000)
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": "test",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    # Duplicate everything
-    duplicate_events = events * 2
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
     )
 
-    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
-    assert row_count == 10000
+    row_count = await get_rows_count(
+        clickhouse_client, team_id, data_interval_start.isoformat(), data_interval_end.isoformat()
+    )
+    assert row_count == 10
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_rows_count_can_exclude_events(client):
+async def test_get_rows_count_can_exclude_events(clickhouse_client):
     """Test the count of rows returned by get_rows_count can exclude events."""
     team_id = randint(1, 1000000)
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    # Duplicate everything
-    duplicate_events = events * 2
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
     )
 
     # Exclude the latter half of events.
-    exclude_events = (f"test-{i}" for i in range(5000, 10000))
+    exclude_events = (event["event"] for event in events[5000:])
     row_count = await get_rows_count(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         exclude_events=exclude_events,
     )
     assert row_count == 5000
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_rows_count_can_include_events(client):
+async def test_get_rows_count_can_include_events(clickhouse_client):
     """Test the count of rows returned by get_rows_count can include events."""
     team_id = randint(1, 1000000)
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "http://localhost.com",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    # Duplicate everything
-    duplicate_events = events * 2
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=5000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
     )
 
     # Include the latter half of events.
-    include_events = (f"test-{i}" for i in range(5000, 10000))
+    include_events = (event["event"] for event in events[2500:])
     row_count = await get_rows_count(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         include_events=include_events,
     )
-    assert row_count == 5000
+    assert row_count == 2500
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
 @pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator(client, include_person_properties):
+async def test_get_results_iterator(clickhouse_client, include_person_properties):
     """Test the rows returned by get_results_iterator."""
     team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(20000)
-    ]
-    await insert_events(
-        ch_client=client,
-        events=events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
     iter_ = get_results_iterator(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         include_person_properties=include_person_properties,
     )
     rows = [row for row in iter_]
@@ -382,52 +189,30 @@ async def test_get_results_iterator(client, include_person_properties):
             assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
 @pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_handles_duplicates(client, include_person_properties):
+async def test_get_results_iterator_handles_duplicates(clickhouse_client, include_person_properties):
     """Test the rows returned by get_results_iterator are de-duplicated."""
     team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    duplicate_events = events * 2
-
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=100,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
     iter_ = get_results_iterator(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         include_person_properties=include_person_properties,
     )
     rows = [row for row in iter_]
@@ -452,54 +237,32 @@ async def test_get_results_iterator_handles_duplicates(client, include_person_pr
             assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
 @pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_can_exclude_events(client, include_person_properties):
+async def test_get_results_iterator_can_exclude_events(clickhouse_client, include_person_properties):
     """Test the rows returned by get_results_iterator can exclude events."""
     team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    duplicate_events = events * 2
-
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
     # Exclude the latter half of events.
-    exclude_events = (f"test-{i}" for i in range(5000, 10000))
+    exclude_events = (event["event"] for event in events[5000:])
     iter_ = get_results_iterator(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         exclude_events=exclude_events,
         include_person_properties=include_person_properties,
     )
@@ -525,54 +288,32 @@ async def test_get_results_iterator_can_exclude_events(client, include_person_pr
             assert value == expected_value, f"{key} value in {result} didn't match value in {expected}"
 
 
-@pytest.mark.django_db
-@pytest.mark.asyncio
 @pytest.mark.parametrize("include_person_properties", (False, True))
-async def test_get_results_iterator_can_include_events(client, include_person_properties):
+async def test_get_results_iterator_can_include_events(clickhouse_client, include_person_properties):
     """Test the rows returned by get_results_iterator can include events."""
     team_id = randint(1, 1000000)
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
+    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    events: list[EventValues] = [
-        {
-            "uuid": str(uuid4()),
-            "event": f"test-{i}",
-            "_timestamp": "2023-04-20 14:30:00",
-            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
-            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "distinct_id": str(uuid4()),
-            "person_id": str(uuid4()),
-            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
-            "team_id": team_id,
-            "properties": {
-                "$browser": "Chrome",
-                "$os": "Mac OS X",
-                "$ip": "127.0.0.1",
-                "$current_url": "http://localhost.com",
-            },
-            "elements_chain": "this that and the other",
-            "elements": json.dumps("this that and the other"),
-            "ip": "127.0.0.1",
-            "site_url": "",
-            "set": None,
-            "set_once": None,
-        }
-        for i in range(10000)
-    ]
-    duplicate_events = events * 2
-
-    await insert_events(
-        ch_client=client,
-        events=duplicate_events,
+    (events, _, _) = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=data_interval_start,
+        end_time=data_interval_end,
+        count=10000,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=True,
+        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
     )
 
     # Include the latter half of events.
-    include_events = (f"test-{i}" for i in range(5000, 10000))
+    include_events = (event["event"] for event in events[5000:])
     iter_ = get_results_iterator(
-        client,
+        clickhouse_client,
         team_id,
-        "2023-04-20 14:30:00",
-        "2023-04-20 14:31:00",
+        data_interval_start.isoformat(),
+        data_interval_end.isoformat(),
         include_events=include_events,
         include_person_properties=include_person_properties,
     )

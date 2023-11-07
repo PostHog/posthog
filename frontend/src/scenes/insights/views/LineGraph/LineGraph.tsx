@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import ReactDOM from 'react-dom'
+import { Root, createRoot } from 'react-dom/client'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -38,16 +38,23 @@ import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 
-export function ensureTooltipElement(): HTMLElement {
+let tooltipRoot: Root
+
+export function ensureTooltip(): [Root, HTMLElement] {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
-    if (!tooltipEl) {
-        tooltipEl = document.createElement('div')
-        tooltipEl.id = 'InsightTooltipWrapper'
-        tooltipEl.classList.add('InsightTooltipWrapper')
-        tooltipEl.style.display = 'none'
-        document.body.appendChild(tooltipEl)
+
+    if (!tooltipEl || !tooltipRoot) {
+        if (!tooltipEl) {
+            tooltipEl = document.createElement('div')
+            tooltipEl.id = 'InsightTooltipWrapper'
+            tooltipEl.classList.add('InsightTooltipWrapper')
+            tooltipEl.style.display = 'none'
+            document.body.appendChild(tooltipEl)
+        }
+
+        tooltipRoot = createRoot(tooltipEl)
     }
-    return tooltipEl
+    return [tooltipRoot, tooltipEl]
 }
 
 function truncateString(str: string, num: number): string {
@@ -441,7 +448,7 @@ export function LineGraph_({
                             return
                         }
 
-                        const tooltipEl = ensureTooltipElement()
+                        const [tooltipRoot, tooltipEl] = ensureTooltip()
                         if (tooltip.opacity === 0) {
                             tooltipEl.style.opacity = '0'
                             return
@@ -468,7 +475,7 @@ export function LineGraph_({
                                 )
                             })
 
-                            ReactDOM.render(
+                            tooltipRoot.render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
@@ -524,8 +531,7 @@ export function LineGraph_({
                                             : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
-                                />,
-                                tooltipEl
+                                />
                             )
                         }
 

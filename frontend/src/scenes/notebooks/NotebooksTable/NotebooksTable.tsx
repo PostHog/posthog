@@ -15,6 +15,27 @@ import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTyp
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
 
+function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
+    return {
+        title: 'Title',
+        dataIndex: 'title',
+        width: '100%',
+        render: function Render(title, { short_id, is_template }) {
+            return (
+                <Link
+                    data-attr="notebook-title"
+                    to={urls.notebook(short_id)}
+                    className="font-semibold flex items-center gap-2"
+                >
+                    {title || 'Untitled'}
+                    {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                </Link>
+            )
+        },
+        sorter: (a, b) => (a.title ?? 'Untitled').localeCompare(b.title ?? 'Untitled'),
+    }
+}
+
 export function NotebooksTable(): JSX.Element {
     const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates } = useValues(notebooksTableLogic)
     const { loadNotebooks, setFilters } = useActions(notebooksTableLogic)
@@ -26,24 +47,7 @@ export function NotebooksTable(): JSX.Element {
     }, [])
 
     const columns: LemonTableColumns<NotebookListItemType> = [
-        {
-            title: 'Title',
-            dataIndex: 'title',
-            width: '100%',
-            render: function Render(title, { short_id, is_template }) {
-                return (
-                    <Link
-                        data-attr="notebook-title"
-                        to={urls.notebook(short_id)}
-                        className="font-semibold flex items-center gap-2"
-                    >
-                        {title || 'Untitled'}
-                        {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
-                    </Link>
-                )
-            },
-            sorter: (a, b) => (a.title ?? 'Untitled').localeCompare(b.title ?? 'Untitled'),
-        },
+        titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
         createdByColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined

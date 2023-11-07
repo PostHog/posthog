@@ -117,7 +117,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 30,
                 False,
                 user.pk,
-                10,  # limited from 12 because we don't need that many
+                1,  # even though the user has many distinct ids we don't load them
             ),
         ]
 

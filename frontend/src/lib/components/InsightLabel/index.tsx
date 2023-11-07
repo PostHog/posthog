@@ -1,4 +1,4 @@
-import { Space, Tag } from 'antd'
+import { Tag } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
@@ -168,7 +168,7 @@ export function InsightLabel({
                     )}
 
                     {pillValues.length > 0 && (
-                        <Space direction={'horizontal'} wrap={true}>
+                        <div className="flex flex-wrap gap-1">
                             {pillValues.map((pill) => (
                                 <Tooltip title={pill} key={pill}>
                                     <Tag className="tag-pill" closable={false}>
@@ -179,7 +179,7 @@ export function InsightLabel({
                                     </Tag>
                                 </Tooltip>
                             ))}
-                        </Space>
+                        </div>
                     )}
                 </div>
             </div>
