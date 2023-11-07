@@ -7,8 +7,6 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { teamLogic } from 'scenes/teamLogic'
-import { useEffect } from 'react'
-import { useState } from 'react'
 
 import './Settings.scss'
 import { NotFound } from 'lib/components/NotFound'
@@ -17,11 +15,11 @@ export function Settings({
     hideSections = false,
     ...props
 }: SettingsLogicProps & { hideSections?: boolean }): JSX.Element {
-    const { selectedSectionId, selectedSection, selectedLevel, sections } = useValues(settingsLogic(props))
-    const { selectSection, selectLevel } = useActions(settingsLogic(props))
+    const { selectedSectionId, selectedSection, selectedLevel, sections, isCompactNavigationOpen } = useValues(
+        settingsLogic(props)
+    )
+    const { selectSection, selectLevel, openCompactNavigation } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
-
-    const [navExpanded, setNavExpanded] = useState(false)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -30,11 +28,7 @@ export function Settings({
 
     const isCompact = size === 'small'
 
-    useEffect(() => {
-        setNavExpanded(false)
-    }, [selectedSectionId, selectedLevel])
-
-    const showSections = isCompact ? navExpanded : true
+    const showSections = isCompact ? isCompactNavigationOpen : true
 
     return (
         <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
@@ -82,7 +76,7 @@ export function Settings({
                             </ul>
                         </div>
                     ) : (
-                        <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => setNavExpanded(true)}>
+                        <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => openCompactNavigation()}>
                             {capitalizeFirstLetter(selectedLevel)}
                             {selectedSection ? ` / ${selectedSection.title}` : null}
                         </LemonButton>

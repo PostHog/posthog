@@ -24,7 +24,6 @@ export const SidePanelSettings = (): JSX.Element => {
         })
     }, [selectedSectionId, selectedLevel])
 
-    // NOTE: Currently we can't detect url changes from the iframe
     return (
         <div className="flex flex-col overflow-hidden">
             <div className="border-b flex-0 p-1 flex items-center justify-end gap-2">

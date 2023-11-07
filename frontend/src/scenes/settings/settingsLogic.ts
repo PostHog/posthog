@@ -11,7 +11,7 @@ import { copyToClipboard } from 'lib/utils'
 
 export type SettingsLogicProps = {
     logicKey?: string
-    // Optional - if given, renders only the given section
+    // Optional - if given, renders only the given level
     settingLevelId?: SettingLevelId
     // Optional - if given, renders only the given section
     sectionId?: SettingSectionId
@@ -31,6 +31,8 @@ export const settingsLogic = kea<settingsLogicType>([
         selectSection: (section: SettingSectionId) => ({ section }),
         selectLevel: (level: SettingLevelId) => ({ level }),
         selectSetting: (setting: string) => ({ setting }),
+        openCompactNavigation: true,
+        closeCompactNavigation: true,
     }),
 
     reducers(({ props }) => ({
@@ -46,6 +48,16 @@ export const settingsLogic = kea<settingsLogicType>([
             {
                 selectLevel: () => null,
                 selectSection: (_, { section }) => section,
+            },
+        ],
+
+        isCompactNavigationOpen: [
+            false,
+            {
+                openCompactNavigation: () => true,
+                closeCompactNavigation: () => false,
+                selectLevel: () => false,
+                selectSection: () => false,
             },
         ],
     })),

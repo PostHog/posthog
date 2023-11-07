@@ -112,9 +112,6 @@ export function ReplayCostControl(): JSX.Element {
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
             <>
-                {/* <h2 className={'flex flex-row align-center space-x-2'}>
-                    <span>Replay ingestion controls</span> <LemonTag type={'highlight'}>BETA</LemonTag>
-                </h2> */}
                 <p>
                     PostHog offers several tools to let you control the number of recordings you collect and which users
                     you collect recordings for.{' '}
