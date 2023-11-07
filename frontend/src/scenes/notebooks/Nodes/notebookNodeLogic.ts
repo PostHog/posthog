@@ -108,7 +108,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setMessageListeners: (_, { listeners }) => listeners,
             },
         ],
-
         titlePlaceholder: [
             props.titlePlaceholder,
             {

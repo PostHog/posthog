@@ -46,7 +46,7 @@ class TrendsQueryRunner(QueryRunner):
         query: TrendsQuery | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[int] = None,
+        in_export_context: Optional[bool] = None,
     ):
         super().__init__(query, team, timings, in_export_context)
         self.series = self.setup_series()
@@ -92,6 +92,26 @@ class TrendsQueryRunner(QueryRunner):
                 queries.append(query_builder.build_query())
 
         return queries
+
+    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        queries = []
+        with self.timings.measure("trends_persons_query"):
+            for series in self.series:
+                if not series.is_previous_period_series:
+                    query_date_range = self.query_date_range
+                else:
+                    query_date_range = self.query_previous_date_range
+
+                query_builder = TrendsQueryBuilder(
+                    trends_query=series.overriden_query or self.query,
+                    team=self.team,
+                    query_date_range=query_date_range,
+                    series=series.series,
+                    timings=self.timings,
+                )
+                queries.append(query_builder.build_persons_query())
+
+        return ast.SelectUnionQuery(select_queries=queries)
 
     def calculate(self):
         queries = self.to_query()

@@ -30,11 +30,16 @@ async function deleteKeysWithPrefix(hub: Hub) {
     await hub.redisPool.release(redisClient)
 }
 
-const mockQueryWatermarkOffsets = jest.fn()
-const mockCommittedOffsetsFn = jest.fn()
-const mockCommit = jest.fn()
-const mockAssignments = jest.fn()
-const mockIsConnected = jest.fn(() => true)
+const mockConsumer = {
+    on: jest.fn(),
+    commitSync: jest.fn(),
+    commit: jest.fn(),
+    queryWatermarkOffsets: jest.fn(),
+    committed: jest.fn(),
+    assignments: jest.fn(),
+    isConnected: jest.fn(() => true),
+    getMetadata: jest.fn(),
+}
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -44,15 +49,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                     finally: jest.fn(),
                 }),
                 stop: jest.fn(),
-                consumer: {
-                    on: jest.fn(),
-                    commitSync: mockCommit,
-                    commit: mockCommit,
-                    queryWatermarkOffsets: mockQueryWatermarkOffsets,
-                    committed: mockCommittedOffsetsFn,
-                    assignments: mockAssignments,
-                    isConnected: mockIsConnected,
-                },
+                consumer: mockConsumer,
             })
         ),
     }
@@ -79,12 +76,20 @@ describe('ingester', () => {
         // The below mocks simulate committing to kafka and querying the offsets
         mockCommittedOffsets = {}
         mockOffsets = {}
-        mockCommit.mockImplementation((tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset))
-        mockQueryWatermarkOffsets.mockImplementation((topic, partition, cb) => {
+        mockConsumer.commit.mockImplementation(
+            (tpo: TopicPartitionOffset) => (mockCommittedOffsets[tpo.partition] = tpo.offset)
+        )
+        mockConsumer.queryWatermarkOffsets.mockImplementation((_topic, partition, _timeout, cb) => {
             cb(null, { highOffset: mockOffsets[partition] ?? 1, lowOffset: 0 })
         })
 
-        mockCommittedOffsetsFn.mockImplementation((topicPartitions: TopicPartition[], timeout, cb) => {
+        mockConsumer.getMetadata.mockImplementation((options, cb) => {
+            cb(null, {
+                topics: [{ name: options.topic, partitions: [{ id: 0 }, { id: 1 }, { id: 2 }] }],
+            })
+        })
+
+        mockConsumer.committed.mockImplementation((topicPartitions: TopicPartition[], timeout, cb) => {
             const tpos: TopicPartitionOffset[] = topicPartitions.map((tp) => ({
                 topic: tp.topic,
                 partition: tp.partition,
@@ -101,7 +106,7 @@ describe('ingester', () => {
         ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         await ingester.start()
 
-        mockAssignments.mockImplementation(() => [createTP(1), createTP(2)])
+        mockConsumer.assignments.mockImplementation(() => [createTP(0), createTP(1)])
     })
 
     afterEach(async () => {
@@ -347,12 +352,12 @@ describe('ingester', () => {
 
             await commitAllOffsets()
             // Doesn't flush if we have a blocking session
-            expect(mockCommit).toHaveBeenCalledTimes(0)
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(0)
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
             await commitAllOffsets()
 
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     offset: 2 + 1,
                     partition: 1,
@@ -366,8 +371,8 @@ describe('ingester', () => {
             expect(ingester.partitionMetrics[1].lastMessageOffset).toBe(1)
             await commitAllOffsets()
 
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: 2,
@@ -376,14 +381,14 @@ describe('ingester', () => {
 
             // Repeat commit doesn't do anything
             await commitAllOffsets()
-            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
 
             await ingester.handleEachBatch([createMessage('sid1')])
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
             await commitAllOffsets()
 
-            expect(mockCommit).toHaveBeenCalledTimes(2)
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: 2 + 1,
@@ -406,12 +411,12 @@ describe('ingester', () => {
             })
 
             // No offsets are below the blocking one
-            expect(mockCommit).not.toHaveBeenCalled()
+            expect(mockConsumer.commit).not.toHaveBeenCalled()
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
 
             // Subsequent commit will commit the last known offset
             await commitAllOffsets()
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: 4 + 1,
@@ -431,7 +436,7 @@ describe('ingester', () => {
             await commitAllOffsets()
 
             // No offsets are below the blocking one
-            expect(mockCommit).not.toHaveBeenCalled()
+            expect(mockConsumer.commit).not.toHaveBeenCalled()
 
             // Add a new message and session and flush the old one
             await ingester.handleEachBatch([createMessage('sid2')])
@@ -439,7 +444,7 @@ describe('ingester', () => {
             await commitAllOffsets()
 
             // We should commit the offset of the blocking session
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: ingester.sessions[`${team.id}-sid2`].getLowestOffset(),
@@ -459,26 +464,26 @@ describe('ingester', () => {
 
             // We should now have a blocking session on partition 1 and 2 with partition 1 being committable
             await commitAllOffsets()
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: 2,
                 })
             )
 
-            mockCommit.mockReset()
+            mockConsumer.commit.mockReset()
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
             await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
             await commitAllOffsets()
-            expect(mockCommit).toHaveBeenCalledTimes(2)
-            expect(mockCommit).toHaveBeenCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(2)
+            expect(mockConsumer.commit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 1,
                     offset: 3,
                 })
             )
-            expect(mockCommit).toHaveBeenCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledWith(
                 expect.objectContaining({
                     partition: 2,
                     offset: 3,
@@ -508,7 +513,7 @@ describe('ingester', () => {
             await ingester.handleEachBatch([createMessage('sid1'), createMessage('sid2'), createMessage('sid1')])
             await ingester.sessions[`${team.id}-sid1`].flush('buffer_age')
             await commitAllOffsets()
-            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
 
             // sid1 should be watermarked up until the 3rd message as it HAS been processed
             await expect(getSessionWaterMarks()).resolves.toEqual({ sid1: 3 })
@@ -528,7 +533,7 @@ describe('ingester', () => {
             await ingester.handleEachBatch([events[0], events[1]])
             await ingester.sessions[`${team.id}-sid2`].flush('buffer_age')
             await commitAllOffsets()
-            expect(mockCommit).not.toHaveBeenCalled()
+            expect(mockConsumer.commit).not.toHaveBeenCalled()
             await expect(getPersistentWaterMarks()).resolves.toEqual({
                 session_replay_console_logs_events_ingester: 2,
                 session_replay_events_ingester: 2,
@@ -564,7 +569,7 @@ describe('ingester', () => {
             const partitionMsgs1 = [createMessage('session_id_1', 1), createMessage('session_id_2', 1)]
             const partitionMsgs2 = [createMessage('session_id_3', 2), createMessage('session_id_4', 2)]
 
-            mockAssignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
+            mockConsumer.assignments.mockImplementation(() => [createTP(1), createTP(2), createTP(3)])
             await ingester.handleEachBatch([...partitionMsgs1, ...partitionMsgs2])
 
             expect(
@@ -580,7 +585,7 @@ describe('ingester', () => {
 
             // Call the second ingester to receive the messages. The revocation should still be in progress meaning they are "paused" for a bit
             // Once the revocation is complete the second ingester should receive the messages but drop most of them as they got flushes by the revoke
-            mockAssignments.mockImplementation(() => [createTP(2), createTP(3)])
+            mockConsumer.assignments.mockImplementation(() => [createTP(2), createTP(3)])
             await otherIngester.handleEachBatch([...partitionMsgs2, createMessage('session_id_4', 2)])
             await Promise.all(rebalancePromises)
 
@@ -619,8 +624,8 @@ describe('ingester', () => {
                 expect.stringContaining(`${team.id}.sid3.`), // json
             ])
 
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenLastCalledWith(
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenLastCalledWith(
                 expect.objectContaining({
                     offset: 2 + 1,
                     partition: 1,
@@ -671,11 +676,26 @@ describe('ingester', () => {
                 createKafkaMessage('invalid_token', { offset: 12 }),
                 createKafkaMessage('invalid_token', { offset: 13 }),
             ])
-            expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenCalledWith({
+            expect(mockConsumer.commit).toHaveBeenCalledTimes(1)
+            expect(mockConsumer.commit).toHaveBeenCalledWith({
                 offset: 14,
                 partition: 1,
                 topic: 'session_recording_snapshot_item_events_test',
+            })
+        })
+    })
+
+    describe('lag reporting', () => {
+        it('should return the latest offsets', async () => {
+            mockConsumer.queryWatermarkOffsets.mockImplementation((topic, partition, timeout, cb) => {
+                cb(null, { highOffset: 1000 + partition, lowOffset: 0 })
+            })
+
+            const results = await ingester.latestOffsetsRefresher.get()
+
+            expect(results).toEqual({
+                0: 1000,
+                1: 1001,
             })
         })
     })

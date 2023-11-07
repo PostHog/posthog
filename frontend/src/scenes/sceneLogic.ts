@@ -39,9 +39,11 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
     [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
 export const sceneLogic = kea<sceneLogicType>([

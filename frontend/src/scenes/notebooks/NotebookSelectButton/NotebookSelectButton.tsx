@@ -128,7 +128,12 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <LemonButton fullWidth icon={<IconPlus />} onClick={openNewNotebook}>
+                <LemonButton
+                    data-attr="notebooks-select-button-create"
+                    fullWidth
+                    icon={<IconPlus />}
+                    onClick={openNewNotebook}
+                >
                     New notebook
                 </LemonButton>
                 <LemonButton

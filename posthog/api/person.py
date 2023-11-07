@@ -189,6 +189,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 # person distinct ids can grow to be a very large list
 # in the UI we don't need all of them, so we can limit the number of distinct ids we return
 class MinimalPersonSerializer(PersonSerializer):
+    distinct_ids = serializers.SerializerMethodField()
+
     def get_distinct_ids(self, person):
         return person.distinct_ids[:10]
 

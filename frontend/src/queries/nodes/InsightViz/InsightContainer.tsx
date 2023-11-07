@@ -1,4 +1,4 @@
-import { Card, Col, Row } from 'antd'
+import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -254,12 +254,12 @@ export function InsightContainer({
                         {BlockingEmptyState ? (
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
-                            <Row className="insights-graph-container-row" wrap={false}>
-                                <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                                <Col className="insights-graph-container-row-right">
+                            <div className="insights-graph-container-row flex flex-nowrap">
+                                <div className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</div>
+                                <div className="insights-graph-container-row-right">
                                     <InsightLegend />
-                                </Col>
-                            </Row>
+                                </div>
+                            </div>
                         ) : (
                             VIEW_MAP[activeView]
                         )}

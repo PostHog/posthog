@@ -1,6 +1,6 @@
 import '~/styles'
 
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { getContext } from 'kea'
 
 import { App } from 'scenes/App'
@@ -28,13 +28,12 @@ if (typeof window !== 'undefined') {
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
-        ReactDOM.render(
+        createRoot(root).render(
             <ErrorBoundary>
                 <PostHogProvider client={posthog}>
                     <App />
                 </PostHogProvider>
-            </ErrorBoundary>,
-            root
+            </ErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
