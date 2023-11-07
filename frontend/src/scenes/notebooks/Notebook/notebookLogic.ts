@@ -107,11 +107,12 @@ export const notebookLogic = kea<notebookLogicType>([
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
+        setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
     }),
     reducers(({ props }) => ({
         localContent: [
             null as JSONContent | null,
-            { persist: props.mode === 'notebook', prefix: NOTEBOOKS_VERSION },
+            { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
@@ -183,6 +184,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
+        containerSize: [
+            'small' as 'small' | 'medium',
+            {
+                setContainerSize: (_, { containerSize }) => containerSize,
+            },
+        ],
     })),
     loaders(({ values, props, actions }) => ({
         notebook: [
@@ -198,7 +205,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
                             ...values.scratchpadNotebook,
-                            content: {},
+                            content: null,
                             text_content: null,
                             version: 0,
                         }
@@ -215,7 +222,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const notebook = migrate(response)
 
-                    if (!values.notebook) {
+                    if (!values.notebook && notebook.content) {
                         // If this is the first load we need to override the content fully
                         values.editor?.setContent(notebook.content)
                     }
@@ -386,8 +393,10 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory],
-            (editingNodeId, showHistory) => !!editingNodeId || showHistory,
+            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
+            (editingNodeId, showHistory, containerSize) => {
+                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            },
         ],
 
         isEditable: [

@@ -1,4 +1,4 @@
-import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic, path, connect, actions, reducers, selectors, events } from 'kea'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -28,18 +28,18 @@ import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
 
-export const appLogic = kea<appLogicType>({
-    path: ['scenes', 'App'],
-    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
-    actions: {
+export const appLogic = kea<appLogicType>([
+    path(['scenes', 'App']),
+    connect([teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic]),
+    actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
-    },
-    reducers: {
+    }),
+    reducers({
         showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
         featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
-    },
-    selectors: {
+    }),
+    selectors({
         showApp: [
             (s) => [
                 userLogic.selectors.userLoading,
@@ -57,8 +57,8 @@ export const appLogic = kea<appLogicType>({
                 )
             },
         ],
-    },
-    events: ({ actions, cache }) => ({
+    }),
+    events(({ actions, cache }) => ({
         afterMount: () => {
             cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
             cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
@@ -67,8 +67,8 @@ export const appLogic = kea<appLogicType>({
             window.clearTimeout(cache.spinnerTimeout)
             window.clearTimeout(cache.featureFlagTimeout)
         },
-    }),
-})
+    })),
+])
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)

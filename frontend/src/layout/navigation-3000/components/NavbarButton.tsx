@@ -4,35 +4,69 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { navigation3000Logic } from '../navigationLogic'
+import { LemonTag } from '@posthog/lemon-ui'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export interface NavbarButtonProps {
     identifier: string
     icon: ReactElement
     title?: string
+    shortTitle?: string
+    tag?: 'alpha' | 'beta'
     onClick?: () => void
     to?: string
     persistentTooltip?: boolean
     active?: boolean
-    popoverMarker?: boolean
 }
 
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<
     HTMLButtonElement,
     NavbarButtonProps
->(({ identifier, title, onClick, persistentTooltip, popoverMarker, ...buttonProps }, ref): JSX.Element => {
+>(({ identifier, shortTitle, title, tag, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
     const { aliasedActiveScene } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
+    const isUsingNewNav = useFeatureFlag('POSTHOG_3000_NAV')
 
     const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-    const here = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV] ? aliasedActiveScene === identifier : false
+    const here = aliasedActiveScene === identifier
+    const isNavCollapsedActually = isNavCollapsed || isUsingNewNav
+
+    if (!isUsingNewNav) {
+        buttonProps.active = here
+    }
+
+    let content: JSX.Element | string | undefined
+    if (!isNavCollapsedActually) {
+        content = shortTitle || title
+        if (tag) {
+            if (tag === 'alpha') {
+                content = (
+                    <>
+                        {content}
+                        <LemonTag type="completion" size="small" className="ml-2">
+                            ALPHA
+                        </LemonTag>
+                    </>
+                )
+            } else if (tag === 'beta') {
+                content = (
+                    <>
+                        {content}
+                        <LemonTag type="warning" size="small" className="ml-2">
+                            BETA
+                        </LemonTag>
+                    </>
+                )
+            }
+        }
+    }
 
     return (
-        <li>
+        <li className="w-full">
             <Tooltip
-                title={here ? `${title} (you are here)` : title}
+                title={isNavCollapsedActually ? (here ? `${title} (you are here)` : title) : null}
                 placement="right"
                 delayMs={0}
                 visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
@@ -45,13 +79,12 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                         setHasBeenClicked(true)
                         onClick?.()
                     }}
-                    className={clsx(
-                        'NavbarButton',
-                        here && 'NavbarButton--here',
-                        popoverMarker && 'NavbarButton--popover'
-                    )}
+                    className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+                    fullWidth
                     {...buttonProps}
-                />
+                >
+                    {content}
+                </LemonButton>
             </Tooltip>
         </li>
     )

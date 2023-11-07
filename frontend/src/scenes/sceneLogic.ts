@@ -1,5 +1,5 @@
-import { BuiltLogic, kea } from 'kea'
-import { router } from 'kea-router'
+import { BuiltLogic, kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import type { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -35,27 +35,31 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
     [Scene.Survey]: Scene.Surveys,
     [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
     [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
+    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Apps,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
+    [Scene.Site]: Scene.ToolbarLaunch,
 }
 
-export const sceneLogic = kea<sceneLogicType>({
-    props: {} as {
-        scenes?: Record<Scene, () => any>
-    },
-    connect: () => ({
+export const sceneLogic = kea<sceneLogicType>([
+    props(
+        {} as {
+            scenes?: Record<Scene, () => any>
+        }
+    ),
+    path(['scenes', 'sceneLogic']),
+    connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged']],
-    }),
-    path: ['scenes', 'sceneLogic'],
-    actions: {
+    })),
+    actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
-            else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
+        else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
         openScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
         // 2. Start loading the scene's Javascript and mount any logic, then calls (3) `setScene`
         loadScene: (scene: Scene, params: SceneParams, method: string) => ({ scene, params, method }),
@@ -83,8 +87,8 @@ export const sceneLogic = kea<sceneLogicType>({
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
-    },
-    reducers: {
+    }),
+    reducers({
         scene: [
             null as Scene | null,
             {
@@ -128,8 +132,8 @@ export const sceneLogic = kea<sceneLogicType>({
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
-    },
-    selectors: {
+    }),
+    selectors({
         sceneConfig: [
             (s) => [s.scene],
             (scene: Scene): SceneConfig | null => {
@@ -167,38 +171,8 @@ export const sceneLogic = kea<sceneLogicType>({
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-    },
-    urlToAction: ({ actions }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
-                }
-            ) => any
-        > = {}
-
-        for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
-                const redirect = redirects[path]
-                router.actions.replace(
-                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
-                )
-            }
-        }
-        for (const [path, scene] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, { params, searchParams, hashParams }, method)
-        }
-
-        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
-
-        return mapping
-    },
-    listeners: ({ values, actions, props, selectors }) => ({
+    }),
+    listeners(({ values, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -410,5 +384,35 @@ export const sceneLogic = kea<sceneLogicType>({
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
+    })),
+    urlToAction(({ actions }) => {
+        const mapping: Record<
+            string,
+            (
+                params: Params,
+                searchParams: Params,
+                hashParams: Params,
+                payload: {
+                    method: string
+                }
+            ) => any
+        > = {}
+
+        for (const path of Object.keys(redirects)) {
+            mapping[path] = (params, searchParams, hashParams) => {
+                const redirect = redirects[path]
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
+            }
+        }
+        for (const [path, scene] of Object.entries(routes)) {
+            mapping[path] = (params, searchParams, hashParams, { method }) =>
+                actions.openScene(scene, { params, searchParams, hashParams }, method)
+        }
+
+        mapping['/*'] = (_, __, { method }) => actions.loadScene(Scene.Error404, emptySceneParams, method)
+
+        return mapping
     }),
-})
+])

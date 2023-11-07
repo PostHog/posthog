@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
@@ -7,7 +7,6 @@ from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
 )
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.breakdown_session import BreakdownSession
 from posthog.hogql_queries.insights.trends.utils import series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -36,9 +35,9 @@ class TrendsQueryBuilder:
         self.series = series
         self.timings = timings
 
-    def build_query(self) -> ast.SelectUnionQuery:
+    def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         date_subqueries = self._get_date_subqueries()
-        event_query = self._get_events_subquery()
+        event_query = self._get_events_subquery(False)
 
         date_events_union = ast.SelectUnionQuery(select_queries=[*date_subqueries, event_query])
 
@@ -47,11 +46,21 @@ class TrendsQueryBuilder:
 
         return full_query
 
+    def build_persons_query(self) -> ast.SelectQuery:
+        event_query = self._get_events_subquery(True)
+
+        event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person_id"]))]
+        event_query.group_by = None
+
+        return event_query
+
     def _get_date_subqueries(self) -> List[ast.SelectQuery]:
         if not self._breakdown.enabled:
             return [
-                parse_select(
-                    """
+                cast(
+                    ast.SelectQuery,
+                    parse_select(
+                        """
                         SELECT
                             0 AS total,
                             dateTrunc({interval}, {date_to}) - {number_interval_period} AS day_start
@@ -60,25 +69,31 @@ class TrendsQueryBuilder:
                                 coalesce(dateDiff({interval}, {date_from}, {date_to}), 0)
                             )
                     """,
-                    placeholders={
-                        **self.query_date_range.to_placeholders(),
-                    },
+                        placeholders={
+                            **self.query_date_range.to_placeholders(),
+                        },
+                    ),
                 ),
-                parse_select(
-                    """
+                cast(
+                    ast.SelectQuery,
+                    parse_select(
+                        """
                         SELECT
                             0 AS total,
                             {date_from} AS day_start
                     """,
-                    placeholders={
-                        **self.query_date_range.to_placeholders(),
-                    },
+                        placeholders={
+                            **self.query_date_range.to_placeholders(),
+                        },
+                    ),
                 ),
             ]
 
         return [
-            parse_select(
-                """
+            cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
                     SELECT
                         0 AS total,
                         ticks.day_start as day_start,
@@ -102,16 +117,19 @@ class TrendsQueryBuilder:
                     ) as sec
                     ORDER BY breakdown_value, day_start
                 """,
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    **self._breakdown.placeholders(),
-                },
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                        **self._breakdown.placeholders(),
+                    },
+                ),
             )
         ]
 
-    def _get_events_subquery(self) -> ast.SelectQuery:
-        default_query = parse_select(
-            """
+    def _get_events_subquery(self, no_modifications: Optional[bool]) -> ast.SelectQuery:
+        default_query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT
                     {aggregation_operation} AS total,
                     dateTrunc({interval}, timestamp) AS day_start
@@ -120,16 +138,19 @@ class TrendsQueryBuilder:
                 WHERE {events_filter}
                 GROUP BY day_start
             """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "events_filter": self._events_filter(),
-                "aggregation_operation": self._aggregation_operation.select_aggregation(),
-                "sample": self._sample_value(),
-            },
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "events_filter": self._events_filter(),
+                    "aggregation_operation": self._aggregation_operation.select_aggregation(),
+                    "sample": self._sample_value(),
+                },
+            ),
         )
 
         # No breakdowns and no complex series aggregation
-        if not self._breakdown.enabled and not self._aggregation_operation.requires_query_orchestration():
+        if (
+            not self._breakdown.enabled and not self._aggregation_operation.requires_query_orchestration()
+        ) or no_modifications is True:
             return default_query
         # Both breakdowns and complex series aggregation
         elif self._breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
@@ -140,8 +161,6 @@ class TrendsQueryBuilder:
 
             orchestrator.events_query_builder.append_select(self._breakdown.column_expr())
             orchestrator.events_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
-            if self._breakdown.is_session_type:
-                orchestrator.events_query_builder.replace_select_from(self._breakdown_session.session_inner_join())
 
             orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
             orchestrator.inner_select_query_builder.append_group_by(ast.Field(chain=["breakdown_value"]))
@@ -154,8 +173,6 @@ class TrendsQueryBuilder:
             default_query.select.append(self._breakdown.column_expr())
             default_query.group_by.append(ast.Field(chain=["breakdown_value"]))
 
-            if self._breakdown.is_session_type:
-                default_query.select_from = self._breakdown_session.session_inner_join()
         # Just complex series aggregation
         elif self._aggregation_operation.requires_query_orchestration():
             return self._aggregation_operation.get_query_orchestrator(
@@ -166,14 +183,17 @@ class TrendsQueryBuilder:
         return default_query
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        query = parse_select(
-            """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT
                     groupArray(day_start) AS date,
                     groupArray(count) AS total
                 FROM {inner_query}
             """,
-            placeholders={"inner_query": inner_query},
+                placeholders={"inner_query": inner_query},
+            ),
         )
 
         if self._breakdown.enabled:
@@ -184,8 +204,10 @@ class TrendsQueryBuilder:
         return query
 
     def _inner_select_query(self, inner_query: ast.SelectUnionQuery) -> ast.SelectQuery:
-        query = parse_select(
-            """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
                 SELECT
                     sum(total) AS count,
                     day_start
@@ -193,7 +215,8 @@ class TrendsQueryBuilder:
                 GROUP BY day_start
                 ORDER BY day_start ASC
             """,
-            placeholders={"inner_query": inner_query},
+                placeholders={"inner_query": inner_query},
+            ),
         )
 
         if self._breakdown.enabled:
@@ -250,14 +273,6 @@ class TrendsQueryBuilder:
         # Breakdown
         if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
             filters.append(self._breakdown.events_where_filter())
-        if self._breakdown.is_session_type:
-            filters.append(
-                ast.CompareOperation(
-                    left=self._breakdown_session.session_duration_field(),
-                    op=ast.CompareOperationOp.NotEq,
-                    right=ast.Constant(value=None),
-                )
-            )
 
         if len(filters) == 0:
             return ast.Constant(value=True)
@@ -281,10 +296,6 @@ class TrendsQueryBuilder:
             query_date_range=self.query_date_range,
             timings=self.timings,
         )
-
-    @cached_property
-    def _breakdown_session(self):
-        return BreakdownSession(self.query_date_range)
 
     @cached_property
     def _aggregation_operation(self):

@@ -210,7 +210,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                 </PopoverReferenceContext.Provider>
             )}
             <FloatingPortal root={getPopupContainer?.()}>
-                <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
+                <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div
                             className={clsx(

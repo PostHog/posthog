@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import clsx from 'clsx'
+import { Link } from '@posthog/lemon-ui'
 
 type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
@@ -120,13 +121,13 @@ export function PayGateMini({
             <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Subscribe to gain {featureSummary.umbrella}.
+                Subscribe to gain {featureSummary.umbrella}.
                 {featureSummary.docsHref && (
                     <>
                         {' '}
-                        <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
-                            Learn more in PostHog Docs.
-                        </a>
+                        <Link to={featureSummary.docsHref} target="_blank">
+                            Learn more in PostHog Docs.
+                        </Link>
                     </>
                 )}
             </div>

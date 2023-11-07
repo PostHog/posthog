@@ -29,7 +29,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import validate_function_args
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
@@ -778,8 +778,7 @@ class _Printer(Visitor):
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
-            all_function_names = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
-            close_matches = get_close_matches(node.name, all_function_names, 1)
+            close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise HogQLException(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
@@ -855,7 +854,11 @@ class _Printer(Visitor):
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
-        elif isinstance(type.table_type, ast.SelectQueryType) or isinstance(type.table_type, ast.SelectQueryAliasType):
+        elif (
+            isinstance(type.table_type, ast.SelectQueryType)
+            or isinstance(type.table_type, ast.SelectQueryAliasType)
+            or isinstance(type.table_type, ast.SelectUnionQueryType)
+        ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"

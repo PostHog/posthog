@@ -55,11 +55,7 @@ QUERY_WITH_RUNNER = [
     "WebTopPagesQuery",
     "WebStatsTableQuery",
 ]
-QUERY_WITH_RUNNER_NO_CACHE = [
-    "EventsQuery",
-    "PersonsQuery",
-    "HogQLQuery",
-]
+QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 
 
 class QueryThrottle(TeamRateThrottle):

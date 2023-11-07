@@ -2,17 +2,32 @@
 
 ## Mandatory reading
 
-If you're new to Python C/C++ extensions, there are some things you must have in your mind.
+If you're new to Python C/C++ extensions, there are some things you must have in mind. The [Python/C API Reference Manual](https://docs.python.org/3/c-api/index.html) is worth a read as a whole.
 
-### [Objects, Types and Reference Counts in CPython](https://docs.python.org/3/c-api/intro.html#objects-types-and-reference-counts)
+The three pages below are must-reads though. They're key to writing production-ready code:
+
+### [Objects, Types and Reference Counts](https://docs.python.org/3/c-api/intro.html#objects-types-and-reference-counts)
 
    Key takeaways:
 
-   1. `Py_INCREF()` and `Py_DECREF()` need to be used accurately, or there'll be memory leaks (or, less likely, segfaults).
+   1. `Py_INCREF()` and `Py_DECREF()` need to be used accurately, or there'll be memory leaks (or, less likely, segfaults). This also applies to early exits, such as these caused by an error.
    1. `Py_None`, `Py_True`, and `Py_False` are singletons, but they still need to be incref'd/decref'd - the best way to do create a new reference to them is wrapping them in `Py_NewRef()`.
-   1. Pretty much only `PyList_SET_ITEM()` _steals_ references (i.e. assumes ownership of objects passed into it), if you pass an object into any other function and no longer need it after that - remember to `Py_DECREF` it!
+   1. Pretty much only `PyList_SET_ITEM()` _steals_ references (i.e. assumes ownership of objects passed into it) - if you pass an object into any other function and no longer need it after that, remember to `Py_DECREF` it!
 
-### [Building Values in CPython](https://docs.python.org/3/c-api/arg.html#building-values)
+### [Exception Handling](https://docs.python.org/3/c-api/exceptions.html)
+
+   Key takeaways:
+
+   1. If a Python exception has been raised, the module method that was called from Python must stop execution and return `NULL` immediately.
+      > In `HogQLParseTreeConverter`, we are able to use C++ exceptions: throwing `SyntaxException`,
+      > `NotImplementedException`, or `ParsingException` results in the same exception being raised in Python as
+      > expected. Note that if a `visitAsFoo` call throws an exception and there are `PyObject*`s in scope, we have to
+      > remember about cleaning up their refcounts. At such call sites, a `try {} catch (...) {}` block is appropriate.
+   1. For all Python/C API calls returning `PyObject*`, make sure `NULL` wasn't returned - if it was, then something failed and the Python runtime has already set an exception (e.g. a `MemoryError`). The same applies to calls returning `int` - there the error value is `-1`. Exception: in `PyArg_Foo` functions failure is signaled by `0` and success by `1`.
+      > In `HogQLParseTreeConverter`, these internal Python failures are handled simply by throwing
+      > `PyInternalException`.
+
+### [Building Values](https://docs.python.org/3/c-api/arg.html#building-values)
 
    Key takeaways:
 

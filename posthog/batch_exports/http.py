@@ -28,6 +28,7 @@ from posthog.batch_exports.service import (
     BatchExportServiceError,
     BatchExportServiceRPCError,
     backfill_export,
+    cancel_running_batch_export_backfill,
     delete_schedule,
     pause_batch_export,
     sync_batch_export,
@@ -35,6 +36,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import (
     BatchExport,
+    BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
     Team,
@@ -264,9 +266,9 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+        backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
 
-        return response.Response()
+        return response.Response({"backfill_id": backfill_id})
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -323,6 +325,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         delete_schedule(temporal, str(instance.pk))
         instance.save()
+
+        for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+            if backfill.status == BatchExportBackfill.Status.RUNNING:
+                cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):

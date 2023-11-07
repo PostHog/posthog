@@ -87,17 +87,34 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # TODO: add support for selecting and filtering by breakdowns
+    def to_persons_query(
+        self, day: Optional[str] = None, status: Optional[str] = None
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("persons_query"):
+            exprs = []
+            if day is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["start_of_period"]),
+                        right=ast.Constant(value=day),
+                    )
+                )
+            if status is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["status"]),
+                        right=ast.Constant(value=status),
+                    )
+                )
+
             return parse_select(
-                """
-                SELECT
-                    person_id --, start_of_period as breakdown_1, status as breakdown_2
-                FROM
-                    {events_query}
-                """,
-                placeholders={"events_query": self.events_query},
+                "SELECT person_id FROM {events_query} WHERE {where}",
+                placeholders={
+                    "events_query": self.events_query,
+                    "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
+                },
             )
 
     def calculate(self):

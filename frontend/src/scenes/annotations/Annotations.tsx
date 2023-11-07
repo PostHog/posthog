@@ -12,7 +12,7 @@ import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/Le
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconEdit, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconEdit } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -80,9 +80,9 @@ export function Annotations(): JSX.Element {
                                     to={urls.insightView(annotation.insight_short_id as InsightShortId)}
                                     className="flex items-center"
                                     target="_blank"
+                                    targetBlankIcon
                                 >
                                     {scopeName}
-                                    <IconOpenInNew className="ml-1" />
                                 </Link>
                             ) : (
                                 scopeName

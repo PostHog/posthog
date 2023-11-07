@@ -104,7 +104,6 @@ export function Products(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
@@ -127,27 +126,15 @@ export function Products(): JSX.Element {
                 <>
                     <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
                         {products
-                            .filter((product) => !product.contact_support && !product.inclusion_only)
+                            .filter(
+                                (product) =>
+                                    !product.contact_support &&
+                                    !product.inclusion_only &&
+                                    product.type !== 'data_warehouse'
+                            )
                             .map((product) => (
                                 <ProductCard product={product} key={product.type} />
                             ))}
-                    </div>
-                    <div className="mt-20">
-                        <LemonButton
-                            status="muted"
-                            onClick={() => {
-                                updateCurrentTeam({
-                                    has_completed_onboarding_for: {
-                                        ...currentTeam?.has_completed_onboarding_for,
-                                        skipped_onboarding: true,
-                                    },
-                                })
-                                router.actions.replace(urls.default())
-                            }}
-                            size="small"
-                        >
-                            None of these
-                        </LemonButton>
                     </div>
                 </>
             ) : (

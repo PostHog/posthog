@@ -244,10 +244,10 @@ class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    end: Optional[float] = None
+    end: Optional[int] = None
     fix: Optional[str] = None
     message: str
-    start: Optional[float] = None
+    start: Optional[int] = None
 
 
 class InCohortVia(str, Enum):
@@ -328,6 +328,7 @@ class NodeKind(str, Enum):
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
     PersonsQuery = "PersonsQuery"
+    SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
     SavedInsightNode = "SavedInsightNode"
     InsightVizNode = "InsightVizNode"
@@ -337,6 +338,7 @@ class NodeKind(str, Enum):
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
+    InsightPersonsQuery = "InsightPersonsQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -571,6 +573,15 @@ class TimeToSeeDataWaterfallNode(BaseModel):
     source: TimeToSeeDataQuery
 
 
+class TimelineEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: List[EventType]
+    recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
+    sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -637,9 +648,15 @@ class WebStatsBreakdown(str, Enum):
     InitialReferringDomain = "InitialReferringDomain"
     InitialUTMSource = "InitialUTMSource"
     InitialUTMCampaign = "InitialUTMCampaign"
+    InitialUTMMedium = "InitialUTMMedium"
+    InitialUTMTerm = "InitialUTMTerm"
+    InitialUTMContent = "InitialUTMContent"
     Browser = "Browser"
     OS = "OS"
     DeviceType = "DeviceType"
+    Country = "Country"
+    Region = "Region"
+    City = "City"
 
 
 class WebStatsTableQueryResponse(BaseModel):
@@ -894,6 +911,16 @@ class RetentionFilter(BaseModel):
     returning_entity: Optional[Dict[str, Any]] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
+
+
+class SessionsTimelineQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class TimeToSeeDataJSONNode(BaseModel):
@@ -1285,6 +1312,21 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
+class SessionsTimelineQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started after this timestamp (default: '-24h')"
+    )
+    before: Optional[str] = Field(
+        default=None, description="Only fetch sessions that started before this timestamp (default: '+5s')"
+    )
+    kind: Literal["SessionsTimelineQuery"] = "SessionsTimelineQuery"
+    personId: Optional[str] = Field(default=None, description="Fetch sessions only for a given person")
+    response: Optional[SessionsTimelineQueryResponse] = Field(default=None, description="Cached query response")
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1662,6 +1704,36 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
+class InsightVizNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    full: Optional[bool] = Field(
+        default=None, description="Show with most visual options enabled. Used in insight scene."
+    )
+    kind: Literal["InsightVizNode"] = "InsightVizNode"
+    showCorrelationTable: Optional[bool] = None
+    showFilters: Optional[bool] = None
+    showHeader: Optional[bool] = None
+    showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
+    showResults: Optional[bool] = None
+    showTable: Optional[bool] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+
+
+class InsightPersonsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: Optional[str] = None
+    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
+    response: Optional[PersonsQueryResponse] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    status: Optional[str] = None
+
+
 class PersonsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1705,7 +1777,7 @@ class PersonsQuery(BaseModel):
     response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[LifecycleQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightPersonsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):
@@ -1764,25 +1836,6 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
-class InsightVizNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
-    full: Optional[bool] = Field(
-        default=None, description="Show with most visual options enabled. Used in insight scene."
-    )
-    kind: Literal["InsightVizNode"] = "InsightVizNode"
-    showCorrelationTable: Optional[bool] = None
-    showFilters: Optional[bool] = None
-    showHeader: Optional[bool] = None
-    showLastComputation: Optional[bool] = None
-    showLastComputationRefresh: Optional[bool] = None
-    showResults: Optional[bool] = None
-    showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
-
-
 class QuerySchema(RootModel):
     root: Union[
         DataTableNode,
@@ -1803,6 +1856,8 @@ class QuerySchema(RootModel):
             TimeToSeeDataSessionsQuery,
             EventsQuery,
             PersonsQuery,
+            InsightPersonsQuery,
+            SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
             WebOverviewQuery,

@@ -54,4 +54,5 @@ gen/
 .antlr
 upgrade/
 hogvm/typescript/dist
+.wokeignore
 plugin-transpiler/dist

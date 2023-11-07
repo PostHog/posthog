@@ -46,17 +46,17 @@ public:
     UNION = 176, UPDATE = 177, USE = 178, USING = 179, UUID = 180, VALUES = 181, 
     VIEW = 182, VOLUME = 183, WATCH = 184, WEEK = 185, WHEN = 186, WHERE = 187, 
     WINDOW = 188, WITH = 189, YEAR = 190, JSON_FALSE = 191, JSON_TRUE = 192, 
-    ESCAPE_CHAR = 193, IDENTIFIER = 194, FLOATING_LITERAL = 195, OCTAL_LITERAL = 196, 
-    DECIMAL_LITERAL = 197, HEXADECIMAL_LITERAL = 198, STRING_LITERAL = 199, 
-    PLACEHOLDER = 200, ARROW = 201, ASTERISK = 202, BACKQUOTE = 203, BACKSLASH = 204, 
-    COLON = 205, COMMA = 206, CONCAT = 207, DASH = 208, DOLLAR = 209, DOT = 210, 
-    EQ_DOUBLE = 211, EQ_SINGLE = 212, GT_EQ = 213, GT = 214, HASH = 215, 
-    IREGEX_SINGLE = 216, IREGEX_DOUBLE = 217, LBRACE = 218, LBRACKET = 219, 
-    LPAREN = 220, LT_EQ = 221, LT = 222, NOT_EQ = 223, NOT_IREGEX = 224, 
-    NOT_REGEX = 225, NULLISH = 226, PERCENT = 227, PLUS = 228, QUERY = 229, 
-    QUOTE_DOUBLE = 230, QUOTE_SINGLE = 231, REGEX_SINGLE = 232, REGEX_DOUBLE = 233, 
-    RBRACE = 234, RBRACKET = 235, RPAREN = 236, SEMICOLON = 237, SLASH = 238, 
-    UNDERSCORE = 239, MULTI_LINE_COMMENT = 240, SINGLE_LINE_COMMENT = 241, 
+    ESCAPE_CHAR_SINGLE = 193, ESCAPE_CHAR_DOUBLE = 194, IDENTIFIER = 195, 
+    FLOATING_LITERAL = 196, OCTAL_LITERAL = 197, DECIMAL_LITERAL = 198, 
+    HEXADECIMAL_LITERAL = 199, STRING_LITERAL = 200, ARROW = 201, ASTERISK = 202, 
+    BACKQUOTE = 203, BACKSLASH = 204, COLON = 205, COMMA = 206, CONCAT = 207, 
+    DASH = 208, DOLLAR = 209, DOT = 210, EQ_DOUBLE = 211, EQ_SINGLE = 212, 
+    GT_EQ = 213, GT = 214, HASH = 215, IREGEX_SINGLE = 216, IREGEX_DOUBLE = 217, 
+    LBRACE = 218, LBRACKET = 219, LPAREN = 220, LT_EQ = 221, LT = 222, NOT_EQ = 223, 
+    NOT_IREGEX = 224, NOT_REGEX = 225, NULLISH = 226, PERCENT = 227, PLUS = 228, 
+    QUERY = 229, QUOTE_DOUBLE = 230, QUOTE_SINGLE = 231, REGEX_SINGLE = 232, 
+    REGEX_DOUBLE = 233, RBRACE = 234, RBRACKET = 235, RPAREN = 236, SEMICOLON = 237, 
+    SLASH = 238, UNDERSCORE = 239, MULTI_LINE_COMMENT = 240, SINGLE_LINE_COMMENT = 241, 
     WHITESPACE = 242
   };
 
@@ -73,12 +73,13 @@ public:
     RuleWinPartitionByClause = 29, RuleWinOrderByClause = 30, RuleWinFrameClause = 31, 
     RuleWinFrameExtend = 32, RuleWinFrameBound = 33, RuleExpr = 34, RuleColumnTypeExpr = 35, 
     RuleColumnExprList = 36, RuleColumnExpr = 37, RuleColumnArgList = 38, 
-    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleWithExprList = 41, 
-    RuleWithExpr = 42, RuleColumnIdentifier = 43, RuleNestedIdentifier = 44, 
-    RuleTableExpr = 45, RuleTableFunctionExpr = 46, RuleTableIdentifier = 47, 
-    RuleTableArgList = 48, RuleDatabaseIdentifier = 49, RuleFloatingLiteral = 50, 
-    RuleNumberLiteral = 51, RuleLiteral = 52, RuleInterval = 53, RuleKeyword = 54, 
-    RuleKeywordForAlias = 55, RuleAlias = 56, RuleIdentifier = 57, RuleEnumValue = 58
+    RuleColumnArgExpr = 39, RuleColumnLambdaExpr = 40, RuleHogqlxTagElement = 41, 
+    RuleHogqlxTagAttribute = 42, RuleWithExprList = 43, RuleWithExpr = 44, 
+    RuleColumnIdentifier = 45, RuleNestedIdentifier = 46, RuleTableExpr = 47, 
+    RuleTableFunctionExpr = 48, RuleTableIdentifier = 49, RuleTableArgList = 50, 
+    RuleDatabaseIdentifier = 51, RuleFloatingLiteral = 52, RuleNumberLiteral = 53, 
+    RuleLiteral = 54, RuleInterval = 55, RuleKeyword = 56, RuleKeywordForAlias = 57, 
+    RuleAlias = 58, RuleIdentifier = 59, RuleEnumValue = 60, RulePlaceholder = 61
   };
 
   explicit HogQLParser(antlr4::TokenStream *input);
@@ -139,6 +140,8 @@ public:
   class ColumnArgListContext;
   class ColumnArgExprContext;
   class ColumnLambdaExprContext;
+  class HogqlxTagElementContext;
+  class HogqlxTagAttributeContext;
   class WithExprListContext;
   class WithExprContext;
   class ColumnIdentifierContext;
@@ -156,7 +159,8 @@ public:
   class KeywordForAliasContext;
   class AliasContext;
   class IdentifierContext;
-  class EnumValueContext; 
+  class EnumValueContext;
+  class PlaceholderContext; 
 
   class  SelectContext : public antlr4::ParserRuleContext {
   public:
@@ -165,6 +169,7 @@ public:
     antlr4::tree::TerminalNode *EOF();
     SelectUnionStmtContext *selectUnionStmt();
     SelectStmtContext *selectStmt();
+    HogqlxTagElementContext *hogqlxTagElement();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -675,7 +680,7 @@ public:
   public:
     RatioExprContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *PLACEHOLDER();
+    PlaceholderContext *placeholder();
     std::vector<NumberLiteralContext *> numberLiteral();
     NumberLiteralContext* numberLiteral(size_t i);
     antlr4::tree::TerminalNode *SLASH();
@@ -1194,6 +1199,15 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprTagElementContext : public ColumnExprContext {
+  public:
+    ColumnExprTagElementContext(ColumnExprContext *ctx);
+
+    HogqlxTagElementContext *hogqlxTagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprTupleContext : public ColumnExprContext {
   public:
     ColumnExprTupleContext(ColumnExprContext *ctx);
@@ -1440,6 +1454,71 @@ public:
 
   ColumnLambdaExprContext* columnLambdaExpr();
 
+  class  HogqlxTagElementContext : public antlr4::ParserRuleContext {
+  public:
+    HogqlxTagElementContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+   
+    HogqlxTagElementContext() = default;
+    void copyFrom(HogqlxTagElementContext *context);
+    using antlr4::ParserRuleContext::copyFrom;
+
+    virtual size_t getRuleIndex() const override;
+
+   
+  };
+
+  class  HogqlxTagElementClosedContext : public HogqlxTagElementContext {
+  public:
+    HogqlxTagElementClosedContext(HogqlxTagElementContext *ctx);
+
+    antlr4::tree::TerminalNode *LT();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *SLASH();
+    antlr4::tree::TerminalNode *GT();
+    std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
+    HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  class  HogqlxTagElementNestedContext : public HogqlxTagElementContext {
+  public:
+    HogqlxTagElementNestedContext(HogqlxTagElementContext *ctx);
+
+    std::vector<antlr4::tree::TerminalNode *> LT();
+    antlr4::tree::TerminalNode* LT(size_t i);
+    std::vector<IdentifierContext *> identifier();
+    IdentifierContext* identifier(size_t i);
+    std::vector<antlr4::tree::TerminalNode *> GT();
+    antlr4::tree::TerminalNode* GT(size_t i);
+    antlr4::tree::TerminalNode *SLASH();
+    std::vector<HogqlxTagAttributeContext *> hogqlxTagAttribute();
+    HogqlxTagAttributeContext* hogqlxTagAttribute(size_t i);
+    HogqlxTagElementContext *hogqlxTagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
+  HogqlxTagElementContext* hogqlxTagElement();
+
+  class  HogqlxTagAttributeContext : public antlr4::ParserRuleContext {
+  public:
+    HogqlxTagAttributeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *EQ_SINGLE();
+    antlr4::tree::TerminalNode *STRING_LITERAL();
+    antlr4::tree::TerminalNode *LBRACE();
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *RBRACE();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  HogqlxTagAttributeContext* hogqlxTagAttribute();
+
   class  WithExprListContext : public antlr4::ParserRuleContext {
   public:
     WithExprListContext(antlr4::ParserRuleContext *parent, size_t invokingState);
@@ -1499,7 +1578,7 @@ public:
   public:
     ColumnIdentifierContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    antlr4::tree::TerminalNode *PLACEHOLDER();
+    PlaceholderContext *placeholder();
     NestedIdentifierContext *nestedIdentifier();
     TableIdentifierContext *tableIdentifier();
     antlr4::tree::TerminalNode *DOT();
@@ -1540,6 +1619,15 @@ public:
    
   };
 
+  class  TableExprTagContext : public TableExprContext {
+  public:
+    TableExprTagContext(TableExprContext *ctx);
+
+    HogqlxTagElementContext *hogqlxTagElement();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  TableExprIdentifierContext : public TableExprContext {
   public:
     TableExprIdentifierContext(TableExprContext *ctx);
@@ -1553,7 +1641,7 @@ public:
   public:
     TableExprPlaceholderContext(TableExprContext *ctx);
 
-    antlr4::tree::TerminalNode *PLACEHOLDER();
+    PlaceholderContext *placeholder();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
@@ -1973,6 +2061,21 @@ public:
   };
 
   EnumValueContext* enumValue();
+
+  class  PlaceholderContext : public antlr4::ParserRuleContext {
+  public:
+    PlaceholderContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    antlr4::tree::TerminalNode *LBRACE();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *RBRACE();
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  PlaceholderContext* placeholder();
 
 
   bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;

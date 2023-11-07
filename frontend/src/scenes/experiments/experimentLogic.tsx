@@ -80,7 +80,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes', 'showGroupsOptions']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],

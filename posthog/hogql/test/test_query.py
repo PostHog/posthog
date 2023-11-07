@@ -1492,3 +1492,31 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             f"SELECT event FROM events LIMIT 100 UNION ALL SELECT event FROM events LIMIT 100",
         )
         assert pretty_print_in_tests(response.clickhouse, self.team.pk) == self.snapshot
+
+    def test_events_sessions_table(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            random_uuid = self._create_random_events()
+
+        with freeze_time("2020-01-10 12:10:00"):
+            _create_event(
+                distinct_id=random_uuid,
+                event="random event",
+                team=self.team,
+                properties={"$session_id": random_uuid},
+            )
+        with freeze_time("2020-01-10 12:20:00"):
+            _create_event(
+                distinct_id=random_uuid,
+                event="random event",
+                team=self.team,
+                properties={"$session_id": random_uuid},
+            )
+
+        query = "SELECT session.id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        response = execute_hogql_query(
+            query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
+        )
+        assert response.results == [
+            (random_uuid, 600),
+            (random_uuid, 600),
+        ]

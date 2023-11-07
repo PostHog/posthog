@@ -1,11 +1,12 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
@@ -18,9 +19,13 @@ export interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const inviteLogic = kea<inviteLogicType>({
-    path: ['scenes', 'organization', 'Settings', 'inviteLogic'],
-    actions: {
+export const inviteLogic = kea<inviteLogicType>([
+    path(['scenes', 'organization', 'Settings', 'inviteLogic']),
+    connect({
+        values: [preflightLogic, ['preflight']],
+        actions: [router, ['locationChanged']],
+    }),
+    actions({
         showInviteModal: true,
         hideInviteModal: true,
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
@@ -28,54 +33,8 @@ export const inviteLogic = kea<inviteLogicType>({
         updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
         resetInviteRows: true,
-    },
-    connect: {
-        values: [preflightLogic, ['preflight']],
-        actions: [router, ['locationChanged']],
-    },
-    reducers: () => ({
-        isInviteModalShown: [
-            false,
-            {
-                showInviteModal: () => true,
-                hideInviteModal: () => false,
-                locationChanged: () => false,
-            },
-        ],
-        invitesToSend: [
-            [EMPTY_INVITE] as InviteRowState[],
-            {
-                updateInviteAtIndex: (state, { payload, index }) => {
-                    const newState = [...state]
-                    newState[index] = { ...state[index], ...payload }
-                    return newState
-                },
-                deleteInviteAtIndex: (state, { index }) => {
-                    const newState = [...state]
-                    newState.splice(index, 1)
-                    return newState
-                },
-                appendInviteRow: (state) => [...state, EMPTY_INVITE],
-                resetInviteRows: () => [EMPTY_INVITE],
-                inviteTeamMembersSuccess: () => [EMPTY_INVITE],
-            },
-        ],
-        message: [
-            '',
-            {
-                updateMessage: (_, { message }) => message,
-            },
-        ],
     }),
-    selectors: {
-        canSubmit: [
-            (selectors) => [selectors.invitesToSend],
-            (invites: InviteRowState[]) =>
-                invites.filter(({ target_email }) => !!target_email).length > 0 &&
-                invites.filter(({ isValid }) => !isValid).length == 0,
-        ],
-    },
-    loaders: ({ values }) => ({
+    loaders(({ values }) => ({
         invitedTeamMembersInternal: [
             [] as OrganizationInviteType[],
             {
@@ -111,8 +70,50 @@ export const inviteLogic = kea<inviteLogicType>({
                 },
             },
         ],
+    })),
+    reducers(() => ({
+        isInviteModalShown: [
+            false,
+            {
+                showInviteModal: () => true,
+                hideInviteModal: () => false,
+                locationChanged: () => false,
+            },
+        ],
+        invitesToSend: [
+            [EMPTY_INVITE] as InviteRowState[],
+            {
+                updateInviteAtIndex: (state, { payload, index }) => {
+                    const newState = [...state]
+                    newState[index] = { ...state[index], ...payload }
+                    return newState
+                },
+                deleteInviteAtIndex: (state, { index }) => {
+                    const newState = [...state]
+                    newState.splice(index, 1)
+                    return newState
+                },
+                appendInviteRow: (state) => [...state, EMPTY_INVITE],
+                resetInviteRows: () => [EMPTY_INVITE],
+                inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+            },
+        ],
+        message: [
+            '',
+            {
+                updateMessage: (_, { message }) => message,
+            },
+        ],
+    })),
+    selectors({
+        canSubmit: [
+            (selectors) => [selectors.invitesToSend],
+            (invites: InviteRowState[]) =>
+                invites.filter(({ target_email }) => !!target_email).length > 0 &&
+                invites.filter(({ isValid }) => !isValid).length == 0,
+        ],
     }),
-    listeners: ({ values, actions }) => ({
+    listeners(({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
@@ -128,15 +129,15 @@ export const inviteLogic = kea<inviteLogicType>({
                 actions.hideInviteModal()
             }
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: [actions.loadInvites],
-    }),
-    urlToAction: ({ actions }) => ({
+    })),
+    urlToAction(({ actions }) => ({
         '*': (_, searchParams) => {
             if (searchParams.invite_modal) {
                 actions.showInviteModal()
             }
         },
-    }),
-})
+    })),
+    events(({ actions }) => ({
+        afterMount: [actions.loadInvites],
+    })),
+])

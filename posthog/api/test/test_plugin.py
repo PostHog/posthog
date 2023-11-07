@@ -772,11 +772,14 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
         assert plugin_source.error is None
-        assert plugin_source.transpiled == (
-            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
-            'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-            "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
-            "; return exports; }"
+        assert (
+            plugin_source.transpiled
+            == (
+                '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
+                'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+                "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
+                "; return exports; }"
+            )
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
@@ -968,6 +971,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "enabled": True,
                 "order": 0,
                 "config": json.dumps({"bar": "moop"}),
+                "name": "name in ui",
+                "description": "description in ui",
             },
             format="multipart",
         )
@@ -988,6 +993,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1026,6 +1035,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1342,6 +1355,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
 
@@ -1367,6 +1384,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
 
@@ -1394,6 +1415,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin_info": None,
                 "delivery_rate_24h": None,
                 "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": None,
+                "description": None,
+                "deleted": False,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1403,7 +1428,15 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def test_plugin_config_list(self, mock_get, mock_reload):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config1 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-        plugin_config2 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=2)
+        plugin_config2 = PluginConfig.objects.create(
+            plugin=plugin,
+            team=self.team,
+            enabled=True,
+            order=2,
+            name="ui name",
+            description="ui description",
+            deleted=True,
+        )
 
         create_app_metric(
             team_id=self.team.pk,
@@ -1430,6 +1463,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "plugin_info": None,
                     "delivery_rate_24h": 0.5,
                     "created_at": mock.ANY,
+                    "updated_at": mock.ANY,
+                    "name": None,
+                    "description": None,
+                    "deleted": False,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1442,6 +1479,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "plugin_info": None,
                     "delivery_rate_24h": None,
                     "created_at": mock.ANY,
+                    "updated_at": mock.ANY,
+                    "name": "ui name",
+                    "description": "ui description",
+                    "deleted": True,
                 },
             ],
         )

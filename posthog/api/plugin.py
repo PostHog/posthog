@@ -545,6 +545,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "plugin_info",
             "delivery_rate_24h",
             "created_at",
+            "updated_at",
+            "name",
+            "description",
+            "deleted",
         ]
         read_only_fields = [
             "id",

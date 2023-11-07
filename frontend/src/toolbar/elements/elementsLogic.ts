@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -26,9 +26,13 @@ function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
     }
 }
 
-export const elementsLogic = kea<elementsLogicType>({
-    path: ['toolbar', 'elements', 'elementsLogic'],
-    actions: {
+export const elementsLogic = kea<elementsLogicType>([
+    path(['toolbar', 'elements', 'elementsLogic']),
+    connect(() => ({
+        values: [actionsTabLogic, ['actionForm']],
+        actions: [actionsTabLogic, ['selectAction']],
+    })),
+    actions({
         enableInspect: true,
         disableInspect: true,
 
@@ -43,14 +47,8 @@ export const elementsLogic = kea<elementsLogicType>({
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
 
         setRelativePositionCompensation: (compensation: number) => ({ compensation }),
-    },
-
-    connect: () => ({
-        values: [actionsTabLogic, ['actionForm']],
-        actions: [actionsTabLogic, ['selectAction']],
     }),
-
-    reducers: () => ({
+    reducers(() => ({
         inspectEnabledRaw: [
             false,
             {
@@ -109,9 +107,8 @@ export const elementsLogic = kea<elementsLogicType>({
                 setRelativePositionCompensation: (_, { compensation }) => compensation,
             },
         ],
-    }),
-
-    selectors: {
+    })),
+    selectors({
         activeMetaIsSelected: [
             (s) => [s.selectedElementMeta, s.activeMeta],
             (selectedElementMeta, activeMeta) =>
@@ -341,65 +338,8 @@ export const elementsLogic = kea<elementsLogicType>({
                 return selectedElementMeta || hoverElementMeta
             },
         ],
-    },
-
-    events: ({ cache, values, actions }) => ({
-        afterMount: () => {
-            cache.updateRelativePosition = debounce(() => {
-                const relativePositionCompensation =
-                    window.getComputedStyle(document.body).position === 'relative'
-                        ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
-                        : 0
-                if (relativePositionCompensation !== values.relativePositionCompensation) {
-                    actions.setRelativePositionCompensation(relativePositionCompensation)
-                }
-            }, 100)
-            cache.onClick = () => actions.updateRects()
-            cache.onScrollResize = () => {
-                window.clearTimeout(cache.clickDelayTimeout)
-                actions.updateRects()
-                cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
-                cache.updateRelativePosition()
-            }
-            cache.onKeyDown = (e: KeyboardEvent) => {
-                if (e.keyCode !== 27) {
-                    return
-                }
-                if (values.hoverElement) {
-                    actions.setHoverElement(null)
-                }
-                if (values.selectedElement) {
-                    actions.setSelectedElement(null)
-                    return
-                }
-                if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
-                    return
-                }
-                if (values.inspectEnabled) {
-                    actions.disableInspect()
-                    return
-                }
-                if (values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
-                    return
-                }
-            }
-            window.addEventListener('click', cache.onClick)
-            window.addEventListener('resize', cache.onScrollResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-            window.document.addEventListener('scroll', cache.onScrollResize, true)
-            cache.updateRelativePosition()
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('resize', cache.onScrollResize)
-            window.removeEventListener('keydown', cache.onKeyDown)
-            window.document.removeEventListener('scroll', cache.onScrollResize, true)
-        },
     }),
-
-    listeners: ({ actions, values }) => ({
+    listeners(({ actions, values }) => ({
         enableInspect: () => {
             posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: true })
             actionsLogic.actions.getActions()
@@ -458,5 +398,60 @@ export const elementsLogic = kea<elementsLogicType>({
             elementsLogic.actions.selectElement(null)
             actionsTabLogic.actions.newAction(element)
         },
-    }),
-})
+    })),
+    events(({ cache, values, actions }) => ({
+        afterMount: () => {
+            cache.updateRelativePosition = debounce(() => {
+                const relativePositionCompensation =
+                    window.getComputedStyle(document.body).position === 'relative'
+                        ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
+                        : 0
+                if (relativePositionCompensation !== values.relativePositionCompensation) {
+                    actions.setRelativePositionCompensation(relativePositionCompensation)
+                }
+            }, 100)
+            cache.onClick = () => actions.updateRects()
+            cache.onScrollResize = () => {
+                window.clearTimeout(cache.clickDelayTimeout)
+                actions.updateRects()
+                cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
+                cache.updateRelativePosition()
+            }
+            cache.onKeyDown = (e: KeyboardEvent) => {
+                if (e.keyCode !== 27) {
+                    return
+                }
+                if (values.hoverElement) {
+                    actions.setHoverElement(null)
+                }
+                if (values.selectedElement) {
+                    actions.setSelectedElement(null)
+                    return
+                }
+                if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
+                    heatmapLogic.actions.disableHeatmap()
+                    return
+                }
+                if (values.inspectEnabled) {
+                    actions.disableInspect()
+                    return
+                }
+                if (values.heatmapEnabled) {
+                    heatmapLogic.actions.disableHeatmap()
+                    return
+                }
+            }
+            window.addEventListener('click', cache.onClick)
+            window.addEventListener('resize', cache.onScrollResize)
+            window.addEventListener('keydown', cache.onKeyDown)
+            window.document.addEventListener('scroll', cache.onScrollResize, true)
+            cache.updateRelativePosition()
+        },
+        beforeUnmount: () => {
+            window.removeEventListener('click', cache.onClick)
+            window.removeEventListener('resize', cache.onScrollResize)
+            window.removeEventListener('keydown', cache.onKeyDown)
+            window.document.removeEventListener('scroll', cache.onScrollResize, true)
+        },
+    })),
+])

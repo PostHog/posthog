@@ -5,12 +5,12 @@ import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/urls'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import clsx from 'clsx'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { Link } from '@posthog/lemon-ui'
 
 export function FeatureFlags(): JSX.Element {
     const { searchTerm, filteredFlags, userFlagsLoading } = useValues(featureFlagsLogic)
@@ -45,16 +45,14 @@ export function FeatureFlags(): JSX.Element {
                                     <div className="feature-flag-title flex-1 font-bold truncate">
                                         {feature_flag.key}
                                     </div>
-                                    <a
+                                    <Link
                                         className="feature-flag-external-link"
-                                        href={`${apiURL}${
+                                        to={`${apiURL}${
                                             feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
                                         }`}
                                         target="_blank"
-                                        rel="noopener noreferrer"
-                                    >
-                                        <IconOpenInNew />
-                                    </a>
+                                        targetBlankIcon
+                                    />
                                     <LemonSwitch
                                         checked={!!currentValue}
                                         onChange={(checked) => {

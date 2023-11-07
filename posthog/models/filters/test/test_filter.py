@@ -616,9 +616,7 @@ def _filter_persons(filter: Filter, team: Team):
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
 
-class TestDjangoPropertiesToQ(
-    property_to_Q_test_factory(_filter_persons, _create_person), QueryMatchingTest
-):  # type: ignore
+class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person), QueryMatchingTest):  # type: ignore
     @snapshot_postgres_queries
     def test_array_property_as_string_on_persons(self):
         Person.objects.create(

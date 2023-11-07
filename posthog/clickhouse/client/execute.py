@@ -84,7 +84,7 @@ def sync_execute(
             from posthog.test.base import flush_persons_and_events
 
             flush_persons_and_events()
-        except (ModuleNotFoundError):  # when we run plugin server tests it tries to run above, ignore
+        except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
     with get_pool(workload, team_id, readonly).get_client() as client:

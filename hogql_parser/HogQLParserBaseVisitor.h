@@ -271,6 +271,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTuple(HogQLParser::ColumnExprTupleContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -347,6 +351,18 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitHogqlxTagElementNested(HogQLParser::HogqlxTagElementNestedContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitHogqlxTagAttribute(HogQLParser::HogqlxTagAttributeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitWithExprList(HogQLParser::WithExprListContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -364,6 +380,10 @@ public:
   }
 
   virtual std::any visitNestedIdentifier(HogQLParser::NestedIdentifierContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitTableExprTag(HogQLParser::TableExprTagContext *ctx) override {
     return visitChildren(ctx);
   }
 
@@ -436,6 +456,10 @@ public:
   }
 
   virtual std::any visitEnumValue(HogQLParser::EnumValueContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitPlaceholder(HogQLParser::PlaceholderContext *ctx) override {
     return visitChildren(ctx);
   }
 

@@ -739,7 +739,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {"event": "play movie", "timestamp": datetime(2020, 1, 2, 16)},
                 ],
             }
-            journeys_for(peoples_journeys, self.team)
+            journeys_for(peoples_journeys, self.team, create_people=False)
 
             result = funnel.run()
 
@@ -1131,6 +1131,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             people = journeys_for(
                 {"person1": [{"event": "sign up", "timestamp": datetime(2020, 1, 2, 12)}]},
                 self.team,
+                create_people=False,
             )
 
             cohort = Cohort.objects.create(

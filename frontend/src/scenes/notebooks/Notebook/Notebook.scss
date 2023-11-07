@@ -8,6 +8,7 @@
         flex: 1;
         width: 100%;
         overflow: hidden;
+        position: relative;
 
         .ProseMirror {
             &-focused {
@@ -41,7 +42,7 @@
                 list-style-type: decimal;
             }
 
-            ul {
+            > ul {
                 list-style-type: disc;
             }
 
@@ -138,7 +139,7 @@
         }
     }
 
-    &--compact {
+    &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
             max-width: 800px;
         }

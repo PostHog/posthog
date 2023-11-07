@@ -24,6 +24,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -53,9 +54,11 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('filters')
     })
 
+    const is3000 = useFeatureFlag('POSTHOG_3000')
+
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-16">
+        <div className={is3000 ? '' : '-mb-16'}>
             <PageHeader
                 title={<div>Session Replay</div>}
                 buttons={

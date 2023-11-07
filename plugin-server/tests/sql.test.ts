@@ -8,6 +8,7 @@ import {
     getPluginRows,
     setError,
 } from '../src/utils/db/sql'
+import { sanitizeJsonbValue } from '../src/utils/db/utils'
 import { commonOrganizationId, pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -143,7 +144,7 @@ describe('sql', () => {
         expect(hub.db.postgres.query).toHaveBeenCalledWith(
             PostgresUse.COMMON_WRITE,
             'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
-            [pluginError, pluginConfig39.id],
+            [sanitizeJsonbValue(pluginError), pluginConfig39.id],
             'updatePluginConfigError'
         )
     })

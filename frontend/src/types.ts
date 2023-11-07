@@ -515,6 +515,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum PipelineTabs {
+    Filters = 'filters',
+    Transformations = 'transformations',
+    Destinations = 'destinations',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -2473,9 +2479,11 @@ export interface PersonProperty {
     count: number
 }
 
+export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
 export interface GroupType {
     group_type: string
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
 }
@@ -2483,7 +2491,7 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: number
+    group_type_index: GroupTypeIndex
     group_key: string
     created_at: string
     group_properties: Record<string, any>
@@ -3060,7 +3068,7 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: JSONContent // TODO: Type this better
+    content: JSONContent | null
     version: number
     // used to power text-based search
     text_content?: string | null
@@ -3133,6 +3141,19 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
+export interface ExternalDataStripeSourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface ExternalDataStripeSource {
+    id: string
+    source_id: string
+    connection_id: string
+    status: string
+    source_type: string
+}
+
 export type BatchExportDestinationS3 = {
     type: 'S3'
     config: {
@@ -3196,11 +3217,28 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationRedshift = {
+    type: 'Redshift'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        properties_data_type: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
+    | BatchExportDestinationRedshift
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

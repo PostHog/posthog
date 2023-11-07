@@ -18,7 +18,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.test.base import BaseTest
 
@@ -1228,3 +1228,39 @@ class TestResolver(BaseTest):
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field() == DateTimeDatabaseField(
             name="created_at", array=None, nullable=None
         )
+
+    def test_visit_hogqlx_tag(self):
+        node = self._select("select event from <HogQLQuery query='select event from events' />")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        table_node = cast(ast.SelectQuery, node).select_from.table
+        expected = ast.SelectQuery(
+            select=[ast.Field(chain=["event"])], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+        )
+        assert clone_expr(table_node, clear_types=True) == expected
+
+    def test_visit_hogqlx_tag_alias(self):
+        node = self._select("select event from <HogQLQuery query='select event from events' /> a")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
+        assert cast(ast.SelectQuery, node).select_from.alias == "a"
+
+    def test_visit_hogqlx_tag_source(self):
+        query = """
+            select id, email from (
+                <PersonsQuery
+                    select={['id', 'properties.email as email']}
+                    source={
+                        <HogQLQuery query='select distinct person_id from events' />
+                    }
+                />
+            )
+        """
+        node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context))
+        hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
+        expected = (
+            f"SELECT id, email FROM "
+            f"(SELECT id, properties.email AS email FROM persons WHERE in(id, "
+            f"(SELECT DISTINCT person_id FROM events)"
+            f") ORDER BY id ASC LIMIT 101 OFFSET 0) "
+            f"LIMIT 10000"
+        )
+        assert hogql == expected

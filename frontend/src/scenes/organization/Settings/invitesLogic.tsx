@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, path, listeners, events } from 'kea'
 import api from 'lib/api'
 import { OrganizationInviteType } from '~/types'
 import type { invitesLogicType } from './invitesLogicType'
@@ -6,9 +7,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
-export const invitesLogic = kea<invitesLogicType>({
-    path: ['scenes', 'organization', 'Settings', 'invitesLogic'],
-    loaders: ({ values }) => ({
+export const invitesLogic = kea<invitesLogicType>([
+    path(['scenes', 'organization', 'Settings', 'invitesLogic']),
+    loaders(({ values }) => ({
         invites: {
             __default: [] as OrganizationInviteType[],
             loadInvites: async () => {
@@ -41,8 +42,8 @@ export const invitesLogic = kea<invitesLogicType>({
                 return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
             },
         },
-    }),
-    listeners: {
+    })),
+    listeners({
         createInviteSuccess: async () => {
             const nameProvided = false // TODO: Change when adding support for names on invites
             eventUsageLogic.actions.reportInviteAttempted(
@@ -50,8 +51,8 @@ export const invitesLogic = kea<invitesLogicType>({
                 !!preflightLogic.values.preflight?.email_service_available
             )
         },
-    },
-    events: ({ actions }) => ({
-        afterMount: actions.loadInvites,
     }),
-})
+    events(({ actions }) => ({
+        afterMount: actions.loadInvites,
+    })),
+])

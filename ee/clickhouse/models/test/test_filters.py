@@ -1219,13 +1219,16 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
-        """.format(
-            prop_clause=prop_clause
-        )
+        """.format(prop_clause=prop_clause)
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **filter.hogql_context.values,},)[
-            0
-        ][0]
+        result = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                **prop_clause_params,
+                **filter.hogql_context.values,
+            },
+        )[0][0]
         self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
@@ -1241,13 +1244,16 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
-        """.format(
-            prop_clause=prop_clause
-        )
+        """.format(prop_clause=prop_clause)
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **filter.hogql_context.values,},)[
-            0
-        ][0]
+        result = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                **prop_clause_params,
+                **filter.hogql_context.values,
+            },
+        )[0][0]
 
         self.assertEqual(result, person2_distinct_id)
 

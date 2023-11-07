@@ -1,5 +1,6 @@
-import { kea } from 'kea'
-import { router } from 'kea-router'
+import { loaders } from 'kea-loaders'
+import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -11,12 +12,12 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { tagsModel } from '~/models/tagsModel'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 
-export const dashboardsModel = kea<dashboardsModelType>({
-    path: ['models', 'dashboardsModel'],
-    connect: {
+export const dashboardsModel = kea<dashboardsModelType>([
+    path(['models', 'dashboardsModel']),
+    connect({
         actions: [tagsModel, ['loadTags']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
@@ -77,8 +78,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
             dashboardId,
         }),
         tileAddedToDashboard: (dashboardId: number) => ({ dashboardId }),
-    }),
-    loaders: ({ values, actions }) => ({
+    })),
+    loaders(({ values, actions }) => ({
         pagedDashboards: [
             null as PaginatedResponse<DashboardBasicType> | null,
             {
@@ -176,9 +177,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 return result
             },
         },
-    }),
-
-    reducers: {
+    })),
+    reducers({
         pagingDashboardsCompleted: [
             false,
             {
@@ -232,9 +232,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 setLastDashboardId: (_, { id }) => id,
             },
         ],
-    },
-
-    selectors: ({ selectors }) => ({
+    }),
+    selectors(({ selectors }) => ({
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
@@ -260,15 +259,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
         ],
-    }),
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadDashboards()
-        },
-    }),
-
-    listeners: ({ actions, values }) => ({
+    })),
+    listeners(({ actions, values }) => ({
         loadDashboardsSuccess: ({ pagedDashboards }) => {
             if (pagedDashboards?.next) {
                 actions.loadDashboards(pagedDashboards.next)
@@ -321,16 +313,20 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 </>
             )
         },
-    }),
-
-    urlToAction: ({ actions }) => ({
+    })),
+    urlToAction(({ actions }) => ({
         '/dashboard/:id': ({ id }) => {
             if (id) {
                 actions.setLastDashboardId(parseInt(id))
             }
         },
-    }),
-})
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadDashboards()
+        },
+    })),
+])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
     // No matter where we're comparing dashboards, we want to sort generated dashboards last

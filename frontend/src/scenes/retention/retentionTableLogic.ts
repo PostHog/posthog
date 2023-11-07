@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { kea } from 'kea'
+import { kea, props, key, path, connect, selectors } from 'kea'
 import { range } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightLogicProps } from '~/types'
@@ -29,19 +29,19 @@ const periodIsLatest = (date_to: string | null, period: string | null): boolean 
     }
 }
 
-export const retentionTableLogic = kea<retentionTableLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const retentionTableLogic = kea<retentionTableLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
+    path((key) => ['scenes', 'retention', 'retentionTableLogic', key]),
+    connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'breakdown'],
             retentionLogic(props),
             ['results'],
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         isLatestPeriod: [
             (s) => [s.dateRange, s.retentionFilter],
             (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
@@ -91,5 +91,5 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 ])
             },
         ],
-    },
-})
+    }),
+])

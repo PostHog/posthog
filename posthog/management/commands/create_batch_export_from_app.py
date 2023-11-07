@@ -2,10 +2,11 @@ import datetime as dt
 import json
 
 from django.core.management.base import BaseCommand, CommandError
+from psycopg2.extensions import parse_dsn
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
-from posthog.models.plugin import PluginConfig
+from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.temporal.client import sync_connect
 
 
@@ -169,6 +170,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
             "exclude_events": plugin_config.config["eventsToIgnore"].split(","),
         }
         export_type = "S3"
+
     elif plugin.name == "Snowflake Export":
         config = {
             "account": plugin_config.config["account"],
@@ -181,6 +183,51 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
             "role": plugin_config.config.get("role", None),
         }
         export_type = "Snowflake"
+
+    elif plugin.name == "BigQuery Export":
+        config_file_contents = PluginAttachment.objects.get(
+            team=plugin_config.team, plugin_config=plugin_config, key="googleCloudKeyJson"
+        ).contents
+        config_json = json.loads(bytes(config_file_contents))
+
+        config = {
+            "project_id": config_json["project_id"],
+            "private_key": config_json["private_key"],
+            "private_key_id": config_json["private_key_id"],
+            "token_uri": config_json["token_uri"],
+            "client_email": config_json["client_email"],
+            "dataset_id": plugin_config.config["datasetId"],
+            "table_id": plugin_config.config["tableId"],
+            "exclude_events": plugin_config.config.get("exportEventsToIgnore", "").split(",") or None,
+        }
+        export_type = "BigQuery"
+
+    elif plugin.name == "PostgreSQL Export Plugin":
+        if database_url := plugin_config.config.get("databaseUrl", None):
+            raw_config = parse_dsn(database_url)
+        else:
+            raw_config = {
+                "host": plugin_config.config["host"],
+                "port": plugin_config.config.get("port", "5432"),
+                "dbname": plugin_config.config["dbName"],
+                "user": plugin_config.config["dbUsername"],
+                "password": plugin_config.config["dbPassword"],
+            }
+
+        has_self_signed_cert = plugin_config.config.get("hasSelfSignedCert", "No") == "Yes"
+
+        config = {
+            "database": raw_config["dbname"],
+            "user": raw_config["user"],
+            "password": raw_config["password"],
+            "schema": "",
+            "host": raw_config["host"],
+            "port": int(raw_config["port"]),
+            "table_name": plugin_config.config.get("tableName", "posthog_event"),
+            "has_self_signed_cert": has_self_signed_cert,
+            "exclude_events": plugin_config.config.get("eventsToIgnore", "").split(",") or None,
+        }
+        export_type = "Postgres"
     else:
         raise CommandError(
             f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"

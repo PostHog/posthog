@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { loaders } from 'kea-loaders'
+import { kea, props, key, path, connect, actions, reducers, selectors, events } from 'kea'
 import api from 'lib/api'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { teamMembersLogic } from 'scenes/project/Settings/teamMembersLogic'
@@ -16,32 +17,24 @@ export interface DashboardCollaboratorsLogicProps {
     dashboardId: DashboardType['id']
 }
 
-export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>({
-    path: (key) => ['scenes', 'dashboard', 'dashboardCollaboratorsLogic', key],
-    props: {} as DashboardCollaboratorsLogicProps,
-    key: (props) => props.dashboardId,
-    connect: (props: DashboardCollaboratorsLogicProps) => ({
+export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>([
+    props({} as DashboardCollaboratorsLogicProps),
+    key((props) => props.dashboardId),
+    path((key) => ['scenes', 'dashboard', 'dashboardCollaboratorsLogic', key]),
+    connect((props: DashboardCollaboratorsLogicProps) => ({
         values: [
             teamMembersLogic,
             ['admins', 'plainMembers', 'allMembers', 'allMembersLoading'],
             dashboardLogic({ id: props.dashboardId }),
             ['dashboard'],
         ],
-    }),
-    actions: {
+    })),
+    actions({
         deleteExplicitCollaborator: (userUuid: UserType['uuid']) => ({ userUuid }),
         setExplicitCollaboratorsToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addExplicitCollaborators: true,
-    },
-    reducers: {
-        explicitCollaboratorsToBeAdded: [
-            [] as string[],
-            {
-                setExplicitCollaboratorsToBeAdded: (_, { userUuids }) => userUuids,
-            },
-        ],
-    },
-    loaders: ({ values, props, actions }) => ({
+    }),
+    loaders(({ values, props, actions }) => ({
         explicitCollaborators: [
             [] as DashboardCollaboratorType[],
             {
@@ -74,8 +67,16 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>(
                 },
             },
         ],
+    })),
+    reducers({
+        explicitCollaboratorsToBeAdded: [
+            [] as string[],
+            {
+                setExplicitCollaboratorsToBeAdded: (_, { userUuids }) => userUuids,
+            },
+        ],
     }),
-    selectors: {
+    selectors({
         allCollaborators: [
             (s) => [s.explicitCollaborators, s.admins, s.allMembers, s.dashboard],
             (explicitCollaborators, admins, allMembers, dashboard): FusedDashboardCollaboratorType[] => {
@@ -134,10 +135,10 @@ export const dashboardCollaboratorsLogic = kea<dashboardCollaboratorsLogicType>(
             (explicitCollaboratorsLoading, allMembersLoading): boolean =>
                 explicitCollaboratorsLoading || allMembersLoading,
         ],
-    },
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadExplicitCollaborators()
         },
-    }),
-})
+    })),
+])

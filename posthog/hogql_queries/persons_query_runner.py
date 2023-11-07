@@ -192,11 +192,11 @@ class PersonsQueryRunner(QueryRunner):
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
             elif len(aggregations) > 0:
-                order_by = [ast.OrderExpr(expr=aggregations[0], order="DESC")]
+                order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
-                order_by = [ast.OrderExpr(expr=columns[0], order="ASC")]
+                order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
             else:
                 order_by = []
 
@@ -227,3 +227,8 @@ class PersonsQueryRunner(QueryRunner):
 
     def _refresh_frequency(self):
         return timedelta(minutes=1)
+
+    def _remove_aliases(self, node: ast.Expr) -> ast.Expr:
+        if isinstance(node, ast.Alias):
+            return self._remove_aliases(node.expr)
+        return node

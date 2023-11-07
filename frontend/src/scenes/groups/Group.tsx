@@ -69,7 +69,7 @@ export function Group(): JSX.Element {
     const { groupKey, groupTypeIndex } = logicProps
     const { setGroupEventsQuery } = useActions(groupLogic)
 
-    if (!groupData) {
+    if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 

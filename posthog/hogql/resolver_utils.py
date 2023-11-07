@@ -1,6 +1,9 @@
 from typing import List, Optional
+
+from posthog import schema
 from posthog.hogql import ast
-from posthog.hogql.errors import HogQLException, ResolverException
+from posthog.hogql.errors import HogQLException, ResolverException, SyntaxException
+from posthog.hogql.visitor import clone_expr
 
 
 def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
@@ -45,3 +48,35 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
         return f"{get_long_table_name(select, type.table_type)}__{type.field}"
     else:
         raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
+
+
+def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
+    if isinstance(expr, ast.Constant):
+        return expr.value
+    elif isinstance(expr, ast.Array):
+        return [ast_to_query_node(e) for e in expr.exprs]
+    elif isinstance(expr, ast.Tuple):
+        return tuple(ast_to_query_node(e) for e in expr.exprs)
+    elif isinstance(expr, ast.HogQLXTag):
+        for klass in schema.__dict__.values():
+            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+                attributes = expr.to_dict()
+                attributes.pop("kind")
+                attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
+                return klass(**attributes)
+        raise SyntaxException(f'Tag of kind "{expr.kind}" not found in schema.')
+    else:
+        raise SyntaxException(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
+
+
+def convert_hogqlx_tag(node: ast.HogQLXTag, team_id: int):
+    from posthog.hogql_queries.query_runner import get_query_runner
+    from posthog.models import Team
+
+    try:
+        query_node = ast_to_query_node(node)
+        runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
+        query = clone_expr(runner.to_query(), clear_locations=True)
+        return query
+    except Exception as e:
+        raise ResolverException(f"Error parsing query tag: {e}", start=node.start, end=node.end)

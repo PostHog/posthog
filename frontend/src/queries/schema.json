@@ -93,6 +93,12 @@
                     "$ref": "#/definitions/PersonsQuery"
                 },
                 {
+                    "$ref": "#/definitions/InsightPersonsQuery"
+                },
+                {
+                    "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -1446,7 +1452,7 @@
             "additionalProperties": false,
             "properties": {
                 "end": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "fix": {
                     "type": "string"
@@ -1455,7 +1461,7 @@
                     "type": "string"
                 },
                 "start": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["message"],
@@ -1616,6 +1622,29 @@
                 "LifecycleQuery"
             ],
             "type": "string"
+        },
+        "InsightPersonsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightPersonsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/PersonsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "InsightQueryNode": {
             "anyOf": [
@@ -1881,6 +1910,7 @@
                 "HogQLQuery",
                 "HogQLMetadata",
                 "PersonsQuery",
+                "SessionsTimelineQuery",
                 "DataTableNode",
                 "SavedInsightNode",
                 "InsightVizNode",
@@ -1890,6 +1920,7 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
+                "InsightPersonsQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2142,7 +2173,7 @@
                 "source": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/LifecycleQuery"
+                            "$ref": "#/definitions/InsightPersonsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -2617,6 +2648,58 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "SessionsTimelineQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "after": {
+                    "description": "Only fetch sessions that started after this timestamp (default: '-24h')",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch sessions that started before this timestamp (default: '+5s')",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "SessionsTimelineQuery",
+                    "type": "string"
+                },
+                "personId": {
+                    "description": "Fetch sessions only for a given person",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/SessionsTimelineQueryResponse",
+                    "description": "Cached query response"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "SessionsTimelineQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/TimelineEntry"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
@@ -2811,6 +2894,27 @@
                 }
             },
             "required": ["kind", "source"],
+            "type": "object"
+        },
+        "TimelineEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/EventType"
+                    },
+                    "type": "array"
+                },
+                "recording_duration_s": {
+                    "description": "Duration of the recording in seconds.",
+                    "type": "number"
+                },
+                "sessionId": {
+                    "description": "Session ID. None means out-of-session events",
+                    "type": "string"
+                }
+            },
+            "required": ["events"],
             "type": "object"
         },
         "TrendsFilter": {
@@ -3070,9 +3174,15 @@
                 "InitialReferringDomain",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
+                "InitialUTMMedium",
+                "InitialUTMTerm",
+                "InitialUTMContent",
                 "Browser",
                 "OS",
-                "DeviceType"
+                "DeviceType",
+                "Country",
+                "Region",
+                "City"
             ],
             "type": "string"
         },

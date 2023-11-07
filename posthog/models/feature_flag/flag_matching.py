@@ -198,7 +198,10 @@ class FeatureFlagMatcher:
                     payload=payload,
                 )
 
-            (highest_priority_evaluation_reason, highest_priority_index,) = self.get_highest_priority_match_evaluation(
+            (
+                highest_priority_evaluation_reason,
+                highest_priority_index,
+            ) = self.get_highest_priority_match_evaluation(
                 highest_priority_evaluation_reason,
                 highest_priority_index,
                 evaluation_reason,
@@ -717,7 +720,7 @@ def get_all_feature_flags(
                     # In all cases, we simply try to find all personIDs associated with the distinct_id
                     # and the hash_key_override, and add overrides for all these personIDs.
                     # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
-                    # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
+                    # https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/db.ts (updateCohortsAndFeatureFlagsForMerge)
 
                     writing_hash_key_override = set_feature_flag_hash_key_overrides(
                         team_id, [distinct_id, hash_key_override], hash_key_override

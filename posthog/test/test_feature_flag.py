@@ -746,6 +746,9 @@ class TestModelCache(BaseTest):
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     maxDiff = None
 
+    def match_flag(self, flag: FeatureFlag, distinct_id: str = "test_id", **kwargs):
+        return FeatureFlagMatcher([flag], distinct_id, **kwargs).get_match(flag)
+
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
@@ -851,6 +854,155 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
                 feature_flag2
             ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+    def test_coercion_of_strings_and_numbers_with_is_not_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "Distinct Id": 307,
+                "Organizer Id": "307",
+            },
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "Organizer Id",
+                                "value": ["307"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "Organizer Id",
+                                "value": [307],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "Organizer Id",
+                                "value": "307",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "Organizer Id",
+                                "value": 307,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            }
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": ["307"],
+                                "operator": "is_not",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": [307],
+                                "operator": "is_not",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": "307",
+                                "operator": "is_not",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": 307,
+                                "operator": "is_not",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                ]
+            },
+        )
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag, "307"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "307"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 307}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": 0}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "308"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag, "307", property_value_overrides={"Organizer Id": "0"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # test with a flag where the property is a number
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag2, "307"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
+            )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "307"}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 307}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 3),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": 0}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "308"}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"Distinct Id": "0"}),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -1037,6 +1189,432 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 property_value_overrides={"string_enabled": "true"},
             ).get_match(feature_flag4),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+    def test_coercion_of_booleans_with_is_not_operator(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "enabled": True,
+                "string_enabled": "true",
+                "disabled": False,
+                "string_disabled": "false",
+                "uppercase_disabled": "False",
+            },
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "enabled",
+                                "value": ["true"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "enabled",
+                                "value": [True],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "enabled",
+                                "value": "true",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "enabled",
+                                "value": True,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            # also check string_enabled, which is 'true'
+                            {
+                                "key": "string_enabled",
+                                "value": ["true"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_enabled",
+                                "value": [True],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_enabled",
+                                "value": "true",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_enabled",
+                                "value": True,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+        feature_flag1_with_disabled = self.create_feature_flag(
+            key="random1_disabled",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": ["false"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": [False],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": "false",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": False,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_disabled",
+                                "value": False,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": True,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": "true",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": ["true"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "disabled",
+                                "value": [True],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_disabled",
+                                "value": True,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_disabled",
+                                "value": "true",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                            {
+                                "key": "string_disabled",
+                                "value": ["true"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": ["false"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": [False],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": False,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": "False",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "disabled",
+                                "value": "false",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "string_disabled",
+                                "value": "false",
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "string_disabled",
+                                "value": False,
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "string_disabled",
+                                "value": ["false"],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "string_disabled",
+                                "value": [False],
+                                "operator": "is_not",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                ]
+            },
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1_with_disabled, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(4):
+            self.assertEqual(
+                self.match_flag(feature_flag2, "307"),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
+            )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": True, "string_enabled": True}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "true"}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": True}),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1, "307", property_value_overrides={"enabled": "true", "string_enabled": "false"}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307", property_value_overrides={"enabled": False, "string_enabled": False}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1, "307", property_value_overrides={"enabled": "false", "string_enabled": "false"}
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled, "307", property_value_overrides={"disabled": True, "string_disabled": True}
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled,
+                "307",
+                property_value_overrides={"disabled": "true", "string_disabled": "true"},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled,
+                "307",
+                property_value_overrides={"disabled": False, "string_disabled": True},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled,
+                "307",
+                property_value_overrides={"disabled": "true", "string_disabled": "false"},
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled,
+                "307",
+                property_value_overrides={"disabled": False, "string_disabled": False},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag1_with_disabled,
+                "307",
+                property_value_overrides={"disabled": "false", "string_disabled": "false"},
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"disabled": True, "string_disabled": True}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(feature_flag2, "307", property_value_overrides={"string_disabled": True}),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "true"}
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": True}
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 5),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2, "307", property_value_overrides={"disabled": "true", "string_disabled": "false"}
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2, "307", property_value_overrides={"disabled": False, "string_disabled": False}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
+        )
+        self.assertEqual(
+            self.match_flag(
+                feature_flag2, "307", property_value_overrides={"disabled": "false", "string_disabled": "false"}
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 8),
+        )
+
+    def test_non_existing_key_passes_is_not_check(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={},
+        )
+        feature_flag = self.create_feature_flag(
+            key="random",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "Distinct Id",
+                                "value": ["307"],
+                                "operator": "is_not",
+                                "type": "person",
+                            }
+                        ]
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag, "308"),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
     @snapshot_postgres_queries

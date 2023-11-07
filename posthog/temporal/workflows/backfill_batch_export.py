@@ -216,6 +216,11 @@ async def wait_for_schedule_backfill_in_range(
         f'AND StartTime >= "{now.isoformat()}"'
     )
 
+    workflows = [workflow async for workflow in client.list_workflows(query=query)]
+
+    if workflows and check_workflow_executions_not_running(workflows) is True:
+        return
+
     done = False
     while not done:
         await asyncio.sleep(wait_delay)
