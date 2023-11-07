@@ -3,6 +3,7 @@ import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCi
 import { useEffect, useState } from 'react'
 import { LemonButton } from '../LemonButton'
 import { IconGear } from '@posthog/icons'
+import { LemonCheckbox } from '../LemonCheckbox'
 
 type Story = StoryObj<typeof LemonProgressCircle>
 const meta: Meta<typeof LemonProgressCircle> = {
@@ -38,9 +39,13 @@ Basic.args = {
 }
 
 export const Overview = (): JSX.Element => {
-    const [progress, setProgress] = useState(1)
+    const [progress, setProgress] = useState(0.2)
+    const [animate, setAnimate] = useState(false)
 
     useEffect(() => {
+        if (!animate) {
+            return
+        }
         const interval = setInterval(() => {
             setProgress((progress) => {
                 const newProgress = progress + 0.1
@@ -48,10 +53,11 @@ export const Overview = (): JSX.Element => {
             })
         }, 500)
         return () => clearInterval(interval)
-    }, [])
+    }, [animate])
 
     return (
         <div className="flex flex-col gap-2">
+            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label={'Animate'} />
             <LemonProgressCircle progress={progress} />
             <LemonProgressCircle progress={progress} strokePercentage={0.5} size={30} />
 
