@@ -48,7 +48,9 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced",
+         "posthog_team"."external_data_workspace_rows_synced_in_month"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -104,7 +106,9 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced",
+         "posthog_team"."external_data_workspace_rows_synced_in_month"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -160,7 +164,9 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced",
+         "posthog_team"."external_data_workspace_rows_synced_in_month"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -216,7 +222,9 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced",
+         "posthog_team"."external_data_workspace_rows_synced_in_month"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
@@ -272,7 +280,9 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced",
+         "posthog_team"."external_data_workspace_rows_synced_in_month"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
