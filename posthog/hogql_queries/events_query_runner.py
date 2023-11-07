@@ -15,7 +15,7 @@ from posthog.hogql.property import action_to_expr, has_aggregation, property_to_
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Action, Person, Team
+from posthog.models import Action, Person, PersonDistinctId, Team
 from posthog.models.element import chain_to_elements
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
@@ -32,6 +32,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "elements_chain",
     "created_at",
 ]
+
+MAX_LIMIT_DISTINCT_IDS = 2500
 
 
 class EventsQueryRunner(QueryRunner):
@@ -118,7 +120,15 @@ class EventsQueryRunner(QueryRunner):
                         person: Optional[Person] = get_pk_or_uuid(
                             Person.objects.filter(team=self.team), self.query.personId
                         ).first()
-                        distinct_ids = person.distinct_ids if person is not None else []
+                        if person is not None:
+                            distinct_ids = (
+                                PersonDistinctId.objects.filter(person=person, team=self.team)
+                                .order_by("id")
+                                .values_list("id", flat=True)[:MAX_LIMIT_DISTINCT_IDS]
+                            )
+                        else:
+                            distinct_ids = []
+
                         ids_list = list(map(str, distinct_ids))
                         where_exprs.append(
                             parse_expr(
