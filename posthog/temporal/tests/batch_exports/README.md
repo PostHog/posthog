@@ -48,7 +48,7 @@ S3 batch exports are tested against a MinIO bucket available in the local develo
 3. Create or choose an existing KMS key id from that AWS account to use in tests.
 4. Make sure the role/user you are logged in as has permissions to use the bucket and KMS key.
 
-For PostHog employees, check your passord manager for these details.
+For PostHog employees, check your password manager for these details.
 
 With these setup steps done, we can run all tests (MinIO and S3 bucket) from the root of the `posthog` repo with:
 
