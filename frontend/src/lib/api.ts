@@ -573,6 +573,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('external_data_sources')
     }
 
+    public externalDataSource(sourceId: ExternalDataStripeSource['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSources(teamId).addPathComponent(sourceId)
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -1586,6 +1590,12 @@ const api = {
             data: Partial<ExternalDataStripeSourceCreatePayload>
         ): Promise<ExternalDataStripeSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
+        },
+        async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+            await new ApiRequest().externalDataSource(sourceId).delete()
+        },
+        async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
+            await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
     },
 

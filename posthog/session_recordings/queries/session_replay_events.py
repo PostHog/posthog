@@ -23,7 +23,11 @@ class SessionReplayEvents:
             FROM session_replay_events
             WHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= now() - INTERVAL %(recording_ttl_days)s DAY
+            -- we should check for the `ttl_days(team)` TTL here,
+            -- but for a shared/pinned recording
+            -- the TTL effectively becomes 1 year
+            -- and we don't know which we're dealing with
+            AND min_first_timestamp >= now() - INTERVAL 370 DAY
             """,
             {
                 "team_id": team.pk,

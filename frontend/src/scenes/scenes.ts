@@ -191,6 +191,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Warehouse Settings',
     },
+    [Scene.DataWarehouseTable]: {
+        projectBased: true,
+        name: 'Data Warehouse Table',
+    },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
     },
@@ -455,6 +459,7 @@ export const routes: Record<string, Scene> = {
     [urls.survey(':id')]: Scene.Survey,
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
     [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
     [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,

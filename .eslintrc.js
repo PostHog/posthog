@@ -111,10 +111,6 @@ module.exports = {
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
                     },
                     {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
                     },
@@ -160,6 +156,10 @@ module.exports = {
                     {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
+                    },
+                    {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Spin',
