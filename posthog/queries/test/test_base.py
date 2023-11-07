@@ -154,7 +154,8 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_a, {"key": 0}))
         self.assertFalse(match_property(property_a, {"key": -1}))
-        self.assertFalse(match_property(property_a, {"key": "23"}))
+        # now we handle type mismatches so this should be true
+        self.assertTrue(match_property(property_a, {"key": "23"}))
 
         property_b = Property(key="key", value=1, operator="lt")
         self.assertTrue(match_property(property_b, {"key": 0}))
@@ -171,15 +172,31 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_c, {"key": 0}))
         self.assertFalse(match_property(property_c, {"key": -1}))
-        self.assertFalse(match_property(property_c, {"key": "3"}))
+        # now we handle type mismatches so this should be true
+        self.assertTrue(match_property(property_c, {"key": "3"}))
 
         property_d = Property(key="key", value="43", operator="lt")
         self.assertTrue(match_property(property_d, {"key": "41"}))
         self.assertTrue(match_property(property_d, {"key": "42"}))
+        self.assertTrue(match_property(property_d, {"key": 42}))
 
         self.assertFalse(match_property(property_d, {"key": "43"}))
         self.assertFalse(match_property(property_d, {"key": "44"}))
         self.assertFalse(match_property(property_d, {"key": 44}))
+
+        property_e = Property(key="key", value="30", operator="lt")
+        self.assertTrue(match_property(property_e, {"key": "29"}))
+
+        # depending on the type of override, we adjust type comparison
+        self.assertTrue(match_property(property_e, {"key": "100"}))
+        self.assertFalse(match_property(property_e, {"key": 100}))
+
+        property_f = Property(key="key", value="123aloha", operator="gt")
+        self.assertFalse(match_property(property_f, {"key": "123"}))
+        self.assertFalse(match_property(property_f, {"key": 122}))
+
+        # this turns into a string comparison
+        self.assertTrue(match_property(property_f, {"key": 129}))
 
     def test_match_property_date_operators(self):
         property_a = Property(key="key", value="2022-05-01", operator="is_date_before")
@@ -227,3 +244,42 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": "2022-04-05 12:34:11 CET"}))
 
         self.assertFalse(match_property(property_d, {"key": "2022-04-05 12:34:13 CET"}))
+
+    def test_none_property_value_with_all_operators(self):
+        property_a = Property(key="key", value="none", operator="is_not")
+        self.assertFalse(match_property(property_a, {"key": None}))
+        self.assertTrue(match_property(property_a, {"key": "non"}))
+
+        property_b = Property(key="key", value=None, operator="is_set")
+        self.assertTrue(match_property(property_b, {"key": None}))
+
+        property_c = Property(key="key", value="no", operator="icontains")
+        self.assertTrue(match_property(property_c, {"key": None}))
+        self.assertFalse(match_property(property_c, {"key": "smh"}))
+
+        property_d = Property(key="key", value="No", operator="regex")
+        self.assertTrue(match_property(property_d, {"key": None}))
+
+        property_d_lower_case = Property(key="key", value="no", operator="regex")
+        self.assertFalse(match_property(property_d_lower_case, {"key": None}))
+
+        property_e = Property(key="key", value=1, operator="gt")
+        self.assertTrue(match_property(property_e, {"key": None}))
+
+        property_f = Property(key="key", value=1, operator="lt")
+        self.assertFalse(match_property(property_f, {"key": None}))
+
+        property_g = Property(key="key", value="xyz", operator="gte")
+        self.assertFalse(match_property(property_g, {"key": None}))
+
+        property_h = Property(key="key", value="Oo", operator="lte")
+        self.assertTrue(match_property(property_h, {"key": None}))
+
+        property_i = Property(key="key", value="2022-05-01", operator="is_date_before")
+        self.assertFalse(match_property(property_i, {"key": None}))
+
+        property_j = Property(key="key", value="2022-05-01", operator="is_date_after")
+        self.assertFalse(match_property(property_j, {"key": None}))
+
+        property_k = Property(key="key", value="2022-05-01", operator="is_date_before")
+        self.assertFalse(match_property(property_k, {"key": "random"}))

@@ -345,6 +345,114 @@
          AND "posthog_group"."group_type_index" = 2)
   '
 ---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts
+  '
+  SELECT "posthog_cohort"."id",
+         "posthog_cohort"."name",
+         "posthog_cohort"."description",
+         "posthog_cohort"."team_id",
+         "posthog_cohort"."deleted",
+         "posthog_cohort"."filters",
+         "posthog_cohort"."version",
+         "posthog_cohort"."pending_version",
+         "posthog_cohort"."count",
+         "posthog_cohort"."created_by_id",
+         "posthog_cohort"."created_at",
+         "posthog_cohort"."is_calculating",
+         "posthog_cohort"."last_calculation",
+         "posthog_cohort"."errors_calculating",
+         "posthog_cohort"."is_static",
+         "posthog_cohort"."groups"
+  FROM "posthog_cohort"
+  WHERE (NOT "posthog_cohort"."deleted"
+         AND "posthog_cohort"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_cohorts_and_nested_cohorts.1
+  '
+  SELECT (((("posthog_person"."properties" -> 'number') > '"100"'
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'string')
+           OR (("posthog_person"."properties" -> 'number') > '100.0'
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'number'))
+          AND "posthog_person"."properties" ? 'number'
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null')) AS "flag_X_condition_0",
+         (((("posthog_person"."properties" -> 'version') > '"1.05"'
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = 'string')
+           OR (("posthog_person"."properties" -> 'version') > '1.05'
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'version')) = 'number'))
+          AND "posthog_person"."properties" ? 'version'
+          AND NOT (("posthog_person"."properties" -> 'version') = 'null')) AS "flag_X_condition_0",
+         (((("posthog_person"."properties" -> 'number') < '"31"'
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'string')
+           OR (("posthog_person"."properties" -> 'number') < '31.0'
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'number'))
+          AND "posthog_person"."properties" ? 'number'
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null')
+          AND ((("posthog_person"."properties" -> 'nested_prop') > '"20"'
+                AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = 'string')
+               OR (("posthog_person"."properties" -> 'nested_prop') > '20.0'
+                   AND JSONB_TYPEOF(("posthog_person"."properties" -> 'nested_prop')) = 'number'))
+          AND "posthog_person"."properties" ? 'nested_prop'
+          AND NOT (("posthog_person"."properties" -> 'nested_prop') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags
+  '
+  SELECT "posthog_grouptypemapping"."id",
+         "posthog_grouptypemapping"."team_id",
+         "posthog_grouptypemapping"."group_type",
+         "posthog_grouptypemapping"."group_type_index",
+         "posthog_grouptypemapping"."name_singular",
+         "posthog_grouptypemapping"."name_plural"
+  FROM "posthog_grouptypemapping"
+  WHERE "posthog_grouptypemapping"."team_id" = 2
+  '
+---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.1
+  '
+  SELECT (((("posthog_person"."properties" -> 'number') >= '"20"'
+            AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'string')
+           OR (("posthog_person"."properties" -> 'number') >= '20.0'
+               AND JSONB_TYPEOF(("posthog_person"."properties" -> 'number')) = 'number'))
+          AND "posthog_person"."properties" ? 'number'
+          AND NOT (("posthog_person"."properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.2
+  '
+  SELECT (((("posthog_group"."group_properties" -> 'number') > '"100"'
+            AND JSONB_TYPEOF(("posthog_group"."group_properties" -> 'number')) = 'string')
+           OR (("posthog_group"."group_properties" -> 'number') > '100.0'
+               AND JSONB_TYPEOF(("posthog_group"."group_properties" -> 'number')) = 'number'))
+          AND "posthog_group"."group_properties" ? 'number'
+          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."team_id" = 2
+         AND "posthog_group"."group_key" = 'foo'
+         AND "posthog_group"."group_type_index" = 0)
+  '
+---
+# name: TestFeatureFlagMatcher.test_numeric_operator_with_groups_and_person_flags.3
+  '
+  SELECT (("posthog_group"."group_properties" -> 'number') > '"100b2c"'
+          AND "posthog_group"."group_properties" ? 'number'
+          AND NOT (("posthog_group"."group_properties" -> 'number') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."team_id" = 2
+         AND "posthog_group"."group_key" = 'foo-project'
+         AND "posthog_group"."group_type_index" = 1)
+  '
+---
 # name: TestFeatureFlagMatcher.test_super_condition_matches_string
   '
   SELECT ((("posthog_person"."properties" -> 'is_enabled') = 'true'
