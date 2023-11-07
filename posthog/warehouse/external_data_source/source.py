@@ -1,10 +1,8 @@
-import requests
-from django.conf import settings
 from posthog.models.utils import UUIDT
 from pydantic import BaseModel, field_validator
 from typing import Dict, Optional
 import datetime as dt
-from posthog.batch_exports.http import validate_date_input
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_SOURCE_URL = "https://api.airbyte.com/v1/sources"
 
@@ -28,6 +26,8 @@ class StripeSourcePayload(BaseModel):
     @field_validator("start_date")
     @classmethod
     def valid_iso_start_date(cls, v: Optional[str]) -> Optional[str]:
+        from posthog.batch_exports.http import validate_date_input
+
         if not v:
             return v
 
@@ -45,15 +45,7 @@ class ExternalDataSource(BaseModel):
     workspace_id: str
 
 
-def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
-    workspace_name = settings.AIRBYTE_INSTANCE_NAME
-    if not workspace_name:
-        raise ValueError("AIRBYTE_INSTANCE_NAME must be set in order to create a source.")
-
-    workspace_id = settings.AIRBYTE_WORKSPACE_ID
-    if not workspace_id:
-        raise ValueError("AIRBYTE_WORKSPACE_ID must be set in order to create a source.")
-
+def create_stripe_source(payload: StripeSourcePayload, workspace_id: str) -> ExternalDataSource:
     optional_config = {}
     if payload.start_date:
         optional_config["start_date"] = payload.start_date.isoformat()
@@ -71,39 +63,21 @@ def create_stripe_source(payload: StripeSourcePayload) -> ExternalDataSource:
             "client_secret": payload.client_secret,
             **optional_config,
         },
-        "name": workspace_name,
+        "name": "stripe source",
         "workspaceId": workspace_id,
     }
     return _create_source(payload)
 
 
 def _create_source(payload: Dict) -> ExternalDataSource:
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
-
-    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
-
-    response = requests.post(AIRBYTE_SOURCE_URL, json=payload, headers=headers)
-    response_payload = response.json()
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
-
+    response = send_request(AIRBYTE_SOURCE_URL, method="POST", payload=payload)
     return ExternalDataSource(
-        source_id=response_payload["sourceId"],
-        name=response_payload["name"],
-        source_type=response_payload["sourceType"],
-        workspace_id=response_payload["workspaceId"],
+        source_id=response["sourceId"],
+        name=response["name"],
+        source_type=response["sourceType"],
+        workspace_id=response["workspaceId"],
     )
 
 
 def delete_source(source_id):
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to delete a source.")
-    headers = {"authorization": "Bearer {token}"}
-
-    response = requests.delete(AIRBYTE_SOURCE_URL + "/" + source_id, headers=headers)
-
-    if not response.ok:
-        raise ValueError(response.json()["detail"])
+    send_request(AIRBYTE_SOURCE_URL + "/" + source_id, method="DELETE")

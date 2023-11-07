@@ -1,10 +1,11 @@
-import requests
-from django.conf import settings
 from pydantic import BaseModel
-from typing import Dict
+from posthog.warehouse.external_data_source.client import send_request
+import structlog
 
 AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
+
+logger = structlog.get_logger(__name__)
 
 
 class ExternalDataConnection(BaseModel):
@@ -16,12 +17,6 @@ class ExternalDataConnection(BaseModel):
 
 
 def create_connection(source_id: str, destination_id: str) -> ExternalDataConnection:
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to create a source.")
-
-    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
-
     payload = {
         "schedule": {"scheduleType": "cron", "cronExpression": "0 0 0 * * ?"},
         "namespaceFormat": None,
@@ -29,24 +24,20 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
         "destinationId": destination_id,
     }
 
-    response = requests.post(AIRBYTE_CONNECTION_URL, json=payload, headers=headers)
-    response_payload = response.json()
+    response = send_request(AIRBYTE_CONNECTION_URL, method="POST", payload=payload)
 
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
-
-    update_connection_stream(response_payload["connectionId"], headers)
+    update_connection_stream(response["connectionId"])
 
     return ExternalDataConnection(
-        source_id=response_payload["sourceId"],
-        name=response_payload["name"],
-        connection_id=response_payload["connectionId"],
-        workspace_id=response_payload["workspaceId"],
-        destination_id=response_payload["destinationId"],
+        source_id=response["sourceId"],
+        name=response["name"],
+        connection_id=response["connectionId"],
+        workspace_id=response["workspaceId"],
+        destination_id=response["destinationId"],
     )
 
 
-def update_connection_stream(connection_id: str, headers: Dict):
+def update_connection_stream(connection_id: str):
     connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
 
     # TODO: hardcoded to stripe stream right now
@@ -56,37 +47,34 @@ def update_connection_stream(connection_id: str, headers: Dict):
         "namespaceFormat": None,
     }
 
-    response = requests.patch(connection_id_url, json=payload, headers=headers)
-    response_payload = response.json()
-
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
+    send_request(connection_id_url, method="PATCH", payload=payload)
 
 
+def delete_connection(connection_id: str) -> None:
+    send_request(AIRBYTE_CONNECTION_URL + "/" + connection_id, method="DELETE")
+
+
+# Fire and forget
 def start_sync(connection_id: str):
-    token = settings.AIRBYTE_API_KEY
-    if not token:
-        raise ValueError("AIRBYTE_API_KEY must be set in order to start sync.")
-
-    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
     payload = {"jobType": "sync", "connectionId": connection_id}
 
-    response = requests.post(AIRBYTE_JOBS_URL, json=payload, headers=headers)
-    response_payload = response.json()
-
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
+    try:
+        send_request(AIRBYTE_JOBS_URL, method="POST", payload=payload)
+    except Exception as e:
+        logger.exception(
+            f"Data Warehouse: Sync Resource failed with an unexpected exception for connection id: {connection_id}",
+            exc_info=e,
+        )
 
 
 def retrieve_sync(connection_id: str):
-    token = settings.AIRBYTE_API_KEY
-    headers = {"accept": "application/json", "content-type": "application/json", "Authorization": f"Bearer {token}"}
     params = {"connectionId": connection_id, "limit": 1}
-    response = requests.get(AIRBYTE_JOBS_URL, params=params, headers=headers)
-    response_payload = response.json()["data"]
-    latest_job = response_payload[0]
+    response = send_request(AIRBYTE_JOBS_URL, method="GET", params=params)
 
-    if not response.ok:
-        raise ValueError(response_payload["detail"])
+    data = response.get("data", [])
+    if not data:
+        return None
+
+    latest_job = response["data"][0]
 
     return latest_job

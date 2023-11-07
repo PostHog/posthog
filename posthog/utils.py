@@ -173,7 +173,7 @@ def relative_date_parse_with_delta_mapping(
     *,
     always_truncate: bool = False,
     now: Optional[datetime.datetime] = None,
-) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]], str | None]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
         try:
@@ -191,14 +191,14 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
         else:
             parsed_dt = parsed_dt.astimezone(timezone_info)
-        return parsed_dt, None
+        return parsed_dt, None, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return parsed_dt, delta_mapping
+        return parsed_dt, delta_mapping, None
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
@@ -244,7 +244,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return parsed_dt, delta_mapping
+    return parsed_dt, delta_mapping, match.group("position") or None
 
 
 def relative_date_parse(
@@ -343,9 +343,6 @@ def render_template(
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
-
-    if settings.MAPLIBRE_STYLE_URL:
-        context["js_maplibre_style_url"] = settings.MAPLIBRE_STYLE_URL
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,

@@ -154,3 +154,22 @@ export function safeClickhouseString(str: string): string {
         return res.slice(1, res.length - 1) + `\\`
     })
 }
+
+// JSONB columns may not contain null bytes, so we replace them with the Unicode replacement
+// character. This should be called before passing a parameter to a parameterized query. It is
+// designed to safely ignore other types, since we have some functions that operate on generic
+// parameter arrays.
+//
+// Objects are JSON serialized to make the replacement safer and less expensive, since we don't have
+// to recursively walk the object once its a string. They need to be JSON serialized before sending
+// to Postgres anyway.
+export function sanitizeJsonbValue(value: any): any {
+    if (value === null) {
+        // typeof null is 'object', but we don't want to serialize it into a string below
+        return value
+    } else if (typeof value === 'object') {
+        return JSON.stringify(value).replace(/\\u0000/g, '\\uFFFD')
+    } else {
+        return value
+    }
+}

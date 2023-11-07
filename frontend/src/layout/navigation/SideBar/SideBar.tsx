@@ -14,7 +14,6 @@ import {
     IconGauge,
     IconLive,
     IconMessages,
-    IconNotebook,
     IconOpenInApp,
     IconPerson,
     IconPinOutline,
@@ -52,8 +51,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
+import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)

@@ -74,9 +74,7 @@ version,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
-""".format(
-    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
-)
+""".format(table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE)
 
 GET_LATEST_PERSON_SQL = """
 SELECT * FROM person JOIN (
@@ -94,9 +92,7 @@ GET_LATEST_PERSON_ID_SQL = """
 (select id from (
     {latest_person_sql}
 ))
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL
-)
+""".format(latest_person_sql=GET_LATEST_PERSON_SQL)
 
 #
 # person_distinct_id - legacy table for person distinct IDs, do not use
@@ -132,7 +128,8 @@ PERSONS_DISTINCT_ID_TABLE_SQL = lambda: (
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda: """
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = (
+    lambda: """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     distinct_id VARCHAR,
@@ -142,9 +139,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     is_deleted Nullable(Int8)
 ) ENGINE = {engine}
 """.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+        table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
+        cluster=CLICKHOUSE_CLUSTER,
+        engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+    )
 )
 
 # You must include the database here because of a bug in clickhouse

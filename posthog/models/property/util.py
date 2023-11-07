@@ -399,9 +399,7 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
         # is_date_exact not yet supported
-    }.get(
-        operator, operator
-    )  # type: ignore
+    }.get(operator, operator)  # type: ignore
 
 
 def prop_filter_json_extract(

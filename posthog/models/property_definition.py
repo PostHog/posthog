@@ -51,7 +51,7 @@ class PropertyDefinition(UUIDModel):
     # :TRICKY: May be null for historical events
     type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
     # Only populated for `Type.GROUP`
-    group_type_index: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(null=True)
+    group_type_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True)
 
     # DEPRECATED
     property_type_format = models.CharField(

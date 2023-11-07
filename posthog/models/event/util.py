@@ -156,9 +156,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 %(created_at_{i})s,
                 now(),
                 0
-            )""".format(
-                i=index
-            )
+            )""".format(i=index)
         )
 
         #  use person properties mapping to populate person properties in given event

@@ -1,21 +1,33 @@
-import { LemonButton, LemonMenu, LemonMenuItems, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LoadingOutlined } from '@ant-design/icons'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
     logic: dataWarehouseSettingsLogic,
 }
 
+const StatusTagSetting = {
+    running: 'default',
+    succeeded: 'primary',
+    error: 'danger',
+}
+
 export function DataWarehouseSettingsScene(): JSX.Element {
-    const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+    const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
+        useValues(dataWarehouseSettingsLogic)
+    const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -29,14 +41,16 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-data-warehouse-easy-link"
-                        key={'new-data-warehouse-easy-link'}
-                        onClick={toggleSourceModal}
-                    >
-                        Link Source
-                    </LemonButton>
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={() => toggleSourceModal()}
+                        >
+                            Link Source
+                        </LemonButton>
+                    ) : undefined
                 }
                 caption={
                     <div>
@@ -62,24 +76,52 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         key: 'status',
                         width: 0,
                         render: function RenderStatus(_, source) {
-                            return <LemonTag type="primary">{source.status}</LemonTag>
+                            return (
+                                <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                            )
                         },
                     },
-
                     {
+                        key: 'actions',
                         width: 0,
-                        render: function Render() {
-                            const menuItems: LemonMenuItems = [
-                                {
-                                    label: 'Remove',
-                                    status: 'danger',
-                                    onClick: () => {},
-                                },
-                            ]
+                        render: function RenderActions(_, source) {
                             return (
-                                <LemonMenu items={menuItems} placement="left">
-                                    <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />
-                                </LemonMenu>
+                                <div className="flex flex-row justify-end">
+                                    {sourceReloadingById[source.id] ? (
+                                        <div>
+                                            <LoadingOutlined />
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <More
+                                                overlay={
+                                                    <>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            data-attr={`reload-data-warehouse-${source.source_type}`}
+                                                            key={`reload-data-warehouse-${source.source_type}`}
+                                                            onClick={() => {
+                                                                reloadSource(source)
+                                                            }}
+                                                        >
+                                                            Reload
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            status="danger"
+                                                            data-attr={`delete-data-warehouse-${source.source_type}`}
+                                                            key={`delete-data-warehouse-${source.source_type}`}
+                                                            onClick={() => {
+                                                                deleteSource(source)
+                                                            }}
+                                                        >
+                                                            Delete
+                                                        </LemonButton>
+                                                    </>
+                                                }
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             )
                         },
                     },

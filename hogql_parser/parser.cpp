@@ -17,7 +17,7 @@
     throw NotImplementedException("Unsupported rule: " #RULE); \
   }
 
-#define HANDLE_HOGQL_EXCEPTION(TYPE)                                                                    \
+#define HANDLE_HOGQL_EXCEPTION(TYPE, OTHER_CLEANUP)                                                     \
   (const TYPE& e) {                                                                                     \
     string err_what = e.what();                                                                         \
     PyObject *error_type = NULL, *py_err_args = NULL, *py_err = NULL, *py_start = NULL, *py_end = NULL; \
@@ -42,6 +42,7 @@
     Py_XDECREF(py_start);                                                                               \
     Py_XDECREF(py_err);                                                                                 \
     Py_XDECREF(error_type);                                                                             \
+    OTHER_CLEANUP                                                                                       \
     return NULL;                                                                                        \
   }
 
@@ -98,6 +99,7 @@ PyObject* X_PyList_FromStrings(const vector<string>& items) {
 class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
  private:
   parser_state* state;
+  bool is_internal;
 
   const vector<string> RESERVED_KEYWORDS = {"true", "false", "null", "team_id"};
 
@@ -151,7 +153,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 #undef IS_AST_NODE_INSTANCE_IMPL
 
  public:
-  HogQLParseTreeConverter(parser_state* state) : state(state) {}
+  HogQLParseTreeConverter(parser_state* state, bool is_internal) : state(state), is_internal(is_internal) {}
 
   any visit(antlr4::tree::ParseTree* tree) override {
     // Find the start and stop indices of the parse tree node
@@ -169,17 +171,18 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       start = ctx->getStart()->getStartIndex();
       stop = ctx->getStop()->getStopIndex();
     }
-    // Visit the parse tree node
+    // Visit the parse tree node (while making sure that nodes/errors have spans - except for internal expressions)
     any node;
     try {
       node = tree->accept(this);
     } catch (const SyntaxException& e) {
-      if (e.start == 0 && e.end == 0) {  // If start and end are unset, rethrow with the current start and stop
+      // If start and end are unset, rethrow with the current start and stop
+      if (!is_internal && e.start == 0 && e.end == 0) {
         throw SyntaxException(e.what(), start, stop + 1);
       }
       throw;
     }
-    if (node.has_value() && node.type() == typeid(PyObject*)) {
+    if (!is_internal && node.has_value() && node.type() == typeid(PyObject*)) {
       PyObject* py_node = any_cast<PyObject*>(node);
       if (py_node) {
         int is_ast = is_ast_node_instance(py_node);
@@ -218,8 +221,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   PyObject* visitAsPyObjectFinal(antlr4::tree::ParseTree* tree) {
     try {
       return visitAsPyObject(tree);
-    } catch HANDLE_HOGQL_EXCEPTION(SyntaxException) catch HANDLE_HOGQL_EXCEPTION(NotImplementedException
-    ) catch HANDLE_HOGQL_EXCEPTION(ParsingException) catch (const PyInternalException& e) {
+    } catch HANDLE_HOGQL_EXCEPTION(SyntaxException, ) catch HANDLE_HOGQL_EXCEPTION(
+        NotImplementedException,
+    ) catch HANDLE_HOGQL_EXCEPTION(ParsingException, ) catch (const PyInternalException& e) {
       return NULL;
     } catch (const bad_any_cast& e) {
       PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingException");
@@ -1789,7 +1793,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(TableFunctionExpr) {
     string table_name = visitAsString(ctx->identifier());
     auto table_args_ctx = ctx->tableArgList();
-    PyObject* table_args = table_args_ctx ? visitAsPyObject(table_args_ctx) : Py_NewRef(Py_None);
+    PyObject* table_args = table_args_ctx ? visitAsPyObject(table_args_ctx) : PyList_New(0);
+    if (!table_args) throw PyInternalException();
     PyObject* table = build_ast_node("Field", "{s:[s#]}", "chain", table_name.data(), table_name.size());
     if (!table) {
       Py_DECREF(table_args);
@@ -2030,32 +2035,35 @@ parser_state* get_module_state(PyObject* module) {
 
 // MODULE METHODS
 
-#define METHOD_PARSE_NODE(PASCAL_CASE, CAMEL_CASE, SNAKE_CASE)                  \
-  static PyObject* method_parse_##SNAKE_CASE(PyObject* self, PyObject* args) {  \
-    parser_state* state = get_module_state(self);                               \
-    const char* str;                                                            \
-    if (!PyArg_ParseTuple(args, "s", &str)) {                                   \
-      return NULL;                                                              \
-    }                                                                           \
-    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536)); \
-    auto lexer = new HogQLLexer(input_stream);                                  \
-    auto stream = new antlr4::CommonTokenStream(lexer);                         \
-    auto parser = new HogQLParser(stream);                                      \
-    parser->removeErrorListeners();                                             \
-    auto error_listener = new HogQLErrorListener(str);                          \
-    parser->addErrorListener(error_listener);                                   \
-    HogQLParser::PASCAL_CASE##Context* parse_tree;                              \
-    try {                                                                       \
-      parse_tree = parser->CAMEL_CASE();                                        \
-    } catch HANDLE_HOGQL_EXCEPTION(SyntaxException);                            \
-    HogQLParseTreeConverter converter = HogQLParseTreeConverter(state);         \
-    PyObject* result_node = converter.visitAsPyObjectFinal(parse_tree);         \
-    delete error_listener;                                                      \
-    delete parser;                                                              \
-    delete stream;                                                              \
-    delete lexer;                                                               \
-    delete input_stream;                                                        \
-    return result_node;                                                         \
+#define METHOD_PARSE_NODE(PASCAL_CASE, CAMEL_CASE, SNAKE_CASE)                                                         \
+  static PyObject* method_parse_##SNAKE_CASE(PyObject* self, PyObject* args, PyObject* kwargs) {                       \
+    parser_state* state = get_module_state(self);                                                                      \
+    const char* str;                                                                                                   \
+    int internal = 0;                                                                                                  \
+    static const char* kwlist[] = {"input", "is_internal", NULL};                                                      \
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|p", (char**)kwlist, &str, &internal)) {                          \
+      return NULL;                                                                                                     \
+    }                                                                                                                  \
+    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536));                                        \
+    auto lexer = new HogQLLexer(input_stream);                                                                         \
+    auto stream = new antlr4::CommonTokenStream(lexer);                                                                \
+    auto parser = new HogQLParser(stream);                                                                             \
+    parser->removeErrorListeners();                                                                                    \
+    auto error_listener = new HogQLErrorListener(str);                                                                 \
+    parser->addErrorListener(error_listener);                                                                          \
+    HogQLParser::PASCAL_CASE##Context* parse_tree;                                                                     \
+    try {                                                                                                              \
+      parse_tree = parser->CAMEL_CASE();                                                                               \
+    } catch HANDLE_HOGQL_EXCEPTION(SyntaxException, delete error_listener; delete parser; delete stream; delete lexer; \
+                                   delete input_stream;);                                                              \
+    HogQLParseTreeConverter converter = HogQLParseTreeConverter(state, internal == 1);                                 \
+    PyObject* result_node = converter.visitAsPyObjectFinal(parse_tree);                                                \
+    delete error_listener;                                                                                             \
+    delete parser;                                                                                                     \
+    delete stream;                                                                                                     \
+    delete lexer;                                                                                                      \
+    delete input_stream;                                                                                               \
+    return result_node;                                                                                                \
   }
 
 METHOD_PARSE_NODE(Expr, expr, expr)
@@ -2073,7 +2081,7 @@ static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
   string unquoted_string;
   try {
     unquoted_string = unquote_string(str);
-  } catch HANDLE_HOGQL_EXCEPTION(SyntaxException);
+  } catch HANDLE_HOGQL_EXCEPTION(SyntaxException, );
   return PyUnicode_FromStringAndSize(unquoted_string.data(), unquoted_string.size());
 }
 
@@ -2081,16 +2089,16 @@ static PyObject* method_unquote_string(PyObject* self, PyObject* args) {
 
 static PyMethodDef parser_methods[] = {
     {.ml_name = "parse_expr",
-     .ml_meth = method_parse_expr,
-     .ml_flags = METH_VARARGS,
+     .ml_meth = (PyCFunction)method_parse_expr,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse the HogQL expression string into an AST"},
     {.ml_name = "parse_order_expr",
-     .ml_meth = method_parse_order_expr,
-     .ml_flags = METH_VARARGS,
+     .ml_meth = (PyCFunction)method_parse_order_expr,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse the ORDER BY clause string into an AST"},
     {.ml_name = "parse_select",
-     .ml_meth = method_parse_select,
-     .ml_flags = METH_VARARGS,
+     .ml_meth = (PyCFunction)method_parse_select,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
      .ml_doc = "Parse the HogQL SELECT statement string into an AST"},
     {.ml_name = "unquote_string",
      .ml_meth = method_unquote_string,

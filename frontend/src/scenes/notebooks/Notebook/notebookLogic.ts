@@ -107,6 +107,7 @@ export const notebookLogic = kea<notebookLogicType>([
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
+        setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -181,6 +182,12 @@ export const notebookLogic = kea<notebookLogicType>([
             false,
             {
                 setShowHistory: (_, { showHistory }) => showHistory,
+            },
+        ],
+        containerSize: [
+            'small' as 'small' | 'medium',
+            {
+                setContainerSize: (_, { containerSize }) => containerSize,
             },
         ],
     })),
@@ -386,8 +393,10 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory],
-            (editingNodeId, showHistory) => !!editingNodeId || showHistory,
+            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
+            (editingNodeId, showHistory, containerSize) => {
+                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            },
         ],
 
         isEditable: [

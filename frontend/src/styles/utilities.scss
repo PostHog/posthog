@@ -410,6 +410,10 @@ $decorations: underline, overline, line-through, no-underline;
     color: inherit;
 }
 
+.text-current {
+    color: currentColor;
+}
+
 @each $name, $hex in $colors {
     .hover\:text-#{$name}:hover {
         color: $hex;

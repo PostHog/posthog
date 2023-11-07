@@ -33,7 +33,6 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { InlineMenu } from './InlineMenu'
-import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
 import { notebookLogic } from './notebookLogic'
 import { sampleOne } from 'lib/utils'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
@@ -121,7 +120,6 @@ export function Editor(): JSX.Element {
             NotebookNodeProperties,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
             NotebookNodePersonFeed,
             NotebookNodeMap,
         ],
@@ -190,9 +188,7 @@ export function Editor(): JSX.Element {
                             .setTextSelection(coordinates.pos)
                             .insertContent({
                                 type: NotebookNodeType.Image,
-                                attrs: {
-                                    file,
-                                },
+                                attrs: { file },
                             })
                             .run()
 
@@ -211,12 +207,14 @@ export function Editor(): JSX.Element {
                 getText: () => textContent(editor.state.doc),
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                getCurrentPosition: () => editor.state.selection.$anchor.pos,
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
-                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -256,9 +254,10 @@ export function Editor(): JSX.Element {
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
-            {_editor && <InlineMenu editor={_editor} />}
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </EditorContent>
         </>
     )
 }

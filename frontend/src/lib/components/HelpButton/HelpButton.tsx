@@ -91,9 +91,9 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
-    const showSupportOptions: boolean = preflight?.cloud || false
+    const showSupportOptions: boolean = isCloudOrDev || false
 
     if (contactOnly && !showSupportOptions) {
         return null // We don't offer support for self-hosted instances

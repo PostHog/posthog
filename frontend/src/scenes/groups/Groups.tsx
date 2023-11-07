@@ -118,13 +118,9 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
                         <LemonBanner type="info">
                             No {plural} found. Make sure to send properties with your {singular} for them to show up in
                             the list.{' '}
-                            <a
-                                href="https://posthog.com/docs/user-guides/group-analytics"
-                                rel="noopener"
-                                target="_blank"
-                            >
+                            <Link to="https://posthog.com/docs/user-guides/group-analytics" target="_blank">
                                 Read more here.
-                            </a>
+                            </Link>
                         </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +

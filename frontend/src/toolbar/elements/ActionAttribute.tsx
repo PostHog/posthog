@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
@@ -23,9 +24,9 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
 
     const text =
         attribute === 'href' ? (
-            <a href={value} target="_blank" rel="noopener noreferrer">
+            <Link to={value} target="_blank">
                 {value}
-            </a>
+            </Link>
         ) : attribute === 'selector' ? (
             value ? (
                 <span className="font-mono">

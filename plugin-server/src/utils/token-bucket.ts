@@ -72,6 +72,8 @@ export const ConfiguredLimiter: Limiter = new Limiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
 
-export const WarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+export const OverflowWarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+
+export const MessageSizeTooLargeWarningLimiter: Limiter = new Limiter(1, 1.0 / 300)
 
 export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

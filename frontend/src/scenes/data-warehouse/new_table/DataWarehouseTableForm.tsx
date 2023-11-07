@@ -3,7 +3,11 @@ import { Form } from 'kea-forms'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Field } from 'lib/forms/Field'
 
-export function DatawarehouseTableForm(): JSX.Element {
+interface DataWarehouseTableFormProps {
+    footer?: JSX.Element
+}
+
+export function DatawarehouseTableForm({ footer }: DataWarehouseTableFormProps): JSX.Element {
     return (
         <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
             <div className="flex flex-col gap-2 max-w-160">
@@ -71,6 +75,7 @@ export function DatawarehouseTableForm(): JSX.Element {
                     />
                 </Field>
             </div>
+            {footer}
         </Form>
     )
 }

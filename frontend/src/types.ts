@@ -515,6 +515,12 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
+export enum PipelineTabs {
+    Filters = 'filters',
+    Transformations = 'transformations',
+    Destinations = 'destinations',
+}
+
 export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
@@ -3211,11 +3217,28 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
+export type BatchExportDestinationRedshift = {
+    type: 'Redshift'
+    config: {
+        user: string
+        password: string
+        host: string
+        port: number
+        database: string
+        schema: string
+        table_name: string
+        properties_data_type: boolean
+        exclude_events: string[]
+        include_events: string[]
+    }
+}
+
 export type BatchExportDestination =
     | BatchExportDestinationS3
     | BatchExportDestinationSnowflake
     | BatchExportDestinationPostgres
     | BatchExportDestinationBigQuery
+    | BatchExportDestinationRedshift
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user

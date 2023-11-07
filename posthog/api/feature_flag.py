@@ -85,10 +85,10 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
 
-    experiment_set: (serializers.PrimaryKeyRelatedField) = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: (serializers.PrimaryKeyRelatedField) = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
     analytics_dashboards = serializers.PrimaryKeyRelatedField(
         many=True,
         required=False,

@@ -151,14 +151,15 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>,
+    enabled = true
 ) => {
     return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
         config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        enabled: true,
+        enabled,
         order: 0,
     })
 }

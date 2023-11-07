@@ -86,7 +86,7 @@ module.exports = {
             },
         ],
         'react/forbid-dom-props': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -98,7 +98,7 @@ module.exports = {
             },
         ],
         'posthog/warn-elements': [
-            1,
+            'warn',
             {
                 forbid: [
                     {
@@ -109,10 +109,6 @@ module.exports = {
                     {
                         element: 'Col',
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        element: 'Space',
-                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Divider',
@@ -143,14 +139,14 @@ module.exports = {
                         message: 'use <LemonSelect> instead',
                     },
                     {
-                        element: 'a',
-                        message: 'use <Link> instead',
+                        element: 'LemonButtonWithDropdown',
+                        message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
                 ],
             },
         ],
         'react/forbid-elements': [
-            2,
+            'error',
             {
                 forbid: [
                     {
@@ -160,6 +156,10 @@ module.exports = {
                     {
                         element: 'Tabs',
                         message: 'use <LemonTabs> instead',
+                    },
+                    {
+                        element: 'Space',
+                        message: 'use flex or space utility classes instead',
                     },
                     {
                         element: 'Spin',
@@ -172,6 +172,10 @@ module.exports = {
                     {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
+                    },
+                    {
+                        element: 'Checkbox',
+                        message: 'use <LemonCheckbox> instead',
                     },
                     {
                         element: 'MonacoEditor',
@@ -189,12 +193,16 @@ module.exports = {
                         element: 'ReactMarkdown',
                         message: 'use <LemonMarkdown> instead',
                     },
+                    {
+                        element: 'a',
+                        message: 'use <Link> instead',
+                    },
                 ],
             },
         ],
-        'no-constant-condition': 0,
-        'no-prototype-builtins': 0,
-        'no-irregular-whitespace': 0,
+        'no-constant-condition': 'off',
+        'no-prototype-builtins': 'off',
+        'no-irregular-whitespace': 'off',
     },
     overrides: [
         {
