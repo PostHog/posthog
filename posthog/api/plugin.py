@@ -375,8 +375,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin = self.get_plugin_with_permissions(reason="source editing")
         sources: Dict[str, PluginSourceFile] = {}
         performed_changes = False
-        for source in PluginSourceFile.objects.filter(plugin=plugin):
-            sources[source.filename] = source
+        for plugin_source_file in PluginSourceFile.objects.filter(plugin=plugin):
+            sources[plugin_source_file.filename] = plugin_source_file
         for key, source in request.data.items():
             transpiled = None
             error = None
