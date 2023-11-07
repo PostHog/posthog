@@ -114,7 +114,7 @@ async def execute_async_query(
 
     # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.
     result = cursor.execute_async(query, params=parameters, file_stream=file_stream)
-    query_id = result["queryId"]
+    query_id = cursor.sfqid or result["queryId"]
     query_status = None
 
     try:
