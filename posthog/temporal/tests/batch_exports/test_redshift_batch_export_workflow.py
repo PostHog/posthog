@@ -288,7 +288,7 @@ async def redshift_batch_export(ateam, table_name, redshift_config, interval, ex
         "config": {**redshift_config, "table_name": table_name, "exclude_events": exclude_events},
     }
     batch_export_data = {
-        "name": "my-production-postgres-export",
+        "name": "my-production-redshift-export",
         "destination": destination_data,
         "interval": interval,
     }
