@@ -13,12 +13,13 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeam'], sceneLogic, ['activeScene'], preflightLogic, ['isDev']],
     }),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -233,6 +234,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         enabled: () => {
             // safeguard against running this check on other scenes
             if (values.activeScene !== Scene.Insight) {
+                return false
+            }
+
+            if (values.isDev) {
                 return false
             }
 
