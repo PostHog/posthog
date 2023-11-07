@@ -59,22 +59,25 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.team_2 = Team.objects.create(organization=self.organization)
 
         self.feature_flag_key = "copied-flag-key"
+        self.rollout_percentage = 65
         self.feature_flag_to_copy = FeatureFlag.objects.create(
             team=self.team_1,
             created_by=self.user,
             key=self.feature_flag_key,
-            filters={"groups": [{"rollout_percentage": 65}]},
+            filters={"groups": [{"rollout_percentage": self.rollout_percentage}]},
         )
 
         super().setUp()
 
     @snapshot_postgres_queries
-    def test_copy_feature_flag_success(self):
+    def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
         data = {
             "feature_flag_key": self.feature_flag_to_copy.key,
             "from_project": self.feature_flag_to_copy.team_id,
-            "target_project_ids": [self.team_2.id],
+            "target_project_ids": [target_project.id],
         }
         response = self.client.post(url, data)
 
@@ -82,21 +85,83 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertIn("success", response.json())
         self.assertIn("failed", response.json())
 
-        # copied flag is present in the response
-        self.assertEqual(self.feature_flag_key, response.json()["success"][0]["key"])
-
-        expected_fields = {
+        # Check copied flag in the response
+        expected_flag_response = {
             "key": self.feature_flag_to_copy.key,
             "name": self.feature_flag_to_copy.name,
             "filters": self.feature_flag_to_copy.filters,
             "active": self.feature_flag_to_copy.active,
-            "rollout_percentage": self.feature_flag_to_copy.rollout_percentage,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+            "rollout_percentage": self.rollout_percentage,
+            "deleted": False,
+            "created_by": self.user.id,
+            "id": "__ignore__",
+            "created_at": "__ignore__",
+            "usage_dashboard": "__ignore__",
+            "is_simple_flag": True,
+            "experiment_set": [],
+            "surveys": [],
+            "features": [],
+            "rollback_conditions": None,
+            "performed_rollback": False,
+            "can_edit": True,
+            "analytics_dashboards": [],
+            "has_enriched_analytics": False,
+            "tags": [],
         }
-        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=self.feature_flag_key)
-        for field, expected_value in expected_fields.items():
-            actual_value = getattr(copied_flag, field)
-            self.assertEqual(expected_value, actual_value)
+
+        flag_response = response.json()["success"][0]
+
+        for key, expected_value in expected_flag_response.items():
+            self.assertIn(key, flag_response)
+            if expected_value != "__ignore__":
+                if key == "created_by":
+                    self.assertEqual(flag_response[key]["id"], expected_value)
+                else:
+                    self.assertEqual(flag_response[key], expected_value)
+
+        self.assertSetEqual(
+            set(expected_flag_response.keys()),
+            set(flag_response.keys()),
+        )
+
+        # Check copied flag in the DB
+        expected_flag_db = {
+            "key": self.feature_flag_to_copy.key,
+            "name": self.feature_flag_to_copy.name,
+            "filters": self.feature_flag_to_copy.filters,
+            "active": self.feature_flag_to_copy.active,
+            "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
+            "rollout_percentage": None,
+            "deleted": False,
+            "created_by": self.user.id,
+            "id": "__ignore__",
+            "created_at": "__ignore__",
+            "usage_dashboard": "__ignore__",
+            "rollback_conditions": None,
+            "performed_rollback": False,
+            "analytics_dashboards": [],
+            "has_enriched_analytics": False,
+        }
+
+        db_flag = FeatureFlag.objects.get(team=self.team_2, key=self.feature_flag_key)
+        db_field_names = [f.name for f in db_flag._meta.get_fields()]
+        for key, expected_value in expected_flag_db.items():
+            self.assertIn(key, db_field_names)
+            if expected_value != "__ignore__":
+                if key == "created_by":
+                    user_instance = getattr(db_flag, key)
+                    self.assertEqual(user_instance.id, expected_value)
+                elif key == "analytics_dashboards":
+                    self.assertFalse((getattr(db_flag, key)).exists())  # stores ManyRelatedManager
+                else:
+                    self.assertEqual(getattr(db_flag, key), expected_value)
+
+        # To be added in a follow up
+        # self.assertSetEqual(
+        #     set(expected_flag_db.keys()),
+        #     set(db_field_names),
+        # )
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
