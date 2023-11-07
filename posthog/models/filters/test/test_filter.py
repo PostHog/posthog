@@ -794,7 +794,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         def filter_persons_with_annotation(filter: Filter, team: Team):
             persons = Person.objects.annotate(
                 **{
-                    "properties_$a_number_type": Func(
+                    "properties_anumber_27b11200b8ed4fb_type": Func(
                         F("properties__$a_number"), function="JSONB_TYPEOF", output_field=CharField()
                     )
                 }
