@@ -394,16 +394,22 @@ test.concurrent(
         await waitForExpect(async () => {
             const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
             const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-            expect(onEvent.length).toBeGreaterThan(0)
-
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.elements).toEqual([
+            expect(onEvent).toEqual([
                 expect.objectContaining({
-                    attributes: {},
-                    nth_child: 1,
-                    nth_of_type: 2,
-                    tag_name: 'div',
-                    text: '💻',
+                    message: [
+                        'onEvent',
+                        expect.objectContaining({
+                            elements: [
+                                expect.objectContaining({
+                                    attributes: {},
+                                    nth_child: 1,
+                                    nth_of_type: 2,
+                                    tag_name: 'div',
+                                    text: '💻',
+                                }),
+                            ],
+                        }),
+                    ],
                 }),
             ])
         })
