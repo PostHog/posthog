@@ -1,5 +1,5 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { IconLink } from 'lib/lemon-ui/icons'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { SettingsLogicProps, settingsLogic } from './settingsLogic'
 import { useActions, useValues } from 'kea'
 import { SettingLevelIds } from './types'
@@ -7,24 +7,36 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { teamLogic } from 'scenes/teamLogic'
+import { useEffect } from 'react'
+import { useState } from 'react'
 
-export function SettingsWithSections({
+export function Settings({
     hideSections = false,
     ...props
 }: SettingsLogicProps & { hideSections?: boolean }): JSX.Element {
-    const { selectedSectionId, selectedLevel, sections } = useValues(settingsLogic(props))
+    const { selectedSectionId, selectedSection, selectedLevel, sections } = useValues(settingsLogic(props))
     const { selectSection, selectLevel } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
+
+    const [navExpanded, setNavExpanded] = useState(false)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         700: 'medium',
     })
 
+    const isCompact = size === 'small'
+
+    useEffect(() => {
+        setNavExpanded(false)
+    }, [selectedSectionId, selectedLevel])
+
+    const showSections = !hideSections && !(isCompact && !navExpanded)
+
     return (
-        <div className={clsx('flex items-start gap-8', size === 'small' ? 'flex-col' : '')} ref={ref}>
-            {!hideSections ? (
-                <div className={clsx('shrink-0 top-16', size === 'small' ? '' : 'sticky top-16 w-60')}>
+        <div className={clsx('flex', isCompact ? 'flex-col' : 'gap-8 items-start')} ref={ref}>
+            {showSections ? (
+                <div className={clsx('shrink-0 top-16', isCompact ? '' : 'sticky top-16 w-60')}>
                     <ul className="space-y-px">
                         {SettingLevelIds.map((level) => (
                             <li key={level} className="space-y-px">
@@ -59,7 +71,14 @@ export function SettingsWithSections({
                         ))}
                     </ul>
                 </div>
+            ) : isCompact ? (
+                <LemonButton fullWidth sideIcon={<IconChevronRight />} onClick={() => setNavExpanded(true)}>
+                    {capitalizeFirstLetter(selectedLevel)}
+                    {selectedSection ? ` / ${selectedSection.title}` : null}
+                </LemonButton>
             ) : null}
+
+            {isCompact ? <LemonDivider /> : null}
 
             <div className="flex-1 w-full space-y-2 overflow-hidden">
                 {selectedLevel === 'project' && (

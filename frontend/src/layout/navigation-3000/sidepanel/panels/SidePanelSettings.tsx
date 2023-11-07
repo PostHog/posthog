@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
-import { SettingsWithSections } from 'scenes/settings/SettingsRenderer'
+import { Settings } from 'scenes/settings/Settings'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -41,7 +41,7 @@ export const SidePanelSettings = (): JSX.Element => {
                 </LemonButton>
             </div>
             <div className="flex-1 p-4 overflow-y-auto">
-                <SettingsWithSections {...settingsLogicProps} />
+                <Settings {...settingsLogicProps} />
             </div>
         </div>
     )

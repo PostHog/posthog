@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { settingsSceneLogic } from './settingsSceneLogic'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { SettingsWithSections } from './SettingsRenderer'
+import { Settings } from './Settings'
 
 export const scene: SceneExport = {
     component: SettingsScene,
@@ -22,5 +22,5 @@ export function SettingsScene(): JSX.Element {
     const { location } = useValues(router)
     useAnchor(location.hash)
 
-    return <SettingsWithSections logicKey={'settingsScene'} />
+    return <Settings logicKey={'settingsScene'} />
 }

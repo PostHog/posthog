@@ -57,6 +57,12 @@ export const settingsLogic = kea<settingsLogicType>([
                 return SettingsMap.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
             },
         ],
+        selectedSection: [
+            (s) => [s.sections, s.selectedSectionId],
+            (sections, selectedSectionId): SettingSection | null => {
+                return sections.find((x) => x.id === selectedSectionId) ?? null
+            },
+        ],
         settings: [
             (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
             (selectedLevel, selectedSectionId, sections): Setting[] => {

@@ -4,7 +4,7 @@ import { SettingsLogicProps } from 'scenes/settings/settingsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from '@posthog/lemon-ui'
-import { SettingsWithSections } from 'scenes/settings/SettingsRenderer'
+import { Settings } from 'scenes/settings/Settings'
 
 import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 
@@ -44,7 +44,7 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
             if (!values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
                 LemonDialog.open({
                     title: 'Settings',
-                    content: <SettingsWithSections {...settingsLogicProps} hideSections logicKey="modal" />,
+                    content: <Settings {...settingsLogicProps} hideSections logicKey="modal" />,
                     width: 600,
                     primaryButton: {
                         children: 'Done',
