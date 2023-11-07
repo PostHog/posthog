@@ -54,7 +54,7 @@ runs:
           id: hogql-parser-diff
           run: |
               changed=$(git diff --quiet HEAD master -- hogql_parser/ && echo "false" || echo "true")
-              echo "::set-output name=changed::$changed"
+              echo "changed=$changed" >> $GITHUB_OUTPUT
 
         - name: Install SAML (python3-saml) dependencies
           shell: bash
