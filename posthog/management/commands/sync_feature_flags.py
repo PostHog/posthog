@@ -38,11 +38,12 @@ class Command(BaseCommand):
             deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
             for flag in flags.keys():
                 flag_type = flags[flag]
+                is_enabled = flag not in INACTIVE_FLAGS
 
                 if flag in deleted_flags:
                     ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
                     ff.deleted = False
-                    ff.active = flag not in INACTIVE_FLAGS
+                    ff.active = is_enabled
                     ff.save()
                     print(f"Undeleted feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
                 elif flag not in existing_flags:
@@ -53,7 +54,7 @@ class Command(BaseCommand):
                             name=flag,
                             key=flag,
                             created_by=first_user,
-                            active=flag not in INACTIVE_FLAGS,
+                            active=is_enabled,
                             filters={
                                 "groups": [{"properties": [], "rollout_percentage": None}],
                                 "multivariate": {
@@ -79,6 +80,6 @@ class Command(BaseCommand):
                             name=flag,
                             key=flag,
                             created_by=first_user,
-                            active=flag not in INACTIVE_FLAGS,
+                            active=is_enabled,
                         )
                     print(f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
