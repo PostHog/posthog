@@ -17,7 +17,7 @@ import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertToPersistedMessage, getLagMultipler, maxDefined, minDefined, now } from '../utils'
+import { bufferFileDir, convertToPersistedMessage, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
@@ -217,7 +217,7 @@ export class SessionManager {
             return
         }
 
-        const lagMultiplier = getLagMultipler(partitionLag)
+        const lagMultiplier = getLagMultiplier(partitionLag)
 
         const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
         const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
