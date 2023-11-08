@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 
-import { resultTypeToName } from './constants'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { actionBarLogic } from './actionBarLogic'
 import { SearchResult as SearchResultType } from './types'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { getNameFromActionScope } from './utils'
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 
 type SearchResultProps = {
@@ -68,7 +68,9 @@ const ActionResult = ({ result, resultIndex, focused, keyboardFocused }: SearchR
             ref={ref}
         >
             <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">{result.source.scope}</span>
+                {result.source.scope && (
+                    <span className="text-muted-3000 text-xs">{getNameFromActionScope(result.source.scope)}</span>
+                )}
                 <span className="text-text-3000">{result.display}</span>
             </div>
         </div>

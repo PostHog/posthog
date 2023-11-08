@@ -9,3 +9,8 @@ export const resultTypeToName: Record<ResultTypeWithAll, string> = {
     feature_flag: 'Feature Flags',
     insight: 'Insights',
 }
+
+export const actionScopeToName: Record<string, string> = {
+    global: 'Global',
+    insights: 'Insights',
+}
