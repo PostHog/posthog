@@ -2,16 +2,17 @@ import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { query } from '~/queries/query'
 
-import type { databaseSceneLogicType } from './databaseSceneLogicType'
 import { DatabaseSchemaQuery, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 
-export interface DatabaseSceneRow {
+import type { databaseTableListLogicType } from './databaseTableListLogicType'
+
+export interface DatabaseTableListRow {
     name: string
     columns: DatabaseSchemaQueryResponseField[]
 }
 
-export const databaseSceneLogic = kea<databaseSceneLogicType>([
-    path(['scenes', 'data-management', 'database', 'databaseSceneLogic']),
+export const databaseTableListLogic = kea<databaseTableListLogicType>([
+    path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
@@ -28,7 +29,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
     selectors({
         filteredTables: [
             (s) => [s.database, s.searchTerm],
-            (database, searchTerm): DatabaseSceneRow[] => {
+            (database, searchTerm): DatabaseTableListRow[] => {
                 if (!database) {
                     return []
                 }
@@ -39,7 +40,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
                             ({
                                 name: key,
                                 columns: value,
-                            } as DatabaseSceneRow)
+                            } as DatabaseTableListRow)
                     )
                     .filter(({ name }) => name.toLowerCase().includes(searchTerm.toLowerCase()))
                     .sort((a, b) => a.name.localeCompare(b.name))
@@ -47,7 +48,7 @@ export const databaseSceneLogic = kea<databaseSceneLogicType>([
         ],
         tableOptions: [
             (s) => [s.filteredTables],
-            (filteredTables: DatabaseSceneRow[]) =>
+            (filteredTables: DatabaseTableListRow[]) =>
                 filteredTables.map((row) => ({
                     value: row.name,
                     label: row.name,

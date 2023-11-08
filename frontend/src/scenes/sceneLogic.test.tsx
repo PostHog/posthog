@@ -15,7 +15,7 @@ export const logic = kea<logicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: logic } })
 
 const testScenes: Record<string, () => any> = {
-    [Scene.Annotations]: sceneImport,
+    [Scene.DataManagement]: sceneImport,
     [Scene.MySettings]: sceneImport,
 }
 
@@ -26,7 +26,7 @@ describe('sceneLogic', () => {
         initKeaTests()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
-        router.actions.push(urls.annotations())
+        router.actions.push(urls.eventDefinitions())
         logic = sceneLogic({ scenes: testScenes })
         logic.mount()
     })
@@ -43,7 +43,7 @@ describe('sceneLogic', () => {
 
     it('changing URL runs openScene, loadScene and setScene', async () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.Annotations,
+            scene: Scene.DataManagement,
         })
         router.actions.push(urls.mySettings())
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
@@ -53,7 +53,7 @@ describe('sceneLogic', () => {
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
-            name: Scene.Annotations,
+            name: Scene.DataManagement,
             component: expect.any(Function),
             logic: expect.any(Function),
             sceneParams: { hashParams: {}, params: {}, searchParams: {} },
@@ -71,7 +71,7 @@ describe('sceneLogic', () => {
             .delay(1)
             .toMatchValues({
                 loadedScenes: partial({
-                    [Scene.Annotations]: expectedAnnotation,
+                    [Scene.DataManagement]: expectedAnnotation,
                 }),
             })
         router.actions.push(urls.mySettings())
@@ -79,7 +79,7 @@ describe('sceneLogic', () => {
             .delay(1)
             .toMatchValues({
                 loadedScenes: partial({
-                    [Scene.Annotations]: expectedAnnotation,
+                    [Scene.DataManagement]: expectedAnnotation,
                     [Scene.MySettings]: expectedMySettings,
                 }),
             })
