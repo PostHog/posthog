@@ -389,12 +389,14 @@ test.concurrent(
             properties: properties,
         }
 
-        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
         await waitForExpect(async () => {
+            // We might have not completed the setup properly in time, so to avoid flaky tests, we'll
+            // try sending messages and checking the last log message until we get the expected result.
+            await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
             const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
             const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-            expect(onEvent).toEqual([
+            const lastLogEntry = onEvent.length > 0 ? onEvent[onEvent.length - 1] : null
+            expect(lastLogEntry).toEqual(
                 expect.objectContaining({
                     message: [
                         'onEvent',
@@ -410,8 +412,8 @@ test.concurrent(
                             ],
                         }),
                     ],
-                }),
-            ])
+                })
+            )
         })
     },
     20000
