@@ -2,7 +2,7 @@ import datetime
 import json
 from typing import Any, Callable, Dict, List, Optional, cast
 
-from django.db.models import Q
+from django.db.models import Q, Func, F, CharField
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
@@ -218,42 +218,6 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
                 }
             )
             self.assertListEqual(filter.property_groups.values, [])
-
-        def test_numerical_person_properties(self):
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"$a_number": 4})
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"$a_number": 5})
-            person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"$a_number": 6})
-
-            filter = Filter(
-                data={
-                    "properties": [
-                        {
-                            "type": "person",
-                            "key": "$a_number",
-                            "value": 4,
-                            "operator": "gt",
-                        }
-                    ]
-                }
-            )
-            self.assertEqual(len(filter_persons(filter, self.team)), 2)
-
-            filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
-            self.assertEqual(len(filter_persons(filter, self.team)), 1)
-
-            filter = Filter(
-                data={
-                    "properties": [
-                        {
-                            "type": "person",
-                            "key": "$a_number",
-                            "value": 6,
-                            "operator": "lt",
-                        }
-                    ]
-                }
-            )
-            self.assertEqual(len(filter_persons(filter, self.team)), 2)
 
         def test_contains_persons(self):
             person_factory(
@@ -818,6 +782,117 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             data["date_to"] = date_to
 
         return Filter(data=data)
+
+    def test_numerical_person_properties(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$a_number": 4})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$a_number": 5})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$a_number": 6})
+        _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"$a_number": 14})
+
+        flush_persons_and_events()
+
+        def filter_persons_with_annotation(filter: Filter, team: Team):
+            persons = Person.objects.annotate(
+                **{
+                    "properties_anumber_27b11200b8ed4fb_type": Func(
+                        F("properties__$a_number"), function="JSONB_TYPEOF", output_field=CharField()
+                    )
+                }
+            ).filter(properties_to_Q(filter.property_groups.flat))
+            persons = persons.filter(team_id=team.pk)
+            return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": "4",
+                        "operator": "gt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 3)
+
+        filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": 6,
+                        "operator": "lt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 2)
+
+    @snapshot_postgres_queries
+    def test_icontains_with_array_value(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$key": "red-123"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$key": "blue-123"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$key": 6})
+
+        flush_persons_and_events()
+
+        def filter_persons_with_annotation(filter: Filter, team: Team):
+            persons = Person.objects.annotate(
+                **{
+                    "properties_$key_type": Func(
+                        F("properties__$key"), function="JSONB_TYPEOF", output_field=CharField()
+                    )
+                }
+            ).filter(properties_to_Q(filter.property_groups.flat))
+            persons = persons.filter(team_id=team.pk)
+            return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$key",
+                        "value": ["red"],
+                        "operator": "icontains",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 0)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$key",
+                        "value": "red",
+                        "operator": "icontains",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$key",
+                        "value": ["2"],
+                        "operator": "gt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(filter_persons_with_annotation(filter, self.team)), 0)
 
 
 def filter_persons_with_property_group(
