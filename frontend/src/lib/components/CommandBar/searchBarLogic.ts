@@ -1,4 +1,4 @@
-import { kea, path, actions, reducers, selectors, listeners, connect, afterMount } from 'kea'
+import { kea, path, actions, reducers, selectors, listeners, connect, afterMount, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -93,8 +93,29 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.hideCommandBar()
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.setSearchQuery('')
+
+        cache.onKeyDown = (event: KeyboardEvent) => {
+            if (!values.filterSearchResults) {
+                return
+            }
+
+            if (event.key === 'Enter') {
+                event.preventDefault()
+                actions.openResult(values.activeResultIndex)
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                actions.onArrowDown(values.activeResultIndex, values.maxIndex)
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+            }
+        }
+        window.addEventListener('keydown', cache.onKeyDown)
+    }),
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.onKeyDown)
     }),
 ])
 

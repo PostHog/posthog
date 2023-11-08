@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { InsightShortId } from '~/types'
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import { commandBarLogic } from './commandBarLogic'
-import { searchBarLogic } from './searchBarLogic'
 
 import { ResultTypeWithAll, SearchResponse, SearchResult } from './types'
 

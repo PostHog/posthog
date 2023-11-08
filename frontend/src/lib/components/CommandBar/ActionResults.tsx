@@ -1,35 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { useEventListener } from 'lib/hooks/useEventListener'
+import { useValues } from 'kea'
+
 import { Command, CommandResult, CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
 import { DetectiveHog } from '../hedgehogs'
+
 import { actionBarLogic } from './actionBarLogic'
 import ActionResult from './ActionResult'
 
-import { searchBarLogic } from './searchBarLogic'
-import SearchResult, { SearchResultSkeleton } from './SearchResult'
-
 const ActionResults = (): JSX.Element => {
-    // const { activeResultIndex, keyboardResultIndex, maxIndex } =
-    //     useValues(searchBarLogic)
-    // const { onArrowUp, onArrowDown, openResult } = useActions(searchBarLogic)
     const { searchResults } = useValues(actionBarLogic)
-
-    // useEventListener('keydown', (event) => {
-    //     if (!filterSearchResults) {
-    //         return
-    //     }
-
-    //     if (event.key === 'Enter') {
-    //         event.preventDefault()
-    //         openResult(activeResultIndex)
-    //     } else if (event.key === 'ArrowDown') {
-    //         event.preventDefault()
-    //         onArrowDown(activeResultIndex, maxIndex)
-    //     } else if (event.key === 'ArrowUp') {
-    //         event.preventDefault()
-    //         onArrowUp(activeResultIndex, maxIndex)
-    //     }
-    // })
 
     return (
         <div className="grow overscroll-none overflow-y-auto">
