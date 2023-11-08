@@ -8,7 +8,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { selectedTab } = useValues(sidePanelLogic)
 
-    const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Feedback) })
+    const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { title } = useValues(theLogic)
     const { closeSupportForm } = useActions(theLogic)
 
@@ -21,8 +21,7 @@ export const SidePanelSupport = (): JSX.Element => {
             <h1>{title}</h1>
 
             <SupportForm />
-
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2 mt-4">
                 <SupportFormButtons onClose={() => closeSidePanel()} />
             </div>
         </div>

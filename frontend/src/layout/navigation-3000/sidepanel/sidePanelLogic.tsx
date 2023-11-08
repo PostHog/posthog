@@ -7,7 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export enum SidePanelTab {
     Notebooks = 'notebook',
-    Feedback = 'feedback',
+    Support = 'support',
     Docs = 'docs',
 }
 
@@ -51,7 +51,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
 
                 if (isCloudOrDev) {
-                    tabs.push(SidePanelTab.Feedback)
+                    tabs.push(SidePanelTab.Support)
                 }
 
                 if (featureFlags[FEATURE_FLAGS.SIDE_PANEL_DOCS]) {
