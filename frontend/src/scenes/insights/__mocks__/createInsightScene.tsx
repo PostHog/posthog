@@ -15,7 +15,7 @@ export function createInsightStory(
     return function InsightStory() {
         useStorybookMocks({
             get: {
-                '/api/projects/team_id/insights/': (_, __, ctx) => [
+                '/api/projects/:team_id/insights/': (_, __, ctx) => [
                     ctx.delay(100),
                     ctx.status(200),
                     ctx.json({

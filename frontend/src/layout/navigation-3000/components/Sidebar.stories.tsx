@@ -35,7 +35,7 @@ const multipliedFeatureFlagsJson = {
 export function Dashboards(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/team_id/dashboards/': dashboardsJson,
+            '/api/projects/:team_id/dashboards/': dashboardsJson,
         },
     })
     const { showSidebar } = useActions(navigation3000Logic)
@@ -54,7 +54,7 @@ export function Dashboards(): JSX.Element {
 export function FeatureFlags(): JSX.Element {
     useStorybookMocks({
         get: {
-            '/api/projects/team_id/feature_flags/': multipliedFeatureFlagsJson,
+            '/api/projects/:team_id/feature_flags/': multipliedFeatureFlagsJson,
         },
     })
     const { showSidebar } = useActions(navigation3000Logic)

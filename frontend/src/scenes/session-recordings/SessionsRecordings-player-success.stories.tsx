@@ -22,7 +22,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/team_id/session_recordings': (req) => {
+                '/api/projects/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -33,8 +33,8 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/team_id/session_recording_playlists': recording_playlists,
-                '/api/projects/team_id/session_recording_playlists/:playlist_id': (req) => {
+                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
                     const playlistId = req.params.playlist_id
 
                     return [
@@ -82,7 +82,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
                     const playlistId = req.params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]

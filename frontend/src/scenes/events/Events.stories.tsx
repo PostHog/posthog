@@ -12,7 +12,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/projects/team_id/query': eventsQuery,
+                '/api/projects/:team_id/query': eventsQuery,
             },
         }),
     ],

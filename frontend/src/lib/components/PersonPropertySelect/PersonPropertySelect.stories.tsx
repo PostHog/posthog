@@ -10,7 +10,7 @@ const meta: Meta<typeof PersonPropertySelect> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/team_id/persons/properties': [
+                '/api/projects/:team_id/persons/properties': [
                     { name: 'Property A', count: 10 },
                     { name: 'Property B', count: 20 },
                     { name: 'Property C', count: 30 },

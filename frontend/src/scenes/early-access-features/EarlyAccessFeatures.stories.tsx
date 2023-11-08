@@ -118,19 +118,19 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/team_id/early-access-feature': {
+                '/api/projects/:team_id/early-access-feature': {
                     count: 2,
                     results: EARLY_ACCESS_FEATURE_RESULT as any[],
                     next: null,
                     previous: null,
                 },
-                '/api/projects/team_id/early-access-feature/not-found/': [
+                '/api/projects/:team_id/early-access-feature/not-found/': [
                     404,
                     {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/team_id/early-access-feature/:flagId/':
+                '/api/projects/:team_id/early-access-feature/:flagId/':
                     EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
             },
         }),
