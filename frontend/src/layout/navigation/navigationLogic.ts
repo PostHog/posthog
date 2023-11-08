@@ -8,7 +8,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 
