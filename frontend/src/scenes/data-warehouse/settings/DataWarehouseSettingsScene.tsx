@@ -46,7 +46,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
                             key={'new-data-warehouse-easy-link'}
-                            onClick={toggleSourceModal}
+                            onClick={() => toggleSourceModal()}
                         >
                             Link Source
                         </LemonButton>

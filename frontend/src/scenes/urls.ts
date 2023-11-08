@@ -112,6 +112,7 @@ export const urls = {
     survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (): string => '/data-warehouse',
+    dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehousePosthog: (): string => '/data-warehouse/posthog',
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',

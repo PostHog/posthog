@@ -14,6 +14,8 @@ import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -21,6 +23,7 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
@@ -82,7 +85,15 @@ export function ActionsLineGraph({
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          if (isLifecycle && query && isInsightVizNode(query) && isLifecycleQuery(query.source)) {
+                          const hogQLInsightsFlagEnabled = Boolean(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
+
+                          if (
+                              hogQLInsightsFlagEnabled &&
+                              isLifecycle &&
+                              query &&
+                              isInsightVizNode(query) &&
+                              isLifecycleQuery(query.source)
+                          ) {
                               const newQuery: DataTableNode = {
                                   kind: NodeKind.DataTableNode,
                                   full: true,

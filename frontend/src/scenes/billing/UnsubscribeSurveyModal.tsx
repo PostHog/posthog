@@ -82,7 +82,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
                             status={textAreaNotEmpty ? 'primary' : 'muted'}
                             onClick={() => {
-                                reportSurveySent(surveyID, surveyResponse)
+                                textAreaNotEmpty && reportSurveySent(surveyID, surveyResponse)
                                 deactivateProduct(product.type)
                             }}
                         >

@@ -58,7 +58,7 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
     return (
         <>
             <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
+                <div className="grow">
                     <h2 id="roles" className="subtitle">
                         Roles
                     </h2>

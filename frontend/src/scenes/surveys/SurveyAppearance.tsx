@@ -224,6 +224,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         </div>
                     }
                     onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
+                    checked={appearance?.whiteLabel}
                     disabledReason={!whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null}
                 />
             </div>
