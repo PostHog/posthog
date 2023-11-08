@@ -21,10 +21,15 @@ export function Settings({
     const { selectSection, selectLevel, openCompactNavigation } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        700: 'medium',
-    })
+    const { ref, size } = useResizeBreakpoints(
+        {
+            0: 'small',
+            700: 'medium',
+        },
+        {
+            initialSize: 'medium',
+        }
+    )
 
     const isCompact = size === 'small'
 
