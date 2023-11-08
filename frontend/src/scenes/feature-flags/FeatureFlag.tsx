@@ -903,7 +903,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <Col span={4}>Variant key</Col>
                             <Col span={6}>Description</Col>
                             <Col span={8}>
-                                <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
+                                <div className="flex flex-col" style={{ fontWeight: 'normal' }}>
                                     <b>Payload</b>
                                     <span className="text-muted">
                                         Specify return payload when the variant key matches

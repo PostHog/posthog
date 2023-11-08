@@ -4,37 +4,22 @@
     "name": "",
     "derived_name": "Pageview count",
     "filters": {
+        "display": "ActionsLineGraph",
         "events": [
             {
                 "id": "$pageview",
+                "type": "events",
+                "order": 0,
                 "name": "$pageview",
-                "type": "events",
-                "order": 0
-            },
-            {
-                "id": "$geoip_country_name",
-                "name": "$geoip_country_name",
-                "type": "events",
-                "order": 0
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
             }
         ],
-        "actions": [],
-        "display": "ActionsLineGraph",
         "insight": "TRENDS",
-        "interval": "day",
-        "properties": {
-            "type": "AND",
-            "values": [
-                {
-                    "type": "AND",
-                    "values": [
-                        { "key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event" },
-                        { "key": "utm_source", "value": ["google"], "operator": "exact", "type": "event" }
-                    ]
-                }
-            ]
-        },
-        "filter_test_accounts": false
+        "interval": "day"
     },
     "filters_hash": "cache_42127776c1709f7c4209cea8925faefd",
     "order": null,
@@ -163,8 +148,6 @@
                 }
             ],
             "filter": {
-                "date_from": "2022-03-04T00:00:00+00:00",
-                "date_to": "2022-03-11T01:44:36.488058+00:00",
                 "display": "ActionsLineGraph",
                 "events": [
                     {

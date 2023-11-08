@@ -27,7 +27,7 @@ export function VerifiedDomains(): JSX.Element {
     return (
         <>
             <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
+                <div className="grow">
                     <h2 id="authentication-domains" className="subtitle">
                         Authentication domains
                     </h2>

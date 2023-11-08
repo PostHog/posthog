@@ -9,24 +9,24 @@ function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
     switch (type) {
         case PluginLogEntryType.Debug:
-            color = 'var(--muted)'
+            color = 'text-muted'
             break
         case PluginLogEntryType.Log:
-            color = 'var(--default)'
+            color = 'text-default'
             break
         case PluginLogEntryType.Info:
-            color = 'var(--blue)'
+            color = 'text-primary'
             break
         case PluginLogEntryType.Warn:
-            color = 'var(--warning)'
+            color = 'text-warning'
             break
         case PluginLogEntryType.Error:
-            color = 'var(--danger)'
+            color = 'text-danger'
             break
         default:
             break
     }
-    return <span style={{ color }}>{type}</span>
+    return <span className={color}>{type}</span>
 }
 
 const columns: LemonTableColumns<Record<string, any>> = [
