@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
+import { CheckOutlined } from '@ant-design/icons'
 import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -15,6 +15,7 @@ import { dayjs } from 'lib/dayjs'
 import { formatDate, formatDateRange } from 'lib/utils'
 import { DatePicker } from 'lib/components/DatePicker'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -38,11 +39,11 @@ export function PluginJobConfiguration(props: InterfaceJobsProps): JSX.Element {
             <span className="ml-1" onClick={() => playButtonOnClick(jobHasEmptyPayload)}>
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
-                        <PlayCircleOutlined
+                        <IconPlayCircle
                             className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     ) : (
-                        <SettingOutlined
+                        <IconSettings
                             className={runJobAvailable ? 'Plugin__RunJobButton' : 'Plugin__RunJobButton--disabled'}
                         />
                     )}
@@ -128,7 +129,7 @@ function FieldInput({
                         <CheckOutlined /> True
                     </Radio.Button>
                     <Radio.Button value={false}>
-                        <CloseOutlined /> False
+                        <IconClose /> False
                     </Radio.Button>
                 </Radio.Group>
             )

@@ -1,7 +1,7 @@
 import { Tag, Select } from 'antd'
 import { colorForString } from 'lib/utils'
 import { CSSProperties, useMemo } from 'react'
-import { PlusOutlined, SyncOutlined, CloseOutlined } from '@ant-design/icons'
+import { SyncOutlined, CloseOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from '../SelectGradientOverflow'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
@@ -9,6 +9,7 @@ import { AvailableFeature } from '~/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import clsx from 'clsx'
+import { IconPlus } from '@posthog/icons'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -126,7 +127,7 @@ export function ObjectTags({
                             backgroundColor: 'var(--bg-light)',
                             display: addingNewTag ? 'none' : 'initial',
                         }}
-                        icon={<PlusOutlined />}
+                        icon={<IconPlus />}
                     >
                         Add tag
                     </Tag>
