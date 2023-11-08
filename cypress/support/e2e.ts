@@ -2,6 +2,7 @@ import 'givens/setup'
 import './commands'
 import 'cypress-axe'
 import { decideResponse } from '../fixtures/api/decide'
+import { writeFileSync } from 'fs'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -73,7 +74,10 @@ afterEach(function () {
     if (E2E_TESTING) {
         cy.window().then((win) => {
             ;(win as any).posthog?.capture(event, { state, duration })
-            cy.log(`View E2E testing project session recording at: ${(win as any).posthog.get_session_replay_url()}`)
+            writeFileSync(
+                `./cypress/${state}.test-replay-url.txt`,
+                (win as any).posthog?.get_session_replay_url() || ''
+            )
         })
     }
 })

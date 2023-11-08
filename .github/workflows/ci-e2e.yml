@@ -281,3 +281,11 @@ jobs:
                   name: logs
                   path: /tmp/logs
               if: ${{ failure() }}
+
+            - name: Archive test replay url
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              uses: actions/upload-artifact@v3
+              with:
+                  name: test-replay-url
+                  path: 'cypress/*.test-replay-url.txt'
+                  if-no-files-found: 'ignore'
