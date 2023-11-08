@@ -1,5 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
+// eslint-disable-next-line no-restricted-imports
 import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'

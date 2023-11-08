@@ -1,7 +1,6 @@
 import { useState, useCallback, Dispatch, SetStateAction } from 'react'
 import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -10,7 +9,7 @@ import { ColumnsType } from 'antd/lib/table'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { IconPlus } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconPlus } from 'lib/lemon-ui/icons'
 
 function CreateKeyModal({
     isOpen,
@@ -88,7 +87,7 @@ function RowActionsCreator(
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
                 okText="Delete Key"
                 okType="danger"
-                icon={<ExclamationCircleOutlined style={{ color: 'var(--danger)' }} />}
+                icon={<IconErrorOutline style={{ color: 'var(--danger)' }} />}
                 placement="left"
                 onConfirm={() => {
                     deleteKey(personalAPIKey)

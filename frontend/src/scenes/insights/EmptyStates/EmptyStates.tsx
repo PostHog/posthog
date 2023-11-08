@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+// eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
 import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'

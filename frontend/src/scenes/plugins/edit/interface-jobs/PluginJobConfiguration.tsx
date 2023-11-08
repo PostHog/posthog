@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { CheckOutlined } from '@ant-design/icons'
 import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -16,6 +15,7 @@ import { formatDate, formatDateRange } from 'lib/utils'
 import { DatePicker } from 'lib/components/DatePicker'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
+import { IconCheck } from '@posthog/icons'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -126,7 +126,7 @@ function FieldInput({
                     onChange={(e) => onChange(e.target.value)}
                 >
                     <Radio.Button value={true} defaultChecked>
-                        <CheckOutlined /> True
+                        <IconCheck /> True
                     </Radio.Button>
                     <Radio.Button value={false}>
                         <IconClose /> False
