@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { membersLogic } from 'scenes/settings/organization/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'

@@ -13,11 +13,11 @@ import {
     UserType,
 } from '~/types'
 import type { teamMembersLogicType } from './teamMembersLogicType'
-import { membersLogic } from '../organization/membersLogic'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { userLogic } from '../../userLogic'
 import { teamLogic } from '../../teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 

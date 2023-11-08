@@ -40,6 +40,14 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 export const TrendsLineInsight: Story = Template.bind({})
 TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
 
+export const TrendsLineMultiInsight: Story = Template.bind({})
+TrendsLineMultiInsight.args = {
+    insight: require('../mocks/fixtures/api/projects/:team_id/insights/trendsLineMulti.json'),
+}
+TrendsLineMultiInsight.parameters = {
+    mockDate: '2023-07-10',
+}
+
 export const TrendsLineBreakdownInsight: Story = Template.bind({})
 TrendsLineBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),

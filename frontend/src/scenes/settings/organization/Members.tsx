@@ -1,5 +1,4 @@
 import { useValues, useActions } from 'kea'
-import { membersLogic } from './membersLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -22,6 +21,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

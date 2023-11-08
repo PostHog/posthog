@@ -6,7 +6,7 @@ import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { membersLogic } from 'scenes/settings/organization/membersLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export function SavedInsightsFilters(): JSX.Element {
