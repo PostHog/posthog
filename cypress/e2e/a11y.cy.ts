@@ -21,7 +21,7 @@ describe('a11y', () => {
         'annotations',
         'apps',
         'toolbarlaunch',
-        'projectsettings',
+        'settings',
     ]
 
     sidebarItems.forEach((sideBarItem) => {

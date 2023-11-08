@@ -8,7 +8,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
-        cy.location('pathname').should('eq', '/organization/settings')
+        cy.location('pathname').should('eq', '/settings/organization')
         cy.get('[id="invites"]').contains('Pending Invites').should('exist')
 
         // Test invite creation flow
@@ -66,7 +66,7 @@ describe('Invite Signup', () => {
 
         cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
-        cy.location('pathname').should('include', '/organization/settings')
+        cy.location('pathname').should('include', '/settings/orga')
 
         // Click "Invite team member"
         cy.get('[data-attr=invite-teammate-button]').first().click()
@@ -97,7 +97,7 @@ describe('Invite Signup', () => {
         // Go to organization settings
         cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
-        cy.location('pathname').should('include', '/organization/settings')
+        cy.location('pathname').should('include', '/settings/orga')
         cy.get('.page-title').should('contain', 'Organization')
 
         // Change membership level
