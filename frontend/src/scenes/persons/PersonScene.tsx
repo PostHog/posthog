@@ -147,10 +147,8 @@ export function PersonScene(): JSX.Element | null {
                     <div className="flex gap-2">
                         <NotebookSelectButton
                             resource={{
-                                attrs: {
-                                    id: person?.distinct_ids[0],
-                                },
                                 type: NotebookNodeType.Person,
+                                attrs: { id: person?.distinct_ids[0] },
                             }}
                             type="secondary"
                         />
