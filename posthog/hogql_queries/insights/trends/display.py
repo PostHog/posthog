@@ -26,11 +26,7 @@ class TrendsDisplay:
         return self.display_type == ChartDisplayType.ActionsLineGraphCumulative
 
     def modify_outer_query(self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        if (
-            self.display_type == ChartDisplayType.BoldNumber
-            or self.display_type == ChartDisplayType.ActionsPie
-            or self.display_type == ChartDisplayType.WorldMap
-        ):
+        if self.should_aggregate_values():
             return ast.SelectQuery(
                 select=[
                     ast.Alias(

@@ -36,6 +36,9 @@ class BreakdownValues:
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
+            if self.breakdown_field == "all":
+                return [0]
+
             return [int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":

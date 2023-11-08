@@ -60,9 +60,10 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdown.breakdown),
             )
         elif self.query.breakdown.breakdown_type == "cohort":
+            cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Constant(value=int(self.query.breakdown.breakdown)),
+                expr=ast.Constant(value=cohort_breakdown),
             )
 
         if self.query.breakdown.breakdown_type == "hogql":
@@ -76,8 +77,11 @@ class Breakdown:
             expr=ast.Field(chain=self._properties_chain),
         )
 
-    def events_where_filter(self) -> ast.Expr:
+    def events_where_filter(self) -> ast.Expr | None:
         if self.query.breakdown.breakdown_type == "cohort":
+            if self.query.breakdown.breakdown == "all":
+                return None
+
             return ast.CompareOperation(
                 left=ast.Field(chain=["person_id"]),
                 op=ast.CompareOperationOp.InCohort,

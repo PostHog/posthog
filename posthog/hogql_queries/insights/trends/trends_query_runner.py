@@ -238,10 +238,10 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdown.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
-                    cohort_name = Cohort.objects.get(pk=cohort_id).name
+                    cohort_name = "all users" if cohort_id == 0 else Cohort.objects.get(pk=cohort_id).name
 
                     series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
-                    series_object["breakdown_value"] = get_value("breakdown_value", val)
+                    series_object["breakdown_value"] = "all" if cohort_id == 0 else cohort_id
                 else:
                     series_object["label"] = "{} - {}".format(series_object["label"], get_value("breakdown_value", val))
                     series_object["breakdown_value"] = get_value("breakdown_value", val)

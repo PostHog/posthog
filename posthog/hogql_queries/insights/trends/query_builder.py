@@ -280,7 +280,9 @@ class TrendsQueryBuilder:
 
         # Breakdown
         if self._breakdown.enabled and not self._breakdown.is_histogram_breakdown:
-            filters.append(self._breakdown.events_where_filter())
+            breakdown_filter = self._breakdown.events_where_filter()
+            if breakdown_filter is not None:
+                filters.append(breakdown_filter)
 
         if len(filters) == 0:
             return ast.Constant(value=True)
