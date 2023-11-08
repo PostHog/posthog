@@ -6,7 +6,9 @@
     .Settings__sections {
         flex-shrink: 0;
         position: sticky;
-        width: 20rem;
+        max-width: 20rem;
+        min-width: 14rem;
+        width: 20%;
         top: 0.5rem;
 
         .posthog-3000 & {
@@ -25,6 +27,8 @@
 
         .Settings__sections {
             width: 100%;
+            min-width: 100%;
+            max-width: 100%;
             position: relative;
         }
     }
