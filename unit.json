@@ -14,27 +14,23 @@
         "metrics": [
             {
                 "match": {
-                    "uri": [
-                        "/metrics"
-                    ]
+                    "uri": ["/metrics"]
                 },
                 "action": {
                     "pass": "applications/metrics"
                 }
-            },
+            }
         ],
         "status": [
             {
                 "match": {
-                    "uri": [
-                        "/status"
-                    ]
+                    "uri": ["/status"]
                 },
                 "action": {
                     "proxy": "http://unix:/var/run/control.unit.sock"
                 }
-            },
-        ],
+            }
+        ]
     },
     "applications": {
         "posthog": {
@@ -52,6 +48,6 @@
             "path": ".",
             "module": "unit_metrics",
             "user": "nobody"
-        },
+        }
     }
 }
