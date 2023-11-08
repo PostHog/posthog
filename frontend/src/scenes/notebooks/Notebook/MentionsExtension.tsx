@@ -143,8 +143,8 @@ const MentionsPopover = forwardRef<MentionsRef, MentionsPopoverProps>(function M
 ): JSX.Element | null {
     return (
         <Popover
-            placement="right-start"
-            fallbackPlacements={['left-start', 'right-end']}
+            placement="bottom-start"
+            fallbackPlacements={['top-start', 'right-start']}
             overlay={<Mentions ref={ref} onClose={onClose} {...props} />}
             referenceElement={decorationNode}
             visible={visible}
