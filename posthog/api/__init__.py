@@ -39,6 +39,7 @@ from . import (
     team,
     uploaded_media,
     user,
+    web_analytics_health,
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -209,6 +210,12 @@ projects_router.register(
     r"property_definitions",
     property_definition.PropertyDefinitionViewSet,
     "project_property_definitions",
+    ["team_id"],
+)
+projects_router.register(
+    r"web_analytics_health",
+    web_analytics_health.WebAnalyticsHealthViewSet,
+    "project_web_analytics_heath",
     ["team_id"],
 )
 

@@ -105,6 +105,9 @@
                     "$ref": "#/definitions/HogQLMetadata"
                 },
                 {
+                    "$ref": "#/definitions/WebAnalyticsStatusCheckQuery"
+                },
+                {
                     "$ref": "#/definitions/WebOverviewQuery"
                 },
                 {
@@ -1940,6 +1943,7 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightPersonsQuery",
+                "WebAnalyticsStatusCheckQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -3116,6 +3120,40 @@
                 }
             },
             "required": ["properties"],
+            "type": "object"
+        },
+        "WebAnalyticsStatusCheckQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "WebAnalyticsStatusCheckQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAnalyticsStatusCheckResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "WebAnalyticsStatusCheckResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "isSendingPageLeaveEvents": {
+                            "type": "boolean"
+                        },
+                        "isSendingPageViewEvents": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["isSendingPageViewEvents", "isSendingPageLeaveEvents"],
+                    "type": "object"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "WebOverviewItem": {

@@ -339,6 +339,7 @@ class NodeKind(str, Enum):
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
     InsightPersonsQuery = "InsightPersonsQuery"
+    WebAnalyticsStatusCheckQuery = "WebAnalyticsStatusCheckQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -612,6 +613,21 @@ class TrendsQueryResponse(BaseModel):
     next_allowed_client_refresh: Optional[str] = None
     results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
+
+
+class Results(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    isSendingPageLeaveEvents: bool
+    isSendingPageViewEvents: bool
+
+
+class WebAnalyticsStatusCheckResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: Results
 
 
 class Kind(str, Enum):
@@ -960,6 +976,14 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
+
+
+class WebAnalyticsStatusCheckQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["WebAnalyticsStatusCheckQuery"] = "WebAnalyticsStatusCheckQuery"
+    response: Optional[WebAnalyticsStatusCheckResponse] = None
 
 
 class WebOverviewQuery(BaseModel):
@@ -1871,6 +1895,7 @@ class QuerySchema(RootModel):
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,
+            WebAnalyticsStatusCheckQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,

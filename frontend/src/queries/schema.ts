@@ -62,6 +62,7 @@ export enum NodeKind {
     InsightPersonsQuery = 'InsightPersonsQuery',
 
     // Web analytics queries
+    WebAnalyticsStatusCheckQuery = 'WebAnalyticsStatusCheckQuery',
     WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
@@ -87,6 +88,7 @@ export type AnyDataNode =
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
+    | WebAnalyticsStatusCheckQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebTopClicksQuery
@@ -651,6 +653,18 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
+}
+
+export interface WebAnalyticsStatusCheckQuery {
+    kind: NodeKind.WebAnalyticsStatusCheckQuery
+    response?: WebAnalyticsStatusCheckResponse
+}
+
+export interface WebAnalyticsStatusCheckResponse {
+    results: {
+        isSendingPageViewEvents: boolean
+        isSendingPageLeaveEvents: boolean
+    }
 }
 
 export type InsightQueryNode =

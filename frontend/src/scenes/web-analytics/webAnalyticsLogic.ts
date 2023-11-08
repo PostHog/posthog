@@ -1,15 +1,19 @@
-import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
 import {
     NodeKind,
     QuerySchema,
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
+    WebAnalyticsStatusCheckQuery,
     WebStatsBreakdown,
 } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 import { isNotNil } from 'lib/utils'
+import { loaders } from 'kea-loaders'
+import { query } from '~/queries/query'
 
 export interface WebTileLayout {
     colSpan?: number
@@ -192,7 +196,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors(({ actions, values }) => ({
+        statusCheckQuery: [
+            () => [],
+            (): WebAnalyticsStatusCheckQuery | undefined => {
+                const statusCheck = values.statusCheck
+                console.log({ statusCheck })
+                if (!statusCheck) {
+                    return undefined
+                }
+                return {
+                    kind: NodeKind.WebAnalyticsStatusCheckQuery,
+                    response: statusCheck,
+                }
+            },
+        ],
         tiles: [
             (s) => [
                 s.webAnalyticsFilters,
@@ -426,7 +444,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             {
                                 id: DeviceTab.BROWSER,
                                 title: 'Top Browsers',
-                                linkText: 'Browser',
+                                linkText: 'B' + 'rowser',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -557,6 +575,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     })),
-    sharedListeners(() => ({})),
-    listeners(() => ({})),
+    loaders(() => ({
+        // load the status check query here and pass the response into the component, so the response
+        // is accessible in this logic
+        statusCheck: {
+            loadStatusCheck: async () => {
+                const response = await query({
+                    kind: NodeKind.WebAnalyticsStatusCheckQuery,
+                } as WebAnalyticsStatusCheckQuery)
+                return response
+            },
+        },
+    })),
+
+    // start the loaders after mounting the logic
+    afterMount(({ actions }) => {
+        actions.loadStatusCheck()
+    }),
 ])

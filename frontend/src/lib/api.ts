@@ -542,6 +542,10 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
+    public webAnalyticsHealth(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('web_analytics_health')
+    }
+
     // Notebooks
     public notebooks(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('notebooks')
@@ -1721,6 +1725,8 @@ const api = {
             return await new ApiRequest().media().create({ data })
         },
     },
+
+    webAnalytics: {},
 
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)

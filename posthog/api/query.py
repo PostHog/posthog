@@ -54,6 +54,7 @@ QUERY_WITH_RUNNER = [
     "WebTopClicksQuery",
     "WebTopPagesQuery",
     "WebStatsTableQuery",
+    "WebAnalyticsStatusCheckQuery",
 ]
 QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
 

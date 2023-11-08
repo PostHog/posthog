@@ -28,6 +28,7 @@ from posthog.schema import (
     HogQLQuery,
     InsightPersonsQuery,
     DashboardFilter,
+    WebAnalyticsStatusCheckQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -78,6 +79,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
+    WebAnalyticsStatusCheckQuery,
 ]
 
 
@@ -169,6 +171,10 @@ def get_query_runner(
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
         return WebStatsTableQueryRunner(query=query, team=team, timings=timings)
+    if kind == "WebAnalyticsStatusCheckQuery":
+        from .web_analytics.web_analytics_status_check import WebAnalyticsStatusCheckQueryRunner
+
+        return WebAnalyticsStatusCheckQueryRunner(query=query, team=team, timings=timings)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
