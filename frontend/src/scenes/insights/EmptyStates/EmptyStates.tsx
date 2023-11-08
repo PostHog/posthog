@@ -220,16 +220,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     </div>
                 )}
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="funnels-single-step-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noopener"
                         className="flex items-center justify-center"
+                        targetBlankIcon
                     >
                         Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>
@@ -249,15 +248,14 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     filters, or removing the overlapping exclusion event.
                 </p>
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
-                        rel="noopener"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>

@@ -101,11 +101,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         thank_you_message = value.get("thankYouMessageHeader")
         if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3_clean_with_whitelist(thank_you_message)
+            value["thankYouMessageHeader"] = nh3_clean_with_allow_list(thank_you_message)
 
         thank_you_description = value.get("thankYouMessageDescription")
         if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3_clean_with_whitelist(thank_you_description)
+            value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
 
         return value
 
@@ -131,9 +131,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
             description = raw_question.get("description")
             if nh3.is_html(question_text):
-                cleaned_question["question"] = nh3_clean_with_whitelist(question_text)
+                cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
             if description and nh3.is_html(description):
-                cleaned_question["description"] = nh3_clean_with_whitelist(description)
+                cleaned_question["description"] = nh3_clean_with_allow_list(description)
 
             cleaned_questions.append(cleaned_question)
 
@@ -347,7 +347,7 @@ def surveys(request: Request):
     return cors_response(request, JsonResponse({"surveys": surveys}))
 
 
-def nh3_clean_with_whitelist(to_clean: str):
+def nh3_clean_with_allow_list(to_clean: str):
     return nh3.clean(
         to_clean,
         link_rel="noopener",
@@ -431,7 +431,7 @@ def nh3_clean_with_whitelist(to_clean: str):
         attributes={
             "*": {"style", "lang", "title", "width", "height"},
             # below are mostly defaults to ammonia, but we need to add them explicitly
-            # because this python binding doesn't allow additive whitelisting
+            # because this python binding doesn't allow additive allowing
             "a": {"href", "hreflang"},
             "bdo": {"dir"},
             "blockquote": {"cite"},

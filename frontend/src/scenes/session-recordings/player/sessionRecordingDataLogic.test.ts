@@ -191,7 +191,7 @@ describe('sessionRecordingDataLogic', () => {
                         kind: 'EventsQuery',
                         limit: 1000000,
                         orderBy: ['timestamp ASC'],
-                        personId: '11',
+                        personId: undefined,
                         properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
                         select: [
                             'uuid',

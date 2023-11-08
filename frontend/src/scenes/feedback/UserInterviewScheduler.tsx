@@ -1,4 +1,4 @@
-import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { urls } from '@posthog/apps-common'
 import { useActions, useValues } from 'kea'
@@ -102,9 +102,9 @@ export function SchedulerInstructions(): JSX.Element {
                                         <div>
                                             <div>
                                                 1. Create a custom popup in your webapp or mobile app based on{' '}
-                                                <a href="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
+                                                <Link to="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
                                                     PostHog's open-source popup code
-                                                </a>
+                                                </Link>
                                             </div>
                                             <div className="ml-4 my-4">
                                                 <ul className="list-disc ml-4">

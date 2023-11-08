@@ -3075,6 +3075,7 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
+    Mention = 'ph-mention',
     Query = 'ph-query',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
@@ -3139,6 +3140,19 @@ export interface DataWarehouseViewLink {
     table?: string
     to_join_key?: string
     from_join_key?: string
+}
+
+export interface ExternalDataStripeSourceCreatePayload {
+    account_id: string
+    client_secret: string
+}
+
+export interface ExternalDataStripeSource {
+    id: string
+    source_id: string
+    connection_id: string
+    status: string
+    source_type: string
 }
 
 export type BatchExportDestinationS3 = {

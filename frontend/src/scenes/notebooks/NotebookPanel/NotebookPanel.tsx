@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew, IconShare } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
-import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -17,8 +16,7 @@ import { urls } from 'scenes/urls'
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { createNotebook } = useActions(notebooksModel)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
+    const { notebook, isLocalOnly } = useValues(notebookLogic({ shortId: selectedNotebook }))
     const editable = !notebook?.is_template
 
     const { ref, size } = useResizeBreakpoints({
@@ -39,7 +37,6 @@ export function NotebookPanel(): JSX.Element | null {
                                 onSelectNotebook={(notebook) => {
                                     selectNotebook(notebook.short_id)
                                 }}
-                                onNewNotebook={() => createNotebook()}
                             />
                         </span>
                         <span className="flex items-center gap-1 px-1">
@@ -55,14 +52,16 @@ export function NotebookPanel(): JSX.Element | null {
                                 tooltipPlacement="left"
                             />
 
-                            <LemonButton
-                                size="small"
-                                onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
-                                status="primary-alt"
-                                icon={<IconShare />}
-                                tooltip="Share notebook"
-                                tooltipPlacement="left"
-                            />
+                            {!isLocalOnly ? (
+                                <LemonButton
+                                    size="small"
+                                    onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
+                                    status="primary-alt"
+                                    icon={<IconShare />}
+                                    tooltip="Share notebook"
+                                    tooltipPlacement="left"
+                                />
+                            ) : null}
 
                             {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
                         </span>

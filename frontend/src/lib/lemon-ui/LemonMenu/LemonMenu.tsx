@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useCallback, useMemo } from 'react'
+import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -256,7 +256,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     size={size}
                     {...buttonProps}
                 >
-                    {label as string | JSX.Element}
+                    {label as ReactNode}
                     {keyboardShortcut && (
                         <div className="-mr-0.5 inline-flex grow justify-end">
                             {/* Show the keyboard shortcut on the right */}

@@ -16,6 +16,7 @@ export enum FeatureFlagsTab {
     Analysis = 'analysis',
     USAGE = 'usage',
     PERMISSIONS = 'permissions',
+    PROJECTS = 'projects',
 }
 
 export interface FeatureFlagsFilters {

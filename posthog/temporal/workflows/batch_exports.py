@@ -712,13 +712,14 @@ async def execute_batch_export_insert_activity(
     non_retryable_error_types: list[str],
     update_inputs: UpdateBatchExportRunStatusInputs,
     start_to_close_timeout_seconds: int = 3600,
+    heartbeat_timeout_seconds: int | None = 120,
     maximum_attempts: int = 10,
     initial_retry_interval_seconds: int = 10,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
     """Execute the main insert activity of a batch export handling any errors.
 
-    All batch exports boil down to inserting some data somewhere. They all follow the same error
+    All batch exports boil down to inserting some data somewhere, and they all follow the same error
     handling patterns: logging and updating run status. For this reason, we have this function
     to abstract executing the main insert activity of each batch export.
 
@@ -730,8 +731,8 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
-        initial_retry_interval:
-        maximum_retry_interval:
+        initial_retry_interval_seconds: When retrying, seconds until the first retry.
+        maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
     logger = get_batch_exports_logger(inputs=inputs)
 
@@ -746,6 +747,7 @@ async def execute_batch_export_insert_activity(
             activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
     except exceptions.ActivityError as e:

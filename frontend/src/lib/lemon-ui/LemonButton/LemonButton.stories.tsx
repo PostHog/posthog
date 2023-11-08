@@ -16,7 +16,7 @@ import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>
@@ -87,7 +87,7 @@ export const TextOnly = (): JSX.Element => {
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="space-y-2">
@@ -102,7 +102,7 @@ export const Sizes = (): JSX.Element => {
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="space-y-2">

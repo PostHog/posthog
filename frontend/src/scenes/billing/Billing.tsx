@@ -68,7 +68,9 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists, please
+                    {
+                        'There was an issue retrieving your current billing information. If this message persists, please '
+                    }
                     {preflight?.cloud ? (
                         <Link onClick={() => openSupportForm('bug', 'billing')}>submit a bug report</Link>
                     ) : (
@@ -249,7 +251,7 @@ export function Billing(): JSX.Element {
                                 {capitalizeFirstLetter(billing.license.plan)} license
                             </div>
                             <span>
-                                Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you would
+                                Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> if you would
                                 like to make any changes to your license.
                             </span>
                         </div>
@@ -258,7 +260,7 @@ export function Billing(): JSX.Element {
                     {!cloudOrDev && !billing?.has_active_subscription ? (
                         <p>
                             Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                            <a href="mailto:sales@posthog.com">sales@posthog.com</a> to discuss options.
+                            <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
                         </p>
                     ) : null}
                 </div>

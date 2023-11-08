@@ -1,4 +1,4 @@
-import { Card, Col, Row } from 'antd'
+import { Card } from 'antd'
 import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -34,6 +34,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { Link } from '@posthog/lemon-ui'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -201,7 +202,7 @@ export function InsightContainer({
                     <LemonBanner type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}
-                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
+                        <Link to="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</Link>
                     </LemonBanner>
                 </div>
             ) : null}
@@ -253,12 +254,12 @@ export function InsightContainer({
                         {BlockingEmptyState ? (
                             BlockingEmptyState
                         ) : supportsDisplay && showLegend ? (
-                            <Row className="insights-graph-container-row" wrap={false}>
-                                <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
-                                <Col className="insights-graph-container-row-right">
+                            <div className="insights-graph-container-row flex flex-nowrap">
+                                <div className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</div>
+                                <div className="insights-graph-container-row-right">
                                     <InsightLegend />
-                                </Col>
-                            </Row>
+                                </div>
+                            </div>
                         ) : (
                             VIEW_MAP[activeView]
                         )}

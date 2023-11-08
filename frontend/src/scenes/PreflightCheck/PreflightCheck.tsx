@@ -18,6 +18,7 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { Link } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: PreflightCheck,
@@ -73,13 +74,17 @@ export function PreflightCheck(): JSX.Element {
             footer={
                 <p className="text-center mt-4 mb-0">
                     Need help? Take a look at our{' '}
-                    <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                    <Link
+                        to="https://posthog.com/docs/self-host/deploy/troubleshooting"
+                        target="_blank"
+                        targetBlankIcon={false}
+                    >
                         documentation
-                    </a>{' '}
+                    </Link>{' '}
                     or{' '}
-                    <a href="https://posthog.com/support" target="_blank">
+                    <Link to="https://posthog.com/support" target="_blank" targetBlankIcon={false}>
                         visit community support
-                    </a>
+                    </Link>
                     .
                 </p>
             }
@@ -128,13 +133,13 @@ export function PreflightCheck(): JSX.Element {
                             <p className="Preflight__header--secondary-text">
                                 Validation happens immediately. You can rerun validation checks by clicking “validate
                                 requirements”. If you get stuck, try our{' '}
-                                <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
+                                <Link to="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
                                     troubleshooting guide
-                                </a>{' '}
+                                </Link>{' '}
                                 or our{' '}
-                                <a href="https://posthog.com/docs/runbook" target="_blank">
+                                <Link to="https://posthog.com/docs/runbook" target="_blank">
                                     self-host runbook
-                                </a>
+                                </Link>
                                 .
                             </p>
                         </div>

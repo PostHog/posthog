@@ -1,5 +1,4 @@
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { IconDelete } from 'lib/lemon-ui/icons'
@@ -48,7 +47,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                             <div className="mb-4 border rounded p-4 bg-bg-light">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
-                                <Row align="middle">
+                                <div className="flex items-center">
                                     {insightRollingAverages[index] && (
                                         <>
                                             <b>{rollback_condition.threshold_metric.events[0].name}</b>
@@ -61,16 +60,16 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                     {rollback_condition.operator &&
                                         genericOperatorMap[rollback_condition.operator]}{' '}
                                     {rollback_condition.threshold}
-                                </Row>
+                                </div>
                             </div>
                         ) : (
                             <div className="mb-4 border rounded p-4 bg-bg-light">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
-                                <Row align="middle">
+                                <div className="flex items-center">
                                     Trigger when there is a&nbsp;<b>{rollback_condition.threshold}%</b>&nbsp;increase in
                                     errors
-                                </Row>
+                                </div>
                             </div>
                         )}
                     </>
@@ -82,8 +81,8 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                         {index > 0 && <div className="condition-set-separator">OR</div>}
                         <div className="mb-4 border rounded p-4 bg-bg-light">
                             <Group name={['rollback_conditions', index]}>
-                                <Row align="middle" justify="space-between">
-                                    <Row>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex">
                                         <div className="mt-3 mr-3">
                                             <b>Rollback Condition Type</b>
                                         </div>
@@ -99,7 +98,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                 />
                                             )}
                                         </Field>
-                                    </Row>
+                                    </div>
                                     <LemonButton
                                         icon={<IconDelete />}
                                         status="muted"
@@ -108,7 +107,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                             removeRollbackCondition(index)
                                         }}
                                     />
-                                </Row>
+                                </div>
                                 <LemonDivider className="my-3" />
                                 {featureFlag.rollback_conditions[index].threshold_type == 'insight' ? (
                                     <div className="flex gap-2 items-center mt-4">
@@ -166,7 +165,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                     </div>
                                 ) : sentryIntegrationEnabled ? (
                                     <div>
-                                        <Row align="middle">
+                                        <div className="flex items-center">
                                             {sentryErrorCount ? (
                                                 <span>
                                                     <b>{humanFriendlyNumber(sentryErrorCount as number)} </b> sentry
@@ -219,7 +218,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                 errors.
                                             </span>
                                             <div />
-                                        </Row>
+                                        </div>
                                     </div>
                                 ) : user?.is_staff ? (
                                     <div className="mt-4">

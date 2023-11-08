@@ -121,7 +121,7 @@ describe('EventPipelineRunner', () => {
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
 
-        it('drops blacklisted events', async () => {
+        it('drops disallowed events', async () => {
             const event = {
                 ...pipelineEvent,
                 token: 'drop_token',
@@ -131,7 +131,7 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([])
         })
 
-        it('does not drop blacklisted token mismatching distinct_id events', async () => {
+        it('does not drop disallowed token mismatching distinct_id events', async () => {
             const event = {
                 ...pipelineEvent,
                 token: 'drop_token',
@@ -146,7 +146,7 @@ describe('EventPipelineRunner', () => {
             ])
         })
 
-        it('drops blacklisted events by *', async () => {
+        it('drops disallowed events by *', async () => {
             const event = {
                 ...pipelineEvent,
                 token: 'drop_token_all',

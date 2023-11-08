@@ -93,9 +93,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 overlay: (
                                     <div>
                                         Run SQL queries with{' '}
-                                        <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                                             HogQL
-                                        </a>
+                                        </Link>
                                         , our wrapper around ClickHouse SQL. Explore the{' '}
                                         <Link
                                             to={

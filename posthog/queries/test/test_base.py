@@ -5,11 +5,12 @@ from unittest.mock import patch
 from dateutil import parser, tz
 from django.test import TestCase
 from freezegun import freeze_time
+import pytest
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
-from posthog.queries.base import match_property
+from posthog.queries.base import match_property, sanitize_property_key
 from posthog.test.base import APIBaseTest
 
 
@@ -155,7 +156,8 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_a, {"key": 0}))
         self.assertFalse(match_property(property_a, {"key": -1}))
-        self.assertFalse(match_property(property_a, {"key": "23"}))
+        # now we handle type mismatches so this should be true
+        self.assertTrue(match_property(property_a, {"key": "23"}))
 
         property_b = Property(key="key", value=1, operator="lt")
         self.assertTrue(match_property(property_b, {"key": 0}))
@@ -172,15 +174,31 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_c, {"key": 0}))
         self.assertFalse(match_property(property_c, {"key": -1}))
-        self.assertFalse(match_property(property_c, {"key": "3"}))
+        # now we handle type mismatches so this should be true
+        self.assertTrue(match_property(property_c, {"key": "3"}))
 
         property_d = Property(key="key", value="43", operator="lt")
         self.assertTrue(match_property(property_d, {"key": "41"}))
         self.assertTrue(match_property(property_d, {"key": "42"}))
+        self.assertTrue(match_property(property_d, {"key": 42}))
 
         self.assertFalse(match_property(property_d, {"key": "43"}))
         self.assertFalse(match_property(property_d, {"key": "44"}))
         self.assertFalse(match_property(property_d, {"key": 44}))
+
+        property_e = Property(key="key", value="30", operator="lt")
+        self.assertTrue(match_property(property_e, {"key": "29"}))
+
+        # depending on the type of override, we adjust type comparison
+        self.assertTrue(match_property(property_e, {"key": "100"}))
+        self.assertFalse(match_property(property_e, {"key": 100}))
+
+        property_f = Property(key="key", value="123aloha", operator="gt")
+        self.assertFalse(match_property(property_f, {"key": "123"}))
+        self.assertFalse(match_property(property_f, {"key": 122}))
+
+        # this turns into a string comparison
+        self.assertTrue(match_property(property_f, {"key": 129}))
 
     def test_match_property_date_operators(self):
         property_a = Property(key="key", value="2022-05-01", operator="is_date_before")
@@ -325,3 +343,66 @@ class TestMatchProperties(TestCase):
         self.assertFalse(match_property(property_n, {"key": "2021-05-01 00:00:00"}))
         self.assertFalse(match_property(property_n, {"key": "2021-04-30 00:00:00"}))
         self.assertFalse(match_property(property_n, {"key": "2021-03-01 12:13:00"}))
+
+    def test_none_property_value_with_all_operators(self):
+        property_a = Property(key="key", value="none", operator="is_not")
+        self.assertFalse(match_property(property_a, {"key": None}))
+        self.assertTrue(match_property(property_a, {"key": "non"}))
+
+        property_b = Property(key="key", value=None, operator="is_set")
+        self.assertTrue(match_property(property_b, {"key": None}))
+
+        property_c = Property(key="key", value="no", operator="icontains")
+        self.assertTrue(match_property(property_c, {"key": None}))
+        self.assertFalse(match_property(property_c, {"key": "smh"}))
+
+        property_d = Property(key="key", value="No", operator="regex")
+        self.assertTrue(match_property(property_d, {"key": None}))
+
+        property_d_lower_case = Property(key="key", value="no", operator="regex")
+        self.assertFalse(match_property(property_d_lower_case, {"key": None}))
+
+        property_e = Property(key="key", value=1, operator="gt")
+        self.assertTrue(match_property(property_e, {"key": None}))
+
+        property_f = Property(key="key", value=1, operator="lt")
+        self.assertFalse(match_property(property_f, {"key": None}))
+
+        property_g = Property(key="key", value="xyz", operator="gte")
+        self.assertFalse(match_property(property_g, {"key": None}))
+
+        property_h = Property(key="key", value="Oo", operator="lte")
+        self.assertTrue(match_property(property_h, {"key": None}))
+
+        property_i = Property(key="key", value="2022-05-01", operator="is_date_before")
+        self.assertFalse(match_property(property_i, {"key": None}))
+
+        property_j = Property(key="key", value="2022-05-01", operator="is_date_after")
+        self.assertFalse(match_property(property_j, {"key": None}))
+
+        property_k = Property(key="key", value="2022-05-01", operator="is_date_before")
+        self.assertFalse(match_property(property_k, {"key": "random"}))
+
+
+@pytest.mark.parametrize(
+    "key,expected",
+    [
+        ("test_key", "testkey_00942f4668670f3"),
+        ("test-key", "testkey_3acfb2c2b433c0e"),
+        ("test-!!key", "testkey_007a0fef83e9d2f"),
+        ("test-key-1", "testkey1_1af855c78902ffc"),
+        ("test-key-1-2", "testkey12_2f0c347f439af5c"),
+        ("test-key-1-2-3-4", "testkey1234_0332a83ad5c75ee"),
+        ("only_nums!!!;$£hebfjhvd", "onlynumshebfjhvd_5a1514bfab83040"),
+        (" ", "_b858cb282617fb0"),
+        ("", "_da39a3ee5e6b4b0"),
+        ("readme.md", "readmemd_275d783e2982285"),
+        ("readme≥md", "readmemd_8857015efe59db9"),
+        (None, "None_6eef6648406c333"),
+        (12, "12_7b52009b64fd0a2"),
+    ],
+)
+def test_sanitize_keys(key, expected):
+    sanitized_key = sanitize_property_key(key)
+
+    assert sanitized_key == expected

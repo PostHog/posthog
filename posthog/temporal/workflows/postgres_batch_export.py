@@ -8,7 +8,7 @@ import psycopg2
 import psycopg2.extensions
 from django.conf import settings
 from psycopg2 import sql
-from temporalio import activity, exceptions, workflow
+from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import PostgresBatchExportInputs
@@ -18,11 +18,11 @@ from posthog.temporal.workflows.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    execute_batch_export_insert_activity,
     get_batch_exports_logger,
     get_data_interval,
     get_results_iterator,
     get_rows_count,
-    update_export_run_status,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
@@ -318,60 +318,19 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
         )
 
-        try:
-            await workflow.execute_activity(
-                insert_into_postgres_activity,
-                insert_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=120),
-                    maximum_attempts=10,
-                    non_retryable_error_types=[
-                        # Raised on errors that are related to database operation.
-                        # For example: unexpected disconnect, database or other object not found.
-                        "OperationalError"
-                        # The schema name provided is invalid (usually because it doesn't exist).
-                        "InvalidSchemaName"
-                        # Missing permissions to, e.g., insert into table.
-                        "InsufficientPrivilege"
-                    ],
-                ),
-            )
-
-        except exceptions.ActivityError as e:
-            if isinstance(e.cause, exceptions.CancelledError):
-                logger.error("Postgres BatchExport was cancelled.")
-                update_inputs.status = "Cancelled"
-            else:
-                logger.exception("Postgres BatchExport failed.", exc_info=e.cause)
-                update_inputs.status = "Failed"
-
-            update_inputs.latest_error = str(e.cause)
-            raise
-
-        except Exception as e:
-            logger.exception("Postgers BatchExport failed with an unexpected error.", exc_info=e)
-            update_inputs.status = "Failed"
-            update_inputs.latest_error = "An unexpected error has ocurred"
-            raise
-
-        else:
-            logger.info(
-                "Successfully finished Postgres export batch %s - %s",
-                data_interval_start,
-                data_interval_end,
-            )
-
-        finally:
-            await workflow.execute_activity(
-                update_export_run_status,
-                update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-                ),
-            )
+        await execute_batch_export_insert_activity(
+            insert_into_postgres_activity,
+            insert_inputs,
+            non_retryable_error_types=[
+                # Raised on errors that are related to database operation.
+                # For example: unexpected disconnect, database or other object not found.
+                "OperationalError"
+                # The schema name provided is invalid (usually because it doesn't exist).
+                "InvalidSchemaName"
+                # Missing permissions to, e.g., insert into table.
+                "InsufficientPrivilege"
+            ],
+            update_inputs=update_inputs,
+            # Disable heartbeat timeout until we add heartbeat support.
+            heartbeat_timeout_seconds=None,
+        )
